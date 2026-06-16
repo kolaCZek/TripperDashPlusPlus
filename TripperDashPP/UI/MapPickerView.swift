@@ -30,20 +30,64 @@ struct MapPickerView: View {
                     Text("Mapbox MapView lands in Phase 5")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+
+                    if case .error = status.bikeLink.state, let err = status.lastError {
+                        Text(err)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 24)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
 
-            // Phase 6 will replace this with a search bar + "Start navigation"
-            // action that hands a Destination to BikeLink.
-            NavigationLink {
-                StreamingView()
+            // Phase 3 — Connect / Disconnect button. Phase 6 will replace
+            // this with a search bar + "Start navigation" action.
+            connectButton
+        }
+    }
+
+    @ViewBuilder
+    private var connectButton: some View {
+        switch status.bikeLink.state {
+        case .idle, .error:
+            Button {
+                status.bikeLink.connect()
             } label: {
-                Label("Open streaming view (dev)", systemImage: "dot.radiowaves.left.and.right")
+                Label("Connect to dash", systemImage: "antenna.radiowaves.left.and.right")
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(Color.accentColor.opacity(0.15))
             }
             .buttonStyle(.plain)
+        case .connecting, .handshaking:
+            HStack {
+                ProgressView()
+                Text("Connecting…")
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(Color.orange.opacity(0.15))
+        case .connected:
+            VStack(spacing: 8) {
+                NavigationLink {
+                    StreamingView()
+                } label: {
+                    Label("Open streaming view", systemImage: "dot.radiowaves.left.and.right")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green.opacity(0.15))
+                }
+                .buttonStyle(.plain)
+
+                Button(role: .destructive) {
+                    status.bikeLink.disconnect()
+                } label: {
+                    Text("Disconnect")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+            }
         }
     }
 }

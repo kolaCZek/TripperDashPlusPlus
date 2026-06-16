@@ -59,6 +59,29 @@ make fake-dash-down       # stop
 
 **CI runs the Python tests + a Docker image build on every PR.** See `.github/workflows/fake_dash.yml`.
 
+## K1G control plane (Phase 3 — Swift)
+
+`TripperDashPP/Tripper/` ports the wire format to Swift. The files are
+deliberately a 1:1 mirror of `tools/fake_dash/fake_dash/`:
+
+| Swift | Python equivalent | Role |
+|-------|-------------------|------|
+| `K1GConstants.swift` | `protocol.py` (constants) | magic, ports, segment types |
+| `K1GPacket.swift` | `protocol.py` (encode/decode) | TLV envelope, RollingSeq, patch_seq |
+| `RsaHandshake.swift` | `rsa_handshake.py` (inverse) | PKCS1v1.5 encrypt session key via SecKey |
+| `DashSocket.swift` | (transport — n/a in Python) | NWConnection bound to Wi-Fi interface |
+| `BikeLink.swift` | `server.py` (mirror direction) | state machine: idle→connecting→handshaking→connected |
+| `HeartbeatLoop.swift` | (n/a — bike is passive) | 1Hz keep-alive once connected |
+
+**Drift policy:** when `tools/fake_dash/fake_dash/protocol.py` changes
+its wire format, the matching `K1G*.swift` constant **must** change in
+the same commit, and `tests/test_integration.py` should pin the new
+shape. The integration test is the contract.
+
+**Testing flow** is documented in `docs/PHASE_3_TESTING.md` — phone tap
+"Connect" against `make fake-dash-up` running on a Mac; verify in logs
+that handshake completes and heartbeats flow.
+
 ## Repo conventions
 
 - **All code, file paths, identifiers, code comments are in English.** Always. No exceptions.

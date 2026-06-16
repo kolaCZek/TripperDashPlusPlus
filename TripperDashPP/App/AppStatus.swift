@@ -47,9 +47,23 @@ final class AppStatus {
 
     // MARK: - Connection
 
-    var connectionState: BikeConnectionState = .disconnected
-    var bikeSsid: String? = nil
-    var lastError: String? = nil
+    /// Live K1G control-plane orchestrator. Phase 3+ reads `bikeLink.state`
+    /// and mirrors it into `connectionState` for the UI.
+    let bikeLink: BikeLink = BikeLink()
+
+    /// Computed view of the link state in UI-friendly terms.
+    var connectionState: BikeConnectionState {
+        switch bikeLink.state {
+        case .idle:         return .disconnected
+        case .connecting:   return .wifiJoining
+        case .handshaking:  return .handshaking
+        case .connected:    return .connected
+        case .error:        return .error
+        }
+    }
+
+    var bikeSsid: String? { bikeLink.ssid }
+    var lastError: String? { bikeLink.lastError }
 
     // MARK: - Streaming metrics
 
