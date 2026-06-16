@@ -1,0 +1,7 @@
+# These are the platforms where users can financially support TripperDash++.
+# Configured here (instead of via Settings UI) so it's version-controlled.
+
+github: kolaCZek
+# ko_fi: kolaczek         # enable once profile is set up
+# buy_me_a_coffee: kolaczek
+# custom: ["https://kolaczek.cz/donate"]
