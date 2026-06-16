@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Status: Planning](https://img.shields.io/badge/status-planning-orange.svg)]()
-[![Platform: iOS 26+](https://img.shields.io/badge/platform-iOS%2026%2B-blue.svg)]()
+[![Platform: iOS 18+](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)]()
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
 
 ---
@@ -41,7 +41,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 
 ## Tech stack
 
-- **Swift 6 / SwiftUI**, **iOS 26+**, **Xcode 26**
+- **Swift 6 / SwiftUI**, **iOS 18+**, **Xcode 26**
 - **Mapbox Maps SDK iOS v11** (off-screen rendering)
 - Apple frameworks: `Network`, `VideoToolbox`, `CryptoKit`, `CoreLocation`, `AVFoundation`
 - Python 3.11+ for the test harness (decode RTP, simulate the dash on macOS)

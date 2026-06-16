@@ -4,7 +4,7 @@
 
 ## Project in one paragraph
 
-**TripperDash++** is a native iOS app (Swift 6, iOS 26+) that streams a live online Mapbox map to the Royal Enfield Tripper TFT dash display over Wi-Fi, while map tiles and routing API requests flow over cellular. The phone can be locked / in pocket during the ride. It is the Swift / iOS port of the proven Python proof-of-concept at [`kolaCZek/better-dash`](https://github.com/kolaCZek/better-dash), which contains the full reverse-engineered K1G protocol and the RTP packetizer — always treat that Python code as the byte-level source of truth.
+**TripperDash++** is a native iOS app (Swift 6, iOS 18+) that streams a live online Mapbox map to the Royal Enfield Tripper TFT dash display over Wi-Fi, while map tiles and routing API requests flow over cellular. The phone can be locked / in pocket during the ride. It is the Swift / iOS port of the proven Python proof-of-concept at [`kolaCZek/better-dash`](https://github.com/kolaCZek/better-dash), which contains the full reverse-engineered K1G protocol and the RTP packetizer — always treat that Python code as the byte-level source of truth.
 
 ## Authoritative references
 
@@ -21,7 +21,7 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 ## Tech stack & versions (locked)
 
 - **Language**: Swift 6 (strict concurrency on), SwiftUI for UI
-- **Target**: iOS 26.0 minimum, iPhone 13 and newer (HW H.264 encoder + dual-band Wi-Fi required)
+- **Target**: iOS 18.0 minimum, iPhone 13 and newer (HW H.264 encoder + dual-band Wi-Fi required). iOS 18 covers ~92% of devices in service as of mid-2026; Swift 6 strict concurrency works without backwards-compat shims.
 - **Toolchain**: Xcode 26+, macOS 15+
 - **Bundle ID**: `eu.kolaczek.tripperdashpp`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
