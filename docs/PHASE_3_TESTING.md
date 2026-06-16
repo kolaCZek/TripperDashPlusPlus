@@ -9,6 +9,35 @@ phone over Wi-Fi.
 
 ---
 
+## Step 0 — Add the Tripper module to the Xcode project
+
+The Phase 3 sources land in `TripperDashPP/Tripper/` on disk, but the
+Xcode project file (`TripperDashPP.xcodeproj/project.pbxproj`) doesn't
+know about them yet — Xcode only auto-discovers folders that already
+existed when you created the project.
+
+In Xcode:
+
+1. Open `TripperDashPP/TripperDashPP.xcodeproj`.
+2. In the Project Navigator, right-click the `TripperDashPP` group
+   (yellow folder icon) and pick **"Add Files to TripperDashPP…"**.
+3. Navigate to `TripperDashPP/Tripper/`, select the **folder itself**
+   (not the individual files), and:
+   - ✅ "Copy items if needed" — **OFF** (the files are already in place)
+   - ✅ "Create groups" (default)
+   - ✅ Targets: TripperDashPP — **ON**
+4. Click **Add**.
+
+The 6 Swift files should now appear in the Project Navigator under a
+new `Tripper` group, all with the build target checked.
+
+`Cmd+B` should compile cleanly. If it doesn't, the most common issue is
+a missing target membership — select each file in the navigator and in
+the Inspector (right pane) make sure **TripperDashPP** is checked under
+"Target Membership".
+
+---
+
 ## Step 1 — Pick a network topology
 
 The real Tripper bike runs an open AP on `192.168.1.0/24`. For Phase 3

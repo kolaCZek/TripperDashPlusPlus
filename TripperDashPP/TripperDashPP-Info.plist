@@ -2,10 +2,82 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- NOTE                                                          -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!--
+	  This file is the *additional* Info.plist; Xcode generates the
+	  baseline one (CFBundleIdentifier, CFBundleVersion, …) because
+	  GENERATE_INFOPLIST_FILE = YES. Add only keys that aren't covered
+	  by the build settings.
+	-->
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Mapbox public access token (referenced from Secrets.xcconfig) -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>MBXAccessToken</key>
+	<string>$(MBX_ACCESS_TOKEN)</string>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Background execution (Phase 6 will use these for real)        -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
 		<string>audio</string>
+		<string>processing</string>
 	</array>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Privacy strings (required by the App Store / iOS prompts)    -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TripperDash++ needs your location to show the bike position on the Tripper display.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TripperDash++ continues streaming navigation to the Tripper display even when the phone screen is off.</string>
+
+	<!-- Required by iOS 14+ for direct IP / Bonjour traffic on the LAN.
+	     The Tripper AP lives at 192.168.1.1 over UDP. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TripperDash++ needs to talk to the Royal Enfield Tripper dash over Wi-Fi (192.168.1.1).</string>
+
+	<!-- No Bonjour service types yet; the key must exist or iOS blocks
+	     the local-network prompt. Phase 7 may register `_tripper._tcp`. -->
+	<key>NSBonjourServices</key>
+	<array/>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- App Transport Security                                       -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- Allow plain UDP to 192.168.1.1 (the bike has no DNS / no TLS). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Device requirements                                           -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+		<string>wifi</string>
+	</array>
+
+	<!-- Phone-only, portrait — the Tripper UI is steered from a thumb on
+	     the bars, not by rotating the device. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
 </dict>
 </plist>
