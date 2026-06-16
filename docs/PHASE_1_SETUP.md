@@ -33,16 +33,21 @@ EOF
 chmod 600 ~/.netrc
 ```
 
-Replace `sk.YOUR_…` with the real `sk.` token. Verify with:
+Replace `sk.YOUR_…` with the real `sk.` token. Verify the token is valid
+**and** has the `Downloads:Read` scope:
 
 ```sh
-curl -n -sS -o /dev/null -w "%{http_code}\n" \
-  https://api.mapbox.com/downloads/v2/mobile-maps-ios/releases/ios/
-# Expected: 200
+SK=$(awk '/api.mapbox.com/{f=1} f && /password/{print $2; exit}' ~/.netrc)
+curl -sS "https://api.mapbox.com/tokens/v2?access_token=${SK}" | python3 -m json.tool
 ```
 
-If you see `401`, the `sk.` token is missing the `Downloads:Read` scope —
-regenerate it at https://account.mapbox.com/access-tokens/.
+Look for `"scopes": [..., "downloads:read", ...]` in the output.
+
+If you see `"message": "Not Authorized - Invalid Token"`, the `sk.` value
+is wrong — regenerate it at https://account.mapbox.com/access-tokens/.
+If you see `"message": "Forbidden"`, the token exists but is missing the
+`Downloads:Read` scope — edit the token (or make a new one with that
+scope checked).
 
 ---
 
