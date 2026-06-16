@@ -31,7 +31,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 | Phase | Status |
 |-------|--------|
 | 0 — Prerequisites (Mapbox, Apple Dev, test rig) | 🟡 in progress |
-| 1 — Xcode bootstrap | ⬜ |
+| 1 — Xcode bootstrap | 🟡 sources ready, project to be created on Mac — [`docs/PHASE_1_SETUP.md`](docs/PHASE_1_SETUP.md) |
 | 2 — Fake-dash test harness (Python, Docker) | ✅ MVP done — [`tools/fake_dash/`](tools/fake_dash/) |
 | 3 — K1G control plane (Swift port) | ⬜ |
 | 4 — H.264 encoder + RTP packetizer | ⬜ |

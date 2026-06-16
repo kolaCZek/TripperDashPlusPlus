@@ -22,7 +22,7 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 
 - **Language**: Swift 6 (strict concurrency on), SwiftUI for UI
 - **Target**: iOS 18.0 minimum, iPhone 13 and newer (HW H.264 encoder + dual-band Wi-Fi required). iOS 18 covers ~92% of devices in service as of mid-2026; Swift 6 strict concurrency works without backwards-compat shims.
-- **Toolchain**: Xcode 26+, macOS 15+
+- **Toolchain**: **Xcode 26.5+, macOS 15+** (lower may build but is untested; CI pins to the latest stable Xcode on macOS 15 runners)
 - **Bundle ID**: `eu.kolaczek.tripperdashpp`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
 - **Maps**: Mapbox Maps SDK iOS v11.x (off-screen rendering is a first-class use case for them)

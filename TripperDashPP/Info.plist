@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- App identity                                                  -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- Display name shown under the icon -->
+	<key>CFBundleDisplayName</key>
+	<string>TripperDash++</string>
+
+	<!-- Xcode fills these automatically; left as a reference -->
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Mapbox public access token (referenced from Secrets.xcconfig) -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>MBXAccessToken</key>
+	<string>$(MBX_ACCESS_TOKEN)</string>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Background execution (Phase 6 will switch these on for real) -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>audio</string>
+	</array>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Privacy strings (required by the App Store / iOS prompts)    -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TripperDash++ needs your location to show the bike position on the Tripper display.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TripperDash++ continues streaming navigation to the Tripper display even when the phone screen is off.</string>
+
+	<!-- Required by iOS 14+ for direct IP / multicast / Bonjour traffic.
+	     The Tripper AP lives at 192.168.1.1 over UDP. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TripperDash++ needs to talk to the Royal Enfield Tripper dash over Wi-Fi (192.168.1.1).</string>
+
+	<!-- No Bonjour services in MVP; key must exist or iOS blocks the prompt. -->
+	<key>NSBonjourServices</key>
+	<array/>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- App Transport Security                                       -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- Allow plain UDP to 192.168.1.1 (the bike has no DNS / no TLS). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Launch + scene                                               -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<key>UILaunchScreen</key>
+	<dict/>
+
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+		<string>wifi</string>
+	</array>
+
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
+</dict>
+</plist>
