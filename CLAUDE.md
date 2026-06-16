@@ -40,6 +40,25 @@ iPhone ──(Wi-Fi)──────► 192.168.1.1:5000         RTP H.264 vid
 
 **Background execution** is kept alive via `CoreLocation` Always-authorized location updates (`activityType = .otherNavigation`, `kCLLocationAccuracyBest`) plus a silent audio loop as a safety net.
 
+## fake_dash test harness (Phase 2 — MVP done)
+
+`tools/fake_dash/` is a Dockerized Python emulator of the Tripper TFT. It speaks K1G control plane on UDP/2002 (RSA handshake, ACKs, joystick events) and accepts RTP H.264 on UDP/5000 (FU-A reassembly, Annex-B dump). Run it on any laptop instead of going outside to the bike for every iteration.
+
+**Daily use:**
+
+```sh
+make fake-dash-up         # docker compose up -d  (listens on :2002, :5000)
+make fake-dash-logs       # tail container output
+make fake-dash-btn-click  # send a joystick CLICK to the iPhone
+make fake-dash-down       # stop
+```
+
+**Captured H.264 streams** land in `tools/fake_dash/captures/dash_capture_<ts>.h264` (gitignored). Open them with `ffplay`, `vlc`, or `mpv` to verify the encoder output. The RSA keypair the harness uses is persisted in `tools/fake_dash/keys/bike_rsa.pem` so the dash identity stays stable across restarts.
+
+**The harness is the regression net for everything in `TripperDashPP/Tripper/` and `TripperDashPP/Video/`.** When adding Swift code that touches the wire format, you must add a matching test that drives `fake_dash` from outside. See `tools/fake_dash/README.md` for the full CLI and `tools/fake_dash/tests/test_integration.py` for the canonical handshake exchange.
+
+**CI runs the Python tests + a Docker image build on every PR.** See `.github/workflows/fake_dash.yml`.
+
 ## Repo conventions
 
 - **All code, file paths, identifiers, code comments are in English.** Always. No exceptions.

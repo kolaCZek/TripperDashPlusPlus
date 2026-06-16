@@ -1,0 +1,55 @@
+name: fake_dash CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/fake_dash/**"
+      - ".github/workflows/fake_dash.yml"
+  pull_request:
+    paths:
+      - "tools/fake_dash/**"
+      - ".github/workflows/fake_dash.yml"
+
+jobs:
+  test:
+    name: pytest + smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/fake_dash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/fake_dash/pyproject.toml
+
+      - name: Install fake_dash with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pytest (unit + integration)
+        run: pytest -v
+
+  docker-build:
+    name: docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build fake_dash image
+        uses: docker/build-push-action@v5
+        with:
+          context: tools/fake_dash
+          push: false
+          tags: tripperdashpp/fake_dash:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

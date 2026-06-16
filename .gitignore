@@ -104,3 +104,7 @@ captures/
 *.h264
 *.mp4
 !docs/**/*.mp4
+
+# ----- fake_dash runtime artifacts -----
+tools/fake_dash/captures/
+tools/fake_dash/keys/

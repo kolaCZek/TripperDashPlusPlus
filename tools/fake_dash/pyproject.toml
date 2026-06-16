@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fake_dash"
+version = "0.1.0"
+description = "Royal Enfield Tripper TFT emulator — test harness for TripperDash++"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Martin Kolací", email = "mail@kolaczek.cz" },
+]
+keywords = ["royal-enfield", "tripper", "k1g", "rtp", "h264", "emulator"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    # RSA-PKCS1v1.5 decrypt + AES-256/CBC primitives used by the K1G handshake.
+    "cryptography>=42.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+fake-dash = "fake_dash.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fake_dash*"]
+exclude = ["tests*", "captures*", "keys*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

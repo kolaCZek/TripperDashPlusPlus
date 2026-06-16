@@ -1,0 +1,17 @@
+# Keep the image lean
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# Captures and keys live in volume mounts, not in the image
+captures/
+keys/
+
+# Local-only dev artifacts
+.DS_Store
+*.swp

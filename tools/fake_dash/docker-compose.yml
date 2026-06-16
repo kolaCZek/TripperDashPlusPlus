@@ -1,0 +1,40 @@
+# fake_dash — Tripper TFT emulator
+#
+# Single-service compose file. Volumes mount ./captures and ./keys so that
+# captured H.264 streams and the generated RSA keypair survive container
+# restarts and are visible to the host.
+#
+# Network mode notes:
+#   - On Linux dev hosts you can switch to `network_mode: host` for direct
+#     UDP socket access (uncomment below).
+#   - Default `bridge` + port mapping works everywhere (Linux, macOS Docker
+#     Desktop, Windows WSL2). iOS Simulator can hit it via 127.0.0.1.
+#   - For a physical iPhone on the same LAN, set `bike_ip = <host IP>` in
+#     the iOS app — Docker forwards UDP/2002 and UDP/5000 to this container.
+#
+
+services:
+  fake_dash:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tripperdashpp/fake_dash:dev
+    container_name: fake_dash
+    restart: unless-stopped
+    # Uncomment on Linux for direct UDP access (avoids Docker NAT):
+    # network_mode: host
+    ports:
+      - "2002:2002/udp"   # K1G control plane
+      - "5000:5000/udp"   # RTP video sink
+    volumes:
+      - ./captures:/captures
+      - ./keys:/keys
+      # Mount source for hot-reload during dev (comment out for prod-like runs):
+      - ./fake_dash:/app/fake_dash
+    environment:
+      FAKE_DASH_BIND: "0.0.0.0"
+      FAKE_DASH_CAPTURES_DIR: "/captures"
+      FAKE_DASH_KEYS_DIR: "/keys"
+      FAKE_DASH_LOG_LEVEL: "INFO"
+      PYTHONUNBUFFERED: "1"
+    command: ["server"]

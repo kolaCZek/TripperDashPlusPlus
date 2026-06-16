@@ -6,6 +6,7 @@
 [![Status: Planning](https://img.shields.io/badge/status-planning-orange.svg)]()
 [![Platform: iOS 18+](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)]()
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
+[![fake_dash CI](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml/badge.svg)](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml)
 
 ---
 
@@ -29,9 +30,9 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 
 | Phase | Status |
 |-------|--------|
-| 0 — Prerequisites (Mapbox, Apple Dev, test rig) | ⬜ |
+| 0 — Prerequisites (Mapbox, Apple Dev, test rig) | 🟡 in progress |
 | 1 — Xcode bootstrap | ⬜ |
-| 2 — Fake-dash test harness (Python) | ⬜ |
+| 2 — Fake-dash test harness (Python, Docker) | ✅ MVP done — [`tools/fake_dash/`](tools/fake_dash/) |
 | 3 — K1G control plane (Swift port) | ⬜ |
 | 4 — H.264 encoder + RTP packetizer | ⬜ |
 | 5 — Mapbox off-screen renderer | ⬜ |
