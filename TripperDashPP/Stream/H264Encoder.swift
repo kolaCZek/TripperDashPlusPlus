@@ -12,10 +12,12 @@
 //  packetizer can either bundle them with the IDR (Tripper expects this)
 //  or send them standalone.
 //
-//  Configuration: baseline profile, 30 fps, ~600 kbps, keyframe every
-//  60 frames (2 s). These match what the Tripper dash tolerates per
-//  better-dash captures — high profile + B-frames break the firmware
-//  decoder.
+//  Configuration: baseline profile, 12 fps, ~350 kbps, keyframe every
+//  24 frames (2 s). These match what the Tripper dash tolerates per
+//  better-dash captures — stock phone app jede 4 fps, 8–12 je horní
+//  reliable mez (výš dash decoder blikne), bitrate 300–450 kbps drží
+//  Wi-Fi i jitter buffer dashe v pohodě. High profile + B-frames
+//  break the firmware decoder.
 //
 
 import CoreMedia
@@ -60,11 +62,11 @@ final class H264Encoder {
     private var lastFormatDescription: CMFormatDescription?
 
     init(
-        width: Int32 = 480,
-        height: Int32 = 270,
-        fps: Int32 = 30,
-        bitrate: Int32 = 600_000,
-        keyframeInterval: Int32 = 60
+        width: Int32 = 526,
+        height: Int32 = 300,
+        fps: Int32 = 12,
+        bitrate: Int32 = 350_000,
+        keyframeInterval: Int32 = 24
     ) {
         self.width = width
         self.height = height

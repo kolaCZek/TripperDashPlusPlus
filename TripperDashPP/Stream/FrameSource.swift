@@ -8,10 +8,11 @@
 //  any Mapbox dependency. Phase 5 will add `MapSnapshotSource` that
 //  feeds Mapbox MapView renders into the same protocol.
 //
-//  Frames are delivered as `CVPixelBuffer` (BGRA, 480×270 for now) at a
-//  caller-controlled cadence. The source owns its own dispatch timer
-//  and just hands ready buffers to the supplied callback on a background
-//  queue; the encoder downstream handles backpressure by dropping if its
+//  Frames are delivered as `CVPixelBuffer` (BGRA, 526×300 — native
+//  Tripper TFT resolution per better-dash captures) at a caller-
+//  controlled cadence. The source owns its own dispatch timer and just
+//  hands ready buffers to the supplied callback on a background queue;
+//  the encoder downstream handles backpressure by dropping if its
 //  compression session is busy.
 //
 
@@ -40,7 +41,7 @@ protocol FrameSource: AnyObject {
 
 import CoreMedia
 
-/// Generates an animated 480×270 BGRA test pattern at 30 fps:
+/// Generates an animated 526×300 BGRA test pattern at 12 fps:
 ///   - HH:MM:SS.mmm clock in the upper-left
 ///   - Frame counter "Frame N" below it
 ///   - 4-bar colour blocks (red / green / blue / yellow) rotating every second
@@ -50,8 +51,8 @@ import CoreMedia
 /// → ffplay) works end-to-end without dragging Mapbox into the loop.
 final class TestPatternSource: FrameSource {
 
-    let frameSize = CGSize(width: 480, height: 270)
-    let targetFps = 30
+    let frameSize = CGSize(width: 526, height: 300)
+    let targetFps = 12
 
     private let log = Logger(subsystem: "TripperDashPP", category: "TestPattern")
     private let queue = DispatchQueue(label: "TripperDashPP.TestPattern", qos: .userInitiated)
