@@ -35,6 +35,31 @@ struct StreamingView: View {
                 LabeledContent("Packets dropped", value: "\(status.metrics.packetsDropped)")
             }
 
+            Section("Background") {
+                Toggle(isOn: Binding(
+                    get: { status.keepAwakeWhileStreaming },
+                    set: { status.keepAwakeWhileStreaming = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Keep streaming when screen locks")
+                        Text("Uses GPS + silent audio so iOS doesn't suspend the app. A blue indicator appears in the status bar.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if status.isStreaming {
+                    LabeledContent("Wakelock") {
+                        if status.backgroundKeepAliveActive {
+                            Label("Active", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        } else {
+                            Label("Off — screen-off will break stream", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
+
             Section("Control") {
                 if status.isStreaming {
                     Button(role: .destructive) {

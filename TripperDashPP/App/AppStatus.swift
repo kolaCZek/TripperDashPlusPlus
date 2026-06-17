@@ -11,6 +11,7 @@
 
 import Foundation
 import Observation
+import UIKit
 
 /// High-level connection lifecycle as seen by the UI. Mirrors the
 /// `BikeLink` state machine that lands in Phase 3.
@@ -75,6 +76,27 @@ final class AppStatus {
     private(set) var streamer: RtpStreamer?
     var isStreaming: Bool { streamer?.state == .running }
 
+    // MARK: - Background keep-alive (Phase 6)
+
+    /// User-controlled: when true, we hold a CoreLocation Always +
+    /// silent-audio wakelock while streaming so the iPhone screen can
+    /// lock without iOS suspending the app (which kills the
+    /// VTCompressionSession with `kVTInvalidSessionErr` / -12903).
+    /// Defaults to ON — the whole point of Phase 6 is that this is the
+    /// supported default mode of operation.
+    var keepAwakeWhileStreaming: Bool = true {
+        didSet { applyKeepAwake() }
+    }
+
+    /// Reflects whether the location + audio wakelocks are active right
+    /// now. Used by the UI to show a "Background mode active" badge.
+    var backgroundKeepAliveActive: Bool {
+        locationKeeper.isRunning || audioKeeper.isRunning
+    }
+
+    private let locationKeeper = BackgroundLocationKeeper()
+    private let audioKeeper = SilentAudioKeeper()
+
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
@@ -94,12 +116,36 @@ final class AppStatus {
         }
         streamer = s
         s.start()
+        applyKeepAwake()
     }
 
     func stopStreaming() {
         streamer?.stop()
         streamer = nil
         metrics = .zero
+        applyKeepAwake()
+    }
+
+    /// Re-evaluate whether the wakelocks should be active. Called any
+    /// time `keepAwakeWhileStreaming` toggles or the streaming state
+    /// changes, so the keepers are only running while they're actually
+    /// needed (battery hygiene).
+    private func applyKeepAwake() {
+        let shouldRun = keepAwakeWhileStreaming && isStreaming
+        if shouldRun {
+            locationKeeper.start()
+            audioKeeper.start()
+            // The idle timer is a soft hint to iOS — disabling it keeps
+            // the display awake while the app is foregrounded, which is
+            // useful when the rider explicitly keeps the phone visible.
+            // It does NOT prevent suspension after a manual lock; the
+            // location + audio keepers cover that case.
+            UIApplication.shared.isIdleTimerDisabled = true
+        } else {
+            locationKeeper.stop()
+            audioKeeper.stop()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
     }
 
     // MARK: - Navigation

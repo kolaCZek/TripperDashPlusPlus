@@ -23,6 +23,8 @@
 		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
 		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
+		A4B6F0012FE6000000AA36C3 /* BackgroundLocationKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* BackgroundLocationKeeper.swift */; };
+		A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +46,8 @@
 		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
 		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
 		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
+		A4B6F0002FE6000000AA36C3 /* BackgroundLocationKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundLocationKeeper.swift; sourceTree = "<group>"; };
+		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +88,8 @@
 			children = (
 				A486F0412FE2034700AA36C3 /* AppStatus.swift */,
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
+				A4B6F0002FE6000000AA36C3 /* BackgroundLocationKeeper.swift */,
+				A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -212,6 +218,8 @@
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
+				A4B6F0012FE6000000AA36C3 /* BackgroundLocationKeeper.swift in Sources */,
+				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

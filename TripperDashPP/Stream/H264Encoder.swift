@@ -60,6 +60,14 @@ final class H264Encoder {
     private let log = Logger(subsystem: "TripperDashPP", category: "H264")
     private var session: VTCompressionSession?
     private var lastFormatDescription: CMFormatDescription?
+    /// Set when the next emitted frame must be an IDR. Used after a
+    /// session rebuild so the depacketizer can resynchronise without
+    /// waiting for the regular keyframe cadence.
+    private var pendingForceKeyframe = false
+    /// Throttle for noisy `VTCompressionSessionEncodeFrame` errors —
+    /// when iOS suspends the app the encoder fails ~12 fps until we
+    /// rebuild the session, and we don't want to spam the log file.
+    private var consecutiveEncodeErrors = 0
 
     init(
         width: Int32 = 526,
@@ -81,6 +89,27 @@ final class H264Encoder {
 
     func start() throws {
         guard session == nil else { return }
+        try createSession()
+    }
+
+    func stop() {
+        guard let session else { return }
+        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
+        VTCompressionSessionInvalidate(session)
+        self.session = nil
+        lastFormatDescription = nil
+        pendingForceKeyframe = false
+        consecutiveEncodeErrors = 0
+        log.info("H264Encoder stopped")
+    }
+
+    func forceKeyframeNext() {
+        pendingForceKeyframe = true
+    }
+
+    // MARK: - Session (re)creation
+
+    private func createSession() throws {
         var s: VTCompressionSession?
         let status = VTCompressionSessionCreate(
             allocator: nil,
@@ -119,29 +148,44 @@ final class H264Encoder {
             }
         }
         VTCompressionSessionPrepareToEncodeFrames(session)
-        log.info("H264Encoder started \(self.width)x\(self.height) @ \(self.fps)fps, \(self.bitrate / 1000) kbps")
-    }
-
-    func stop() {
-        guard let session else { return }
-        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
-        VTCompressionSessionInvalidate(session)
-        self.session = nil
+        // The format description rotates with the rebuilt session, so
+        // force the next coded slice to be an IDR + re-emit SPS/PPS.
         lastFormatDescription = nil
-        log.info("H264Encoder stopped")
+        pendingForceKeyframe = true
+        log.info("H264Encoder session ready \(self.width)x\(self.height) @ \(self.fps)fps, \(self.bitrate / 1000) kbps")
     }
 
-    func forceKeyframeNext() {
-        // We rely on the encoder's automatic IDR cadence + the per-frame
-        // encode call below to inject `kVTEncodeFrameOptionKey_ForceKeyFrame`
-        // when needed. No-op for now; hook for future bitrate-adaptation.
+    /// Tear the current VT session down and build a fresh one. Called
+    /// when `VTCompressionSessionEncodeFrame` returns
+    /// `kVTInvalidSessionErr` (-12903), which happens any time iOS
+    /// briefly suspends the app and reclaims GPU access — most commonly
+    /// when the screen locks while streaming. The session itself is
+    /// unrecoverable; only a rebuild restores hardware encoding.
+    private func rebuildSession() {
+        if let s = session {
+            VTCompressionSessionInvalidate(s)
+            self.session = nil
+        }
+        do {
+            try createSession()
+            log.notice("H264Encoder session rebuilt after invalidation")
+        } catch {
+            log.error("H264Encoder session rebuild failed: \(String(describing: error))")
+        }
     }
 
     // MARK: - Encode
 
     func encode(pixelBuffer: CVPixelBuffer, presentationTime: CMTime) {
         guard let session else { return }
-        let frameProperties: [CFString: Any] = [:]
+        // Phase 6: when iOS resumes us, the first frame after a session
+        // rebuild MUST be an IDR so the dash can re-sync. Same flag is
+        // set by createSession() so the very first frame is always a key.
+        var frameProperties: [CFString: Any] = [:]
+        if pendingForceKeyframe {
+            frameProperties[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue
+            pendingForceKeyframe = false
+        }
         var infoFlags = VTEncodeInfoFlags()
         let status = VTCompressionSessionEncodeFrame(
             session,
@@ -154,7 +198,21 @@ final class H264Encoder {
             self?.handleEncoded(status: status, sampleBuffer: sampleBuffer)
         }
         if status != noErr {
-            log.error("VTCompressionSessionEncodeFrame failed: \(status)")
+            consecutiveEncodeErrors += 1
+            // -12903 kVTInvalidSessionErr — most common cause: app got
+            // suspended (screen lock) and lost GPU access. Rebuild the
+            // session once; subsequent frames will succeed.
+            // -12902 kVTSessionMalfunctionErr — same recovery path.
+            if status == -12903 || status == -12902 {
+                if consecutiveEncodeErrors == 1 {
+                    log.notice("VTCompressionSessionEncodeFrame failed: \(status) — rebuilding session")
+                }
+                rebuildSession()
+            } else if consecutiveEncodeErrors == 1 {
+                log.error("VTCompressionSessionEncodeFrame failed: \(status)")
+            }
+        } else {
+            consecutiveEncodeErrors = 0
         }
     }
 
