@@ -97,6 +97,37 @@ final class AppStatus {
     private let locationKeeper = BackgroundLocationKeeper()
     private let audioKeeper = SilentAudioKeeper()
 
+    init() {
+        // Watch `bikeLink.state` so the wakelock follows the link, not
+        // just the streamer. When the bike disconnects mid-ride, we
+        // tear the keepers (and the now-pointless streamer) down within
+        // one observation tick — no point burning battery and shoving
+        // UDP into a black hole.
+        observeBikeLink()
+    }
+
+    /// Re-registers itself on every state change — that's the standard
+    /// iOS 17 `withObservationTracking` idiom for "watch this property
+    /// continuously", since the closure fires exactly once per trigger.
+    private func observeBikeLink() {
+        withObservationTracking {
+            _ = bikeLink.state
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // If the link dropped while we were streaming, kill the
+                // RTP pipeline — RtpStreamer doesn't watch the link
+                // itself and would happily keep encoding into the void.
+                if self.isStreaming && self.bikeLink.state != .connected {
+                    self.stopStreaming()
+                } else {
+                    self.applyKeepAwake()
+                }
+                self.observeBikeLink()
+            }
+        }
+    }
+
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
@@ -127,11 +158,17 @@ final class AppStatus {
     }
 
     /// Re-evaluate whether the wakelocks should be active. Called any
-    /// time `keepAwakeWhileStreaming` toggles or the streaming state
-    /// changes, so the keepers are only running while they're actually
-    /// needed (battery hygiene).
+    /// time `keepAwakeWhileStreaming` toggles, the streaming state
+    /// changes, or `bikeLink.state` flips. The keepers only burn
+    /// battery while ALL three preconditions hold:
+    ///   1. user wants screen-off survival,
+    ///   2. we're actively streaming,
+    ///   3. the bike link is up — otherwise we'd be shoving UDP into a
+    ///      black hole and holding the app alive for no reason.
     private func applyKeepAwake() {
-        let shouldRun = keepAwakeWhileStreaming && isStreaming
+        let shouldRun = keepAwakeWhileStreaming
+            && isStreaming
+            && bikeLink.state == .connected
         if shouldRun {
             locationKeeper.start()
             audioKeeper.start()
