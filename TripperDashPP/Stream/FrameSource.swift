@@ -154,6 +154,12 @@ final class TestPatternSource: FrameSource {
         let w = CGFloat(width)
         let h = CGFloat(height)
 
+        // Flip CTM tak, aby drawing API mluvilo UIKit-style (y=0 nahoře,
+        // y=h dole). Bez tohoto vychází NSAttributedString.draw upside-down,
+        // protože UIKit text API předpokládá flipped y-axis context.
+        ctx.translateBy(x: 0, y: h)
+        ctx.scaleBy(x: 1, y: -1)
+
         // Black background.
         ctx.setFillColor(red: 0.05, green: 0.05, blue: 0.08, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
@@ -170,15 +176,10 @@ final class TestPatternSource: FrameSource {
         let blockW = w / 4
         for i in 0..<4 {
             ctx.setFillColor(colours[(i + phase) % colours.count])
-            ctx.fill(CGRect(x: CGFloat(i) * blockW, y: h - 40, width: blockW, height: 40))
+            ctx.fill(CGRect(x: CGFloat(i) * blockW, y: 0, width: blockW, height: 40))
         }
 
-        // Moving diagonal bar — gives the encoder motion to compress.
-        let barX = CGFloat(frameIndex % UInt64(width))
-        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.35)
-        ctx.fill(CGRect(x: barX, y: 60, width: 12, height: h - 120))
-
-        // Clock + frame counter (drawn into ctx via UIGraphics for font support).
+        // Title + clock + frame counter (čte se shora dolů).
         let elapsed = CACurrentMediaTime() - startTime
         let totalMs = Int(elapsed * 1000)
         let hh = (totalMs / 3_600_000) % 24
@@ -186,14 +187,20 @@ final class TestPatternSource: FrameSource {
         let ss = (totalMs / 1000) % 60
         let ms = totalMs % 1000
         let clock = String(format: "%02d:%02d:%02d.%03d", hh, mm, ss, ms)
-        let frameText = "Frame \(frameIndex)"
 
-        drawText(clock, in: ctx, at: CGPoint(x: 12, y: h - 60), fontSize: 24, color: .white)
-        drawText(frameText, in: ctx, at: CGPoint(x: 12, y: h - 90), fontSize: 16, color: .white)
-        drawText("TripperDash++ test pattern", in: ctx, at: CGPoint(x: 12, y: 12), fontSize: 14, color: .white)
+        drawText("TripperDash++ test pattern", in: ctx, at: CGPoint(x: 12, y: 50), fontSize: 14, color: .white)
+        drawText(clock,                       in: ctx, at: CGPoint(x: 12, y: 80), fontSize: 24, color: .white)
+        drawText("Frame \(frameIndex)",       in: ctx, at: CGPoint(x: 12, y: 115), fontSize: 16, color: .white)
+
+        // Moving vertical bar — gives the encoder motion to compress.
+        let barX = CGFloat(frameIndex % UInt64(width))
+        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.35)
+        ctx.fill(CGRect(x: barX, y: 180, width: 12, height: 60))
     }
 
     private func drawText(_ s: String, in ctx: CGContext, at origin: CGPoint, fontSize: CGFloat, color: UIColor) {
+        // CTM už je flipnuté v draw(into:), takže UIKit text draw vychází
+        // čitelně bez další matematiky.
         UIGraphicsPushContext(ctx)
         defer { UIGraphicsPopContext() }
         let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)
@@ -201,11 +208,7 @@ final class TestPatternSource: FrameSource {
             .font: font,
             .foregroundColor: color,
         ]
-        // CGContext origin is bottom-left for our flipped bitmap; just draw.
-        let s = NSAttributedString(string: s, attributes: attrs)
-        ctx.saveGState()
-        ctx.textMatrix = .identity
-        s.draw(at: origin)
-        ctx.restoreGState()
+        let attr = NSAttributedString(string: s, attributes: attrs)
+        attr.draw(at: origin)
     }
 }
