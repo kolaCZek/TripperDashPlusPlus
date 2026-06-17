@@ -2,17 +2,16 @@
 //  MapPickerView.swift
 //  TripperDashPP
 //
-//  Phase 5 — Apple Maps preview with the current GPS centered. Phase 6
-//  (real one — destinations + routing, not the keep-alive Phase 6 we
-//  already shipped) will add a search bar and route line on top.
+//  Phase 5 — Apple Maps preview with the current GPS centered.
+//  Phase 7a (current) — back to a live interactive map, but via our
+//  own `InteractiveMapView` UIViewRepresentable wrapper with hardened
+//  teardown so it survives NavigationStack push/pop without the
+//  MTLDebugDevice assertion we hit in Phase 5 with SwiftUI's `Map`.
 //
-//  Note: this view used to use SwiftUI's `Map(position:)` (which wraps
-//  MKMapView) but that crashed on view transitions — SwiftUI dealloc'd
-//  the underlying MKMapView while its Metal command buffer was still
-//  in flight, triggering MTLDebugDevice assertion + app freeze.
-//
-//  Replaced with `MapPreviewView`, which renders MKMapSnapshotter into
-//  a UIImage at 1 Hz. No live MKMapView, no Metal lifecycle to manage.
+//  Phase 7b will turn this into a real destination picker (tap-to-drop,
+//  search bar, "Start navigation" CTA). For now it's behaviorally
+//  equivalent to the Phase 5 MapPreviewView but interactive (pan, zoom,
+//  rotate, user-tracking toggle).
 //
 
 import CoreLocation
@@ -32,14 +31,15 @@ struct MapPickerView: View {
             // Status banner — wired up in Phase 3.
             StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
 
-            // Phase 5: Apple Maps preview rendered via MKMapSnapshotter
-            // at 1 Hz. Same renderer that the dash sees, but at the
-            // phone's native size — handy as a sanity check.
+            // Phase 7a: live interactive MKMapView via our own wrapper.
+            // See InteractiveMapView.swift for why we don't use SwiftUI
+            // `Map(position:)` here (Metal lifecycle crash on pop).
             ZStack {
-                MapPreviewView(
+                InteractiveMapView(
                     coordinate: status.locationService.lastFix?.coordinate,
-                    heading: nil  // always north-up in the picker
+                    followsUser: true
                 )
+                .ignoresSafeArea(edges: .horizontal)
                 .onAppear {
                     if locationToken == nil {
                         locationToken = status.locationService.start(mode: .mapping)
@@ -67,8 +67,7 @@ struct MapPickerView: View {
                 }
             }
 
-            // Phase 3 — Connect / Disconnect button. Phase 6 (the navigation
-            // one — not the wakelock Phase 6 we already shipped) will
+            // Phase 3 — Connect / Disconnect button. Phase 7b will
             // replace this with a search bar + "Start navigation" action.
             connectButton
         }
