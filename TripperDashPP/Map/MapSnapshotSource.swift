@@ -137,10 +137,9 @@ final class MapSnapshotSource: FrameSource {
             pixelRatio: 1.0
         )
         let snap = Snapshotter(options: opts)
-        // Navigation Day: light, road-focused, high readability on the
-        // small TFT in sunlight. (Night variant looks slick but the user
-        // found it too low-contrast at a glance.)
-        snap.styleURI = StyleURI(rawValue: "mapbox://styles/mapbox/navigation-day-v1")
+        // Standard — same style as the in-app MapPickerView preview, so
+        // the rider sees the exact look they picked from on the dash.
+        snap.styleURI = StyleURI(rawValue: "mapbox://styles/mapbox/standard")
         snapshotter = snap
 
         // Observe app lifecycle so we can suspend Metal work in the
