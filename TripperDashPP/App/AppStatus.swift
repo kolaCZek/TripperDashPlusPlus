@@ -76,6 +76,17 @@ final class AppStatus {
     private(set) var streamer: RtpStreamer?
     var isStreaming: Bool { streamer?.state == .running }
 
+    /// Which frame source to use when starting a stream. Phase 5 ships
+    /// `liveMap` (Mapbox snapshotter) as the default; `testPattern` is
+    /// kept as a debug option so we can validate the encoder/RTP path
+    /// without touching the map subsystem.
+    enum SourceKind: String, CaseIterable, Identifiable, Sendable {
+        case liveMap = "Live map"
+        case testPattern = "Test pattern"
+        var id: String { rawValue }
+    }
+    var sourceKind: SourceKind = .liveMap
+
     // MARK: - Background keep-alive (Phase 6)
 
     /// User-controlled: when true, we hold a CoreLocation Always +
@@ -91,11 +102,16 @@ final class AppStatus {
     /// Reflects whether the location + audio wakelocks are active right
     /// now. Used by the UI to show a "Background mode active" badge.
     var backgroundKeepAliveActive: Bool {
-        locationKeeper.isRunning || audioKeeper.isRunning
+        wakelockToken != nil || audioKeeper.isRunning
     }
 
-    private let locationKeeper = BackgroundLocationKeeper()
+    /// Shared CLLocationManager: serves the wakelock, the Phase 5 map
+    /// source, and (Phase 7+) the nav engine. Single owner avoids racing
+    /// two managers for the same authorization + indicator pill.
+    let locationService = LocationService()
+
     private let audioKeeper = SilentAudioKeeper()
+    private var wakelockToken: UUID?
 
     init() {
         // Watch `bikeLink.state` so the wakelock follows the link, not
@@ -132,7 +148,14 @@ final class AppStatus {
     /// No-op if the link isn't connected yet.
     func startStreaming() {
         guard streamer == nil, let host = bikeLink.dashHost else { return }
-        let s = RtpStreamer(bikeHost: host)
+        let source: FrameSource
+        switch sourceKind {
+        case .liveMap:
+            source = MapSnapshotSource(locationService: locationService)
+        case .testPattern:
+            source = TestPatternSource()
+        }
+        let s = RtpStreamer(bikeHost: host, source: source)
         s.onMetrics = { [weak self] m in
             guard let self else { return }
             self.metrics = StreamMetrics(
@@ -170,16 +193,16 @@ final class AppStatus {
             && isStreaming
             && bikeLink.state == .connected
         if shouldRun {
-            locationKeeper.start()
+            if wakelockToken == nil {
+                wakelockToken = locationService.start(mode: .wakelock)
+            }
             audioKeeper.start()
-            // The idle timer is a soft hint to iOS — disabling it keeps
-            // the display awake while the app is foregrounded, which is
-            // useful when the rider explicitly keeps the phone visible.
-            // It does NOT prevent suspension after a manual lock; the
-            // location + audio keepers cover that case.
             UIApplication.shared.isIdleTimerDisabled = true
         } else {
-            locationKeeper.stop()
+            if let token = wakelockToken {
+                locationService.stop(token: token)
+                wakelockToken = nil
+            }
             audioKeeper.stop()
             UIApplication.shared.isIdleTimerDisabled = false
         }

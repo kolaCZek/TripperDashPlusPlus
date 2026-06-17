@@ -26,6 +26,36 @@ struct StreamingView: View {
                 }
             }
 
+            Section("Source") {
+                Picker("Frame source", selection: Binding(
+                    get: { status.sourceKind },
+                    set: { status.sourceKind = $0 }
+                )) {
+                    ForEach(AppStatus.SourceKind.allCases) { kind in
+                        Text(kind.rawValue).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(status.isStreaming)
+
+                switch status.sourceKind {
+                case .liveMap:
+                    Text("Renders a Mapbox map centred on your current GPS at 12 fps. Requires location permission and a valid `pk.*` token in Secrets.xcconfig.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let fix = status.locationService.lastFix {
+                        LabeledContent("GPS", value: String(format: "%.5f, %.5f  (±%.0f m)", fix.coordinate.latitude, fix.coordinate.longitude, fix.horizontalAccuracy))
+                            .font(.caption.monospaced())
+                    } else {
+                        Text("GPS: acquiring…").font(.caption).foregroundStyle(.secondary)
+                    }
+                case .testPattern:
+                    Text("Synthetic 526×300 test pattern (clock, frame counter, colour bars). Useful for validating the encoder/RTP path without touching Mapbox.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Stream") {
                 LabeledContent("Encoded fps",     value: String(format: "%.1f", status.metrics.encodedFps))
                 LabeledContent("Bitrate (kbps)",  value: String(format: "%.0f", status.metrics.kbpsOut))
@@ -71,7 +101,7 @@ struct StreamingView: View {
                     Button {
                         status.startStreaming()
                     } label: {
-                        Label("Start test pattern → dash", systemImage: "play.circle.fill")
+                        Label("Start \(status.sourceKind.rawValue.lowercased()) → dash", systemImage: "play.circle.fill")
                     }
                     .disabled(status.bikeLink.dashHost == nil)
                 }

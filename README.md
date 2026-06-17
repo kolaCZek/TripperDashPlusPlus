@@ -35,7 +35,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 | 2 — Fake-dash test harness (Python, Docker) | ✅ MVP done — [`tools/fake_dash/`](tools/fake_dash/) |
 | 3 — K1G control plane (Swift) | 🟡 sources ready, awaiting on-device test — [`docs/PHASE_3_TESTING.md`](docs/PHASE_3_TESTING.md) |
 | 4 — H.264 encoder + RTP packetizer | 🟡 sources ready (526×300 @ 12 fps, ~350 kbps), awaiting on-device validation |
-| 5 — Mapbox off-screen rendering | ⬜ |
+| 5 — Mapbox off-screen rendering | 🟡 `LocationService` + `MapSnapshotSource` wired, awaiting on-device test — [`docs/PHASE_5_TESTING.md`](docs/PHASE_5_TESTING.md) |
 | 6 — Navigation + background mode | 🟡 background keep-alive (CLLocation Always + silent audio + VT session auto-rebuild) wired in, awaiting screen-off field test |
 | 7 — Wi-Fi orchestration | ⬜ |
 | 8 — Polish + testing | ⬜ |

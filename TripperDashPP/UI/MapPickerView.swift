@@ -2,47 +2,59 @@
 //  MapPickerView.swift
 //  TripperDashPP
 //
-//  Phase 1 stub — shows app status and a placeholder for the destination
-//  picker. Phase 5 swaps the gray rectangle for a real Mapbox MapView
-//  and Phase 6 adds search + route preview.
+//  Phase 5 — live Mapbox preview with the current GPS centered. Phase 6
+//  (real one — destinations + routing, not the keep-alive Phase 6 we
+//  already shipped) will add a search bar and route line on top.
 //
 
+import CoreLocation
+import MapboxMaps
 import SwiftUI
 
 struct MapPickerView: View {
     @Environment(AppStatus.self) private var status
+    @State private var mapViewport: Viewport = .followPuck(zoom: 14, bearing: .heading, pitch: 0)
 
     var body: some View {
         VStack(spacing: 0) {
             // Status banner — wired up in Phase 3.
             StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
 
-            // Where the Mapbox MapView will live (Phase 5).
+            // Phase 5: live Mapbox preview. Same renderer that the
+            // dash sees, but at the phone's native size — handy as a
+            // sanity check that what's on the dash matches reality.
             ZStack {
-                Color(.secondarySystemBackground)
-                VStack(spacing: 12) {
-                    Image(systemName: "map")
-                        .font(.system(size: 56))
-                        .foregroundStyle(.tertiary)
-                    Text("Map placeholder")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    Text("Mapbox MapView lands in Phase 5")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                Map(viewport: $mapViewport) {
+                    Puck2D(bearing: .heading)
+                }
+                .mapStyle(.standard)
+                .ignoresSafeArea(edges: .horizontal)
+                .onAppear {
+                    // Subscribe to GPS so the puck has a location to chase.
+                    // The shared LocationService is already running for
+                    // the wakelock during streaming; here we bump it to
+                    // .mapping on demand for accurate camera follow.
+                    _ = status.locationService.start(mode: .mapping)
+                }
 
-                    if case .error = status.bikeLink.state, let err = status.lastError {
+                if case .error = status.bikeLink.state, let err = status.lastError {
+                    VStack {
+                        Spacer()
                         Text(err)
                             .font(.caption.monospaced())
                             .foregroundStyle(.red)
-                            .padding(.horizontal, 24)
-                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.regularMaterial)
+                            .clipShape(.rect(cornerRadius: 8))
+                            .padding(.bottom, 12)
                     }
                 }
             }
 
-            // Phase 3 — Connect / Disconnect button. Phase 6 will replace
-            // this with a search bar + "Start navigation" action.
+            // Phase 3 — Connect / Disconnect button. Phase 6 (the navigation
+            // one — not the wakelock Phase 6 we already shipped) will
+            // replace this with a search bar + "Start navigation" action.
             connectButton
         }
     }
