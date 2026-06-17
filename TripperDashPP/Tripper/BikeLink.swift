@@ -166,12 +166,34 @@ final class BikeLink {
         inboundTask?.cancel()
         inboundTask = Task { [weak self] in
             guard let self else { return }
+            self.log.info("Inbound loop started — waiting for bike → phone segments")
+            var packetCount: UInt64 = 0
             for await packet in socket.inbound {
+                packetCount &+= 1
                 let segs = K1GPacket.decode(packet)
+                if segs.isEmpty {
+                    self.log.debug("RX packet #\(packetCount): \(packet.count) B, no decodable segments")
+                    continue
+                }
                 for seg in segs {
-                    self.log.debug("RX segment type=\(String(format: "%02X", seg.type)) sub=\(String(format: "%02X", seg.sub)) len=\(seg.payload.count)")
+                    // Button segments (0x09 0x00 …) are the whole reason
+                    // this loop exists during bring-up. Log them at INFO
+                    // so they're visible in the default Xcode console.
+                    if seg.type == 0x09 && seg.sub == 0x00 {
+                        let code: String
+                        if seg.payload.count >= 3 {
+                            let byte = seg.payload[seg.payload.index(seg.payload.startIndex, offsetBy: 2)]
+                            code = String(format: "%02X", byte)
+                        } else {
+                            code = "??"
+                        }
+                        self.log.info("RX button: code=0x\(code, privacy: .public) (payload=\(seg.payload.hexString, privacy: .public))")
+                    } else {
+                        self.log.info("RX seg type=0x\(String(format: "%02X", seg.type), privacy: .public) sub=0x\(String(format: "%02X", seg.sub), privacy: .public) len=\(seg.payload.count)")
+                    }
                 }
             }
+            self.log.info("Inbound loop ended (received \(packetCount) packets)")
         }
     }
 

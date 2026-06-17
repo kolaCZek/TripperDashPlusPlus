@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .buttons import Button, build_button_packet
+from .control_socket import ControlServer, DEFAULT_SOCKET_PATH
 from .protocol import (
     BIKE_ANNOUNCE_HEX,
     RollingSeq,
@@ -66,6 +67,12 @@ class PhonePeer:
     first_seen: float
     last_seen: float = field(default=0.0)
     authenticated: bool = False
+    # Set after the first 0x06 (heartbeat / route card) is logged at INFO.
+    # Subsequent 0x06 segments drop to DEBUG so the log doesn't drown.
+    heartbeat_logged: bool = False
+    # Set after the first packet (any type) is logged at INFO. Same idea —
+    # we want one "phone is alive" line, then quiet.
+    rx_logged: bool = False
 
 
 class FakeDashServer:
@@ -85,6 +92,7 @@ class FakeDashServer:
         captures_dir: str | Path = "/captures",
         bike_ssid: str = DEFAULT_BIKE_SSID,
         enable_beacon: bool = True,
+        control_socket_path: str | Path = DEFAULT_SOCKET_PATH,
     ) -> None:
         self.bind_addr = bind_addr
         self.k1g_port = k1g_port
@@ -108,6 +116,15 @@ class FakeDashServer:
             captures_dir=captures_dir,
         )
 
+        # CLI ↔ server IPC. The control server fans out injected button
+        # events to known peers — without it, `fake-dash button right`
+        # would only register the CLI's own loopback socket as a peer
+        # and the bytes would never reach the real iPhone.
+        self._control = ControlServer(
+            socket_path=control_socket_path,
+            on_button=self.send_button,
+        )
+
     # ------------------------------------------------------------------ lifecycle
 
     def start(self) -> None:
@@ -124,6 +141,7 @@ class FakeDashServer:
         )
 
         self.rtp_sink.start()
+        self._control.start()
 
         self._spawn(target=self._rx_loop, name="k1g-rx")
         if self.enable_beacon:
@@ -138,6 +156,7 @@ class FakeDashServer:
                 pass
         for t in self._threads:
             t.join(timeout=2.0)
+        self._control.stop()
         self.rtp_sink.stop()
         log.info("FakeDashServer stopped")
 
@@ -239,9 +258,20 @@ class FakeDashServer:
                 log.exception("Error handling packet from %s", addr)
 
     def _handle_packet(self, data: bytes, peer: PhonePeer) -> None:
+        if not peer.rx_logged:
+            log.info(
+                "RX %s: first packet (%d B) — phone is talking to us",
+                peer.addr,
+                len(data),
+            )
+            peer.rx_logged = True
         segs = decode_packet(data)
         if not segs:
-            log.debug("RX %s: undecodable packet (%d bytes)", peer.addr, len(data))
+            log.info(
+                "RX %s: undecodable packet (%d bytes) — magic or framing off?",
+                peer.addr,
+                len(data),
+            )
             return
         for seg in segs:
             self._dispatch_segment(seg, peer)
@@ -262,19 +292,28 @@ class FakeDashServer:
             self._handle_auth_request(peer)
             return
 
-        # Type 0x06: route card / heartbeat from phone. We just log it
-        # so the operator can see signs of life; no ACK required from
-        # the bike side in normal operation.
+        # Type 0x06: route card / heartbeat from phone. First one per peer
+        # is logged at INFO so the operator can see signs of life;
+        # subsequent ones drop to DEBUG to avoid spam.
         if seg.type == 0x06:
-            log.debug(
-                "RX %s: route/heartbeat seg sub=0x%02X len=%d",
-                peer.addr,
-                seg.sub,
-                len(seg.payload),
-            )
+            if not peer.heartbeat_logged:
+                log.info(
+                    "RX %s: first 0x06 (heartbeat/route) seg sub=0x%02X len=%d",
+                    peer.addr,
+                    seg.sub,
+                    len(seg.payload),
+                )
+                peer.heartbeat_logged = True
+            else:
+                log.debug(
+                    "RX %s: route/heartbeat seg sub=0x%02X len=%d",
+                    peer.addr,
+                    seg.sub,
+                    len(seg.payload),
+                )
             return
 
-        log.debug(
+        log.info(
             "RX %s: unhandled seg type=0x%02X sub=0x%02X len=%d",
             peer.addr,
             seg.type,
