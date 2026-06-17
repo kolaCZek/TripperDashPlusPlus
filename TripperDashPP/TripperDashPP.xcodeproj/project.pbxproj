@@ -13,6 +13,12 @@
 		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
 		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
 		A486F0502FE204D200AA36C3 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = A486F04F2FE204D200AA36C3 /* MapboxMaps */; };
+		A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0602FE2DD0800AA36C3 /* DashSocket.swift */; };
+		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
+		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
+		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
+		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
+		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +30,12 @@
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
 		A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
+		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
+		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
+		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
+		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
+		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
+		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,6 +53,7 @@
 		A41A9C442FE20258009BF005 = {
 			isa = PBXGroup;
 			children = (
+				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
@@ -74,6 +87,19 @@
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
 			);
 			path = UI;
+			sourceTree = "<group>";
+		};
+		A486F0652FE2DD0800AA36C3 /* Tripper */ = {
+			isa = PBXGroup;
+			children = (
+				A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */,
+				A486F0602FE2DD0800AA36C3 /* DashSocket.swift */,
+				A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */,
+				A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */,
+				A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */,
+				A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */,
+			);
+			path = Tripper;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -151,6 +177,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */,
+				A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */,
+				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,
+				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
+				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
+				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
 				A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */,
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
