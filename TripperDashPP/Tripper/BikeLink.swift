@@ -49,6 +49,10 @@ final class BikeLink {
     var bikeHost: String = K1G.bikeIPv4
     var ssid: String = "RE_FAKE_260616"  // overridden by user / tests
 
+    /// Convenience for downstream components (RTP streamer) that need
+    /// the dash IP without poking at the link's internals.
+    var dashHost: String? { state == .connected ? bikeHost : nil }
+
     // MARK: - Private
 
     private var socket: DashSocket?

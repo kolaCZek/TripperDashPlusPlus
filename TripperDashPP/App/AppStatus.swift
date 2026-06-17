@@ -29,6 +29,9 @@ struct StreamMetrics: Sendable, Equatable {
     var kbpsOut: Double = 0
     var packetsSent: UInt64 = 0
     var packetsDropped: UInt64 = 0
+    var nalsEmitted: UInt64 = 0
+    var idrCount: UInt64 = 0
+    var lastError: String?
 
     static let zero = StreamMetrics()
 }
@@ -53,6 +56,7 @@ final class AppStatus {
 
     /// Computed view of the link state in UI-friendly terms.
     var connectionState: BikeConnectionState {
+        if streamer?.state == .running { return .streaming }
         switch bikeLink.state {
         case .idle:         return .disconnected
         case .connecting:   return .wifiJoining
@@ -63,11 +67,40 @@ final class AppStatus {
     }
 
     var bikeSsid: String? { bikeLink.ssid }
-    var lastError: String? { bikeLink.lastError }
+    var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
-    // MARK: - Streaming metrics
+    // MARK: - Streaming
 
     var metrics: StreamMetrics = .zero
+    private(set) var streamer: RtpStreamer?
+    var isStreaming: Bool { streamer?.state == .running }
+
+    /// Spin up the RTP pipeline pointed at the currently-connected dash.
+    /// No-op if the link isn't connected yet.
+    func startStreaming() {
+        guard streamer == nil, let host = bikeLink.dashHost else { return }
+        let s = RtpStreamer(bikeHost: host)
+        s.onMetrics = { [weak self] m in
+            guard let self else { return }
+            self.metrics = StreamMetrics(
+                encodedFps: m.encodedFps,
+                kbpsOut: m.kbpsOut,
+                packetsSent: m.packetsSent,
+                packetsDropped: m.packetsDropped,
+                nalsEmitted: m.nalsEmitted,
+                idrCount: m.idrCount,
+                lastError: m.lastError
+            )
+        }
+        streamer = s
+        s.start()
+    }
+
+    func stopStreaming() {
+        streamer?.stop()
+        streamer = nil
+        metrics = .zero
+    }
 
     // MARK: - Navigation
 
