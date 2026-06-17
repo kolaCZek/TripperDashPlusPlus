@@ -8,6 +8,7 @@
 //  IDRs, drops) update once a second.
 //
 
+import CoreLocation
 import SwiftUI
 
 struct StreamingView: View {
