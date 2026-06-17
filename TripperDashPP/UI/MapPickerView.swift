@@ -241,13 +241,23 @@ struct MapPickerView: View {
             .buttonStyle(.plain)
 
         case (.picking, .connecting), (.picking, .handshaking):
-            HStack {
-                ProgressView()
-                Text("Connecting…")
+            VStack(spacing: 8) {
+                HStack {
+                    ProgressView()
+                    Text(status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.orange.opacity(0.15))
+
+                Button(role: .destructive) {
+                    status.bikeLink.disconnect()
+                } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(Color.orange.opacity(0.15))
 
         case (.picking, .connected):
             VStack(spacing: 8) {

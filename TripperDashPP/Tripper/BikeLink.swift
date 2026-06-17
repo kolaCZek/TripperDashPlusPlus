@@ -58,6 +58,11 @@ final class BikeLink {
     private var socket: DashSocket?
     private var inboundTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    /// The connect→handshake flow itself, so `disconnect()` can yank it
+    /// out of the middle of a `for await` on the inbound stream. Without
+    /// this, a stuck handshake (e.g. user forgot to join the dash Wi-Fi)
+    /// runs the full `K1G.handshakeStepTimeout` with no way to abort.
+    private var connectTask: Task<Void, Never>?
     private let seq = RollingSeq()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "BikeLink")
 
@@ -70,16 +75,21 @@ final class BikeLink {
             log.warning("connect() called while in state \(String(describing: self.state))")
             return
         }
-        Task { await self.runConnectFlow() }
+        connectTask = Task { await self.runConnectFlow() }
     }
 
-    /// Tear everything down and return to `.idle`.
+    /// Tear everything down and return to `.idle`. Safe to call at any
+    /// time — including mid-handshake, in which case it cancels the
+    /// in-flight connect Task so the user isn't stuck staring at a
+    /// "Connecting…" pill until the K1G timeout fires.
     func disconnect() {
+        connectTask?.cancel(); connectTask = nil
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
         Task { [socket] in await socket?.cancel() }
         socket = nil
         aesKey = nil
+        lastError = nil
         state = .idle
         log.info("BikeLink disconnected")
     }
@@ -92,10 +102,12 @@ final class BikeLink {
             log.info("Opening UDP socket to \(self.bikeHost):\(K1G.controlPort) on Wi-Fi")
             let s = DashSocket(host: bikeHost, port: K1G.controlPort)
             try await s.start(timeout: 5.0)
+            try Task.checkCancellation()
             self.socket = s
 
             state = .handshaking
             let outcome = try await runHandshake(socket: s)
+            try Task.checkCancellation()
             self.aesKey = outcome.aesKey
 
             state = .connected
@@ -103,6 +115,12 @@ final class BikeLink {
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
 
+        } catch is CancellationError {
+            // disconnect() yanked us. State + cleanup already handled
+            // there; just log and exit silently — no error pill.
+            log.info("Connect flow cancelled by user")
+            await self.socket?.cancel()
+            self.socket = nil
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             log.error("Connect flow failed: \(msg, privacy: .public)")
@@ -111,6 +129,7 @@ final class BikeLink {
             await self.socket?.cancel()
             self.socket = nil
         }
+        self.connectTask = nil
     }
 
     private func runHandshake(socket: DashSocket) async throws -> HandshakeOutcome {
