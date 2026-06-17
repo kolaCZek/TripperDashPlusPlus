@@ -336,26 +336,15 @@ final class MapSnapshotSource: FrameSource {
     /// GPU work, the snapshotter would be released, and the Metal CB
     /// would crash on resume.
     ///
-    /// Current implementation: bounded LIFO ring buffer at class level.
-    /// Each snapshotter is retained until pushed out by 99 newer ones.
-    /// At 6 fps that's ~16 s of natural retention, fully decoupled from
+    /// Current implementation: bounded LIFO ring buffer in a separate
+    /// non-isolated holder (storage can't live on @MainActor class
+    /// because we need to push from nonisolated context). Each
+    /// snapshotter is retained until pushed out by 99 newer ones. At
+    /// 6 fps that's ~16 s of natural retention, fully decoupled from
     /// wall-clock time and immune to background scheduler suspension.
-    /// Memory cost: snapshotter holds a few hundred KB, total cap ~50 MB,
-    /// well under what iOS cares about for an app actively rendering.
-    private static let parkLock = NSLock()
-    private static var parkRing: [MKMapSnapshotter] = []
-    private static let parkCapacity = 100
-
+    /// Memory cost: snapshotter holds a few hundred KB, total cap ~50 MB.
     nonisolated static func parkSnapshotter(_ snapshotter: MKMapSnapshotter) {
-        parkLock.lock()
-        defer { parkLock.unlock() }
-        parkRing.append(snapshotter)
-        if parkRing.count > parkCapacity {
-            // Drop the oldest. By the time it's been pushed out by
-            // `parkCapacity` newer snapshotters, the GPU has definitely
-            // finished its work.
-            parkRing.removeFirst(parkRing.count - parkCapacity)
-        }
+        SnapshotterPark.shared.park(snapshotter)
     }
 
     private func emitPlaceholder(message: String) {
@@ -474,5 +463,39 @@ final class MapSnapshotSource: FrameSource {
         attr.draw(at: origin)
 
         return buffer
+    }
+}
+
+
+// MARK: - SnapshotterPark
+
+/// Non-isolated holder that retains MKMapSnapshotter instances after
+/// their completion fires, so the underlying Metal command buffer has
+/// time to drain on the GPU. Lives outside MapSnapshotSource because
+/// that class is @MainActor and we need to push from nonisolated
+/// contexts (e.g. completion handlers that capture `weak self`).
+///
+/// Strategy: bounded LIFO ring. New entries push out old ones; by the
+/// time an entry has been pushed out by `capacity` newer entries the
+/// GPU work is long-since complete.
+final class SnapshotterPark: @unchecked Sendable {
+    static let shared = SnapshotterPark(capacity: 100)
+
+    private let capacity: Int
+    private let lock = NSLock()
+    private var ring: [MKMapSnapshotter] = []
+
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.ring.reserveCapacity(capacity + 1)
+    }
+
+    func park(_ snapshotter: MKMapSnapshotter) {
+        lock.lock()
+        defer { lock.unlock() }
+        ring.append(snapshotter)
+        if ring.count > capacity {
+            ring.removeFirst(ring.count - capacity)
+        }
     }
 }
