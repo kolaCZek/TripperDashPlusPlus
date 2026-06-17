@@ -192,19 +192,28 @@ final class MapSnapshotSource: FrameSource {
 
         let options = MKMapSnapshotter.Options()
         options.size = frameSize
-        options.scale = 1.0      // dash is 526×300 1:1, no @2x needed
+        // Render at 2× and let CGContext downsample into the dash's
+        // native 526×300 pixel buffer. The extra source pixels make
+        // road names and shields significantly more legible after H.264
+        // — at 1:1 scale the renderer rounds glyph strokes to whole
+        // pixels and the encoder smears the result.
+        options.scale = 2.0
         options.camera = camera
         if #available(iOS 16.0, *) {
-            // .mutedStandard de-emphasises POIs so the road geometry is
-            // the dominant element — better readability on a small TFT.
+            // .realistic looks nicest but the elevation shading kills
+            // legibility on a 526×300 TFT in sunlight. .flat keeps the
+            // standard look but flattens shading. POIs stay on so we
+            // get road names and the rider has visual landmarks.
             options.preferredConfiguration = MKStandardMapConfiguration(
                 elevationStyle: .flat,
-                emphasisStyle: .muted
+                emphasisStyle: .default
             )
         } else {
-            options.mapType = .mutedStandard
+            options.mapType = .standard
         }
-        options.pointOfInterestFilter = .excludingAll
+        // Keep POI filter open by default — riders want to see the
+        // gas station / restaurant on the map. Phase 7 (turn-by-turn)
+        // will dial this down to nav-relevant POIs only.
 
         let snapshotter = MKMapSnapshotter(options: options)
         currentSnapshotter = snapshotter
@@ -283,10 +292,10 @@ final class MapSnapshotSource: FrameSource {
     }
 
     /// Draws a UIImage into a fresh BGRA pixel buffer at exactly the
-    /// dash's native size. MKMapSnapshotter already gives us the right
-    /// size thanks to MKMapSnapshotter.Options.size, but we still need
-    /// to convert from UIImage's CGImage to a CVPixelBuffer for
-    /// VideoToolbox.
+    /// dash's native size. We tell MKMapSnapshotter to render at 2×
+    /// scale (1052×600 of source pixels) and then downsample here into
+    /// the 526×300 buffer — gives smoother glyphs and road antialiasing
+    /// after the H.264 encoder rounds everything.
     private func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
         guard let pool, let cgImage = image.cgImage else { return nil }
         var buffer: CVPixelBuffer?
@@ -315,6 +324,8 @@ final class MapSnapshotSource: FrameSource {
                 | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
 
+        // High-quality downsample from 2× source to dash native size.
+        ctx.interpolationQuality = .high
         ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
         return buffer
     }

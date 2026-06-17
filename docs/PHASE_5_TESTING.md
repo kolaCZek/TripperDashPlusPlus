@@ -1,185 +1,68 @@
-# Phase 5 — Live Map Source Testing
+# Phase 5 — Live map rendering (on-device test plan)
 
-The Mapbox-backed `MapSnapshotSource` replaces the Phase 4 `TestPatternSource`
-as the default frame source. The dash now shows the rider's real-world
-position rendered at 12 fps in the `navigation-night-v1` style instead of
-a synthetic test card.
+## What we're validating
 
-This runbook validates the end-to-end pipeline:
+`MapSnapshotSource` renders Apple Maps via `MKMapSnapshotter` at 12 fps,
+centered on the rider's current GPS, with the camera rotated to match
+the bike's heading. Frames go straight into the H.264 encoder.
 
-```
-LocationService ─► MapSnapshotSource ─► H264Encoder ─► RtpPacketizer ─► UDP → bike:5000
-```
+No third-party SDK, no API key — Apple Maps is bundled with iOS.
 
-## Pre-flight (one-time setup, do this BEFORE first build)
+## Pre-flight
 
-You need TWO Mapbox tokens from <https://account.mapbox.com/access-tokens/>.
+- iPhone with iOS 18+ paired with Xcode 26.
+- Location permission **Always** (not just While Using) — otherwise the
+  stream dies on lockscreen.
+- The fake_dash receiver running on your Mac (`tools/fake_dash/`) so you
+  can watch what the bike would see.
 
-### 1. Public token (`pk.*`)
+## Tests
 
-Used by the app at runtime to fetch tiles. URL-restrict it to the bundle
-identifier `eu.kolaczek.TripperDashPP` so it can't be abused if it leaks.
+### 1. Foreground stream
 
-```bash
-cd TripperDashPP
-cp Secrets.xcconfig.example Secrets.xcconfig
-# edit Secrets.xcconfig and paste your pk.eyJ... token after MBX_ACCESS_TOKEN=
-```
+1. Run app on device, connect to fake_dash, hit Start Streaming.
+2. Walk around outside (or open Simulator with a custom location route).
+3. Expect on the fake_dash capture: 12 fps, smooth map, road names
+   legible, current position centered, camera rotating with phone
+   heading.
 
-`Secrets.xcconfig` is gitignored. The Info.plist already references it via
-`$(MBX_ACCESS_TOKEN)` → `MBXAccessToken`.
+### 2. Screen-off (the critical one)
 
-### 2. Secret download token (`sk.*`)
+1. Start streaming as in test 1.
+2. Lock the phone.
+3. Keep walking ~30 s.
+4. Unlock and check Console.app for `MapSnapshotter` errors.
 
-Used by Swift Package Manager to download the closed-source Mapbox SDK
-binary. Scope: `Downloads:Read` only. Lives in `~/.netrc`:
+**Pass criteria:** no
+`kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted`,
+fake_dash capture continues to update with new positions, no frozen
+frame for more than ~1 s.
 
-```
-machine api.mapbox.com
-  login mapbox
-  password sk.YOUR_SECRET_DOWNLOAD_TOKEN
-```
+**Fail signal:** repeated `MKMapSnapshotter failed [#N]` lines in the
+log. Code automatically re-emits the last good frame so the dash
+decoder stays fed, but the map will freeze on screen.
 
-Then `chmod 600 ~/.netrc` (SPM refuses world-readable netrc files).
+### 3. Long-haul drift
 
-### 3. Resolve packages
+Stream for 20 minutes. Watch:
+- Battery drain (target: under 20%/h with screen off).
+- Memory (Xcode Debug Navigator) — should be flat, no leaks from the
+  pixel buffer pool.
+- VideoToolbox session — should not auto-rebuild more than once or
+  twice (any kIOSurfaceErr / kVTInvalidSessionErr triggers rebuild).
 
-In Xcode: **File → Packages → Resolve Package Versions**. First resolution
-downloads ~150 MB; subsequent builds are cached.
+## Logs to grep
 
-If you see `failed to download. status: 401`, your `~/.netrc` token is
-wrong or the file is world-readable.
+- `MapSource:` — our own diagnostics (start, stop, BG/FG transitions).
+- `LocationService` — fix mode + heading state.
+- `MKMapSnapshotter failed` — the only Apple Maps error that matters.
+- Ignore: `PerfPowerTelemetry`, `PPSClientDonation`,
+  `default.csv`, `CAMetalLayer ignoring invalid setDrawableSize` —
+  internal Apple Maps noise, sandbox-blocked telemetry, harmless.
 
----
+## Next steps after Phase 5 passes
 
-## Test 1 — Cold start, "Acquiring GPS…" placeholder
-
-**Goal:** confirm the source emits frames even before the first GPS fix
-lands, so the dash doesn't sit on the K1G handshake screen forever.
-
-1. Force-quit the app, toggle airplane mode on, then off.
-2. Connect to the dash (`MapPickerView` → "Connect to dash").
-3. `StreamingView` → Source picker = `Live map` → Start.
-4. **Within ~1 s** the dash should show a dark background with the text
-   `Acquiring GPS…` rendered in white monospaced.
-5. As soon as iOS reports the first fix (typically 2–10 s outdoors), the
-   placeholder is replaced by a real map tile.
-
-PASS = placeholder appeared, then transitioned to a map within 15 s
-outdoors. If the dash stays on the K1G splash, the source never produced
-a frame — check `os_log` for `MapSource` warnings.
-
-## Test 2 — Live map, stationary
-
-**Goal:** baseline encoded fps with the camera not moving.
-
-1. Outdoors, GPS fix acquired, streaming `Live map`.
-2. Watch the `Encoded fps` row in `StreamingView` for 30 s.
-3. Expected: **6–12 fps** sustained. The exact number depends on the
-   device — iPhone 13+ should hit 10–12; older devices may sit at 6–8
-   because Snapshotter re-renders the whole layer each tick rather than
-   composing incremental updates.
-4. `Packets dropped` should be 0. Any non-zero drop count means the UDP
-   send queue is backed up — check the Wi-Fi RSSI on the bike.
-
-PASS = ≥6 fps sustained, 0 drops.
-
-## Test 3 — Live map, on the move (the real test)
-
-**Goal:** validate the camera follows the bike at riding speed.
-
-1. Mount the phone, start streaming `Live map`, ride.
-2. Confirm on the dash that:
-   - The map re-centres on every GPS update (~1 Hz from CoreLocation).
-   - The map rotates with the bike: at zero speed the heading comes from
-     the magnetic compass (`lastHeading`), once moving it falls back to
-     course-over-ground if compass accuracy is bad.
-   - Streets visibly scroll past, not jump.
-3. Stop the bike, screen-locks the phone. Streaming should continue (the
-   Phase 6 wakelock is wired through `LocationService` now — same code
-   path as before, different class name).
-
-PASS = smooth camera follow with no >5 s freezes.
-
-## Test 4 — Source switch round-trip
-
-**Goal:** confirm the source picker swaps cleanly without leaking the
-old source.
-
-1. Streaming `Live map`. Stop streaming.
-2. Switch picker to `Test pattern`. Start.
-3. Expected: dash shows the Phase 4 test card.
-4. Stop. Switch back to `Live map`. Start.
-5. Expected: live map back. No double GPS prompt, no stuck blue
-   background-location indicator after stopping.
-
-PASS = both sources start cleanly from either order, no second
-authorization prompt.
-
-## Test 5 — Token misconfiguration
-
-**Goal:** confirm graceful failure when `pk.*` is missing or bad.
-
-1. Edit `Secrets.xcconfig`, set `MBX_ACCESS_TOKEN=pk.invalid`.
-2. Clean build, run.
-3. Start `Live map`. Expected: `Map error` text on dash, repeated. The
-   stream does NOT crash; encoder keeps emitting (the placeholder /
-   error frame still produces a valid IDR + slices).
-4. `StreamingView` → Stream section → `lastError` should NOT be set,
-   because the error is per-tile not per-pipeline.
-
-PASS = stream stays alive, dash shows `Map error` text.
-
-## Test 6 — LocationService consumer reconciliation
-
-**Goal:** confirm the single shared `CLLocationManager` correctly
-escalates from `.wakelock` (50 m, hundredMeters) to `.mapping`
-(no filter, best) when the map source registers, and drops back when
-the source releases.
-
-1. Start streaming `Test pattern` with background keep-alive ON.
-2. In `os_log` filter for `LocationService`: should see
-   `Consumer XXXXXX added (mode=0)` and the manager running at
-   hundredMeters accuracy.
-3. Switch source to `Live map`, start. Should see a second
-   `Consumer XXXXXX added (mode=1)` and the same manager now serving
-   both — no second `LocationService` instance.
-4. Stop streaming. Both consumers release, manager stops cleanly:
-   `LocationService stopped (no consumers)`.
-
-PASS = exactly one CLLocationManager lifecycle, mode transitions visible
-in the log.
-
-## Test 7 — Phase 7 hook smoke test (future-proofing)
-
-**Goal:** confirm the abstraction is ready for the nav engine.
-
-This is a code review test, not a runtime test:
-
-1. `MapSnapshotSource` consumes GPS via `LocationService.subscribeFixes`
-   — not by owning its own `CLLocationManager`. ✅ check
-   `MapSnapshotSource.start(onFrame:)`.
-2. `LocationService.subscribeFixes` returns a token whose deinit
-   cancels — no manual cleanup needed when the nav engine wires up.
-3. `MapSnapshotSource` already takes a camera per tick (`setCamera`) —
-   the nav engine can override the camera by computing its own
-   `CameraOptions` (chase-cam framing, maneuver preview) and the source
-   doesn't need to know it's being driven externally vs from GPS.
-
-If any of these are no longer true, Phase 7 will require a refactor.
-
----
-
-## Known limits
-
-- **Snapshotter is not as fast as a hidden MapView.** Real-world fps on
-  an iPhone 13 sits around 8–10. We chose this path over the
-  hidden-UIWindow trick because Snapshotter is the supported API and
-  upgrades cleanly across SDK versions; the dash's H.264 pipeline
-  tolerates 8–12 fps without visible stutter so the trade-off is fine.
-- **First tile fetch on a cold cache takes 200–800 ms.** Frame 1 may
-  be the "Acquiring GPS…" placeholder even after the fix lands; the
-  real map shows up on frame 2 or 3.
-- **No offline tile fallback yet.** Riding through a Wi-Fi/LTE dead
-  zone will produce blank tiles until reception returns. Phase 8 may
-  add a Mapbox offline region around the planned route.
+- Phase 6: VT session auto-rebuild after backgrounding (validated in
+  parallel).
+- Phase 7: turn-by-turn route overlay (we already kept the hook for it
+  in `MapSnapshotSource`).

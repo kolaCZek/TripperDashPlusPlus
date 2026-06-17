@@ -59,13 +59,9 @@ fastlane/test_output
 
 # ----- Secrets (NEVER commit) -----
 *.xcconfig.local
-Secrets.xcconfig
-MapboxAccessToken
 .netrc
 .env
 .env.local
-
-# Mapbox SDK download token sits in ~/.netrc — not in repo
 
 # ----- Python harness -----
 __pycache__/

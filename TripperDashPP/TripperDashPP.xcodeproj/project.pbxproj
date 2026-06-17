@@ -12,7 +12,6 @@
 		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
 		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
 		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
-		A486F0502FE204D200AA36C3 /* MapboxMaps in Frameworks */ = {isa = PBXBuildFile; productRef = A486F04F2FE204D200AA36C3 /* MapboxMaps */; };
 		A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0602FE2DD0800AA36C3 /* DashSocket.swift */; };
 		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
 		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
@@ -35,7 +34,6 @@
 		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
 		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
-		A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
@@ -57,7 +55,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A486F0502FE204D200AA36C3 /* MapboxMaps in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,7 +71,6 @@
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				A41A9C4E2FE20258009BF005 /* Products */,
-				A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
@@ -156,7 +152,6 @@
 			);
 			name = TripperDashPP;
 			packageProductDependencies = (
-				A486F04F2FE204D200AA36C3 /* MapboxMaps */,
 			);
 			productName = TripperDashPP;
 			productReference = A41A9C4D2FE20258009BF005 /* TripperDashPP.app */;
@@ -187,7 +182,6 @@
 			mainGroup = A41A9C442FE20258009BF005;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A486F04E2FE204D200AA36C3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A41A9C4E2FE20258009BF005 /* Products */;
@@ -240,7 +234,6 @@
 /* Begin XCBuildConfiguration section */
 		A41A9C562FE2025A009BF005 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -305,7 +298,6 @@
 		};
 		A41A9C572FE2025A009BF005 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -363,7 +355,6 @@
 		};
 		A41A9C592FE2025A009BF005 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -373,8 +364,6 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
-				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
-				INFOPLIST_PREPROCESS = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -405,7 +394,6 @@
 		};
 		A41A9C5A2FE2025A009BF005 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A486F04D2FE2042300AA36C3 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -415,8 +403,6 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
-				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
-				INFOPLIST_PREPROCESS = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -468,24 +454,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A486F04E2FE204D200AA36C3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mapbox/mapbox-maps-ios";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 11.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A486F04F2FE204D200AA36C3 /* MapboxMaps */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A486F04E2FE204D200AA36C3 /* XCRemoteSwiftPackageReference "mapbox-maps-ios" */;
-			productName = MapboxMaps;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A41A9C452FE20258009BF005 /* Project object */;
 }
