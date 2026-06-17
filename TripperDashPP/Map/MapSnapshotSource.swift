@@ -94,6 +94,25 @@ final class MapSnapshotSource: FrameSource {
     private var bgObserver: NSObjectProtocol?
     private var fgObserver: NSObjectProtocol?
 
+    /// Background fallback path. When the screen goes off iOS forbids
+    /// Metal command-buffer submission, so the Snapshotter (which uses
+    /// Metal) can't render. Static Images API is a plain HTTPS PNG
+    /// fetch — pure CPU + network, allowed in the background while the
+    /// audio + location wakelock keeps the process alive.
+    ///
+    /// We poll at ~2 fps (network roundtrip + Mapbox quota friendly) and
+    /// the tick loop re-emits the latest fetched frame at the full
+    /// target fps so the dash decoder never starves.
+    private var bgFetchTask: Task<Void, Never>?
+    private var lastBgFrame: CVPixelBuffer?
+    private let bgFetchInterval: TimeInterval = 0.5
+    private lazy var urlSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 4
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
     /// Reusable pool keeps allocation pressure low at 12 fps.
     private var pool: CVPixelBufferPool?
 
@@ -155,8 +174,10 @@ final class MapSnapshotSource: FrameSource {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.isInBackground = true
-                self?.log.info("App → background: pausing snapshotter, repeating last frame")
+                guard let self else { return }
+                self.isInBackground = true
+                self.log.info("App → background: switching to Static Images API fallback")
+                self.startBackgroundFetcher()
             }
         }
         fgObserver = center.addObserver(
@@ -165,10 +186,15 @@ final class MapSnapshotSource: FrameSource {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.isInBackground = false
-                self?.log.info("App → foreground: resuming snapshotter")
+                guard let self else { return }
+                self.isInBackground = false
+                self.stopBackgroundFetcher()
+                self.log.info("App → foreground: resuming Snapshotter (Metal)")
             }
         }
+        // If we launched directly into background (rare but possible),
+        // kick the fetcher right away — no need to wait for a transition.
+        if isInBackground { startBackgroundFetcher() }
 
         // Drive the ticks from a serial queue. Each tick re-points the
         // camera and asks for a fresh snapshot.
@@ -196,6 +222,7 @@ final class MapSnapshotSource: FrameSource {
         headingSubscription = nil
         pool = nil
         lastFrameBuffer = nil
+        stopBackgroundFetcher()
         if let bg = bgObserver { NotificationCenter.default.removeObserver(bg) }
         if let fg = fgObserver { NotificationCenter.default.removeObserver(fg) }
         bgObserver = nil
@@ -206,11 +233,12 @@ final class MapSnapshotSource: FrameSource {
     // MARK: - Per-tick render
 
     private func tick() {
-        // Background: don't touch Metal. Just re-emit the last frame so
-        // the dash decoder stays fed. PTS keeps advancing so the stream
-        // looks live (it's just frozen visually until we're back fg).
+        // Background: don't touch Metal. Re-emit the latest Static-API
+        // fetched frame (preferred) or, if none arrived yet, the last
+        // Snapshotter frame captured before lockscreen. PTS keeps
+        // advancing so the stream stays live for the dash decoder.
         if isInBackground {
-            if let buf = lastFrameBuffer {
+            if let buf = lastBgFrame ?? lastFrameBuffer {
                 let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
                 frameIndex &+= 1
                 onFrame?(buf, pts)
@@ -276,6 +304,74 @@ final class MapSnapshotSource: FrameSource {
         let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
         frameIndex &+= 1
         onFrame?(buffer, pts)
+    }
+
+    // MARK: - Background fetcher (Static Images API)
+
+    private func startBackgroundFetcher() {
+        bgFetchTask?.cancel()
+        bgFetchTask = Task { @MainActor [weak self] in
+            // Kick one fetch immediately so we don't wait 500 ms for
+            // the first background frame.
+            await self?.fetchOneStatic()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64((self?.bgFetchInterval ?? 0.5) * 1_000_000_000))
+                if Task.isCancelled { break }
+                await self?.fetchOneStatic()
+            }
+        }
+    }
+
+    private func stopBackgroundFetcher() {
+        bgFetchTask?.cancel()
+        bgFetchTask = nil
+        lastBgFrame = nil
+    }
+
+    private func fetchOneStatic() async {
+        guard let fix = lastFix else { return }
+        let bearing: CLLocationDirection = {
+            if let h = lastHeading, h.accuracy >= 0 { return h.trueHeading }
+            if fix.course >= 0 { return fix.course }
+            return 0
+        }()
+        guard let token = Bundle.main.object(forInfoDictionaryKey: "MBXAccessToken") as? String,
+              !token.isEmpty else {
+            log.error("Static fetch: MBXAccessToken missing")
+            return
+        }
+        let w = Int(frameSize.width)
+        let h = Int(frameSize.height)
+        let zoom = 16
+        // /styles/v1/{user}/{style_id}/static/{lon},{lat},{zoom},{bearing},{pitch}/{w}x{h}
+        // Use the same Mapbox Standard style as foreground so the look
+        // stays consistent across the lockscreen transition.
+        let pathStr = String(
+            format: "/styles/v1/mapbox/standard/static/%.6f,%.6f,%d,%.1f,0/%dx%d",
+            fix.coordinate.longitude, fix.coordinate.latitude, zoom, bearing, w, h
+        )
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = "api.mapbox.com"
+        comps.path = pathStr
+        comps.queryItems = [URLQueryItem(name: "access_token", value: token)]
+        guard let url = comps.url else { return }
+        do {
+            let (data, response) = try await urlSession.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                log.warning("Static API HTTP \(http.statusCode) (\(data.count) bytes)")
+                return
+            }
+            guard let img = UIImage(data: data) else {
+                log.warning("Static API returned undecodable image (\(data.count) bytes)")
+                return
+            }
+            guard let buf = pixelBuffer(from: img) else { return }
+            lastBgFrame = buf
+        } catch {
+            // Transient network failure — keep last frame, try again next tick.
+            log.debug("Static fetch error: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Pixel buffer plumbing
