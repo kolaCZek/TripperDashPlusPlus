@@ -373,6 +373,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
+				INFOPLIST_KEY_MBXAccessToken = "$(MBX_ACCESS_TOKEN)";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -413,6 +414,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
+				INFOPLIST_KEY_MBXAccessToken = "$(MBX_ACCESS_TOKEN)";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
