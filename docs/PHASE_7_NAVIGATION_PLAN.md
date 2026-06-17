@@ -1,169 +1,252 @@
-# Phase 7 — Turn-by-turn navigation (planning doc)
+# Phase 7 — Turn-by-turn navigation (planning doc, revised)
 
-> Status: not started. This doc captures the goal, the known
-> obstacles, and the candidate approaches so we don't lose context
-> between sessions.
+> Status: planning. On-bike connectivity test happens first (next
+> session). After that we start implementing 7b onward.
+>
+> Previous version of this doc focused on *can we even keep a live
+> map alive*. That's solved (mutually exclusive picker/navigation
+> phases, commit f21ad22). This revision is the feature plan.
 
 ## Goal
 
-Add destination selection + turn-by-turn navigation to TripperDash++:
+Full in-house turn-by-turn navigation that streams the route to the
+Tripper Dash via existing H.264 pipeline. No CarPlay, no third-party
+SDK, no Mapbox. All Apple Maps frameworks (MapKit + MKDirections +
+CoreLocation).
 
-1. **Pick destination from a real interactive map** — tap-to-drop pin,
-   search bar, "Use my current location", recent destinations.
-2. **Calculate route** via `MKDirections.calculate()`.
-3. **Stream the route line + next turn instruction overlay** to the
-   dash on top of the existing `MapSnapshotSource` pipeline.
-4. **Voice prompts** for upcoming turns via `AVSpeechSynthesizer`.
-5. **Camera follow** rider's heading + zoom-to-next-maneuver framing.
+## Decisions (locked in 2026-06-17)
 
-## The hard problem we already paid for
+- **Alternatives:** show plain "Route 1 / 2 / 3" with ETA + km. No
+  auto-labelling (Fastest/Shortest/Eco) — Apple doesn't return that
+  metadata and our guesses would be wrong as often as right.
+- **Voice prompts:** deferred. Phase 7 ships text-only. AVSpeechSynthesizer
+  cs-CZ comes in a later micro-phase once on-bike UX is dialed.
+- **Favorites:** unlimited list. Top 4 user-selected slots appear as
+  highlighted "Quick Access" tiles on the picker screen (default:
+  Home, Work, two empty). Rest live in an "Others" expandable section.
+- **Search bias:** `MKLocalSearchCompleter.region` = ~100 km box around
+  current location (covers practical day-trip range on a 450).
+  Fallback when GPS unavailable: bbox of ČR (`49.8°N, 15.5°E` ±300 km).
+  Soft bias only — results outside the box still appear, just ranked
+  lower. `resultTypes = [.address, .pointOfInterest]`.
+- **Pre-flight (no-dash) mode:** navigation works fully without the
+  bike connected. Picker/navigation UI is independent of `BikeLink`.
+  When `bikeLink.state == .connected` we additionally push the route
+  polyline to MapSnapshotSource for the dash. When not, we just don't.
+- **Route preferences:**
+  - **Avoid highways** — `MKDirections.Request.highwayPreference = .avoid`
+  - **Avoid tolls** — `MKDirections.Request.tollPreference = .avoid`
+  - **Avoid ferries** — *not directly supported by MKDirections API.*
+    Workaround: post-filter returned routes, reject any whose steps
+    contain `MKRoute.advisoryNotices` mentioning ferry or whose
+    polyline crosses known ferry water. Honest limitation: this is
+    imperfect. Likely fine for ČR (no real ferries on common routes).
+    Document the gap in Settings as "Best-effort, MKDirections has no
+    native ferry exclusion."
 
-We tried using SwiftUI `Map(position:)` in `MapPickerView` as a step
-toward interactive map UI. It crashed on `NavigationStack` pop with
-the classic `MTLDebugDevice` assertion:
+## Architecture
 
 ```
--[MTLDebugDevice notifyExternalReferencesNonZeroOnDealloc:] failed assertion
-'The following Metal object is being destroyed while still required to be alive
-by the command buffer …'
+┌─ MapPickerView (picker phase) ─────────────────────┐
+│  ┌─ Search bar (sticky top) ──────────────────────┐│
+│  │ "Where to?" → MKLocalSearchCompleter           ││
+│  └────────────────────────────────────────────────┘│
+│                                                    │
+│  ┌─ Quick Access (4 tiles) ───────────────────────┐│
+│  │ [Home] [Work] [+]    [+]                       ││
+│  └────────────────────────────────────────────────┘│
+│  ┌─ Others (collapsible) ─────────────────────────┐│
+│  │ • Mountain hut Zvolenves                       ││
+│  │ • Friend's garage                              ││
+│  └────────────────────────────────────────────────┘│
+│                                                    │
+│  ┌─ Live InteractiveMapView ──────────────────────┐│
+│  │  tap → drop pin → "Navigate here" sheet        ││
+│  │  long-press on existing favorite → edit/delete ││
+│  └────────────────────────────────────────────────┘│
+└────────────────────────────────────────────────────┘
+
+    ↓ user picks destination ↓
+
+┌─ Route preview ────────────────────────────────────┐
+│  Map shows all alternatives, selected one bold     │
+│  ┌─ Route 1 ─────────┐ 45 min  •  62 km            │
+│  │ via D7            │                            │
+│  └───────────────────┘                            │
+│  ┌─ Route 2 ─────────┐ 51 min  •  55 km            │
+│  │ via 16            │                            │
+│  └───────────────────┘                            │
+│  [Start navigation] (red CTA)                      │
+└────────────────────────────────────────────────────┘
+
+    ↓ Start ↓
+
+┌─ MapPickerView (navigation phase) ─────────────────┐
+│  ┌─ Next maneuver card ───────────────────────────┐│
+│  │  ↰ 350 m                                       ││
+│  │  Turn left onto Nová ulice                     ││
+│  └────────────────────────────────────────────────┘│
+│  ┌─ ETA strip ────────────────────────────────────┐│
+│  │  15:42  •  32 min  •  44 km remaining          ││
+│  └────────────────────────────────────────────────┘│
+│                                                    │
+│  [Stop navigation] (red CTA)                       │
+│                                                    │
+│  (no live map — dash gets the route view via the   │
+│   existing MapSnapshotSource pipeline if connected)│
+└────────────────────────────────────────────────────┘
 ```
 
-Root cause: SwiftUI's `Map` wraps `MKMapView`, which has its own
-CAMetalLayer command buffer. When SwiftUI dealloc's the wrapped view
-during navigation teardown, the Metal CB is still draining on the GPU
-and Apple's debug layer asserts. Tell-tale log line right before the
-crash: `CAMetalLayer ignoring invalid setDrawableSize width=0 height=0`
-(= MKMapView going to zero size mid-teardown).
+## Sub-phases (incremental, each independently testable)
 
-The workaround we shipped (commit `65b7575`): rip out the live map
-entirely and render `MKMapSnapshotter → UIImage` at 1 Hz instead.
-Works, but no pan/zoom/tap interactivity. Fine for a preview, useless
-for picking a destination.
+| Phase | What | Est. effort | Risk |
+|-------|------|-------------|------|
+| **7b** | Search bar + `MKLocalSearchCompleter` (autocomplete) + `MKLocalSearch` resolve → destination | ~3 h | low |
+| **7c** | Tap-to-drop pin on `InteractiveMapView` + "Navigate here" sheet | ~1 h | low |
+| **7d** | Favorites model + UserDefaults persistence + Quick Access tiles + Others list + add/edit/delete UI | ~3 h | low |
+| **7e** | `MKDirections` route preview screen: render alternatives, allow selection | ~3 h | low |
+| **7f** | Active navigation HUD: next maneuver card, ETA strip, remaining distance, on-route detection | ~4 h | medium (geometry math) |
+| **7g** | Route polyline + arrow overlay drawn into MapSnapshotSource → streamed to dash | ~3 h | medium (UIGraphicsImageRenderer compositing in tight FPS budget) |
+| **7h** | Reroute logic with hysteresis (off-route ≥ 60 m AND ≥ 5 s → reroute; min 30 s between reroutes) | ~3 h | medium (needs field test to tune thresholds) |
+| **7i** | Route Preferences Settings panel: avoid highways / tolls / ferries toggles, persisted | ~1 h | low |
 
-## Candidate approaches for Phase 7
+**Total ~23 h.** Realistic over a weekend.
 
-Listed in order of "cheapest to try" → "most invasive":
+## Build order rationale
 
-### A. UIViewRepresentable wrapper around MKMapView with hardened teardown
+`7b → 7c → 7d` unlocks "pick a destination" without any routing
+logic. Even at that point the app is useful for *trying* the workflow.
 
-Write our own `MapKitMapView: UIViewRepresentable` instead of using
-SwiftUI's `Map`. In `dismantleUIView(_:coordinator:)`:
+`7e → 7f` adds route preview and active navigation on the phone. Still
+no dash overlay.
 
-1. Set `mapView.delegate = nil` (cuts off callbacks immediately).
-2. Set `mapView.isHidden = true` and `removeFromSuperview()` — gets
-   the view out of the render tree before SwiftUI dealloc's it.
-3. Park the `MKMapView` in a `SnapshotterPark`-style ring buffer so
-   it stays alive past its Metal CB drain window.
+`7g` is where the dash starts showing the route. This is the
+high-stakes integration with the existing MapSnapshotSource ring
+buffer — we have to render the polyline into the 1052×600 supersample
+*and* keep the parking ring strategy intact. Risk: compositing the
+polyline at 6 FPS may push CPU above the budget. Mitigation: cache the
+polyline raster between snapshots since the route doesn't change every
+tick, only the user position moves.
 
-This is the cheapest fix in theory. The pitfall is that we have less
-control over MKMapView's Metal lifecycle than over MKMapSnapshotter's
-— Apple doesn't expose its command queue.
+`7h` (reroute) needs real on-bike testing — desktop simulator can't
+fake the GPS jitter that comes from real-world conditions (urban
+canyon, tunnel exit, etc.).
 
-Estimated effort: 1 hour to try, may or may not work.
+`7i` (route preferences) is genuinely 1 hour but ships last because the
+others need a working baseline before toggles matter.
 
-### B. Host the MKMapView outside the NavigationStack
+## API-level notes
 
-Keep one persistent `MKMapView` in the root `RootView`, and use SwiftUI
-`overlay`/`zIndex` to show/hide it on top of navigation children
-instead of pushing/popping it. The view never gets deallocated → no
-teardown race.
+### Search
 
-Downside: more architectural rework. The MKMapView has to coexist with
-unrelated screens (settings, diagnostics) without leaking state.
+```swift
+let completer = MKLocalSearchCompleter()
+completer.resultTypes = [.address, .pointOfInterest]
+completer.region = MKCoordinateRegion(
+    center: locationService.lastFix?.coordinate ?? czechRepublicCenter,
+    latitudinalMeters: 100_000,
+    longitudinalMeters: 100_000
+)
+completer.queryFragment = userTypedText  // triggers async updates
+// delegate: completerDidUpdateResults → completer.results: [MKLocalSearchCompletion]
+```
 
-Estimated effort: half a day.
+Resolve to actual coordinates on selection:
 
-### C. Present destination picker as a `.sheet` / `.fullScreenCover`
-
-Modal presentations have different lifecycle semantics than
-NavigationStack push/pop. Apple's own Maps app uses this pattern. If
-SwiftUI Map survives modal dismiss reliably, this is the simplest
-architectural fix.
-
-Estimated effort: ~2 hours, plus rework of the Connect/Disconnect
-button flow.
-
-### D. CarPlay / external display rendering
-
-Apple's official path for nav apps is to render the actual map UI
-on a CarPlay screen or via the new Live Activities / accessory APIs.
-Doesn't help us here (dash is over Wi-Fi, not CarPlay), but the API
-surfaces are interesting — `CPMapTemplate`, `CPRouteInformation` etc.
-have lifecycle Apple actually supports for nav.
-
-Doesn't solve the picker problem on the phone side. Skip for now.
-
-### E. Roll our own picker with a static map + tap recognition
-
-Use `MapPreviewView` (the 1 Hz UIImage we already have) and overlay a
-`TapGesture` that converts screen-space tap → map coordinate via the
-`MKMapSnapshotter.SnapshotPoint(for:)` inverse. Add a search bar that
-calls `MKLocalSearch`. No live map view at all → no crash possible.
-
-Downside: no pinch zoom, no pan; user has to type address or zoom by
-buttons. UX is meh but it would 100% not crash.
-
-Estimated effort: half a day.
-
-## Recommended approach (subject to revisit)
-
-**Start with A.** It's the cheapest reality check on whether we can
-keep a live map at all. If A still crashes after `dismantleUIView`
-hardening, jump to **C** (sheet presentation) since that's the next
-most idiomatic SwiftUI pattern. If both fail, fall back to **E**
-(static picker with tap → coordinate). **B** is overkill unless we end
-up wanting one map view across many screens.
-
-**Do NOT bring Mapbox back.** The background GPU restriction is the
-real blocker, not the renderer. Mapbox would re-introduce the SDK +
-token plumbing for zero gain.
-
-## Implementation notes for whenever we get there
+```swift
+let req = MKLocalSearch.Request(completion: selected)
+let response = try await MKLocalSearch(request: req).start()
+let item = response.mapItems.first  // has .placemark.coordinate + address
+```
 
 ### Routing
-- `MKDirections.Request().source/destination = MKMapItem(...)`
-- `request.transportType = .automobile` — Apple Maps has motorcycle?
-  Last I checked no, `.automobile` is closest.
-- `request.requestsAlternateRoutes = false` — we only want the
-  primary route.
 
-### Turn-by-turn data
-- `MKRoute.steps: [MKRouteStep]`
-  - `.instructions: String` — "In 200 meters, turn right onto Foo St."
-  - `.distance: CLLocationDistance` — meters to this step's start
-  - `.polyline: MKPolyline` — geometry for highlighting
-  - `.transportType` etc.
-- Track active step via geofencing on the rider's GPS fix; when within
-  N meters of next maneuver, fire voice prompt + dash overlay.
+```swift
+let req = MKDirections.Request()
+req.source = .forCurrentLocation()
+req.destination = MKMapItem(placemark: MKPlacemark(coordinate: dest))
+req.transportType = .automobile
+req.requestsAlternateRoutes = true
+req.highwayPreference = preferences.avoidHighways ? .avoid : .any
+req.tollPreference = preferences.avoidTolls ? .avoid : .any
 
-### Voice prompts
-- `AVSpeechSynthesizer` with a `cs-CZ` voice (Martin rides in CZ).
-- Pre-announce at 500 m, 100 m, "now".
-- Play through the wakelock audio session — already plumbed for
-  background keep-alive, just switch from silent buffer to TTS audio
-  on prompt.
+let response = try await MKDirections(request: req).calculate()
+let routes = response.routes
+    .filter { preferences.avoidFerries ? !routeUsesFerry($0) : true }
+    .prefix(3)
+```
 
-### Dash overlay
-- Add a `RouteOverlay` layer to `MapSnapshotSource` that draws the
-  active `MKPolyline` step in a high-contrast color on top of the
-  snapshot before encoding.
-- Top-left corner gets "↰ 200 m" (next maneuver direction arrow +
-  distance) as a `UIGraphicsImageRenderer` overlay.
+### Active nav — on-route detection
 
-### Forward compat already in place
+```swift
+// Each location update:
+let dist = polyline.distance(from: currentCoord)  // perpendicular distance
+let onRoute = dist < 60  // meters
+let progressIndex = polyline.nearestSegmentIndex(to: currentCoord)
+let remaining = polyline.length(from: progressIndex)
+let nextManeuver = route.steps.first { $0.polyline.startIndex > progressIndex }
+```
 
-`AppStatus.sourceKind: SourceKind` enum was added in Phase 5 with
-`.liveMap` default and a placeholder `.navigation` case reserved.
-When we add Phase 7, `MapSnapshotSource` switches on `sourceKind` to
-decide whether to draw the route overlay. Already wired.
+`MKPolyline` doesn't expose `distance(from:)` natively — we'll compute
+it via Haversine on each segment. Cache last `progressIndex` so we
+only walk forward, not the full polyline every tick.
 
-## What NOT to forget
+### Reroute hysteresis
 
-- The whole reason for `MKMapSnapshotter` over `MKMapView` for the
-  streaming path is the iOS 16+ background GPU restriction. Phase 7
-  navigation rendering on the **dash side** still goes through
-  `MapSnapshotSource` (which uses MKMapSnapshotter and survives
-  background). Only the **picker UI** in the foreground needs a live
-  interactive map.
-- `SnapshotterPark` ring buffer pattern in `MapSnapshotSource.swift`
-  is reusable for any `MKMapView` parking we end up needing in A.
+```swift
+if !onRoute {
+    if offRouteSince == nil { offRouteSince = .now }
+    if .now - offRouteSince! > 5 && distFromRoute > 60 {
+        if .now - lastReroute > 30 {
+            await reroute(from: currentCoord, to: destination)
+            lastReroute = .now
+        }
+    }
+} else {
+    offRouteSince = nil
+}
+```
+
+## Persistence schema
+
+`UserDefaults` keys (single struct, JSON-encoded):
+
+```swift
+struct NavSettings: Codable {
+    var favorites: [Favorite]              // ordered list
+    var quickAccessSlotIds: [UUID?]        // exactly 4 slots, nil = empty
+    var avoidHighways: Bool
+    var avoidTolls: Bool
+    var avoidFerries: Bool
+}
+
+struct Favorite: Codable, Identifiable {
+    let id: UUID
+    var name: String           // "Home", "Work", custom
+    var icon: String?          // SF Symbol name, optional
+    var coordinate: CLLocationCoordinate2D
+    var addressLine: String?   // for display
+    var createdAt: Date
+}
+```
+
+Migration plan: none yet (greenfield). When schema changes, bump a
+`schemaVersion: Int` field and write a one-shot migrator.
+
+## Open questions for later
+
+- Should "Start navigation" automatically `connect()` the bike if it's
+  in `.idle`? Or stay manual? (Current thinking: stay manual — user
+  may want to plan a route at home before riding.)
+- Lock-screen Live Activity with ETA + next maneuver? `ActivityKit`
+  works without CarPlay entitlement. Nice-to-have for later.
+- Apple Maps' "search along route" — we could query POIs (fuel,
+  coffee) within N km of current route. Phase 8 material.
+
+## Reference
+
+- [`MKLocalSearchCompleter`](https://developer.apple.com/documentation/mapkit/mklocalsearchcompleter)
+- [`MKDirections`](https://developer.apple.com/documentation/mapkit/mkdirections)
+- [`MKRoute.steps`](https://developer.apple.com/documentation/mapkit/mkroute/1452466-steps)
+- [`MKDirections.Request.tollPreference`](https://developer.apple.com/documentation/mapkit/mkdirections/request/3856130-tollpreference) (iOS 16+)
+- [`MKDirections.Request.highwayPreference`](https://developer.apple.com/documentation/mapkit/mkdirections/request/3856129-highwaypreference) (iOS 16+)
