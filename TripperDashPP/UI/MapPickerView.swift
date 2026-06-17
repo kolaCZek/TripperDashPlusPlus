@@ -2,32 +2,44 @@
 //  MapPickerView.swift
 //  TripperDashPP
 //
-//  Phase 5 — live Mapbox preview with the current GPS centered. Phase 6
+//  Phase 5 — live Apple Maps preview with the current GPS centered. Phase 6
 //  (real one — destinations + routing, not the keep-alive Phase 6 we
 //  already shipped) will add a search bar and route line on top.
 //
+//  This view uses MKMapView via SwiftUI's `Map` (iOS 17+) so the preview
+//  shows exactly the same renderer that MKMapSnapshotter uses on the
+//  streaming path — what you see here is what the dash sees.
+//
 
 import CoreLocation
-import MapboxMaps
+import MapKit
 import SwiftUI
 
 struct MapPickerView: View {
     @Environment(AppStatus.self) private var status
-    @State private var mapViewport: Viewport = .followPuck(zoom: 14, bearing: .heading, pitch: 0)
+    @State private var cameraPosition: MapCameraPosition = .userLocation(
+        followsHeading: true,
+        fallback: .automatic
+    )
 
     var body: some View {
         VStack(spacing: 0) {
             // Status banner — wired up in Phase 3.
             StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
 
-            // Phase 5: live Mapbox preview. Same renderer that the
-            // dash sees, but at the phone's native size — handy as a
-            // sanity check that what's on the dash matches reality.
+            // Phase 5: live Apple Maps preview. Same renderer that the
+            // dash sees via MKMapSnapshotter, but at the phone's native
+            // size — handy as a sanity check that what's on the dash
+            // matches reality.
             ZStack {
-                Map(viewport: $mapViewport) {
-                    Puck2D(bearing: .heading)
+                Map(position: $cameraPosition) {
+                    UserAnnotation()
                 }
-                .mapStyle(.standard)
+                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
+                .mapControls {
+                    MapUserLocationButton()
+                    MapCompass()
+                }
                 .ignoresSafeArea(edges: .horizontal)
                 .onAppear {
                     // Subscribe to GPS so the puck has a location to chase.

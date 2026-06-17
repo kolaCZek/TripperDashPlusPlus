@@ -2,25 +2,24 @@
 //  MapSnapshotSource.swift
 //  TripperDashPP
 //
-//  Phase 5 — Mapbox-backed FrameSource. Drives the dash with a live
+//  Phase 5 — Apple Maps-backed FrameSource. Drives the dash with a live
 //  map view centred on the rider's current GPS, redrawn at 12 fps and
 //  handed to the H.264 encoder as 526×300 BGRA pixel buffers.
 //
-//  Why Snapshotter and not a hidden MapView in a UIWindow?
+//  Why MKMapSnapshotter and not Mapbox?
 //
-//    - Snapshotter is Mapbox's first-class off-screen render path.
-//      It's the supported, documented API for "give me a UIImage of a
-//      map at these camera params"; the hidden-MapView trick relies on
-//      private-ish UIWindow lifecycle assumptions and breaks across
-//      Mapbox SDK upgrades.
-//    - On a static-camera ride (highway cruise) it caches tiles
-//      aggressively, so the per-tick cost is mostly camera reposition
-//      + GPU composite — fast enough for our 12 fps target on iPhone
-//      13+.
-//    - The Phase 7 nav engine can layer route geometry on top via
-//      `Snapshotter.options.layers` without a second renderer.
+//    - Mapbox iOS SDK renders via Metal. iOS 16+ kills any Metal command
+//      buffer submitted from a non-foreground process, which means the
+//      stream froze the moment the rider locked the screen. The rider's
+//      use case is "phone in pocket on the bike", i.e. always background.
+//    - Apple's MapKit is the native, system-level map framework. Whether
+//      MKMapSnapshotter is permitted to render in the background is
+//      undocumented — we're testing it. If it survives lockscreen we
+//      win (no quota, no token, no SDK dependency).
+//    - Even foreground-only this removes the Mapbox account / token /
+//      quota plumbing and the SPM dependency from the streaming path.
 //
-//  Design notes for future phases:
+//  Design notes:
 //    - `MapSnapshotSource` consumes `LocationService` updates rather
 //      than owning a CLLocationManager. That keeps the wakelock + map
 //      camera + (future) nav engine on a single shared GPS subscription.
@@ -32,8 +31,11 @@
 //  Failure modes the encoder downstream tolerates:
 //    - Snapshotter is busy / mid-tile-fetch → we skip the tick (no
 //      callback). Better to drop a frame than queue stale captures.
-//    - No GPS fix yet → render a "Acquiring GPS…" placeholder so the
+//    - No GPS fix yet → render an "Acquiring GPS…" placeholder so the
 //      dash shows something instead of stale loading dots.
+//    - Snapshotter returns an error (typically rate-limit or background
+//      GPU rejection) → re-emit the last good frame so the dash decoder
+//      stays fed; PTS keeps advancing so the stream looks live.
 //
 
 import CoreGraphics
@@ -41,7 +43,7 @@ import CoreLocation
 import CoreMedia
 import CoreVideo
 import Foundation
-import MapboxMaps
+import MapKit
 import os.log
 import UIKit
 
@@ -60,7 +62,9 @@ final class MapSnapshotSource: FrameSource {
 
     // MARK: - State
 
-    private var snapshotter: Snapshotter?
+    /// Live snapshotter held strongly during a render so MapKit doesn't
+    /// deallocate it mid-load.
+    private var currentSnapshotter: MKMapSnapshotter?
     private var locationToken: UUID?
     private var fixSubscription: LocationSubscription?
     private var headingSubscription: LocationSubscription?
@@ -72,46 +76,23 @@ final class MapSnapshotSource: FrameSource {
     private var frameIndex: UInt64 = 0
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
-    /// Guards against overlapping snapshot requests. Snapshotter can take
-    /// 50–200 ms per call (tile fetch + render); if we fire another tick
-    /// while one is in flight we'd just back up the queue and lag the
-    /// display behind the rider's position. Drop the tick instead.
+    /// Guards against overlapping snapshot requests. MKMapSnapshotter can
+    /// take 50–250 ms per call (tile fetch + render); if we fire another
+    /// tick while one is in flight we'd back up the queue and lag behind
+    /// the rider's position. Drop the tick instead.
     private var snapshotInFlight = false
 
-    /// Last successfully emitted frame. While the app is in the background
-    /// (screen locked) iOS forbids Metal command buffer submission, so we
-    /// can't render fresh map tiles. Instead of starving the dash of RTP
-    /// (which would freeze its decoder and trip K1G heartbeat timeout),
-    /// we keep re-emitting this buffer at the target fps with fresh PTS.
-    /// The dash sees a "frozen but live" stream.
+    /// Last successfully emitted frame. We re-emit it whenever the
+    /// snapshotter fails (background GPU rejection, throttling, transient
+    /// network) so the dash decoder never starves and the K1G heartbeat
+    /// stays alive. PTS keeps advancing so the stream looks live even
+    /// when the picture is frozen.
     private var lastFrameBuffer: CVPixelBuffer?
 
-    /// True between `UIApplication.didEnterBackground` and
-    /// `willEnterForeground`. Snapshotter calls are suppressed while set.
-    private var isInBackground = false
-
-    /// Lifecycle observers held for the duration of streaming.
-    private var bgObserver: NSObjectProtocol?
-    private var fgObserver: NSObjectProtocol?
-
-    /// Background fallback path. When the screen goes off iOS forbids
-    /// Metal command-buffer submission, so the Snapshotter (which uses
-    /// Metal) can't render. Static Images API is a plain HTTPS PNG
-    /// fetch — pure CPU + network, allowed in the background while the
-    /// audio + location wakelock keeps the process alive.
-    ///
-    /// We poll at ~2 fps (network roundtrip + Mapbox quota friendly) and
-    /// the tick loop re-emits the latest fetched frame at the full
-    /// target fps so the dash decoder never starves.
-    private var bgFetchTask: Task<Void, Never>?
-    private var lastBgFrame: CVPixelBuffer?
-    private let bgFetchInterval: TimeInterval = 0.5
-    private lazy var urlSession: URLSession = {
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.timeoutIntervalForRequest = 4
-        cfg.waitsForConnectivity = true
-        return URLSession(configuration: cfg)
-    }()
+    /// Diagnostics: consecutive snapshotter failures, reset on success.
+    /// If this climbs high while the screen is off, we know Apple Maps
+    /// hit the same Metal background restriction as Mapbox did.
+    private var consecutiveFailures: Int = 0
 
     /// Reusable pool keeps allocation pressure low at 12 fps.
     private var pool: CVPixelBufferPool?
@@ -148,56 +129,8 @@ final class MapSnapshotSource: FrameSource {
             }
         }
 
-        // v11 removed ResourceOptionsManager — the public token is read
-        // from Info.plist (MBXAccessToken) at framework init. We just
-        // pass size + pixel ratio.
-        let opts = MapSnapshotOptions(
-            size: frameSize,
-            pixelRatio: 1.0
-        )
-        let snap = Snapshotter(options: opts)
-        // Standard — same style as the in-app MapPickerView preview, so
-        // the rider sees the exact look they picked from on the dash.
-        snap.styleURI = StyleURI(rawValue: "mapbox://styles/mapbox/standard")
-        snapshotter = snap
-
-        // Observe app lifecycle so we can suspend Metal work in the
-        // background — iOS 16+ kills GPU command buffers submitted while
-        // the app is not foreground (kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted).
-        // The wakelock (audio + location) keeps the process alive; this
-        // observer just makes sure we don't try to render with the screen off.
-        isInBackground = (UIApplication.shared.applicationState != .active)
-        let center = NotificationCenter.default
-        bgObserver = center.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.isInBackground = true
-                self.log.info("App → background: switching to Static Images API fallback")
-                self.startBackgroundFetcher()
-            }
-        }
-        fgObserver = center.addObserver(
-            forName: UIApplication.willEnterForegroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.isInBackground = false
-                self.stopBackgroundFetcher()
-                self.log.info("App → foreground: resuming Snapshotter (Metal)")
-            }
-        }
-        // If we launched directly into background (rare but possible),
-        // kick the fetcher right away — no need to wait for a transition.
-        if isInBackground { startBackgroundFetcher() }
-
-        // Drive the ticks from a serial queue. Each tick re-points the
-        // camera and asks for a fresh snapshot.
+        // Drive the ticks from a serial queue. Each tick builds a fresh
+        // MKMapSnapshotter pointed at the rider and asks for an image.
         let interval = 1.0 / Double(targetFps)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(2))
@@ -206,13 +139,14 @@ final class MapSnapshotSource: FrameSource {
         }
         self.timer = timer
         timer.resume()
-        log.info("MapSnapshotSource started (\(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
+        log.info("MapSnapshotSource started (Apple Maps, \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
     }
 
     func stop() {
         timer?.cancel()
         timer = nil
-        snapshotter = nil
+        currentSnapshotter?.cancel()
+        currentSnapshotter = nil
         onFrame = nil
         if let service = locationService, let token = locationToken {
             service.stop(token: token)
@@ -222,31 +156,14 @@ final class MapSnapshotSource: FrameSource {
         headingSubscription = nil
         pool = nil
         lastFrameBuffer = nil
-        stopBackgroundFetcher()
-        if let bg = bgObserver { NotificationCenter.default.removeObserver(bg) }
-        if let fg = fgObserver { NotificationCenter.default.removeObserver(fg) }
-        bgObserver = nil
-        fgObserver = nil
+        consecutiveFailures = 0
         log.info("MapSnapshotSource stopped after \(self.frameIndex) frames")
     }
 
     // MARK: - Per-tick render
 
     private func tick() {
-        // Background: don't touch Metal. Re-emit the latest Static-API
-        // fetched frame (preferred) or, if none arrived yet, the last
-        // Snapshotter frame captured before lockscreen. PTS keeps
-        // advancing so the stream stays live for the dash decoder.
-        if isInBackground {
-            if let buf = lastBgFrame ?? lastFrameBuffer {
-                let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
-                frameIndex &+= 1
-                onFrame?(buf, pts)
-            }
-            return
-        }
-
-        guard !snapshotInFlight, let snapshotter else { return }
+        guard !snapshotInFlight else { return }
 
         // No fix yet → render the placeholder synchronously so the dash
         // shows "Acquiring GPS…" instead of stale loading dots.
@@ -255,37 +172,75 @@ final class MapSnapshotSource: FrameSource {
             return
         }
 
-        // Point the camera at the rider. Bearing follows compass heading
-        // when valid (positive accuracy), otherwise we fall back to
-        // course-over-ground from the GPS speed vector. Zoom 16 is the
-        // navigation-style "next 200 m" framing.
-        let bearing: CLLocationDirection? = {
+        // Bearing follows compass heading when valid (positive accuracy),
+        // otherwise we fall back to course-over-ground from the GPS
+        // speed vector. Zero on no signal.
+        let bearing: CLLocationDirection = {
             if let h = lastHeading, h.accuracy >= 0 { return h.trueHeading }
             if fix.course >= 0 { return fix.course }
-            return nil
+            return 0
         }()
-        let camera = CameraOptions(
-            center: fix.coordinate,
-            padding: nil,
-            anchor: nil,
-            zoom: 16,
-            bearing: bearing,
-            pitch: 0
-        )
-        snapshotter.setCamera(to: camera)
 
+        // 500 m visible distance ≈ Mapbox zoom 16 framing — the "next
+        // 200 m" view used by most turn-by-turn nav apps.
+        let camera = MKMapCamera(
+            lookingAtCenter: fix.coordinate,
+            fromDistance: 500,
+            pitch: 0,
+            heading: bearing
+        )
+
+        let options = MKMapSnapshotter.Options()
+        options.size = frameSize
+        options.scale = 1.0      // dash is 526×300 1:1, no @2x needed
+        options.camera = camera
+        if #available(iOS 16.0, *) {
+            // .mutedStandard de-emphasises POIs so the road geometry is
+            // the dominant element — better readability on a small TFT.
+            options.preferredConfiguration = MKStandardMapConfiguration(
+                elevationStyle: .flat,
+                emphasisStyle: .muted
+            )
+        } else {
+            options.mapType = .mutedStandard
+        }
+        options.pointOfInterestFilter = .excludingAll
+
+        let snapshotter = MKMapSnapshotter(options: options)
+        currentSnapshotter = snapshotter
         snapshotInFlight = true
         let captureIndex = frameIndex
-        snapshotter.start(overlayHandler: nil) { [weak self] result in
+
+        snapshotter.start(with: .main) { [weak self] snapshot, error in
             Task { @MainActor in
                 guard let self else { return }
                 self.snapshotInFlight = false
-                switch result {
-                case .success(let image):
-                    self.emitImage(image, index: captureIndex)
-                case .failure(let err):
-                    self.log.warning("Snapshotter failed: \(err.localizedDescription)")
-                    self.emitPlaceholder(message: "Map error")
+                if self.currentSnapshotter === snapshotter {
+                    self.currentSnapshotter = nil
+                }
+                if let snap = snapshot {
+                    self.consecutiveFailures = 0
+                    self.emitImage(snap.image, index: captureIndex)
+                } else {
+                    self.consecutiveFailures &+= 1
+                    let nserr = (error as NSError?)
+                    let code = nserr?.code ?? -1
+                    let desc = error?.localizedDescription ?? "unknown"
+                    // Log loudly the first failure in a streak, then go
+                    // quiet — no point spamming hundreds of identical
+                    // lines if we hit a sustained block (e.g. lockscreen).
+                    if self.consecutiveFailures == 1 || self.consecutiveFailures % 60 == 0 {
+                        self.log.warning("MKMapSnapshotter failed [#\(self.consecutiveFailures)] code=\(code): \(desc)")
+                    }
+                    // Re-emit the last good frame so the dash decoder
+                    // keeps getting RTP at full rate.
+                    if let buf = self.lastFrameBuffer {
+                        let pts = CMTime(value: CMTimeValue(captureIndex), timescale: CMTimeScale(self.targetFps))
+                        self.frameIndex = captureIndex &+ 1
+                        self.onFrame?(buf, pts)
+                    } else {
+                        self.emitPlaceholder(message: "Map error")
+                    }
                 }
             }
         }
@@ -304,74 +259,6 @@ final class MapSnapshotSource: FrameSource {
         let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
         frameIndex &+= 1
         onFrame?(buffer, pts)
-    }
-
-    // MARK: - Background fetcher (Static Images API)
-
-    private func startBackgroundFetcher() {
-        bgFetchTask?.cancel()
-        bgFetchTask = Task { @MainActor [weak self] in
-            // Kick one fetch immediately so we don't wait 500 ms for
-            // the first background frame.
-            await self?.fetchOneStatic()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64((self?.bgFetchInterval ?? 0.5) * 1_000_000_000))
-                if Task.isCancelled { break }
-                await self?.fetchOneStatic()
-            }
-        }
-    }
-
-    private func stopBackgroundFetcher() {
-        bgFetchTask?.cancel()
-        bgFetchTask = nil
-        lastBgFrame = nil
-    }
-
-    private func fetchOneStatic() async {
-        guard let fix = lastFix else { return }
-        let bearing: CLLocationDirection = {
-            if let h = lastHeading, h.accuracy >= 0 { return h.trueHeading }
-            if fix.course >= 0 { return fix.course }
-            return 0
-        }()
-        guard let token = Bundle.main.object(forInfoDictionaryKey: "MBXAccessToken") as? String,
-              !token.isEmpty else {
-            log.error("Static fetch: MBXAccessToken missing")
-            return
-        }
-        let w = Int(frameSize.width)
-        let h = Int(frameSize.height)
-        let zoom = 16
-        // /styles/v1/{user}/{style_id}/static/{lon},{lat},{zoom},{bearing},{pitch}/{w}x{h}
-        // Use the same Mapbox Standard style as foreground so the look
-        // stays consistent across the lockscreen transition.
-        let pathStr = String(
-            format: "/styles/v1/mapbox/standard/static/%.6f,%.6f,%d,%.1f,0/%dx%d",
-            fix.coordinate.longitude, fix.coordinate.latitude, zoom, bearing, w, h
-        )
-        var comps = URLComponents()
-        comps.scheme = "https"
-        comps.host = "api.mapbox.com"
-        comps.path = pathStr
-        comps.queryItems = [URLQueryItem(name: "access_token", value: token)]
-        guard let url = comps.url else { return }
-        do {
-            let (data, response) = try await urlSession.data(from: url)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                log.warning("Static API HTTP \(http.statusCode) (\(data.count) bytes)")
-                return
-            }
-            guard let img = UIImage(data: data) else {
-                log.warning("Static API returned undecodable image (\(data.count) bytes)")
-                return
-            }
-            guard let buf = pixelBuffer(from: img) else { return }
-            lastBgFrame = buf
-        } catch {
-            // Transient network failure — keep last frame, try again next tick.
-            log.debug("Static fetch error: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Pixel buffer plumbing
@@ -396,9 +283,10 @@ final class MapSnapshotSource: FrameSource {
     }
 
     /// Draws a UIImage into a fresh BGRA pixel buffer at exactly the
-    /// dash's native size. Snapshotter already gives us the right size
-    /// thanks to MapSnapshotOptions, but we still need to convert from
-    /// UIImage's CGImage to a CVPixelBuffer for VideoToolbox.
+    /// dash's native size. MKMapSnapshotter already gives us the right
+    /// size thanks to MKMapSnapshotter.Options.size, but we still need
+    /// to convert from UIImage's CGImage to a CVPixelBuffer for
+    /// VideoToolbox.
     private func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
         guard let pool, let cgImage = image.cgImage else { return nil }
         var buffer: CVPixelBuffer?
@@ -456,7 +344,7 @@ final class MapSnapshotSource: FrameSource {
                 | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
 
-        // Dark background matching the navigation-night style.
+        // Dark background, readable on the small TFT.
         ctx.setFillColor(red: 0.05, green: 0.07, blue: 0.10, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
