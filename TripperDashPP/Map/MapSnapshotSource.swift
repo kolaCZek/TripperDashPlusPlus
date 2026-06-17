@@ -324,24 +324,37 @@ final class MapSnapshotSource: FrameSource {
         }
     }
 
-    /// Holds an MKMapSnapshotter alive for `snapshotterGracePeriod`
-    /// seconds after its completion callback fires, so the underlying
-    /// Metal command buffer has time to finish executing on the GPU
-    /// before the snapshotter is deallocated.
+    /// Holds an MKMapSnapshotter alive after its completion callback
+    /// fires, so the underlying Metal command buffer has time to
+    /// finish executing on the GPU before the snapshotter is
+    /// deallocated.
     ///
-    /// Static (not instance-bound) so a snapshot in flight survives
-    /// even if the owning MapSnapshotSource is torn down — otherwise
-    /// stopping the stream mid-render would still crash.
+    /// Previous implementation used `Task.detached` with a 3 s sleep,
+    /// but `Task.sleep` is wall-clock based and iOS suspends background
+    /// tasks aggressively. When the app spent time in background, the
+    /// timer would fire prematurely relative to the (also-suspended)
+    /// GPU work, the snapshotter would be released, and the Metal CB
+    /// would crash on resume.
+    ///
+    /// Current implementation: bounded LIFO ring buffer at class level.
+    /// Each snapshotter is retained until pushed out by 99 newer ones.
+    /// At 6 fps that's ~16 s of natural retention, fully decoupled from
+    /// wall-clock time and immune to background scheduler suspension.
+    /// Memory cost: snapshotter holds a few hundred KB, total cap ~50 MB,
+    /// well under what iOS cares about for an app actively rendering.
+    private static let parkLock = NSLock()
+    private static var parkRing: [MKMapSnapshotter] = []
+    private static let parkCapacity = 100
+
     nonisolated static func parkSnapshotter(_ snapshotter: MKMapSnapshotter) {
-        Task.detached { [snapshotter] in
-            // The capture list pins `snapshotter` for the duration of
-            // this task. 3 s is well past any observed GPU completion
-            // time (typical 50–300 ms, worst case 1 s under heavy
-            // thermal throttling).
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            // Touching the variable here keeps ARC from optimising the
-            // capture away on release builds.
-            _ = snapshotter
+        parkLock.lock()
+        defer { parkLock.unlock() }
+        parkRing.append(snapshotter)
+        if parkRing.count > parkCapacity {
+            // Drop the oldest. By the time it's been pushed out by
+            // `parkCapacity` newer snapshotters, the GPU has definitely
+            // finished its work.
+            parkRing.removeFirst(parkRing.count - parkCapacity)
         }
     }
 
