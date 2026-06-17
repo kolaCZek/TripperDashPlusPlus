@@ -19,6 +19,10 @@
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
+		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
+		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
+		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
+		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +40,10 @@
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
 		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
+		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
+		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
+		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
+		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +61,7 @@
 		A41A9C442FE20258009BF005 = {
 			isa = PBXGroup;
 			children = (
+				A4E71CA12FE3128D00CFD473 /* Stream */,
 				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A486F0432FE2034700AA36C3 /* App */,
@@ -100,6 +109,17 @@
 				A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */,
 			);
 			path = Tripper;
+			sourceTree = "<group>";
+		};
+		A4E71CA12FE3128D00CFD473 /* Stream */ = {
+			isa = PBXGroup;
+			children = (
+				A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */,
+				A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */,
+				A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */,
+				A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */,
+			);
+			path = Stream;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -184,6 +204,10 @@
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
+				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
+				A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */,
+				A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */,
+				A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */,
 				A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */,
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
