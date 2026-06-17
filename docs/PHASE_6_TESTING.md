@@ -98,6 +98,24 @@ If real-world numbers are wildly worse, drop `desiredAccuracy` to
 `kCLLocationAccuracyKilometer` — the wakelock survives at any accuracy
 level, GPS chip just runs less often.
 
+## Test 4b — link drop drops the wakelock
+
+Background mode is gated on `bikeLink.state == .connected`. If the bike
+disappears (rider parks 100 m from the bike, Wi-Fi out of range), we
+must NOT hold a wakelock burning battery for nothing.
+
+1. Start streaming — confirm dash shows video.
+2. Lock the screen.
+3. Walk out of Wi-Fi range (or pull the fake-dash Docker container).
+4. Wait ~10 s for the heartbeat timeout to flip `bikeLink.state` away
+   from `.connected`.
+5. Unlock the phone. Expect:
+   - Streaming has stopped (badge "Wakelock Active" is gone).
+   - Status row reads `disconnected` or `error`.
+   - Battery indicator: no blue location pill.
+6. Walk back into range, reconnect → start streaming again. Wakelock
+   should re-arm.
+
 ## Test 5 — user can disable it
 
 The toggle exists because some users may prefer to stream only with the
