@@ -138,6 +138,20 @@ struct StreamingView: View {
                 }
             }
 
+            Section("Route preferences") {
+                Toggle("Avoid highways", isOn: Binding(
+                    get: { status.navigationStore.routePreferences.avoidHighways },
+                    set: { status.navigationStore.setAvoidHighways($0) }
+                ))
+                Toggle("Avoid tolls", isOn: Binding(
+                    get: { status.navigationStore.routePreferences.avoidTolls },
+                    set: { status.navigationStore.setAvoidTolls($0) }
+                ))
+                Text("Applied to new route calculations and reroutes.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
             Section("Build") {
                 LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildNumber))")
             }

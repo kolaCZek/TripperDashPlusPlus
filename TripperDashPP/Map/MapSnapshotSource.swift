@@ -119,8 +119,15 @@ final class MapSnapshotSource: FrameSource {
 
     // MARK: - Init
 
-    init(locationService: LocationService) {
+    /// Optional navigator — when set and active, the snapshot is post-
+    /// processed: route polyline drawn on top, next-step glyph drawn
+    /// in the bottom-left corner so the dash shows the same turn cue
+    /// as the phone HUD.
+    private weak var activeNavigator: ActiveNavigator?
+
+    init(locationService: LocationService, activeNavigator: ActiveNavigator? = nil) {
         self.locationService = locationService
+        self.activeNavigator = activeNavigator
     }
 
     deinit {
@@ -295,7 +302,8 @@ final class MapSnapshotSource: FrameSource {
                 }
                 if let snap = snapshot {
                     self.consecutiveFailures = 0
-                    if let buf = self.pixelBuffer(from: snap.image) {
+                    let composed = self.composeOverlay(on: snap)
+                    if let buf = self.pixelBuffer(from: composed) {
                         self.latestSnapshot = buf
                     }
                 } else {
@@ -380,6 +388,122 @@ final class MapSnapshotSource: FrameSource {
     /// scale (1052×600 of source pixels) and then downsample here into
     /// the 526×300 buffer — gives smoother glyphs and road antialiasing
     /// after the H.264 encoder rounds everything.
+    /// Post-process the MKMapSnapshot to overlay the active route
+    /// polyline and a next-step maneuver glyph. Returns the original
+    /// snapshot image when no navigation is active — so this is also
+    /// the right path for the no-nav streaming case (test, pre-flight).
+    private func composeOverlay(on snap: MKMapSnapshot) -> UIImage {
+        let baseImage = snap.image
+        guard let nav = activeNavigator, nav.isNavigating,
+              let polyline = nav.activeRoute?.polyline else {
+            return baseImage
+        }
+
+        let size = baseImage.size
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = baseImage.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+
+        return renderer.image { ctx in
+            baseImage.draw(at: .zero)
+            let cg = ctx.cgContext
+
+            // Polyline — convert each point to image space via the
+            // snapshot's own projection so it lines up with the
+            // rendered streets.
+            let count = polyline.pointCount
+            guard count >= 2 else { return }
+
+            cg.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.85).cgColor)
+            cg.setLineWidth(8)
+            cg.setLineCap(.round)
+            cg.setLineJoin(.round)
+
+            let coords = polylineCoordinates(polyline)
+            var started = false
+            for coord in coords {
+                let p = snap.point(for: coord)
+                // Skip points outside the snapshot (saves a tiny bit
+                // of CG work for routes that extend off-screen).
+                guard p.x.isFinite, p.y.isFinite else { continue }
+                if !started {
+                    cg.move(to: p)
+                    started = true
+                } else {
+                    cg.addLine(to: p)
+                }
+            }
+            cg.strokePath()
+
+            // Next-step glyph in the bottom-left corner, sized to the
+            // dash. Render text below it so the rider can read both at
+            // a glance. Background is a rounded translucent slab.
+            if let step = nav.nextStep {
+                let glyph = ManeuverGlyph.symbol(for: step)
+                let distText = ActiveNavigator.formatDistance(nav.distanceToNextStep)
+                drawManeuverCard(in: cg, size: size, glyph: glyph, distance: distText)
+            }
+        }
+    }
+
+    /// Helper: pull a `[CLLocationCoordinate2D]` out of an MKPolyline
+    /// without UB. `getCoordinates(_:range:)` writes into a buffer we
+    /// allocate.
+    private func polylineCoordinates(_ line: MKPolyline) -> [CLLocationCoordinate2D] {
+        let n = line.pointCount
+        var coords = [CLLocationCoordinate2D](
+            repeating: CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            count: n
+        )
+        coords.withUnsafeMutableBufferPointer { buf in
+            line.getCoordinates(buf.baseAddress!, range: NSRange(location: 0, length: n))
+        }
+        return coords
+    }
+
+    /// Draw a translucent rounded card with a maneuver glyph + distance
+    /// label in the bottom-left corner.
+    private func drawManeuverCard(in cg: CGContext, size: CGSize,
+                                  glyph: String, distance: String) {
+        let cardW: CGFloat = 180 * (size.width / 526)
+        let cardH: CGFloat = 64 * (size.height / 300)
+        let margin: CGFloat = 8 * (size.width / 526)
+        let rect = CGRect(x: margin,
+                          y: size.height - cardH - margin,
+                          width: cardW, height: cardH)
+
+        cg.saveGState()
+        cg.setFillColor(UIColor.black.withAlphaComponent(0.55).cgColor)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 10)
+        cg.addPath(path.cgPath)
+        cg.fillPath()
+        cg.restoreGState()
+
+        // Glyph
+        let glyphFont = UIFont.systemFont(ofSize: cardH * 0.55, weight: .heavy)
+        let glyphAttrs: [NSAttributedString.Key: Any] = [
+            .font: glyphFont,
+            .foregroundColor: UIColor.white,
+        ]
+        let glyphStr = NSAttributedString(string: glyph, attributes: glyphAttrs)
+        let glyphSize = glyphStr.size()
+        let glyphOrigin = CGPoint(x: rect.minX + 8,
+                                  y: rect.midY - glyphSize.height / 2)
+        glyphStr.draw(at: glyphOrigin)
+
+        // Distance label
+        let distFont = UIFont.systemFont(ofSize: cardH * 0.35, weight: .semibold)
+        let distAttrs: [NSAttributedString.Key: Any] = [
+            .font: distFont,
+            .foregroundColor: UIColor.white,
+        ]
+        let distStr = NSAttributedString(string: distance, attributes: distAttrs)
+        let distOrigin = CGPoint(x: rect.minX + 8 + glyphSize.width + 10,
+                                 y: rect.midY - distStr.size().height / 2)
+        distStr.draw(at: distOrigin)
+    }
+
     private func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
         guard let pool, let cgImage = image.cgImage else { return nil }
         var buffer: CVPixelBuffer?

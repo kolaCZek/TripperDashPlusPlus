@@ -36,13 +36,10 @@ CoreLocation).
 - **Route preferences:**
   - **Avoid highways** — `MKDirections.Request.highwayPreference = .avoid`
   - **Avoid tolls** — `MKDirections.Request.tollPreference = .avoid`
-  - **Avoid ferries** — *not directly supported by MKDirections API.*
-    Workaround: post-filter returned routes, reject any whose steps
-    contain `MKRoute.advisoryNotices` mentioning ferry or whose
-    polyline crosses known ferry water. Honest limitation: this is
-    imperfect. Likely fine for ČR (no real ferries on common routes).
-    Document the gap in Settings as "Best-effort, MKDirections has no
-    native ferry exclusion."
+  - *Avoid ferries deliberately out of scope.* MKDirections has no
+    native exclusion and a post-filter (advisoryNotices keyword
+    match) wouldn't be reliable enough to ship. ČR has no ferries on
+    common routes anyway. Revisit if/when Apple adds the API.
 
 ## Architecture
 
@@ -108,7 +105,7 @@ CoreLocation).
 | **7f** | Active navigation HUD: next maneuver card, ETA strip, remaining distance, on-route detection | ~4 h | medium (geometry math) |
 | **7g** | Route polyline + arrow overlay drawn into MapSnapshotSource → streamed to dash | ~3 h | medium (UIGraphicsImageRenderer compositing in tight FPS budget) |
 | **7h** | Reroute logic with hysteresis (off-route ≥ 60 m AND ≥ 5 s → reroute; min 30 s between reroutes) | ~3 h | medium (needs field test to tune thresholds) |
-| **7i** | Route Preferences Settings panel: avoid highways / tolls / ferries toggles, persisted | ~1 h | low |
+| **7i** | Route Preferences Settings panel: avoid highways / tolls toggles, persisted | ~1 h | low |
 
 **Total ~23 h.** Realistic over a weekend.
 
@@ -171,9 +168,7 @@ req.highwayPreference = preferences.avoidHighways ? .avoid : .any
 req.tollPreference = preferences.avoidTolls ? .avoid : .any
 
 let response = try await MKDirections(request: req).calculate()
-let routes = response.routes
-    .filter { preferences.avoidFerries ? !routeUsesFerry($0) : true }
-    .prefix(3)
+let routes = Array(response.routes.prefix(3))
 ```
 
 ### Active nav — on-route detection
@@ -217,7 +212,6 @@ struct NavSettings: Codable {
     var quickAccessSlotIds: [UUID?]        // exactly 4 slots, nil = empty
     var avoidHighways: Bool
     var avoidTolls: Bool
-    var avoidFerries: Bool
 }
 
 struct Favorite: Codable, Identifiable {

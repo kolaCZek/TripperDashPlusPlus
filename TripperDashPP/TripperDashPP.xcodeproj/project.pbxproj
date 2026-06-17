@@ -8,6 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
+		A4F000000000000000000001 /* NavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000000 /* NavigationStore.swift */; };
+		A4F000000000000000000011 /* LocalSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000010 /* LocalSearchService.swift */; };
+		A4F000000000000000000021 /* RoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000020 /* RoutingService.swift */; };
+		A4F000000000000000000031 /* PolylineMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000030 /* PolylineMath.swift */; };
+		A4F000000000000000000041 /* ActiveNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000040 /* ActiveNavigator.swift */; };
+		A4F000000000000000000051 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000050 /* Destination.swift */; };
+		A4F000000000000000000061 /* Favorite.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000060 /* Favorite.swift */; };
+		A4F000000000000000000071 /* NavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000070 /* NavSettings.swift */; };
+		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
+		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
+		A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */; };
+		A4F0000000000000000000B1 /* RoutePreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000B0 /* RoutePreviewSheet.swift */; };
+		A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000C0 /* NavigationHUD.swift */; };
+		A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000D0 /* QuickAccessTiles.swift */; };
 		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
 		29F33008B35290915EF1ACD9 /* MapPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */; };
 		6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */; };
@@ -32,6 +46,20 @@
 /* Begin PBXFileReference section */
 		A41A9C4D2FE20258009BF005 /* TripperDashPP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TripperDashPP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A486F0412FE2034700AA36C3 /* AppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatus.swift; sourceTree = "<group>"; };
+		A4F000000000000000000000 /* NavigationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationStore.swift; sourceTree = "<group>"; };
+		A4F000000000000000000010 /* LocalSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSearchService.swift; sourceTree = "<group>"; };
+		A4F000000000000000000020 /* RoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingService.swift; sourceTree = "<group>"; };
+		A4F000000000000000000030 /* PolylineMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolylineMath.swift; sourceTree = "<group>"; };
+		A4F000000000000000000040 /* ActiveNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavigator.swift; sourceTree = "<group>"; };
+		A4F000000000000000000050 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
+		A4F000000000000000000060 /* Favorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorite.swift; sourceTree = "<group>"; };
+		A4F000000000000000000070 /* NavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavSettings.swift; sourceTree = "<group>"; };
+		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
+		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewSheet.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000B0 /* RoutePreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePreviewSheet.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000C0 /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000D0 /* QuickAccessTiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessTiles.swift; sourceTree = "<group>"; };
 		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
 		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
 		5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPreviewView.swift; sourceTree = "<group>"; };
@@ -70,6 +98,7 @@
 			children = (
 				A4E71CA12FE3128D00CFD473 /* Stream */,
 				A4B6F0062FE6500000AA36C3 /* Map */,
+				A4F0FFFF000000000000A001 /* Navigation */,
 				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A486F0432FE2034700AA36C3 /* App */,
@@ -105,6 +134,7 @@
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
+				A4F0FFFF000000000000A003 /* Navigation */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -139,6 +169,42 @@
 				A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */,
 			);
 			path = Map;
+			sourceTree = "<group>";
+		};
+		A4F0FFFF000000000000A001 /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				A4F0FFFF000000000000A002 /* Models */,
+				A4F000000000000000000000 /* NavigationStore.swift */,
+				A4F000000000000000000010 /* LocalSearchService.swift */,
+				A4F000000000000000000020 /* RoutingService.swift */,
+				A4F000000000000000000030 /* PolylineMath.swift */,
+				A4F000000000000000000040 /* ActiveNavigator.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		A4F0FFFF000000000000A002 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A4F000000000000000000050 /* Destination.swift */,
+				A4F000000000000000000060 /* Favorite.swift */,
+				A4F000000000000000000070 /* NavSettings.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A4F0FFFF000000000000A003 /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				A4F000000000000000000080 /* DestinationSearchSheet.swift */,
+				A4F000000000000000000090 /* FavoriteEditorSheet.swift */,
+				A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */,
+				A4F0000000000000000000B0 /* RoutePreviewSheet.swift */,
+				A4F0000000000000000000C0 /* NavigationHUD.swift */,
+				A4F0000000000000000000D0 /* QuickAccessTiles.swift */,
+			);
+			path = Navigation;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -214,6 +280,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A4F000000000000000000001 /* NavigationStore.swift in Sources */,
+				A4F000000000000000000011 /* LocalSearchService.swift in Sources */,
+				A4F000000000000000000021 /* RoutingService.swift in Sources */,
+				A4F000000000000000000031 /* PolylineMath.swift in Sources */,
+				A4F000000000000000000041 /* ActiveNavigator.swift in Sources */,
+				A4F000000000000000000051 /* Destination.swift in Sources */,
+				A4F000000000000000000061 /* Favorite.swift in Sources */,
+				A4F000000000000000000071 /* NavSettings.swift in Sources */,
+				A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */,
+				A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */,
+				A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */,
+				A4F0000000000000000000B1 /* RoutePreviewSheet.swift in Sources */,
+				A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */,
+				A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */,
 				A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */,
 				A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */,
 				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,

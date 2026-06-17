@@ -14,21 +14,10 @@
 //  width=0.000000 height=0.000000` = MKMapView going to zero size
 //  mid-teardown while still rendering.
 //
-//  This wrapper:
-//   1. Owns the MKMapView lifecycle ourselves via UIViewRepresentable
-//   2. Hardens `dismantleUIView(_:coordinator:)` to:
-//      - Cut off the delegate (no further callbacks during teardown)
-//      - Turn off showsUserLocation (kills its CoreLocation+Metal path)
-//      - Remove annotations/overlays (they hold Metal resources)
-//      - removeFromSuperview() so UIKit stops asking it to draw
-//      - Park the view in `MapViewPark` for natural retention until
-//        pushed out by 9 newer ones (same pattern as SnapshotterPark
-//        in MapSnapshotSource — see references/ios-map-renderer.md)
-//
-//  For Phase 7b (destination picking) we'll add a tap-to-drop-pin
-//  gesture + `selectedDestination` binding + polyline overlay support
-//  to this same view. Right now it just shows a live, GPS-following
-//  map — replaces the 1 Hz UIImage in MapPreviewView for MapPicker.
+//  Phase 7b/7c additions:
+//   - tap gesture → drop pin → onTapPin(coord) callback to picker
+//   - destinationPin annotation rendered as a red MKMarkerAnnotationView
+//   - route polyline overlay rendered as a fat blue stroke
 //
 
 import MapKit
@@ -45,6 +34,18 @@ struct InteractiveMapView: UIViewRepresentable {
     /// `coordinate`.
     var followsUser: Bool = true
 
+    /// When set, render a red marker at this coordinate (typically the
+    /// active destination pin).
+    var destinationPin: CLLocationCoordinate2D?
+
+    /// When set, render this polyline as the active/preview route.
+    var routePolyline: MKPolyline?
+
+    /// Fires when the user single-taps the map. Coordinate is mapped
+    /// from the touch location. Caller decides whether to drop a pin
+    /// or open a search.
+    var onTapPin: ((CLLocationCoordinate2D) -> Void)?
+
     func makeUIView(context: Context) -> MKMapView {
         let mv = MKMapView(frame: .zero)
         mv.delegate = context.coordinator
@@ -52,29 +53,62 @@ struct InteractiveMapView: UIViewRepresentable {
         mv.showsCompass = true
         mv.showsScale = false
         mv.isRotateEnabled = true
-        mv.isPitchEnabled = false  // 2D only, simpler tap → coord mapping later
+        mv.isPitchEnabled = false  // 2D only, simpler tap → coord mapping
         if followsUser {
             mv.setUserTrackingMode(.followWithHeading, animated: false)
         }
-        // Match the streaming-path snapshot style for visual consistency
-        // between picker and dash.
         if #available(iOS 16.0, *) {
             mv.preferredConfiguration = MKStandardMapConfiguration(
                 elevationStyle: .flat,
                 emphasisStyle: .default
             )
         }
+        // Tap gesture for drop-pin.
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleTap(_:)))
+        tap.delegate = context.coordinator
+        mv.addGestureRecognizer(tap)
+        context.coordinator.mapView = mv
+        context.coordinator.onTapPin = onTapPin
         return mv
     }
 
     func updateUIView(_ mv: MKMapView, context: Context) {
-        // Re-sync user-tracking mode if it diverged (e.g. user dragged
-        // the map → MKMapView dropped tracking automatically).
+        context.coordinator.onTapPin = onTapPin
+
+        // Tracking sync
         if followsUser, mv.userTrackingMode == .none {
             mv.setUserTrackingMode(.followWithHeading, animated: true)
         }
         if !followsUser, let coord = coordinate {
             mv.setCenter(coord, animated: true)
+        }
+
+        // Destination pin sync — single annotation, remove + add on
+        // change rather than diffing.
+        let existing = mv.annotations.compactMap { $0 as? DestinationAnnotation }
+        if let dest = destinationPin {
+            let same = existing.first.map { $0.coordinate == dest } ?? false
+            if !same {
+                mv.removeAnnotations(existing)
+                let pin = DestinationAnnotation()
+                pin.coordinate = dest
+                pin.title = "Destination"
+                mv.addAnnotation(pin)
+            }
+        } else if !existing.isEmpty {
+            mv.removeAnnotations(existing)
+        }
+
+        // Route polyline sync — single overlay.
+        let existingOverlays = mv.overlays.compactMap { $0 as? MKPolyline }
+        if let line = routePolyline {
+            if existingOverlays.first !== line {
+                mv.removeOverlays(existingOverlays)
+                mv.addOverlay(line, level: .aboveRoads)
+            }
+        } else if !existingOverlays.isEmpty {
+            mv.removeOverlays(existingOverlays)
         }
     }
 
@@ -90,13 +124,64 @@ struct InteractiveMapView: UIViewRepresentable {
         Coordinator()
     }
 
-    final class Coordinator: NSObject, MKMapViewDelegate {
-        // Phase 7b will populate this with:
-        //   - mapView(_:rendererFor:) for route polyline styling
-        //   - mapView(_:viewFor:) for destination pin styling
-        //   - tap gesture handler that converts touch point → coordinate
-        //     and exposes it via a @Binding selectedDestination
+    final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
+        weak var mapView: MKMapView?
+        var onTapPin: ((CLLocationCoordinate2D) -> Void)?
+
+        @objc func handleTap(_ gr: UITapGestureRecognizer) {
+            guard let mv = mapView, gr.state == .ended else { return }
+            let point = gr.location(in: mv)
+            let coord = mv.convert(point, toCoordinateFrom: mv)
+            onTapPin?(coord)
+        }
+
+        /// Don't swallow MKMapView's own gestures (zoom/pan/long-press
+        /// for default Apple Maps tools). Letting both fire means the
+        /// user can still pinch-zoom even while our single-tap is
+        /// active.
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        // MARK: - Renderers
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let line = overlay as? MKPolyline {
+                let r = MKPolylineRenderer(polyline: line)
+                r.strokeColor = UIColor.systemBlue.withAlphaComponent(0.85)
+                r.lineWidth = 6
+                r.lineCap = .round
+                r.lineJoin = .round
+                return r
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
+            if annotation is MKUserLocation { return nil }
+            if annotation is DestinationAnnotation {
+                let id = "DestinationPin"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView
+                    ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+                view.annotation = annotation
+                view.markerTintColor = .systemRed
+                view.glyphImage = UIImage(systemName: "flag.checkered")
+                view.canShowCallout = true
+                return view
+            }
+            return nil
+        }
     }
+}
+
+/// Custom subclass so we can distinguish our destination pin from any
+/// future annotations (Phase 7+ traffic incidents, favorites overlay,
+/// etc.) without dance-around `isKindOf` on MKPointAnnotation.
+final class DestinationAnnotation: NSObject, MKAnnotation {
+    dynamic var coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 0, longitude: 0)
+    var title: String?
+    var subtitle: String?
 }
 
 // MARK: - MapViewPark
@@ -127,22 +212,7 @@ final class MapViewPark {
         self.ring.reserveCapacity(capacity + 1)
     }
 
-    /// Harden the view's teardown state, then park it. The hardening
-    /// cuts off ongoing Metal work submissions; the parking keeps
-    /// already-submitted command buffers from racing ARC release.
-    ///
-    /// Order matters:
-    ///   1. delegate = nil           → stop receiving callbacks first
-    ///   2. showsUserLocation = false → kill the user location render
-    ///                                  path (its own Metal layer)
-    ///   3. removeAnnotations         → drop annotation views (own
-    ///   4. removeOverlays            → drop overlay renderers
-    ///                                  Metal textures + CBs each)
-    ///   5. removeFromSuperview       → UIKit stops asking it to draw;
-    ///                                  must come before the park step
-    ///                                  or the still-attached view keeps
-    ///                                  submitting CBs.
-    ///   6. ring.append               → retain for grace period
+    /// Harden the view's teardown state, then park it.
     func park(_ mv: MKMapView) {
         mv.delegate = nil
         mv.showsUserLocation = false

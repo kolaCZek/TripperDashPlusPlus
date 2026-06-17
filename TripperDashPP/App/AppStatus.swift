@@ -9,6 +9,7 @@
 //  4 (encoder → fps / kbps), and 6 (Nav → currentDestination, route).
 //
 
+import CoreLocation
 import Foundation
 import Observation
 import UIKit
@@ -37,13 +38,8 @@ struct StreamMetrics: Sendable, Equatable {
     static let zero = StreamMetrics()
 }
 
-/// A destination the user picked from search (Phase 6).
-struct Destination: Sendable, Equatable, Identifiable {
-    let id: UUID
-    let label: String
-    let latitude: Double
-    let longitude: Double
-}
+// Phase 7: `Destination` lives in Navigation/Models/Destination.swift —
+// the old placeholder here was removed when the real model arrived.
 
 @MainActor
 @Observable
@@ -120,6 +116,7 @@ final class AppStatus {
         // one observation tick — no point burning battery and shoving
         // UDP into a black hole.
         observeBikeLink()
+        wireNavigation()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -151,7 +148,8 @@ final class AppStatus {
         let source: FrameSource
         switch sourceKind {
         case .liveMap:
-            source = MapSnapshotSource(locationService: locationService)
+            source = MapSnapshotSource(locationService: locationService,
+                                        activeNavigator: activeNavigator)
         case .testPattern:
             source = TestPatternSource()
         }
@@ -208,9 +206,51 @@ final class AppStatus {
         }
     }
 
-    // MARK: - Navigation
+    // MARK: - Navigation (Phase 7)
 
-    var destination: Destination? = nil
+    /// Persisted favorites + route preferences. UI binds the search
+    /// sheet / favorites tiles / preferences panel to this directly.
+    let navigationStore = NavigationStore()
+
+    /// Active turn-by-turn session. `start(route:destination:)` flips
+    /// `isNavigating` true; stop() resets. Reroute requests are wired
+    /// through `onRerouteRequested` in init below.
+    let activeNavigator = ActiveNavigator()
+
+    /// One-shot route calculator used by the route preview sheet and
+    /// by the navigator's reroute callback.
+    let routingService = RoutingService()
+
+    /// Currently-staged destination (chosen but not yet navigating).
+    /// The route preview sheet keys off this; clearing it dismisses
+    /// the preview.
+    var stagedDestination: Destination? = nil
+
+    /// Wire ActiveNavigator's reroute callback to our RoutingService
+    /// and NavigationStore preferences. Done lazily after init.
+    private func wireNavigation() {
+        activeNavigator.onRerouteRequested = { [weak self] origin, dest in
+            guard let self else { return nil }
+            do {
+                let opts = try await self.routingService.calculate(
+                    from: origin,
+                    to: dest,
+                    preferences: self.navigationStore.routePreferences
+                )
+                return opts.first?.route
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    /// Forward GPS fixes into ActiveNavigator. Called from the picker
+    /// once per LocationService update.
+    func navigatorIngest(_ fix: CLLocation) {
+        Task { @MainActor in
+            await activeNavigator.ingest(fix: fix)
+        }
+    }
 
     // MARK: - Build info (handy in the diagnostics overlay)
 
