@@ -108,17 +108,21 @@ actor DashSocket {
     // MARK: - Inbound loop
 
     private func receiveLoop() {
-        conn.receiveMessage { [weak self] data, _, isComplete, error in
+        // NOTE: `isComplete` is intentionally ignored. For UDP, NWConnection
+        // marks every datagram as a "complete message" — that's the message
+        // boundary, not end-of-connection. Honouring it would `.finish()` the
+        // AsyncStream after the very first packet, which broke the K1G
+        // handshake (we'd read modulus+exponent, then the auth-OK reply would
+        // arrive into an already-closed stream → "stream ended" error).
+        // The connection is only really done when `error != nil` or someone
+        // calls `cancel()`.
+        conn.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
             if let data, !data.isEmpty {
                 self.inboundContinuation.yield(data)
             }
             if let error {
                 self.log.error("UDP receive error: \(error.localizedDescription, privacy: .public)")
-                self.inboundContinuation.finish()
-                return
-            }
-            if isComplete {
                 self.inboundContinuation.finish()
                 return
             }
