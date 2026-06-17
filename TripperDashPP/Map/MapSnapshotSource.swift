@@ -113,13 +113,12 @@ final class MapSnapshotSource: FrameSource {
             }
         }
 
-        // Snapshotter requires a resource manager (used for the public
-        // access token, tile cache path, etc.). It picks up the token
-        // from Info.plist (MBXAccessToken) automatically.
+        // v11 removed ResourceOptionsManager — the public token is read
+        // from Info.plist (MBXAccessToken) at framework init. We just
+        // pass size + pixel ratio.
         let opts = MapSnapshotOptions(
             size: frameSize,
-            pixelRatio: 1.0,
-            resourceOptions: ResourceOptionsManager.default.resourceOptions
+            pixelRatio: 1.0
         )
         let snap = Snapshotter(options: opts)
         // Navigation Night gives high contrast on the small TFT —
