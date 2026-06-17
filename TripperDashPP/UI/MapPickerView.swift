@@ -34,11 +34,14 @@ import SwiftUI
 
 struct MapPickerView: View {
     @Environment(AppStatus.self) private var status
+    @Environment(\.scenePhase) private var scenePhase
 
     /// LocationService slot we hold while the picker (with live map) is
-    /// on-screen. MUST be released in .onDisappear of the picking view,
-    /// otherwise each push/pop leaks a consumer and the service stays
-    /// at .mapping accuracy forever.
+    /// on-screen AND the app is in the foreground. MUST be released in
+    /// .onDisappear of the picking view, otherwise each push/pop leaks
+    /// a consumer and the service stays at .mapping accuracy forever.
+    /// Also released when the app goes to background while not streaming
+    /// — no point burning GPS for a map nobody can see.
     @State private var locationToken: UUID?
 
     /// True during the ~500 ms window between view phases — neither
@@ -96,6 +99,30 @@ struct MapPickerView: View {
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack { StreamingView() }
                 .environment(status)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // When app goes to background while idle (no stream), drop
+            // the picker's GPS subscription — no one is looking at the
+            // map and we have no reason to drain battery. When the user
+            // comes back to foreground (and we're still in .picking),
+            // pickingBody's .onAppear will re-acquire it.
+            //
+            // While streaming, MapSnapshotSource owns its own .mapping
+            // token plus the wakelock holds another — those are
+            // unaffected. This handler only manages the picker's slot.
+            switch newPhase {
+            case .background, .inactive:
+                if !status.isStreaming, let token = locationToken {
+                    status.locationService.stop(token: token)
+                    locationToken = nil
+                }
+            case .active:
+                if mode == .picking, locationToken == nil {
+                    locationToken = status.locationService.start(mode: .mapping)
+                }
+            @unknown default:
+                break
+            }
         }
     }
 
