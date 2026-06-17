@@ -53,14 +53,14 @@ final class MapSnapshotSource: FrameSource {
     // MARK: - FrameSource contract
 
     let frameSize = CGSize(width: 526, height: 300)
-    let targetFps = 12
+    let targetFps = 6
 
-    /// MKMapSnapshotter typically takes 80–200 ms per render and we
-    /// only want one in flight at a time. So instead of also asking
-    /// for 12 fps from MapKit (it can't keep up), we fire snapshot
-    /// requests at this lower rate and re-emit the latest snapshot
-    /// on each 12 fps tick to the encoder. Net effect: encoder sees
-    /// a steady 12 fps stream, MapKit only sweats at ~6 fps.
+    /// At targetFps=6 the encoder tick rate already matches what
+    /// MKMapSnapshotter can sustain comfortably (a 2× supersampled
+    /// 526×300 render takes 80–250 ms). We schedule snapshots at the
+    /// same rate as the encoder — one fresh frame per tick. If a
+    /// snapshot is still in flight when the next tick fires we skip
+    /// that request and the encoder re-emits the last latched frame.
     private let snapshotFps = 6
 
     // MARK: - Dependencies
