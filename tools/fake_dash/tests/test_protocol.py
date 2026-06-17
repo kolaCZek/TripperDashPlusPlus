@@ -6,6 +6,7 @@ from fake_dash.protocol import (
     Segment,
     build_envelope,
     decode_packet,
+    is_valid_envelope,
     patch_seq,
 )
 
@@ -68,3 +69,30 @@ def test_rolling_seq_wraps_at_256():
     assert s.consume() == 0xFF
     assert s.consume() == 0x00
     assert s.consume() == 0x01
+
+
+def test_is_valid_envelope_accepts_empty_heartbeat():
+    """An empty K1G envelope (no TLV segments) is a valid heartbeat."""
+    pkt = build_envelope([], seq=0x42)
+    assert len(pkt) == 17  # 2+2+4+4+4+1 header, zero segments
+    assert is_valid_envelope(pkt)
+    assert decode_packet(pkt) == []  # but no TLVs
+
+
+def test_is_valid_envelope_rejects_corrupt():
+    assert not is_valid_envelope(b"")
+    assert not is_valid_envelope(b"\x00" * 16)  # too short
+    assert not is_valid_envelope(b"\x00" * 17)  # no K1G magic
+    # Magic present but outer_len lies about length.
+    pkt = build_envelope([], seq=0)
+    bad = bytearray(pkt)
+    bad[0] = 0xFF
+    bad[1] = 0xFF
+    assert not is_valid_envelope(bytes(bad))
+
+
+def test_is_valid_envelope_accepts_real_packet():
+    """A well-formed packet with one button segment should validate."""
+    seg = Segment(type=0x09, sub=0x00, payload=b"\x00\x01\x14")
+    pkt = build_envelope([seg], seq=0xAB)
+    assert is_valid_envelope(pkt)

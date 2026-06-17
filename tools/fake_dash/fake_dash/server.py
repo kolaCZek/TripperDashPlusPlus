@@ -39,6 +39,7 @@ from .protocol import (
     Segment,
     build_envelope,
     decode_packet,
+    is_valid_envelope,
     patch_seq,
 )
 from .rsa_handshake import (
@@ -73,6 +74,9 @@ class PhonePeer:
     # Set after the first packet (any type) is logged at INFO. Same idea —
     # we want one "phone is alive" line, then quiet.
     rx_logged: bool = False
+    # Set after the first empty K1G envelope (heartbeat) is logged at INFO.
+    # Subsequent ones drop to DEBUG.
+    empty_envelope_logged: bool = False
 
 
 class FakeDashServer:
@@ -251,6 +255,12 @@ class FakeDashServer:
                 continue
             except OSError:
                 return
+            # Filter out our own broadcast that the OS / Docker bridge
+            # loops back to the listening socket. The bike announce we
+            # send out has source port == bind port (2002), and a real
+            # phone would never use that as its ephemeral port.
+            if addr[1] == self.k1g_port:
+                continue
             peer = self._record_peer(addr)
             try:
                 self._handle_packet(data, peer)
@@ -267,11 +277,29 @@ class FakeDashServer:
             peer.rx_logged = True
         segs = decode_packet(data)
         if not segs:
-            log.info(
-                "RX %s: undecodable packet (%d bytes) — magic or framing off?",
-                peer.addr,
-                len(data),
-            )
+            # Empty K1G envelope (17-byte header, no TLVs) is the standard
+            # heartbeat from the phone side — better-dash captures confirm
+            # this is normal. Only log louder if the magic / framing is
+            # actually corrupt.
+            if is_valid_envelope(data):
+                if not peer.empty_envelope_logged:
+                    log.info(
+                        "RX %s: empty K1G envelope (heartbeat, %d B) — "
+                        "will not log subsequent ones",
+                        peer.addr,
+                        len(data),
+                    )
+                    peer.empty_envelope_logged = True
+                else:
+                    log.debug("RX %s: empty K1G envelope (%d B)", peer.addr, len(data))
+            else:
+                log.warning(
+                    "RX %s: malformed packet (%d B) — no K1G magic or "
+                    "bad outer_len; first bytes: %s",
+                    peer.addr,
+                    len(data),
+                    data[:24].hex(),
+                )
             return
         for seg in segs:
             self._dispatch_segment(seg, peer)

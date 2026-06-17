@@ -85,9 +85,9 @@ def decode_packet(data: bytes) -> list[Segment]:
 
         [type: u8] [sub: u8] [len: u16 BE] [payload…]
 
-    We walk from `K1G ` + 5 to the end of the buffer, decoding as many
-    TLVs as we can. Returns empty list on a packet too short or missing
-    the magic.
+    Returns empty list if the packet is too short or missing the magic.
+    Use `is_valid_envelope()` to distinguish a *valid empty* envelope
+    (a heartbeat, which has no TLV segments) from a *malformed* packet.
     """
     if len(data) < 8:
         return []
@@ -105,6 +105,22 @@ def decode_packet(data: bytes) -> list[Segment]:
         out.append(Segment(type=t, sub=sub, payload=data[off:end]))
         off = end
     return out
+
+
+def is_valid_envelope(data: bytes) -> bool:
+    """
+    True if `data` is a well-formed K1G envelope (magic present, outer_len
+    matches, header layout intact). A *valid empty* envelope — used as
+    a heartbeat between phone and dash — has the standard 17-byte header
+    and zero TLV segments after the seq byte; this returns True for it.
+    """
+    if len(data) < 17:
+        return False
+    if data.find(K1G_MAGIC) == -1:
+        return False
+    # outer_len at offset 0 should match the buffer length.
+    declared = (data[0] << 8) | data[1]
+    return declared == len(data)
 
 
 def patch_seq(pkt: bytes, seq: int) -> bytes:
