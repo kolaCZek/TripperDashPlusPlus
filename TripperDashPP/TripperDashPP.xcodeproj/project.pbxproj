@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
 		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
+		29F33008B35290915EF1ACD9 /* MapPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */; };
 		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
 		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
 		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
@@ -32,6 +33,7 @@
 		A486F0412FE2034700AA36C3 /* AppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatus.swift; sourceTree = "<group>"; };
 		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
 		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
+		5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPreviewView.swift; sourceTree = "<group>"; };
 		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
@@ -97,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				A486F0442FE2034700AA36C3 /* MapPickerView.swift */,
+				5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
 			);
@@ -220,6 +223,7 @@
 				A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */,
 				A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */,
 				A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */,
+				29F33008B35290915EF1ACD9 /* MapPreviewView.swift in Sources */,
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,

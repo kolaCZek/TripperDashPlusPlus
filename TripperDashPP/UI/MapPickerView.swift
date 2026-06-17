@@ -2,13 +2,17 @@
 //  MapPickerView.swift
 //  TripperDashPP
 //
-//  Phase 5 — live Apple Maps preview with the current GPS centered. Phase 6
+//  Phase 5 — Apple Maps preview with the current GPS centered. Phase 6
 //  (real one — destinations + routing, not the keep-alive Phase 6 we
 //  already shipped) will add a search bar and route line on top.
 //
-//  This view uses MKMapView via SwiftUI's `Map` (iOS 17+) so the preview
-//  shows exactly the same renderer that MKMapSnapshotter uses on the
-//  streaming path — what you see here is what the dash sees.
+//  Note: this view used to use SwiftUI's `Map(position:)` (which wraps
+//  MKMapView) but that crashed on view transitions — SwiftUI dealloc'd
+//  the underlying MKMapView while its Metal command buffer was still
+//  in flight, triggering MTLDebugDevice assertion + app freeze.
+//
+//  Replaced with `MapPreviewView`, which renders MKMapSnapshotter into
+//  a UIImage at 1 Hz. No live MKMapView, no Metal lifecycle to manage.
 //
 
 import CoreLocation
@@ -17,10 +21,6 @@ import SwiftUI
 
 struct MapPickerView: View {
     @Environment(AppStatus.self) private var status
-    @State private var cameraPosition: MapCameraPosition = .userLocation(
-        followsHeading: true,
-        fallback: .automatic
-    )
     /// LocationService slot we hold while the picker is on-screen. We
     /// MUST release it in .onDisappear, otherwise each push/pop of
     /// MapPicker leaks a consumer and the service stays at .mapping
@@ -32,32 +32,20 @@ struct MapPickerView: View {
             // Status banner — wired up in Phase 3.
             StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
 
-            // Phase 5: live Apple Maps preview. Same renderer that the
-            // dash sees via MKMapSnapshotter, but at the phone's native
-            // size — handy as a sanity check that what's on the dash
-            // matches reality.
+            // Phase 5: Apple Maps preview rendered via MKMapSnapshotter
+            // at 1 Hz. Same renderer that the dash sees, but at the
+            // phone's native size — handy as a sanity check.
             ZStack {
-                Map(position: $cameraPosition) {
-                    UserAnnotation()
-                }
-                .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
-                .mapControls {
-                    MapUserLocationButton()
-                    MapCompass()
-                }
-                .ignoresSafeArea(edges: .horizontal)
+                MapPreviewView(
+                    coordinate: status.locationService.lastFix?.coordinate,
+                    heading: nil  // always north-up in the picker
+                )
                 .onAppear {
-                    // Subscribe to GPS so the puck has a location to chase.
-                    // The shared LocationService is already running for
-                    // the wakelock during streaming; here we bump it to
-                    // .mapping on demand for accurate camera follow.
                     if locationToken == nil {
                         locationToken = status.locationService.start(mode: .mapping)
                     }
                 }
                 .onDisappear {
-                    // Release the slot — otherwise the picker leaks one
-                    // consumer per appear cycle.
                     if let token = locationToken {
                         status.locationService.stop(token: token)
                         locationToken = nil
