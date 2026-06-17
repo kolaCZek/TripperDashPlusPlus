@@ -21,6 +21,11 @@ struct MapPickerView: View {
         followsHeading: true,
         fallback: .automatic
     )
+    /// LocationService slot we hold while the picker is on-screen. We
+    /// MUST release it in .onDisappear, otherwise each push/pop of
+    /// MapPicker leaks a consumer and the service stays at .mapping
+    /// accuracy forever (battery + log spam).
+    @State private var locationToken: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +51,17 @@ struct MapPickerView: View {
                     // The shared LocationService is already running for
                     // the wakelock during streaming; here we bump it to
                     // .mapping on demand for accurate camera follow.
-                    _ = status.locationService.start(mode: .mapping)
+                    if locationToken == nil {
+                        locationToken = status.locationService.start(mode: .mapping)
+                    }
+                }
+                .onDisappear {
+                    // Release the slot — otherwise the picker leaks one
+                    // consumer per appear cycle.
+                    if let token = locationToken {
+                        status.locationService.stop(token: token)
+                        locationToken = nil
+                    }
                 }
 
                 if case .error = status.bikeLink.state, let err = status.lastError {

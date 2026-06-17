@@ -55,6 +55,14 @@ final class MapSnapshotSource: FrameSource {
     let frameSize = CGSize(width: 526, height: 300)
     let targetFps = 12
 
+    /// MKMapSnapshotter typically takes 80–200 ms per render and we
+    /// only want one in flight at a time. So instead of also asking
+    /// for 12 fps from MapKit (it can't keep up), we fire snapshot
+    /// requests at this lower rate and re-emit the latest snapshot
+    /// on each 12 fps tick to the encoder. Net effect: encoder sees
+    /// a steady 12 fps stream, MapKit only sweats at ~6 fps.
+    private let snapshotFps = 6
+
     // MARK: - Dependencies
 
     private weak var locationService: LocationService?
@@ -63,8 +71,16 @@ final class MapSnapshotSource: FrameSource {
     // MARK: - State
 
     /// Live snapshotter held strongly during a render so MapKit doesn't
-    /// deallocate it mid-load.
+    /// deallocate it mid-load. NEVER call `.cancel()` on it — that
+    /// triggers an MTLDebugDevice assertion if the Metal command buffer
+    /// is still in flight, which freezes the app. Just discard the
+    /// reference and let the completion handler arrive into a no-op
+    /// (gated by `generation` so stale results are dropped).
     private var currentSnapshotter: MKMapSnapshotter?
+    /// Bumped on stop() and on every new snapshot request. Completion
+    /// handlers check it before doing anything; mismatched generations
+    /// just return.
+    private var generation: UInt64 = 0
     private var locationToken: UUID?
     private var fixSubscription: LocationSubscription?
     private var headingSubscription: LocationSubscription?
@@ -82,12 +98,16 @@ final class MapSnapshotSource: FrameSource {
     /// the rider's position. Drop the tick instead.
     private var snapshotInFlight = false
 
-    /// Last successfully emitted frame. We re-emit it whenever the
-    /// snapshotter fails (background GPU rejection, throttling, transient
-    /// network) so the dash decoder never starves and the K1G heartbeat
-    /// stays alive. PTS keeps advancing so the stream looks live even
-    /// when the picture is frozen.
-    private var lastFrameBuffer: CVPixelBuffer?
+    /// Last snapshot result we got from MapKit. The encoder ticks at
+    /// `targetFps` and re-emits whichever frame is currently latched
+    /// here. The snapshotter runs at `snapshotFps` (slower) and
+    /// updates this whenever a render completes successfully.
+    private var latestSnapshot: CVPixelBuffer?
+
+    /// Wall-clock time we last KICKED OFF a snapshot request. The
+    /// snapshotter tick runs at `snapshotFps` independently of the
+    /// 12 fps encoder tick.
+    private var lastSnapshotRequestAt: TimeInterval = 0
 
     /// Diagnostics: consecutive snapshotter failures, reset on success.
     /// If this climbs high while the screen is off, we know Apple Maps
@@ -104,15 +124,27 @@ final class MapSnapshotSource: FrameSource {
     }
 
     deinit {
-        // deinit may run off-main; release shared services explicitly.
-        Task { @MainActor [locationService, locationToken] in
-            if let token = locationToken { locationService?.stop(token: token) }
+        // Best-effort: capture token + service synchronously and post a
+        // release on the main actor. Note that if start() was called
+        // multiple times without stop() between them, only the LAST
+        // token gets released here — but in practice the StreamingView
+        // teardown calls stop() explicitly, so deinit is a safety net.
+        if let token = locationToken, let service = locationService {
+            Task { @MainActor in service.stop(token: token) }
         }
     }
 
     // MARK: - FrameSource
 
     func start(onFrame: @escaping (CVPixelBuffer, CMTime) -> Void) {
+        // Defensive: if start() is called twice in a row without stop()
+        // (e.g. view re-creation race), release the previous slot first
+        // so consumers don't accumulate in LocationService.
+        if locationToken != nil || timer != nil {
+            log.notice("MapSnapshotSource.start called while already running — recycling previous session")
+            stop()
+        }
+
         self.onFrame = onFrame
         preparePool()
 
@@ -145,7 +177,12 @@ final class MapSnapshotSource: FrameSource {
     func stop() {
         timer?.cancel()
         timer = nil
-        currentSnapshotter?.cancel()
+        // CRITICAL: do NOT call currentSnapshotter.cancel() — it triggers
+        // an MTLDebugDevice assertion when a Metal command buffer is
+        // still alive. Just drop the strong reference; the completion
+        // handler will arrive but the bumped `generation` makes it a
+        // no-op.
+        generation &+= 1
         currentSnapshotter = nil
         onFrame = nil
         if let service = locationService, let token = locationToken {
@@ -155,23 +192,43 @@ final class MapSnapshotSource: FrameSource {
         fixSubscription = nil
         headingSubscription = nil
         pool = nil
-        lastFrameBuffer = nil
+        latestSnapshot = nil
         consecutiveFailures = 0
+        lastSnapshotRequestAt = 0
         log.info("MapSnapshotSource stopped after \(self.frameIndex) frames")
     }
 
     // MARK: - Per-tick render
 
     private func tick() {
-        guard !snapshotInFlight else { return }
-
-        // No fix yet → render the placeholder synchronously so the dash
-        // shows "Acquiring GPS…" instead of stale loading dots.
-        guard let fix = lastFix else {
+        // Re-emit whatever's currently latched at the full target fps.
+        // The snapshotter completion updates `latestSnapshot` whenever
+        // a fresh render lands. This decouples encoder throughput from
+        // MapKit render time.
+        if let latest = latestSnapshot {
+            let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
+            frameIndex &+= 1
+            onFrame?(latest, pts)
+        } else if lastFix == nil {
             emitPlaceholder(message: "Acquiring GPS…")
-            return
+        } else {
+            // First few ticks before first snapshot lands — neutral
+            // placeholder so the K1G heartbeat starts in lockstep.
+            emitPlaceholder(message: "Loading map…")
         }
 
+        // Maybe kick off a new MapKit snapshot, rate-limited to
+        // `snapshotFps`. We only fire one at a time (no overlap), and
+        // never sooner than 1/snapshotFps after the previous request.
+        let now = CACurrentMediaTime()
+        let minGap = 1.0 / Double(snapshotFps)
+        guard !snapshotInFlight, now - lastSnapshotRequestAt >= minGap else { return }
+        guard let fix = lastFix else { return }
+        lastSnapshotRequestAt = now
+        requestSnapshot(for: fix)
+    }
+
+    private func requestSnapshot(for fix: Fix) {
         // Bearing follows compass heading when valid (positive accuracy),
         // otherwise we fall back to course-over-ground from the GPS
         // speed vector. Zero on no signal.
@@ -200,10 +257,6 @@ final class MapSnapshotSource: FrameSource {
         options.scale = 2.0
         options.camera = camera
         if #available(iOS 16.0, *) {
-            // .realistic looks nicest but the elevation shading kills
-            // legibility on a 526×300 TFT in sunlight. .flat keeps the
-            // standard look but flattens shading. POIs stay on so we
-            // get road names and the rider has visual landmarks.
             options.preferredConfiguration = MKStandardMapConfiguration(
                 elevationStyle: .flat,
                 emphasisStyle: .default
@@ -211,56 +264,41 @@ final class MapSnapshotSource: FrameSource {
         } else {
             options.mapType = .standard
         }
-        // Keep POI filter open by default — riders want to see the
-        // gas station / restaurant on the map. Phase 7 (turn-by-turn)
-        // will dial this down to nav-relevant POIs only.
 
         let snapshotter = MKMapSnapshotter(options: options)
         currentSnapshotter = snapshotter
         snapshotInFlight = true
-        let captureIndex = frameIndex
+        generation &+= 1
+        let myGen = generation
 
         snapshotter.start(with: .main) { [weak self] snapshot, error in
             Task { @MainActor in
                 guard let self else { return }
+                // Stale result from a previous start() session — drop.
+                guard myGen == self.generation else { return }
                 self.snapshotInFlight = false
                 if self.currentSnapshotter === snapshotter {
                     self.currentSnapshotter = nil
                 }
                 if let snap = snapshot {
                     self.consecutiveFailures = 0
-                    self.emitImage(snap.image, index: captureIndex)
+                    if let buf = self.pixelBuffer(from: snap.image) {
+                        self.latestSnapshot = buf
+                    }
                 } else {
                     self.consecutiveFailures &+= 1
                     let nserr = (error as NSError?)
                     let code = nserr?.code ?? -1
                     let desc = error?.localizedDescription ?? "unknown"
-                    // Log loudly the first failure in a streak, then go
-                    // quiet — no point spamming hundreds of identical
-                    // lines if we hit a sustained block (e.g. lockscreen).
                     if self.consecutiveFailures == 1 || self.consecutiveFailures % 60 == 0 {
                         self.log.warning("MKMapSnapshotter failed [#\(self.consecutiveFailures)] code=\(code): \(desc)")
                     }
-                    // Re-emit the last good frame so the dash decoder
-                    // keeps getting RTP at full rate.
-                    if let buf = self.lastFrameBuffer {
-                        let pts = CMTime(value: CMTimeValue(captureIndex), timescale: CMTimeScale(self.targetFps))
-                        self.frameIndex = captureIndex &+ 1
-                        self.onFrame?(buf, pts)
-                    } else {
-                        self.emitPlaceholder(message: "Map error")
-                    }
+                    // Leave `latestSnapshot` as-is; the next encoder tick
+                    // will re-emit the previous good frame so the stream
+                    // doesn't stall.
                 }
             }
         }
-    }
-
-    private func emitImage(_ image: UIImage, index: UInt64) {
-        guard let buffer = pixelBuffer(from: image) else { return }
-        let pts = CMTime(value: CMTimeValue(index), timescale: CMTimeScale(targetFps))
-        frameIndex = index &+ 1
-        lastFrameBuffer = buffer
-        onFrame?(buffer, pts)
     }
 
     private func emitPlaceholder(message: String) {
