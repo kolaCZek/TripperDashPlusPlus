@@ -78,6 +78,22 @@ final class MapSnapshotSource: FrameSource {
     /// display behind the rider's position. Drop the tick instead.
     private var snapshotInFlight = false
 
+    /// Last successfully emitted frame. While the app is in the background
+    /// (screen locked) iOS forbids Metal command buffer submission, so we
+    /// can't render fresh map tiles. Instead of starving the dash of RTP
+    /// (which would freeze its decoder and trip K1G heartbeat timeout),
+    /// we keep re-emitting this buffer at the target fps with fresh PTS.
+    /// The dash sees a "frozen but live" stream.
+    private var lastFrameBuffer: CVPixelBuffer?
+
+    /// True between `UIApplication.didEnterBackground` and
+    /// `willEnterForeground`. Snapshotter calls are suppressed while set.
+    private var isInBackground = false
+
+    /// Lifecycle observers held for the duration of streaming.
+    private var bgObserver: NSObjectProtocol?
+    private var fgObserver: NSObjectProtocol?
+
     /// Reusable pool keeps allocation pressure low at 12 fps.
     private var pool: CVPixelBufferPool?
 
@@ -121,10 +137,39 @@ final class MapSnapshotSource: FrameSource {
             pixelRatio: 1.0
         )
         let snap = Snapshotter(options: opts)
-        // Navigation Night gives high contrast on the small TFT —
-        // bright route lines, dark background, no clutter.
-        snap.styleURI = StyleURI(rawValue: "mapbox://styles/mapbox/navigation-night-v1")
+        // Navigation Day: light, road-focused, high readability on the
+        // small TFT in sunlight. (Night variant looks slick but the user
+        // found it too low-contrast at a glance.)
+        snap.styleURI = StyleURI(rawValue: "mapbox://styles/mapbox/navigation-day-v1")
         snapshotter = snap
+
+        // Observe app lifecycle so we can suspend Metal work in the
+        // background — iOS 16+ kills GPU command buffers submitted while
+        // the app is not foreground (kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted).
+        // The wakelock (audio + location) keeps the process alive; this
+        // observer just makes sure we don't try to render with the screen off.
+        isInBackground = (UIApplication.shared.applicationState != .active)
+        let center = NotificationCenter.default
+        bgObserver = center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.isInBackground = true
+                self?.log.info("App → background: pausing snapshotter, repeating last frame")
+            }
+        }
+        fgObserver = center.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.isInBackground = false
+                self?.log.info("App → foreground: resuming snapshotter")
+            }
+        }
 
         // Drive the ticks from a serial queue. Each tick re-points the
         // camera and asks for a fresh snapshot.
@@ -151,12 +196,29 @@ final class MapSnapshotSource: FrameSource {
         fixSubscription = nil
         headingSubscription = nil
         pool = nil
+        lastFrameBuffer = nil
+        if let bg = bgObserver { NotificationCenter.default.removeObserver(bg) }
+        if let fg = fgObserver { NotificationCenter.default.removeObserver(fg) }
+        bgObserver = nil
+        fgObserver = nil
         log.info("MapSnapshotSource stopped after \(self.frameIndex) frames")
     }
 
     // MARK: - Per-tick render
 
     private func tick() {
+        // Background: don't touch Metal. Just re-emit the last frame so
+        // the dash decoder stays fed. PTS keeps advancing so the stream
+        // looks live (it's just frozen visually until we're back fg).
+        if isInBackground {
+            if let buf = lastFrameBuffer {
+                let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
+                frameIndex &+= 1
+                onFrame?(buf, pts)
+            }
+            return
+        }
+
         guard !snapshotInFlight, let snapshotter else { return }
 
         // No fix yet → render the placeholder synchronously so the dash
@@ -206,6 +268,7 @@ final class MapSnapshotSource: FrameSource {
         guard let buffer = pixelBuffer(from: image) else { return }
         let pts = CMTime(value: CMTimeValue(index), timescale: CMTimeScale(targetFps))
         frameIndex = index &+ 1
+        lastFrameBuffer = buffer
         onFrame?(buffer, pts)
     }
 
