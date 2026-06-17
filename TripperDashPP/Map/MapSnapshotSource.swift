@@ -179,10 +179,13 @@ final class MapSnapshotSource: FrameSource {
         timer = nil
         // CRITICAL: do NOT call currentSnapshotter.cancel() — it triggers
         // an MTLDebugDevice assertion when a Metal command buffer is
-        // still alive. Just drop the strong reference; the completion
-        // handler will arrive but the bumped `generation` makes it a
-        // no-op.
+        // still alive. Bump generation so any pending completion drops
+        // its result, and park the snapshotter for grace period so its
+        // GPU work can drain.
         generation &+= 1
+        if let current = currentSnapshotter {
+            Self.parkSnapshotter(current)
+        }
         currentSnapshotter = nil
         onFrame = nil
         if let service = locationService, let token = locationToken {
@@ -273,9 +276,19 @@ final class MapSnapshotSource: FrameSource {
 
         snapshotter.start(with: .main) { [weak self] snapshot, error in
             Task { @MainActor in
-                guard let self else { return }
-                // Stale result from a previous start() session — drop.
-                guard myGen == self.generation else { return }
+                guard let self else {
+                    // Self gone (view torn down) — still park the
+                    // snapshotter so its GPU work can drain without
+                    // crashing the process.
+                    Self.parkSnapshotter(snapshotter)
+                    return
+                }
+                // Stale result from a previous start() session — drop
+                // the data, but the snapshotter still needs grace time.
+                if myGen != self.generation {
+                    Self.parkSnapshotter(snapshotter)
+                    return
+                }
                 self.snapshotInFlight = false
                 if self.currentSnapshotter === snapshotter {
                     self.currentSnapshotter = nil
@@ -297,7 +310,38 @@ final class MapSnapshotSource: FrameSource {
                     // will re-emit the previous good frame so the stream
                     // doesn't stall.
                 }
+                // CRITICAL: park the snapshotter for a grace period
+                // before letting it deallocate. MKMapSnapshotter signals
+                // completion as soon as the result image is ready, but
+                // its underlying Metal command buffer is still draining
+                // on the GPU for up to a couple of seconds afterwards.
+                // If we release the snapshotter now, MTLDebugDevice
+                // asserts ('Metal object destroyed while still required
+                // to be alive by the command buffer') and the app
+                // freezes.
+                Self.parkSnapshotter(snapshotter)
             }
+        }
+    }
+
+    /// Holds an MKMapSnapshotter alive for `snapshotterGracePeriod`
+    /// seconds after its completion callback fires, so the underlying
+    /// Metal command buffer has time to finish executing on the GPU
+    /// before the snapshotter is deallocated.
+    ///
+    /// Static (not instance-bound) so a snapshot in flight survives
+    /// even if the owning MapSnapshotSource is torn down — otherwise
+    /// stopping the stream mid-render would still crash.
+    nonisolated static func parkSnapshotter(_ snapshotter: MKMapSnapshotter) {
+        Task.detached { [snapshotter] in
+            // The capture list pins `snapshotter` for the duration of
+            // this task. 3 s is well past any observed GPU completion
+            // time (typical 50–300 ms, worst case 1 s under heavy
+            // thermal throttling).
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // Touching the variable here keeps ARC from optimising the
+            // capture away on release builds.
+            _ = snapshotter
         }
     }
 
