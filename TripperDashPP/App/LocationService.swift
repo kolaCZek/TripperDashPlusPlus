@@ -53,6 +53,18 @@ struct Fix: Sendable, Equatable {
         course = loc.course
         timestamp = loc.timestamp
     }
+
+    // CLLocationCoordinate2D is a C struct and doesn't conform to
+    // Equatable, so we have to write the comparison out by hand.
+    static func == (lhs: Fix, rhs: Fix) -> Bool {
+        lhs.coordinate.latitude == rhs.coordinate.latitude &&
+        lhs.coordinate.longitude == rhs.coordinate.longitude &&
+        lhs.altitude == rhs.altitude &&
+        lhs.horizontalAccuracy == rhs.horizontalAccuracy &&
+        lhs.speed == rhs.speed &&
+        lhs.course == rhs.course &&
+        lhs.timestamp == rhs.timestamp
+    }
 }
 
 /// Heading (true / magnetic north). Phase 5 uses this for the camera
