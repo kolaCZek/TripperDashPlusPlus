@@ -70,8 +70,27 @@ final class BikeLink {
 
     /// Begin the connect → handshake → connected transition. Returns
     /// immediately; observe `state` for progress.
+    ///
+    /// Allowed from `.idle` or `.error` — in the latter case we do a
+    /// silent teardown first (same as `disconnect()` would do) so the
+    /// retry is clean. Rejected from any in-progress or connected state
+    /// because that's almost always a UI double-tap.
     func connect() {
-        guard state == .idle else {
+        switch state {
+        case .idle:
+            break
+        case .error:
+            // Clean slate before retrying — same cleanup as disconnect(),
+            // minus the user-facing "disconnected" log line.
+            connectTask?.cancel(); connectTask = nil
+            inboundTask?.cancel(); inboundTask = nil
+            heartbeatTask?.cancel(); heartbeatTask = nil
+            Task { [socket] in await socket?.cancel() }
+            socket = nil
+            aesKey = nil
+            lastError = nil
+            state = .idle
+        case .connecting, .handshaking, .connected:
             log.warning("connect() called while in state \(String(describing: self.state))")
             return
         }
