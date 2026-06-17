@@ -45,9 +45,22 @@ final class BikeLink {
     /// Last error description for the UI.
     private(set) var lastError: String?
 
-    /// Configuration — defaults match the real Tripper AP.
-    var bikeHost: String = K1G.bikeIPv4
-    var ssid: String = "RE_FAKE_260616"  // overridden by user / tests
+    /// Configuration — defaults match the real Tripper AP. Both are
+    /// persisted in UserDefaults so we don't reset to dev placeholders
+    /// every launch once the user has dialed in the real values.
+    var bikeHost: String {
+        didSet {
+            UserDefaults.standard.set(bikeHost, forKey: Self.bikeHostKey)
+        }
+    }
+    var ssid: String {
+        didSet {
+            UserDefaults.standard.set(ssid, forKey: Self.ssidKey)
+        }
+    }
+
+    private static let bikeHostKey = "BikeLink.bikeHost"
+    private static let ssidKey = "BikeLink.ssid"
 
     /// Convenience for downstream components (RTP streamer) that need
     /// the dash IP without poking at the link's internals.
@@ -65,6 +78,14 @@ final class BikeLink {
     private var connectTask: Task<Void, Never>?
     private let seq = RollingSeq()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "BikeLink")
+
+    // MARK: - Init
+
+    init() {
+        let d = UserDefaults.standard
+        self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
+        self.ssid = d.string(forKey: Self.ssidKey) ?? "RE_FAKE_260616"
+    }
 
     // MARK: - API
 
