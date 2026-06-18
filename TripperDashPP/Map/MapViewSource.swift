@@ -294,9 +294,11 @@ extension MapViewSource {
         let centerLat = fix.coordinate.latitude
 
         ctx.saveGState()
-        // Re-flip Y for the duration of this draw. Tile bitmaps are top-down.
-        ctx.translateBy(x: 0, y: frameSize.height)
-        ctx.scaleBy(x: 1, y: -1)
+        // Outer ctx already has Y-flipped (Y-up math) coords from the
+        // global flip at the top of renderMapViewToPixelBuffer. Do NOT
+        // re-flip here — `ctx.draw(image, in: rect)` honors the active
+        // CTM and Y-flips the image internally, so the bitmap renders
+        // right-side up.
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
@@ -310,9 +312,12 @@ extension MapViewSource {
         // requested centre — and the geographic centre of the
         // rendered image), not `t.region.center`. MKMapSnapshotter
         // can adjust the region span but the centre stays put.
+        // In Y-up coords, latitude grows northwards = +y, so a tile
+        // whose centre is north of the user (t.lat > user.lat) lands
+        // at positive dy (= upper part of the frame). ✓
         for (t, cg) in tilesToDraw {
             let dx = (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = (centerLat - t.center.latitude) * pxPerDegLat
+            let dy = (t.center.latitude - centerLat) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
             ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2,
@@ -330,7 +335,7 @@ extension MapViewSource {
             var first = true
             for c in routePolylineCoords {
                 let dx = (c.longitude - centerLon) * pxPerDegLon
-                let dy = (centerLat - c.latitude) * pxPerDegLat
+                let dy = (c.latitude - centerLat) * pxPerDegLat
                 let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
                 if first {
                     ctx.move(to: pt)
