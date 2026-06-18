@@ -151,15 +151,24 @@ final class AppStatus {
     let pipSink = PiPSampleBufferSink()
 
     /// Strong reference to the live MKMapView source. Created lazily
-    /// the first time the navigation HUD asks for it (so PiP can be
-    /// armed even when streaming is not yet running). Lives for the
-    /// duration of the app session - we do NOT release it on
-    /// stopStreaming() because tearing down the MKMapView would also
-    /// tear down the PiP wiring, defeating the purpose.
-    private(set) lazy var mapViewSource: MapViewSource = MapViewSource(
-        locationService: locationService,
-        activeNavigator: activeNavigator
-    )
+    /// on first access (so PiP can be armed even when streaming is
+    /// not yet running). Lives for the duration of the app session -
+    /// we do NOT release it on stopStreaming() because tearing down
+    /// the MKMapView would also tear down the PiP wiring, defeating
+    /// the purpose.
+    ///
+    /// @ObservationIgnored because @Observable forbids lazy stored
+    /// properties (the macro generates an init accessor that can't
+    /// reference _-prefixed backing storage). Manual lazy via a
+    /// computed property + backing optional.
+    @ObservationIgnored private var _mapViewSource: MapViewSource?
+    var mapViewSource: MapViewSource {
+        if let s = _mapViewSource { return s }
+        let s = MapViewSource(locationService: locationService,
+                              activeNavigator: activeNavigator)
+        _mapViewSource = s
+        return s
+    }
 
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
