@@ -259,54 +259,57 @@ extension MapViewSource {
     /// draw cropped tile → polyline → user dot in the center.
     private func drawTileCacheFrame(into ctx: CGContext) {
         guard let cache = routeTileCache, let fix = lastFix else { return }
-        guard let (tile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
+        guard let (_, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
             // Off-route / re-routing — fall back to vector-only.
             drawVectorOnlyFrame(into: ctx)
             return
         }
         lastTileHintIndex = idx
-        guard let img = cache.image(for: tile, atIndex: idx), let cg = img.cgImage else { return }
 
-        // Pixels-per-degree for this tile (tile is square, span symmetric).
-        let pxPerDegLon = Double(tile.pixelSize.width) / tile.region.span.longitudeDelta
-        let pxPerDegLat = Double(tile.pixelSize.height) / tile.region.span.latitudeDelta
-        let centerLon = tile.region.center.longitude
-        let centerLat = tile.region.center.latitude
+        // Pick the centre tile + 2 neighbours either side. After
+        // heading-up rotation, frame corners can reach beyond a single
+        // tile's footprint — drawing all overlapping tiles keeps the
+        // composite seamless.
+        var tilesToDraw: [(RouteTile, CGImage)] = []
+        for offset in -2...2 {
+            let i = idx + offset
+            guard i >= 0, i < cache.tiles.count else { continue }
+            let t = cache.tiles[i]
+            guard let img = cache.image(for: t, atIndex: i)?.cgImage else { continue }
+            tilesToDraw.append((t, img))
+        }
+        guard let refTile = tilesToDraw.first?.0 else { return }
 
-        // Pixel offset of the user from the tile center.
-        let userDx = (fix.coordinate.longitude - centerLon) * pxPerDegLon
-        let userDy = (centerLat - fix.coordinate.latitude) * pxPerDegLat
+        // Pixels-per-degree (every tile is built with the same span/size).
+        let pxPerDegLon = Double(refTile.pixelSize.width) / refTile.region.span.longitudeDelta
+        let pxPerDegLat = Double(refTile.pixelSize.height) / refTile.region.span.latitudeDelta
 
-        // We want the rider's position centered, with their heading
-        // pointing UP. To do that:
-        //   1. translate to frame center
-        //   2. rotate by -heading (heading-up)
-        //   3. translate by (-userDx, -userDy) so the user pixel ends
-        //      up at the origin
-        //   4. scale tile pixels → frame pixels (we keep 1:1 at the
-        //      center; the tile is already 2× supersampled)
+        // Anchor coordinate space on the user — they sit at the origin
+        // after rotation; neighbouring tiles draw offset from that.
+        let centerLon = fix.coordinate.longitude
+        let centerLat = fix.coordinate.latitude
 
         ctx.saveGState()
-        // Re-flip Y for the duration of this draw. Tile JPEG is top-down.
+        // Re-flip Y for the duration of this draw. Tile bitmaps are top-down.
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
-        // Heading rotation: we want north-up tile → heading-up frame,
-        // so we rotate by -heading. CGContext angles are radians,
-        // counterclockwise; heading is degrees, clockwise from north.
+        // Heading-up: rotate by -heading (heading is deg cw from north;
+        // CGContext rotates counter-clockwise in radians).
         let theta = -lastHeading * .pi / 180
         ctx.rotate(by: theta)
-        // 1× pixel scale: tile is 1024 px / 1.2 km ≈ 0.85 m/px after the
-        // 2× snapshotter scale was already applied to UIImage.size.
-        // We want frame to show ~600 m wide, so cropping at 1:1 px from
-        // center gives us 526 px / pxPerMeter ≈ 600 m. Good.
-        ctx.translateBy(x: -CGFloat(userDx), y: -CGFloat(userDy))
 
-        // Draw the tile centered on its own pixel center (top-left of
-        // image is at -size/2, -size/2 in current coordinate space).
-        let tw = tile.pixelSize.width
-        let th = tile.pixelSize.height
-        ctx.draw(cg, in: CGRect(x: -tw / 2, y: -th / 2, width: tw, height: th))
+        // Draw every overlapping tile shifted by the delta from its
+        // own centre to the user's position.
+        for (t, cg) in tilesToDraw {
+            let dx = (t.region.center.longitude - centerLon) * pxPerDegLon
+            let dy = (centerLat - t.region.center.latitude) * pxPerDegLat
+            let tw = t.pixelSize.width
+            let th = t.pixelSize.height
+            ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2,
+                                    y: CGFloat(dy) - th / 2,
+                                    width: tw, height: th))
+        }
 
         // Draw the route polyline in the same rotated coordinate space.
         if !routePolylineCoords.isEmpty {

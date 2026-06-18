@@ -66,31 +66,9 @@ struct MapPickerView: View {
                 case .transitioning: transitioningBody
                 }
 
-                // Live MKMapView thumb in top-right. Mounted ALWAYS
-                // (regardless of mode/isStreaming) so the PiP source
-                // view stays in-window. If MapViewHost gets remounted
-                // while PiP is active, AVKit drops the session and
-                // MapKit stops rendering in background. Keeping the
-                // source stable across navigation start/stop is the
-                // single most important thing for screen-locked BG.
-                //
-                // Hidden in picking mode (opacity 0) but the UIView
-                // is still in the hierarchy, so PiP wiring stays
-                // alive across navigation start/stop transitions.
-                VStack {
-                    HStack {
-                        Spacer()
-                        MapViewHost(source: status.mapViewSource)
-                            .frame(width: 120, height: 68)
-                            .cornerRadius(6)
-                            .shadow(radius: 3)
-                            .allowsHitTesting(false)
-                            .padding(.trailing, 12)
-                            .padding(.top, 12)
-                            .opacity(mode == .navigating ? 1 : 0)
-                    }
-                    Spacer()
-                }
+                // Phase 8d: live MKMapView thumb removed.
+                // PiP is gone; the tile cache doesn't need MKMapView in the view hierarchy.
+                // The thumb in the top-right was leftover from the PiP/keep-alive era.
 
                 if case .error = status.bikeLink.state, let err = status.lastError {
                     VStack {
