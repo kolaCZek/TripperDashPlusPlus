@@ -232,19 +232,16 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
-        let inBackground = (UIApplication.shared.applicationState != .active)
-
-        if inBackground, routeTileCache != nil {
-            // BG path — pre-rendered tile cache + CPU composite.
+        // Unified FG + BG path. After the PiP/thumb removal, the
+        // MKMapView is no longer in a window so layer.render produces
+        // black. Instead we always composite from the pre-rendered
+        // tile cache (built when navigation starts) — works FG and BG
+        // since it's pure CGContext, no MapKit live render.
+        if routeTileCache != nil {
             drawTileCacheFrame(into: ctx)
-        } else if inBackground {
-            // BG without a tile cache — render the route polyline + dot
-            // on a flat dark background so the rider sees SOMETHING
-            // useful (vector-only fallback).
-            drawVectorOnlyFrame(into: ctx)
         } else {
-            // FG path: MKMapView's live layer is awake.
-            mapView.layer.render(in: ctx)
+            // Pre-navigation / no cache — vector-only on dark slate.
+            drawVectorOnlyFrame(into: ctx)
         }
 
         return buffer
