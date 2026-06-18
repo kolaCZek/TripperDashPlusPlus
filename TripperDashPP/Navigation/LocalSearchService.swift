@@ -130,11 +130,21 @@ extension LocalSearchService: MKLocalSearchCompleterDelegate {
         }
     }
     nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        let nsError = error as NSError
         let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        // MKErrorDomain code 5 = directionsNotFound / loadingThrottled / serverFailure;
+        // MKLocalSearchCompleter routinely throws it on empty or single-character
+        // queries (Apple's server rejects them). Don't surface to the UI or warn —
+        // just clear results so the dropdown closes cleanly.
+        let isTransient = nsError.domain == MKErrorDomain && nsError.code == 5
         Task { @MainActor in
             self.completions = []
-            self.lastError = msg
-            self.log.warning("completer failed: \(msg, privacy: .public)")
+            if isTransient {
+                self.lastError = nil
+            } else {
+                self.lastError = msg
+                self.log.warning("completer failed: \(msg, privacy: .public)")
+            }
         }
     }
 }

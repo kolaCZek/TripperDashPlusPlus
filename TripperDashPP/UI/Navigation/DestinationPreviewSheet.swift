@@ -59,7 +59,7 @@ struct DestinationPreviewSheet: View {
             .navigationTitle("Destination")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
             }
