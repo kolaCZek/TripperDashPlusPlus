@@ -436,6 +436,20 @@ final class MapSnapshotSource: FrameSource {
             }
             cg.strokePath()
 
+            // User-location chevron at the current fix. Drawn AFTER
+            // the route polyline so it sits on top of the line, and
+            // BEFORE the maneuver card so the card hides anything
+            // bottom-left if they overlap. Since the snapshot is
+            // already heading-up rotated (see requestSnapshot), the
+            // chevron is always axis-aligned — no need to recompute
+            // a rotation here.
+            if let fix = lastFix {
+                let p = snap.point(for: fix.coordinate)
+                if p.x.isFinite, p.y.isFinite {
+                    drawUserMarker(in: cg, at: p, size: size)
+                }
+            }
+
             // Next-step glyph in the bottom-left corner, sized to the
             // dash. Render text below it so the rider can read both at
             // a glance. Background is a rounded translucent slab.
@@ -464,44 +478,95 @@ final class MapSnapshotSource: FrameSource {
 
     /// Draw a translucent rounded card with a maneuver glyph + distance
     /// label in the bottom-left corner.
+    ///
+    /// `glyph` is an SF Symbol name (e.g. `arrow.turn.up.left`) — we
+    /// rasterise it through `UIImage(systemName:)`. Earlier we tried to
+    /// draw it as text and got the literal string on screen, because SF
+    /// Symbols aren't a font, they're glyphs in an Asset Catalog backed
+    /// by `UIImage`. Always go through `UIImage(systemName:)`.
     private func drawManeuverCard(in cg: CGContext, size: CGSize,
                                   glyph: String, distance: String) {
-        let cardW: CGFloat = 180 * (size.width / 526)
-        let cardH: CGFloat = 64 * (size.height / 300)
-        let margin: CGFloat = 8 * (size.width / 526)
-        let rect = CGRect(x: margin,
-                          y: size.height - cardH - margin,
-                          width: cardW, height: cardH)
+        let scale = size.width / 526
+        let cardH: CGFloat = 64 * scale
+        let margin: CGFloat = 8 * scale
+        let iconSize: CGFloat = cardH * 0.70
+        let gap: CGFloat = 10 * scale
+        let innerPad: CGFloat = 10 * scale
 
-        cg.saveGState()
-        cg.setFillColor(UIColor.black.withAlphaComponent(0.55).cgColor)
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 10)
-        cg.addPath(path.cgPath)
-        cg.fillPath()
-        cg.restoreGState()
-
-        // Glyph
-        let glyphFont = UIFont.systemFont(ofSize: cardH * 0.55, weight: .heavy)
-        let glyphAttrs: [NSAttributedString.Key: Any] = [
-            .font: glyphFont,
-            .foregroundColor: UIColor.white,
-        ]
-        let glyphStr = NSAttributedString(string: glyph, attributes: glyphAttrs)
-        let glyphSize = glyphStr.size()
-        let glyphOrigin = CGPoint(x: rect.minX + 8,
-                                  y: rect.midY - glyphSize.height / 2)
-        glyphStr.draw(at: glyphOrigin)
-
-        // Distance label
-        let distFont = UIFont.systemFont(ofSize: cardH * 0.35, weight: .semibold)
+        // Measure distance text first so we can size the card to fit.
+        let distFont = UIFont.systemFont(ofSize: cardH * 0.42, weight: .bold)
         let distAttrs: [NSAttributedString.Key: Any] = [
             .font: distFont,
             .foregroundColor: UIColor.white,
         ]
         let distStr = NSAttributedString(string: distance, attributes: distAttrs)
-        let distOrigin = CGPoint(x: rect.minX + 8 + glyphSize.width + 10,
-                                 y: rect.midY - distStr.size().height / 2)
+        let distSize = distStr.size()
+
+        // Card sized to content with a sane minimum.
+        let cardW = max(140 * scale,
+                        innerPad + iconSize + gap + distSize.width + innerPad)
+        let rect = CGRect(x: margin,
+                          y: size.height - cardH - margin,
+                          width: cardW, height: cardH)
+
+        cg.saveGState()
+        cg.setFillColor(UIColor.black.withAlphaComponent(0.62).cgColor)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 12)
+        cg.addPath(path.cgPath)
+        cg.fillPath()
+        cg.restoreGState()
+
+        // SF Symbol → UIImage, tinted white, drawn into the icon slot.
+        let cfg = UIImage.SymbolConfiguration(pointSize: iconSize, weight: .bold)
+        let symbol = (UIImage(systemName: glyph, withConfiguration: cfg)
+                      ?? UIImage(systemName: "arrow.up", withConfiguration: cfg))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+
+        let iconRect = CGRect(x: rect.minX + innerPad,
+                              y: rect.midY - iconSize / 2,
+                              width: iconSize, height: iconSize)
+        symbol?.draw(in: iconRect)
+
+        // Distance label, vertically centered next to the icon.
+        let distOrigin = CGPoint(
+            x: iconRect.maxX + gap,
+            y: rect.midY - distSize.height / 2
+        )
         distStr.draw(at: distOrigin)
+    }
+
+    /// Draw a blue heading chevron at the supplied snapshot-space
+    /// point. The map snapshot is rendered heading-up (Apple rotates
+    /// the canvas itself), so the chevron always points straight up —
+    /// no per-frame rotation needed.
+    private func drawUserMarker(in cg: CGContext, at p: CGPoint, size: CGSize) {
+        let scale = size.width / 526
+        let outerR: CGFloat = 12 * scale
+        let chevR:  CGFloat = 9  * scale
+
+        cg.saveGState()
+        // White halo so the marker pops on both light + dark tiles.
+        cg.setShadow(offset: .zero, blur: 4 * scale,
+                     color: UIColor.black.withAlphaComponent(0.5).cgColor)
+
+        // Outer white ring.
+        cg.setFillColor(UIColor.white.cgColor)
+        cg.fillEllipse(in: CGRect(x: p.x - outerR, y: p.y - outerR,
+                                  width: outerR * 2, height: outerR * 2))
+
+        // Blue chevron pointing up (snapshot is heading-up).
+        cg.setShadow(offset: .zero, blur: 0, color: nil)
+        cg.setFillColor(UIColor.systemBlue.cgColor)
+        let chev = CGMutablePath()
+        chev.move(to: CGPoint(x: p.x,           y: p.y - chevR))
+        chev.addLine(to: CGPoint(x: p.x + chevR, y: p.y + chevR * 0.85))
+        chev.addLine(to: CGPoint(x: p.x,         y: p.y + chevR * 0.45))
+        chev.addLine(to: CGPoint(x: p.x - chevR, y: p.y + chevR * 0.85))
+        chev.closeSubpath()
+        cg.addPath(chev)
+        cg.fillPath()
+
+        cg.restoreGState()
     }
 
     private func pixelBuffer(from image: UIImage) -> CVPixelBuffer? {
