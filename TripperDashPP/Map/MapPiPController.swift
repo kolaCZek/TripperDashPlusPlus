@@ -22,13 +22,22 @@
 //  ---------------------------------
 //  MapViewSource owns an MKMapView. MapPiPController takes that
 //  same MKMapView (via reference) and wires it as the active video
-//  call source view. When PiP starts (auto on background), Apple
+//  call source view. When PiP starts (manually on background), Apple
 //  reparents our MKMapView into the PiP overlay; render loop in
-//  MapViewSource keeps ticking via CADisplayLink (which IS allowed
-//  in BG when PiP is active). Frames flow normally to the encoder.
+//  MapViewSource keeps ticking, frames flow normally to the encoder.
 //
 //  When PiP stops, Apple hands the MKMapView back; we return it to
 //  the HUD overlay container so foreground operation is unchanged.
+//
+//  Why we trigger PiP manually (not canStartAutomaticallyFromInline):
+//  -----------------------------------------------------------------
+//  canStartPictureInPictureAutomaticallyFromInline is a playback-PiP
+//  affordance; for VideoCall PiP it sets a flag but iOS does not
+//  actually auto-start on background. Every real-world VideoCall PiP
+//  app (LiveContainer, CueCard, AgoraIO) calls startPictureInPicture
+//  explicitly on UIApplication.willResignActiveNotification - the
+//  notification fires before the screen locks (and before iOS would
+//  freeze the GPU pipeline), giving us a window to trigger PiP.
 //
 //  No entitlement needed - this is public API since iOS 15.
 //
@@ -52,8 +61,6 @@ final class MapPiPController: NSObject {
 
     /// The container that hosts the MKMapView when PiP is *not*
     /// active (i.e. when the map should be visible in the HUD).
-    /// AVKit reparents the mapView between this container and the
-    /// PiP overlay's view controller.
     private weak var hudContainer: UIView?
 
     /// AVKit content view controller; its view becomes the PiP
@@ -64,19 +71,63 @@ final class MapPiPController: NSObject {
 
     /// Required by AVKit: the "source view" pointing at where the
     /// content is in the regular app hierarchy. AVKit uses this
-    /// frame to animate the PiP transition. It must be in the view
-    /// hierarchy and visible when PiP arms.
+    /// frame to animate the PiP transition.
     private weak var sourceView: UIView?
+
+    /// Observer token for UIApplication.willResignActiveNotification.
+    private var willResignObserver: NSObjectProtocol?
 
     var isPiPActive: Bool {
         pipController?.isPictureInPictureActive ?? false
     }
 
-    /// Wire the controller. Call AFTER both the mapView is fully
-    /// initialised AND sourceView is in the view hierarchy with a
-    /// non-zero frame. AVKit's PiP arming checks isPictureInPicture-
-    /// Possible against the source view's geometry.
+    override init() {
+        super.init()
+        registerForBackgroundTrigger()
+    }
+
+    deinit {
+        if let token = willResignObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    private func registerForBackgroundTrigger() {
+        let nc = NotificationCenter.default
+        willResignObserver = nc.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // We're on main queue (via NotificationCenter queue: .main)
+            // but the compiler does not know that.
+            MainActor.assumeIsolated {
+                self?.handleWillResignActive()
+            }
+        }
+    }
+
+    private func handleWillResignActive() {
+        guard let controller = pipController else {
+            log.warning("willResignActive but pipController is nil - PiP not wired yet")
+            return
+        }
+        let possible = controller.isPictureInPicturePossible
+        let active = controller.isPictureInPictureActive
+        let svInWindow = (sourceView?.window != nil)
+        log.info("willResignActive: possible=\(possible, privacy: .public), active=\(active, privacy: .public), sourceViewInWindow=\(svInWindow, privacy: .public)")
+        guard possible, !active else { return }
+        log.info("manually starting PiP on willResignActive")
+        controller.startPictureInPicture()
+    }
+
+    /// Wire the controller. Call as soon as a UIView is in the
+    /// hierarchy with a non-zero frame.
     func attach(mapView: MKMapView, sourceView: UIView, hudContainer: UIView) {
+        if self.pipController != nil {
+            log.debug("attach() called but controller already exists - ignoring")
+            return
+        }
         self.mapView = mapView
         self.sourceView = sourceView
         self.hudContainer = hudContainer
@@ -99,51 +150,45 @@ final class MapPiPController: NSObject {
             log.warning("PiP not supported on this device")
             return
         }
-        guard let sourceView else {
-            log.error("setupPiP called without sourceView")
+        guard let sourceView = sourceView else {
+            log.error("setupPiP() called without sourceView")
             return
         }
 
-        // The content VC owns the view that becomes the PiP overlay.
-        // We set its preferredContentSize to match the dash native
-        // resolution so the PiP bubble has the right aspect ratio.
+        // Configure audio session: PiP requires .playback category.
+        // Combined with the SilentAudioKeeper's session this gives us
+        // the BG audio mode entitlement-free path AVKit expects.
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback,
+                                    options: [.mixWithOthers])
+            try session.setActive(true)
+            log.debug("AVAudioSession configured for PiP")
+        } catch {
+            log.error("AVAudioSession setup failed: \(error.localizedDescription, privacy: .public)")
+        }
+
+        // The PiP content view controller. Its `view` becomes the
+        // PiP overlay's content; AVKit will reparent our mapView
+        // into it on willStart.
         let contentVC = AVPictureInPictureVideoCallViewController()
+        // 16:9-ish aspect to match our 526x300 source.
         contentVC.preferredContentSize = CGSize(width: 526, height: 300)
-        contentVC.view.backgroundColor = .black
         self.pipContentVC = contentVC
 
-        let source = AVPictureInPictureController.ContentSource(
+        let contentSource = AVPictureInPictureController.ContentSource(
             activeVideoCallSourceView: sourceView,
             contentViewController: contentVC
         )
 
-        let controller = AVPictureInPictureController(contentSource: source)
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        let controller = AVPictureInPictureController(contentSource: contentSource)
         controller.delegate = self
-        // The controlsStyle=1 trick suppresses the playback UI overlay
-        // (the play/pause/dismiss controls) since we have no playback.
-        // Private KVC but used by every video-call PiP app on GitHub.
-        controller.setValue(1, forKey: "controlsStyle")
+        // Setting both for safety; auto-from-inline is a no-op on
+        // VideoCall PiP but cheap to set; we trigger manually anyway.
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
         self.pipController = controller
 
-        log.info("PiP controller ready (autoFromInline=true, sourceView=\(sourceView.bounds.size.width, privacy: .public)x\(sourceView.bounds.size.height, privacy: .public))")
-    }
-
-    /// Manual trigger - for cases where auto-from-inline does not
-    /// fire (e.g. when sourceView is too small at background time).
-    func startPiP() {
-        guard let pipController else { return }
-        guard pipController.isPictureInPicturePossible else {
-            log.warning("startPiP called but not possible (sourceView in hierarchy? size? layer ready?)")
-            return
-        }
-        if !pipController.isPictureInPictureActive {
-            pipController.startPictureInPicture()
-        }
-    }
-
-    func stopPiP() {
-        pipController?.stopPictureInPicture()
+        log.info("PiP controller ready (sourceView=\(sourceView.bounds.width, privacy: .public)x\(sourceView.bounds.height, privacy: .public), possible=\(controller.isPictureInPicturePossible, privacy: .public))")
     }
 }
 
@@ -152,76 +197,57 @@ final class MapPiPController: NSObject {
 @available(iOS 15.0, *)
 extension MapPiPController: AVPictureInPictureControllerDelegate {
 
-    nonisolated func pictureInPictureController(
-        _ pictureInPictureController: AVPictureInPictureController,
-        failedToStartPictureInPictureWithError error: Error
-    ) {
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController,
+                                                 failedToStartPictureInPictureWithError error: Error) {
         Task { @MainActor in
-            self.log.error("PiP failed to start: \(error.localizedDescription, privacy: .public)")
+            log.error("PiP failed to start: \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    nonisolated func pictureInPictureControllerWillStartPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
         Task { @MainActor in
-            self.log.info("PiP will start - reparenting MKMapView into PiP overlay")
-            self.reparentMapToPiP()
+            log.info("PiP will start - reparenting MKMapView into PiP overlay")
+            guard let mapView = self.mapView,
+                  let contentVC = self.pipContentVC else {
+                log.error("willStart: mapView or contentVC missing")
+                return
+            }
+            // Reset transform (HUD scaled it); fill the PiP overlay.
+            mapView.transform = .identity
+            mapView.removeFromSuperview()
+            contentVC.view.addSubview(mapView)
+            mapView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                mapView.topAnchor.constraint(equalTo: contentVC.view.topAnchor),
+                mapView.bottomAnchor.constraint(equalTo: contentVC.view.bottomAnchor),
+                mapView.leadingAnchor.constraint(equalTo: contentVC.view.leadingAnchor),
+                mapView.trailingAnchor.constraint(equalTo: contentVC.view.trailingAnchor),
+            ])
         }
     }
 
-    nonisolated func pictureInPictureControllerDidStartPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
         Task { @MainActor in
-            self.log.info("PiP started - MapKit pipeline should now survive screen lock")
+            log.info("PiP started - MapKit pipeline should now survive screen lock")
         }
     }
 
-    nonisolated func pictureInPictureControllerWillStopPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
+    nonisolated func pictureInPictureControllerWillStopPictureInPicture(_ controller: AVPictureInPictureController) {
         Task { @MainActor in
-            self.log.info("PiP will stop - reparenting MKMapView back to HUD")
-            self.reparentMapToHUD()
+            log.info("PiP will stop - returning MKMapView to HUD")
+            guard let mapView = self.mapView,
+                  let hud = self.hudContainer else { return }
+            mapView.removeFromSuperview()
+            mapView.translatesAutoresizingMaskIntoConstraints = true
+            hud.addSubview(mapView)
+            // updateUIView() in MapViewHost will re-apply the scale
+            // transform on the next SwiftUI layout pass.
         }
     }
 
-    nonisolated func pictureInPictureControllerDidStopPictureInPicture(
-        _ pictureInPictureController: AVPictureInPictureController
-    ) {
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         Task { @MainActor in
-            self.log.info("PiP stopped")
+            log.info("PiP stopped")
         }
-    }
-
-    // MARK: - Reparenting
-
-    private func reparentMapToPiP() {
-        guard let mapView, let pipContentVC else { return }
-        mapView.removeFromSuperview()
-        pipContentVC.view.addSubview(mapView)
-        mapView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            mapView.leadingAnchor.constraint(equalTo: pipContentVC.view.leadingAnchor),
-            mapView.trailingAnchor.constraint(equalTo: pipContentVC.view.trailingAnchor),
-            mapView.topAnchor.constraint(equalTo: pipContentVC.view.topAnchor),
-            mapView.bottomAnchor.constraint(equalTo: pipContentVC.view.bottomAnchor),
-        ])
-        pipContentVC.view.layoutIfNeeded()
-    }
-
-    private func reparentMapToHUD() {
-        guard let mapView, let hudContainer else { return }
-        mapView.removeFromSuperview()
-        hudContainer.addSubview(mapView)
-        mapView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            mapView.leadingAnchor.constraint(equalTo: hudContainer.leadingAnchor),
-            mapView.trailingAnchor.constraint(equalTo: hudContainer.trailingAnchor),
-            mapView.topAnchor.constraint(equalTo: hudContainer.topAnchor),
-            mapView.bottomAnchor.constraint(equalTo: hudContainer.bottomAnchor),
-        ])
-        hudContainer.layoutIfNeeded()
     }
 }

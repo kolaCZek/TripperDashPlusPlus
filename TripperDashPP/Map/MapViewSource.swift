@@ -310,6 +310,16 @@ struct MapViewHost: UIViewRepresentable {
         container.clipsToBounds = true
         container.backgroundColor = .black
         container.addSubview(source.hostView)
+        // Defer attach to next runloop tick when SwiftUI has put us
+        // in a window. updateUIView() also re-tries on every layout,
+        // so this is belt+suspenders.
+        DispatchQueue.main.async {
+            if container.window != nil {
+                source.mapPiP.attach(mapView: source.hostView,
+                                     sourceView: container,
+                                     hudContainer: container)
+            }
+        }
         return container
     }
 
