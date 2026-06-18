@@ -275,9 +275,9 @@ extension MapViewSource {
             // Compare measured pxPerDeg vs naive (from region.span).
             let naivePxPerDegLon = Double(t.pixelSize.width) / t.region.span.longitudeDelta
             let naivePxPerDegLat = Double(t.pixelSize.height) / t.region.span.latitudeDelta
-            let scaleRatioLon = t.pxPerDegLon / naivePxPerDegLon
-            let scaleRatioLat = t.pxPerDegLat / naivePxPerDegLat
-            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY)) pxPerDeg measured=(\(Int(t.pxPerDegLon)),\(Int(t.pxPerDegLat))) naive=(\(Int(naivePxPerDegLon)),\(Int(naivePxPerDegLat))) ratio=(\(String(format: \"%.2f\", scaleRatioLon)),\(String(format: \"%.2f\", scaleRatioLat)))")
+            let scaleRatioLon = String(format: "%.2f", t.pxPerDegLon / naivePxPerDegLon)
+            let scaleRatioLat = String(format: "%.2f", t.pxPerDegLat / naivePxPerDegLat)
+            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY)) pxPerDeg measured=(\(Int(t.pxPerDegLon)),\(Int(t.pxPerDegLat))) naive=(\(Int(naivePxPerDegLon)),\(Int(naivePxPerDegLat))) ratio=(\(scaleRatioLon),\(scaleRatioLat))")
         }
 
         // Pick the centre tile + 2 neighbours either side. After
