@@ -190,10 +190,11 @@ final class PiPSampleBufferSink: NSObject {
         // doesn't reject frames if the snapshot source resets PTS at
         // session boundaries.
         let pts = CMTime(value: sessionFrameIndex, timescale: timescale)
-        sessionFrameIndex &+= timescale / 6   // 6 fps in 600 Hz units = 100
+        let frameDurationTicks = Int64(timescale) / 6   // 6 fps in 600 Hz units = 100
+        sessionFrameIndex &+= frameDurationTicks
 
         var timing = CMSampleTimingInfo(
-            duration: CMTime(value: timescale / 6, timescale: timescale),
+            duration: CMTime(value: frameDurationTicks, timescale: timescale),
             presentationTimeStamp: pts,
             decodeTimeStamp: .invalid
         )
