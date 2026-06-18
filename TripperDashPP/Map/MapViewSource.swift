@@ -2,47 +2,29 @@
 //  MapViewSource.swift
 //  TripperDashPP
 //
-//  Phase 8b — Live MKMapView as a frame source.
+//  Phase 8d — Pre-rendered route tile cache as the BG frame source.
 //
-//  Why this exists:
-//  ----------------
-//  MKMapSnapshotter (used by MapSnapshotSource) is throttled in
-//  .background state — that's the freeze we kept hitting even with
-//  PiP active. MKMapView is a *continuous* map renderer; as long as
-//  it's mounted in a visible view hierarchy, MapKit keeps its tile
-//  fetcher + Metal pipeline alive. PiP keeps our PiPHostView in the
-//  "visible" hierarchy from iOS's perspective even with the screen
-//  locked, so a MKMapView mounted inside PiPHostView's container
-//  should keep rendering.
+//  History:
+//  --------
+//  Phase 8b: live MKMapView.layer.render(in:) every frame. FAILS in BG —
+//            MapKit's Metal renderer is paused once the app is no longer
+//            .active, so layer.render returns black pixels.
 //
-//  How frames make it to the encoder:
-//  ----------------------------------
-//  We don't snapshot through MKMapSnapshotter at all. Instead, on
-//  each tick (6 fps DispatchSourceTimer) we call
-//  `mapView.layer.render(in: cgContext)` against an in-memory
-//  CGContext, then wrap that pixel buffer into a CVPixelBuffer and
-//  emit it to the encoder. `layer.render(in:)` is synchronous,
-//  CPU-side, and doesn't depend on the GPU presentation pipeline —
-//  whatever the layer last drew is what we get. As long as MapKit
-//  is updating its layer (which requires a visible view), the
-//  output stays live.
+//  Phase 8c: MKMapSnapshotter on a 1 Hz cache + dot overlay. FAILS in
+//            BG — the snapshotter completion handler is silently
+//            suspended on the lock screen too. Confirmed by telemetry.
 //
-//  Overlays:
-//  ---------
-//  Native MKMapView overlays (route polyline as MKPolyline +
-//  MKPolylineRenderer, user puck via mapView.showsUserLocation,
-//  maneuver chevron via MKPointAnnotation) — they render inline,
-//  no post-compositing required.
+//  Phase 8d (THIS): pre-render every tile we'll need DURING foreground
+//            (when the GPU is awake), JPEG-compress them in memory, then
+//            in BG do CPU-only CGContext composition: crop a tile around
+//            the current fix, rotate to heading-up, draw the polyline,
+//            draw the user dot. CGContext is BG-safe.
 //
-//  Output size:
-//  ------------
-//  We size the underlying MKMapView at 526×300 (the dash native
-//  resolution). The PiPHostView's UIView container may render it at
-//  a smaller on-screen size (90×54 thumbnail in the corner of the
-//  HUD), but layer.render(in:) always grabs the layer's intrinsic
-//  size. PiP shows it scaled to fit the thumbnail; the stream goes
-//  out at 526×300.
-//
+//  Output:
+//  -------
+//  526×300 BGRA pixel buffer at 6 fps emitted to the encoder. PiP keeps
+//  the encoder pipeline + Swift Concurrency executor alive on lock
+//  screen; the tile cache supplies the visual content.
 
 import CoreLocation
 import CoreMedia
@@ -70,6 +52,7 @@ final class MapViewSource: NSObject, FrameSource {
     private var fixSubscription: LocationSubscription?
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
+    private var lastHeading: CLLocationDirection = 0
 
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
     private var renderTask: Task<Void, Never>?
@@ -78,28 +61,13 @@ final class MapViewSource: NSObject, FrameSource {
 
     private var pixelBufferPool: CVPixelBufferPool?
     private var routePolyline: MKPolyline?
+    private var routePolylineCoords: [CLLocationCoordinate2D] = []
 
-    // MARK: - Background snapshot pipeline
-    //
-    // MKMapView.layer.render(in:) returns BLACK once the app is in
-    // background, regardless of PiP / audio session / Task executor.
-    // MapKit's Metal renderer is genuinely paused. The ONLY rendering
-    // path that produces map tiles in BG is MKMapSnapshotter — Apple's
-    // off-screen, async, system-rendered alternative.
-    //
-    // Foreground path:  mapView.layer.render(in: ctx) every frame.
-    // Background path:  refresh cachedSnapshot via MKMapSnapshotter
-    //                   ~once/second, draw it into the frame each tick
-    //                   + overlay current user-location dot on top so
-    //                   the rider sees real movement at full 6 fps.
-    private var cachedSnapshotImage: UIImage?
-    private var cachedSnapshotRegion: MKCoordinateRegion?
-    private var snapshotInFlight: Bool = false
-    private var lastSnapshotTime: CFTimeInterval = 0
+    /// Pre-rendered tile cache — built from the active route in FG.
+    private var routeTileCache: RouteTileCache?
+    private var lastTileHintIndex: Int = 0
 
-    /// PiP wrapper. Reparents `mapView` between HUD and PiP overlay
-    /// when system backgrounds the app. Set by `MapViewHost` after
-    /// the host UIView is in the window with a non-zero frame.
+    /// PiP wrapper.
     let mapPiP: MapPiPController = MapPiPController()
 
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {
@@ -109,13 +77,8 @@ final class MapViewSource: NSObject, FrameSource {
         configureMapView()
     }
 
-    deinit {
-        // stop() is @MainActor, can't call from deinit. UI teardown
-        // is fast and ARC will release the MKMapView.
-    }
+    deinit {}
 
-    /// The live MKMapView. Mount this in your PiP host view so the
-    /// system keeps MapKit's render loop alive.
     var hostView: MKMapView { mapView }
 
     private func configureMapView() {
@@ -143,7 +106,6 @@ final class MapViewSource: NSObject, FrameSource {
         preparePool()
         subscribeLocation()
         startTimer()
-        primeSnapshotCache()
         log.info("MapViewSource started (live MKMapView, \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
     }
 
@@ -158,6 +120,17 @@ final class MapViewSource: NSObject, FrameSource {
         headingSubscription = nil
         onFrame = nil
         log.info("MapViewSource stopped after \(self.frameIndex) frames")
+    }
+
+    // MARK: - Tile cache wiring
+
+    /// Install a pre-rendered tile cache produced by `RouteTileCache.prerender`.
+    /// Once installed, the BG render path will composite from these tiles
+    /// instead of asking MapKit to draw anything.
+    func setTileCache(_ cache: RouteTileCache?) {
+        routeTileCache = cache
+        lastTileHintIndex = 0
+        log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
     }
 }
 
@@ -186,9 +159,7 @@ extension MapViewSource {
     }
 
     private func handleHeading(_ heading: Heading) {
-        // userTrackingMode = .followWithHeading already rotates the
-        // map for us, but we update camera heading explicitly for
-        // smoother motion.
+        lastHeading = heading.trueHeading
         let cam = mapView.camera.copy() as! MKMapCamera
         cam.heading = heading.trueHeading
         mapView.setCamera(cam, animated: false)
@@ -199,20 +170,8 @@ extension MapViewSource {
 
 extension MapViewSource {
     /// Render loop via Swift Concurrency Task + Task.sleep.
-    ///
-    /// History of timer choices:
-    /// 1. DispatchSourceTimer on bg queue + dispatch to main: died at
-    ///    lock screen even with PiP active.
-    /// 2. CADisplayLink on main runloop: died at lock screen because
-    ///    no display refresh exists on the locked main screen.
-    /// 3. Swift Task with Task.sleep (THIS): same pattern as the
-    ///    bike's HeartbeatLoop which DOES tick continuously at lock
-    ///    screen as proven by `Heartbeat tick #N` logs. The Swift
-    ///    Concurrency executor + audio session backgrounding mode is
-    ///    what keeps it alive.
-    ///
-    /// Render happens on @MainActor (MKMapView requires it). The
-    /// Task.sleep yield gives the runtime a chance to schedule.
+    /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
+    /// keeps ticking on locked screen with PiP active.
     private func startTimer() {
         renderTask?.cancel()
         let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)
@@ -230,8 +189,6 @@ extension MapViewSource {
         guard let buffer = renderMapViewToPixelBuffer() else { return }
         let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
         frameIndex &+= 1
-        // Heartbeat every 60 frames (~10s @ 6fps) so the next ride
-        // log shows whether the render loop survives screen lock.
         if frameIndex % 60 == 0 {
             let state = UIApplication.shared.applicationState.rawValue
             log.info("frame tick #\(self.frameIndex, privacy: .public) (appState=\(state, privacy: .public))")
@@ -265,127 +222,180 @@ extension MapViewSource {
             bitmapInfo: bitmapInfo
         ) else { return nil }
 
-        // Clear to opaque black so a recycled CVPixelBuffer never
-        // leaks old pixels through transparent regions.
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
         // CGContext for CVPixelBuffer has origin at bottom-left;
-        // CALayer/UIImage expect top-left. Flip the Y axis once and
-        // both render paths can draw without further transforms.
+        // CALayer/UIImage expect top-left. Flip the Y axis once.
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
         let inBackground = (UIApplication.shared.applicationState != .active)
 
-        if inBackground, let snapshot = cachedSnapshotImage {
-            // BG path: draw cached MKMapSnapshotter tile + live overlay
-            // for the user position so the rider sees the dot move at
-            // full 6 fps even though the underlying map only refreshes
-            // ~1 Hz (snapshotter is too expensive for every frame).
-            drawBackgroundFrame(into: ctx, snapshot: snapshot)
-            maybeRefreshSnapshot()
+        if inBackground, routeTileCache != nil {
+            // BG path — pre-rendered tile cache + CPU composite.
+            drawTileCacheFrame(into: ctx)
         } else if inBackground {
-            // BG path with no cached snapshot yet — leave black frame.
-            // Should be very rare: primeSnapshotCache() runs at start
-            // and a fresh tile lands within ~500ms.
-            maybeRefreshSnapshot()
+            // BG without a tile cache — render the route polyline + dot
+            // on a flat dark background so the rider sees SOMETHING
+            // useful (vector-only fallback).
+            drawVectorOnlyFrame(into: ctx)
         } else {
-            // FG path: MapKit's live layer is awake, just sample it.
+            // FG path: MKMapView's live layer is awake.
             mapView.layer.render(in: ctx)
         }
 
         return buffer
     }
+}
 
-    /// BG drawing: cached tile + projection of current user-location
-    /// onto the cached region.
-    private func drawBackgroundFrame(into ctx: CGContext, snapshot: UIImage) {
-        // 1. Draw cached snapshot full-frame.
-        if let cg = snapshot.cgImage {
-            ctx.draw(cg, in: CGRect(origin: .zero, size: frameSize))
+// MARK: - BG render: tile cache composite
+
+extension MapViewSource {
+    /// Draw one BG frame from the pre-rendered tile cache.
+    /// Steps: pick nearest tile → rotate context to heading-up →
+    /// draw cropped tile → polyline → user dot in the center.
+    private func drawTileCacheFrame(into ctx: CGContext) {
+        guard let cache = routeTileCache, let fix = lastFix else { return }
+        guard let (tile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
+            // Off-route / re-routing — fall back to vector-only.
+            drawVectorOnlyFrame(into: ctx)
+            return
+        }
+        lastTileHintIndex = idx
+        guard let img = cache.image(for: tile, atIndex: idx), let cg = img.cgImage else { return }
+
+        // Pixels-per-degree for this tile (tile is square, span symmetric).
+        let pxPerDegLon = Double(tile.pixelSize.width) / tile.region.span.longitudeDelta
+        let pxPerDegLat = Double(tile.pixelSize.height) / tile.region.span.latitudeDelta
+        let centerLon = tile.region.center.longitude
+        let centerLat = tile.region.center.latitude
+
+        // Pixel offset of the user from the tile center.
+        let userDx = (fix.coordinate.longitude - centerLon) * pxPerDegLon
+        let userDy = (centerLat - fix.coordinate.latitude) * pxPerDegLat
+
+        // We want the rider's position centered, with their heading
+        // pointing UP. To do that:
+        //   1. translate to frame center
+        //   2. rotate by -heading (heading-up)
+        //   3. translate by (-userDx, -userDy) so the user pixel ends
+        //      up at the origin
+        //   4. scale tile pixels → frame pixels (we keep 1:1 at the
+        //      center; the tile is already 2× supersampled)
+
+        ctx.saveGState()
+        // Re-flip Y for the duration of this draw. Tile JPEG is top-down.
+        ctx.translateBy(x: 0, y: frameSize.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
+        // Heading rotation: we want north-up tile → heading-up frame,
+        // so we rotate by -heading. CGContext angles are radians,
+        // counterclockwise; heading is degrees, clockwise from north.
+        let theta = -lastHeading * .pi / 180
+        ctx.rotate(by: theta)
+        // 1× pixel scale: tile is 1024 px / 1.2 km ≈ 0.85 m/px after the
+        // 2× snapshotter scale was already applied to UIImage.size.
+        // We want frame to show ~600 m wide, so cropping at 1:1 px from
+        // center gives us 526 px / pxPerMeter ≈ 600 m. Good.
+        ctx.translateBy(x: -CGFloat(userDx), y: -CGFloat(userDy))
+
+        // Draw the tile centered on its own pixel center (top-left of
+        // image is at -size/2, -size/2 in current coordinate space).
+        let tw = tile.pixelSize.width
+        let th = tile.pixelSize.height
+        ctx.draw(cg, in: CGRect(x: -tw / 2, y: -th / 2, width: tw, height: th))
+
+        // Draw the route polyline in the same rotated coordinate space.
+        if !routePolylineCoords.isEmpty {
+            ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
+            ctx.setLineWidth(8)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.beginPath()
+            var first = true
+            for c in routePolylineCoords {
+                let dx = (c.longitude - centerLon) * pxPerDegLon
+                let dy = (centerLat - c.latitude) * pxPerDegLat
+                let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
+                if first {
+                    ctx.move(to: pt)
+                    first = false
+                } else {
+                    ctx.addLine(to: pt)
+                }
+            }
+            ctx.strokePath()
         }
 
-        // 2. Overlay current user-location pin. We project the latest
-        //    Fix into the cached snapshot's coordinate space so the
-        //    dot moves even between snapshot refreshes.
-        guard let fix = lastFix, let region = cachedSnapshotRegion else { return }
-        let pt = projectCoordinate(fix.coordinate, in: region)
-        // Skip off-screen — happens right at snapshot refresh boundary
-        // when the cached region hasn't caught up yet.
-        guard pt.x.isFinite, pt.y.isFinite,
-              pt.x >= -20, pt.x <= frameSize.width + 20,
-              pt.y >= -20, pt.y <= frameSize.height + 20 else { return }
+        ctx.restoreGState()
 
-        // White halo
+        // Draw user dot in the center (always upright — drawn after
+        // restoreGState so heading rotation doesn't tilt it).
+        let cx = frameSize.width / 2
+        let cy = frameSize.height / 2
+        // Re-flip Y just for the dot (we restored to ctx top-down state,
+        // but the outer ctx is bottom-up; cy is fine in either since
+        // it's the center).
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: pt.x - 9, y: pt.y - 9, width: 18, height: 18))
-        // Blue center
+        ctx.fillEllipse(in: CGRect(x: cx - 9, y: cy - 9, width: 18, height: 18))
         ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: pt.x - 6, y: pt.y - 6, width: 12, height: 12))
+        ctx.fillEllipse(in: CGRect(x: cx - 6, y: cy - 6, width: 12, height: 12))
     }
 
-    /// Project a lat/lon into the cached snapshot's pixel space.
-    private func projectCoordinate(_ coord: CLLocationCoordinate2D, in region: MKCoordinateRegion) -> CGPoint {
-        let dLat = region.span.latitudeDelta
-        let dLon = region.span.longitudeDelta
-        let topLat = region.center.latitude + dLat / 2
-        let leftLon = region.center.longitude - dLon / 2
-        // X grows east, Y grows north — but ctx is already Y-flipped
-        // so we hand it screen-natural coordinates (top-down).
-        let xFrac = (coord.longitude - leftLon) / dLon
-        let yFrac = (topLat - coord.latitude) / dLat
-        // Flip Y back because we already applied ctx.scaleBy(y:-1):
-        // drawing into the ctx now expects bottom-up coords.
-        let x = CGFloat(xFrac) * frameSize.width
-        let y = frameSize.height - CGFloat(yFrac) * frameSize.height
-        return CGPoint(x: x, y: y)
-    }
+    /// Vector-only fallback: dark background + polyline + dot.
+    /// Used when the tile cache is unavailable or the user has gone
+    /// off the cached corridor.
+    private func drawVectorOnlyFrame(into ctx: CGContext) {
+        // Dark slate background
+        ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
-    /// Kick off a fresh MKMapSnapshotter at most once/second.
-    /// MKMapSnapshotter works in BG and renders REAL map tiles, but
-    /// each call is ~100-500ms wallclock, so we cap the refresh rate.
-    private func maybeRefreshSnapshot() {
-        let now = CACurrentMediaTime()
-        guard !snapshotInFlight, now - lastSnapshotTime > 1.0 else { return }
-        guard let fix = lastFix else { return }
+        guard let fix = lastFix, !routePolylineCoords.isEmpty else {
+            // Nothing useful to draw.
+            return
+        }
 
-        let region = MKCoordinateRegion(
-            center: fix.coordinate,
-            latitudinalMeters: 400,
-            longitudinalMeters: 400
-        )
-        let options = MKMapSnapshotter.Options()
-        options.region = region
-        options.size = frameSize
-        options.mapType = .standard
-        options.showsBuildings = true
+        // Use a constant scale: 1 m = 0.5 px → 526 px = ~1 km wide view.
+        let metersPerPx: Double = 2.0
+        let centerLat = fix.coordinate.latitude
+        let centerLon = fix.coordinate.longitude
+        let mPerDegLat = 111_320.0
+        let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
 
-        snapshotInFlight = true
-        lastSnapshotTime = now
-        let snapshotter = MKMapSnapshotter(options: options)
-        snapshotter.start(with: .main) { [weak self] snap, err in
-            guard let self else { return }
-            self.snapshotInFlight = false
-            if let snap {
-                self.cachedSnapshotImage = snap.image
-                self.cachedSnapshotRegion = region
-                if self.frameIndex % 6 == 0 {
-                    self.log.info("snapshot refreshed (frame=\(self.frameIndex, privacy: .public))")
-                }
-            } else if let err {
-                self.log.error("snapshot failed: \(err.localizedDescription, privacy: .public)")
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: frameSize.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
+        ctx.rotate(by: -lastHeading * .pi / 180)
+
+        ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
+        ctx.setLineWidth(6)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.beginPath()
+        var first = true
+        for c in routePolylineCoords {
+            let dxM = (c.longitude - centerLon) * mPerDegLon
+            let dyM = (centerLat - c.latitude) * mPerDegLat
+            let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
+            if first {
+                ctx.move(to: pt)
+                first = false
+            } else {
+                ctx.addLine(to: pt)
             }
         }
-    }
+        ctx.strokePath()
+        ctx.restoreGState()
 
-    /// Pre-warm the snapshot cache during FG so that the first BG
-    /// frame has something to draw immediately on lock screen.
-    private func primeSnapshotCache() {
-        guard cachedSnapshotImage == nil else { return }
-        // Trigger one synchronous-ish refresh from current fix or
-        // mapView region.
-        maybeRefreshSnapshot()
+        // Dot in the center.
+        let cx = frameSize.width / 2
+        let cy = frameSize.height / 2
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: cx - 9, y: cy - 9, width: 18, height: 18))
+        ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: cx - 6, y: cy - 6, width: 12, height: 12))
     }
 
     private func preparePool() {
@@ -411,6 +421,15 @@ extension MapViewSource {
         routePolyline = polyline
         if let polyline {
             mapView.addOverlay(polyline, level: .aboveRoads)
+            // Cache coords for the BG composite path.
+            let n = polyline.pointCount
+            let pts = polyline.points()
+            var coords: [CLLocationCoordinate2D] = []
+            coords.reserveCapacity(n)
+            for i in 0..<n { coords.append(pts[i].coordinate) }
+            routePolylineCoords = coords
+        } else {
+            routePolylineCoords = []
         }
     }
 }
@@ -435,20 +454,6 @@ extension MapViewSource: MKMapViewDelegate {
 
 import SwiftUI
 
-/// Mounts a MapViewSource's live MKMapView in the SwiftUI hierarchy
-/// AND wires up VideoCall-style PiP so the map keeps rendering when
-/// the screen locks.
-///
-/// Why a container UIView around the MKMapView:
-///   1. SwiftUI .frame() shrinks our 526×300 mapView to a thumb. We
-///      keep mapView at native size and scale it via CGAffineTransform
-///      so layer.render(in:) still gets a full-resolution frame.
-///   2. PiP needs a STABLE "source view" reference for the transition
-///      animation. The container plays that role - mapView itself gets
-///      reparented into the PiP overlay on willStart, so it's not a
-///      stable anchor.
-///   3. When PiP stops, MapPiPController returns mapView to this same
-///      container, which is still mounted in the SwiftUI hierarchy.
 struct MapViewHost: UIViewRepresentable {
     let source: MapViewSource
 
@@ -463,9 +468,6 @@ struct MapViewHost: UIViewRepresentable {
         container.clipsToBounds = true
         container.backgroundColor = .black
         container.addSubview(source.hostView)
-        // Defer attach to next runloop tick when SwiftUI has put us
-        // in a window. updateUIView() also re-tries on every layout,
-        // so this is belt+suspenders.
         DispatchQueue.main.async {
             if container.window != nil {
                 source.mapPiP.attach(mapView: source.hostView,
@@ -482,10 +484,6 @@ struct MapViewHost: UIViewRepresentable {
         let bounds = container.bounds
         guard bounds.width > 0, bounds.height > 0 else { return }
 
-        // Wire PiP on the first layout pass where we know the
-        // container is in the view hierarchy and has a real frame.
-        // AVPictureInPictureController.isPictureInPicturePossible
-        // returns false until both conditions hold.
         if !context.coordinator.didWirePiP, container.window != nil {
             source.mapPiP.attach(mapView: mapView,
                                   sourceView: container,
@@ -493,9 +491,6 @@ struct MapViewHost: UIViewRepresentable {
             context.coordinator.didWirePiP = true
         }
 
-        // Only rescale mapView when it's actually living inside our
-        // container. When PiP is active, mapView is parented to the
-        // PiP overlay and its geometry is managed by AVKit.
         guard mapView.superview === container else { return }
 
         mapView.transform = .identity

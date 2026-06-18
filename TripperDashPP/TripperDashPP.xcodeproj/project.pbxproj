@@ -38,6 +38,8 @@
 		A4E71CB02FE3128D00CFD473 /* PiPSampleBufferSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CB12FE3128D00CFD473 /* PiPSampleBufferSink.swift */; };
 		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
 		F00DBABE00000000DEADBEF0 /* MapPiPController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF0 /* MapPiPController.swift */; };
+		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
+		EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEF1001000000000000A001 /* PrerenderProgressView.swift */; };
 		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
 		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
@@ -83,6 +85,8 @@
 		A4E71CB12FE3128D00CFD473 /* PiPSampleBufferSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPSampleBufferSink.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF0 /* MapPiPController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPiPController.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTileCache.swift; sourceTree = "<group>"; };
+		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 		A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapSnapshotSource.swift; sourceTree = "<group>"; };
@@ -176,6 +180,7 @@
 				A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */,
 				CAFEFEED00000000DEADBEEF /* MapViewSource.swift */,
 				CAFEFEED00000000DEADBEF0 /* MapPiPController.swift */,
+				CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -208,6 +213,7 @@
 			children = (
 				A4F000000000000000000080 /* DestinationSearchSheet.swift */,
 				A4F000000000000000000090 /* FavoriteEditorSheet.swift */,
+				EFEF1001000000000000A001 /* PrerenderProgressView.swift */,
 				A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */,
 				A4F0000000000000000000B0 /* RoutePreviewSheet.swift */,
 				A4F0000000000000000000C0 /* NavigationHUD.swift */,
@@ -314,6 +320,8 @@
 				A4E71CB02FE3128D00CFD473 /* PiPSampleBufferSink.swift in Sources */,
 				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,
 				F00DBABE00000000DEADBEF0 /* MapPiPController.swift in Sources */,
+				F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */,
+				EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */,
 				A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */,
 				A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */,
 				A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */,

@@ -29,6 +29,11 @@ struct MapPickerView: View {
     @State private var transitioning = false
     @State private var showDiagnostics = false
 
+    /// Tile pre-render progress (0.0 = idle/done, 0…<1 = in flight).
+    /// We use a single shared sheet that watches `prerenderActive`.
+    @State private var prerenderActive = false
+    @State private var prerenderProgress: Double = 0
+
     // Sheet flags
     @State private var showSearch = false
     @State private var showFavoriteEditor = false
@@ -116,6 +121,9 @@ struct MapPickerView: View {
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack { StreamingView() }
                 .environment(status)
+        }
+        .fullScreenCover(isPresented: $prerenderActive) {
+            PrerenderProgressView(progress: prerenderProgress)
         }
         .sheet(isPresented: $showSearch) {
             DestinationSearchSheet { dest in
@@ -325,6 +333,22 @@ struct MapPickerView: View {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
+
+            // Phase 8d: pre-render every map tile we'll need along the
+            // route while we still have the GPU available. In BG /
+            // lock screen the snapshotter is suspended; we have to
+            // bake everything up front. Show a progress sheet during
+            // the bake (~10-20 s for a typical 35 km route).
+            status.mapViewSource.setRoutePolyline(route.polyline)
+            let cache = RouteTileCache()
+            prerenderProgress = 0
+            prerenderActive = true
+            await cache.prerender(route: route) { p in
+                prerenderProgress = p
+            }
+            status.mapViewSource.setTileCache(cache)
+            prerenderActive = false
+
             status.activeNavigator.start(route: route, destination: destination)
             // Stream only if dash is connected. Pre-flight mode (no
             // dash) just runs NavigationHUD on the phone.
@@ -340,6 +364,9 @@ struct MapPickerView: View {
         if status.isStreaming {
             status.stopStreaming()
         }
+        // Drop the tile cache + polyline so the next route gets a fresh build.
+        status.mapViewSource.setTileCache(nil)
+        status.mapViewSource.setRoutePolyline(nil)
         status.stagedDestination = nil
         droppedPin = nil
         transitioning = true
