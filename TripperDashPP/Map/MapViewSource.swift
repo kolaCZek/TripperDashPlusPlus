@@ -220,9 +220,11 @@ extension MapViewSource {
             bitmapInfo: bitmapInfo
         ) else { return nil }
 
-        // CALayer coordinate system is flipped vs Core Graphics — MapKit
-        // draws "right-side up" when we don't flip; if we did flip the
-        // user marker would go upside-down. Render straight.
+        // CGContext for CVPixelBuffer has its origin at the bottom-left;
+        // CALayer expects top-left. Without the flip, MapKit content
+        // lands in the wrong half of the frame (bottom-up).
+        ctx.translateBy(x: 0, y: frameSize.height)
+        ctx.scaleBy(x: 1, y: -1)
         mapView.layer.render(in: ctx)
 
         return buffer
@@ -276,16 +278,36 @@ extension MapViewSource: MKMapViewDelegate {
 import SwiftUI
 
 /// Mounts a MapViewSource's live MKMapView in the SwiftUI hierarchy.
-/// The MKMapView is owned by the source; we just give it a slot in
-/// the view tree so MapKit's renderer stays awake.
+///
+/// Critical: the underlying MKMapView is kept at its native size
+/// (526×300) regardless of the on-screen frame. SwiftUI would
+/// otherwise resize it to the .frame() container, and then
+/// layer.render(in:) would only fill that subregion of our CGContext
+/// — the rest of the encoded frame would be black. We wrap the
+/// mapView in a UIView container and scale it down via CGAffineTransform
+/// so it visually fits the thumb but the layer geometry stays native.
 struct MapViewHost: UIViewRepresentable {
     let source: MapViewSource
 
-    func makeUIView(context: Context) -> MKMapView {
-        return source.hostView
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.clipsToBounds = true
+        container.backgroundColor = .black
+        container.addSubview(source.hostView)
+        return container
     }
 
-    func updateUIView(_: MKMapView, context: Context) {
-        // Source manages its own region/heading/overlays.
+    func updateUIView(_ container: UIView, context: Context) {
+        let mapView = source.hostView
+        let native = source.frameSize
+        let bounds = container.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        // Reset transform first, set native bounds, then scale to fit.
+        mapView.transform = .identity
+        mapView.frame = CGRect(origin: .zero, size: native)
+        let scale = min(bounds.width / native.width, bounds.height / native.height)
+        mapView.transform = CGAffineTransform(scaleX: scale, y: scale)
+        mapView.center = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 }
