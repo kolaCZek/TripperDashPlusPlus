@@ -263,6 +263,13 @@ extension MapViewSource {
         }
         lastTileHintIndex = idx
 
+        // Debug: log mismatch between user GPS and selected tile centre.
+        if frameIndex % 30 == 0 {
+            let t = cache.tiles[idx]
+            let dist = PolylineMath.haversine(fix.coordinate, t.center)
+            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))°")
+        }
+
         // Pick the centre tile + 2 neighbours either side. After
         // heading-up rotation, frame corners can reach beyond a single
         // tile's footprint — drawing all overlapping tiles keeps the
@@ -293,14 +300,19 @@ extension MapViewSource {
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
-        let theta = -lastHeading * .pi / 180
-        ctx.rotate(by: theta)
+        // DEBUG: rotation disabled for diagnostic — verify position alignment
+        // with map north-up before re-enabling heading rotation.
+        // let theta = -lastHeading * .pi / 180
+        // ctx.rotate(by: theta)
 
         // Draw every overlapping tile shifted by the delta from its
-        // own centre to the user's position.
+        // own centre to the user's position. Use `t.center` (the
+        // requested centre — and the geographic centre of the
+        // rendered image), not `t.region.center`. MKMapSnapshotter
+        // can adjust the region span but the centre stays put.
         for (t, cg) in tilesToDraw {
-            let dx = (t.region.center.longitude - centerLon) * pxPerDegLon
-            let dy = (centerLat - t.region.center.latitude) * pxPerDegLat
+            let dx = (t.center.longitude - centerLon) * pxPerDegLon
+            let dy = (centerLat - t.center.latitude) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
             ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2,
