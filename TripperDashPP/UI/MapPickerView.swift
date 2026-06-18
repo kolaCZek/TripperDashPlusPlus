@@ -96,7 +96,7 @@ struct MapPickerView: View {
                 if let slot = slotToFill {
                     // Empty-tile path: drop the result straight into
                     // the pinned slot, no preview, no editor.
-                    store.setQuickAccess(slot, from: dest)
+                    status.navigationStore.setQuickAccess(slot, from: dest)
                     slotToFill = nil
                 } else {
                     droppedPin = dest.coordinate
