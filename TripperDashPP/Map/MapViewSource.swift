@@ -72,8 +72,7 @@ final class MapViewSource: NSObject, FrameSource {
     private var lastFix: Fix?
 
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
-    private var displayLink: CADisplayLink?
-    private var lastRenderTime: CFTimeInterval = 0
+    private var renderTask: Task<Void, Never>?
     private var frameIndex: UInt64 = 0
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
@@ -130,8 +129,8 @@ final class MapViewSource: NSObject, FrameSource {
     }
 
     func stop() {
-        displayLink?.invalidate()
-        displayLink = nil
+        renderTask?.cancel()
+        renderTask = nil
         if let service = locationService, let token = locationToken {
             service.stop(token: token)
         }
@@ -180,39 +179,34 @@ extension MapViewSource {
 // MARK: - Render tick
 
 extension MapViewSource {
-    /// CADisplayLink runs on the main runloop at display refresh rate.
-    /// Crucially, when the app is backgrounded BUT PiP is active, the
-    /// PiP overlay window has its own display refresh - and CADisplay
-    /// Link continues to tick in that case. DispatchSourceTimer does
-    /// NOT - it gets suspended at lock screen even with PiP holding
-    /// the app awake. This is the difference between "frames stop" and
-    /// "frames keep flowing with screen locked".
-    @objc private func startTimer() {
-        let link = CADisplayLink(target: self, selector: #selector(displayLinkTick))
-        // Cap at our target fps (e.g. 6) - display ticks at 60-120 fps
-        // but we only want 6 frames/sec.
-        link.preferredFrameRateRange = CAFrameRateRange(
-            minimum: Float(targetFps),
-            maximum: Float(targetFps),
-            preferred: Float(targetFps)
-        )
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-        lastRenderTime = 0
+    /// Render loop via Swift Concurrency Task + Task.sleep.
+    ///
+    /// History of timer choices:
+    /// 1. DispatchSourceTimer on bg queue + dispatch to main: died at
+    ///    lock screen even with PiP active.
+    /// 2. CADisplayLink on main runloop: died at lock screen because
+    ///    no display refresh exists on the locked main screen.
+    /// 3. Swift Task with Task.sleep (THIS): same pattern as the
+    ///    bike's HeartbeatLoop which DOES tick continuously at lock
+    ///    screen as proven by `Heartbeat tick #N` logs. The Swift
+    ///    Concurrency executor + audio session backgrounding mode is
+    ///    what keeps it alive.
+    ///
+    /// Render happens on @MainActor (MKMapView requires it). The
+    /// Task.sleep yield gives the runtime a chance to schedule.
+    private func startTimer() {
+        renderTask?.cancel()
+        let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)
+        renderTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.tickOnMain()
+                try? await Task.sleep(nanoseconds: intervalNs)
+            }
+        }
     }
 
-    @objc private func displayLinkTick() {
-        // Throttle: only emit a frame every 1/targetFps seconds. We
-        // request preferredFrameRateRange but iOS sometimes ticks
-        // faster (especially on ProMotion); enforce our cap.
-        let now = CACurrentMediaTime()
-        let minInterval = 1.0 / Double(targetFps)
-        if now - lastRenderTime < minInterval { return }
-        lastRenderTime = now
-        tick()
-    }
-
-    private func tick() {
+    @MainActor
+    private func tickOnMain() async {
         guard onFrame != nil else { return }
         guard let buffer = renderMapViewToPixelBuffer() else { return }
         let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
