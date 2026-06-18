@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import CoreLocation
 
 struct DestinationPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss

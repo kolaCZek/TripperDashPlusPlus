@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import CoreLocation
 
 struct FavoriteEditorSheet: View {
     @Environment(NavigationStore.self) private var store
