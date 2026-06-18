@@ -284,7 +284,7 @@ final class RouteTileCache {
         guard let jpeg = img.jpegData(compressionQuality: jpegQuality) else { return nil }
         return RouteTile(
             center: center,
-            region: snap.region,
+            region: options.region,
             jpeg: jpeg,
             pixelSize: img.size
         )
