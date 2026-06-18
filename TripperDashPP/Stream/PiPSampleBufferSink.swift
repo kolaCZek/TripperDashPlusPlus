@@ -275,10 +275,11 @@ extension PiPSampleBufferSink: AVPictureInPictureSampleBufferPlaybackDelegate {
 
     nonisolated func pictureInPictureController(_: AVPictureInPictureController,
                                                 skipByInterval _: CMTime,
-                                                completionHandler: @escaping () -> Void) {
+                                                completion: @escaping () -> Void) {
         // No-op — live stream has no skip semantics. Acknowledge so
         // the controller doesn't hang waiting on the callback.
-        completionHandler()
+        // (iOS 26 renamed `completionHandler:` → `completion:`.)
+        completion()
     }
 }
 
