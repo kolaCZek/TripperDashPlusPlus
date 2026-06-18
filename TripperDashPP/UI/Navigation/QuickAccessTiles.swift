@@ -66,7 +66,7 @@ struct QuickAccessTiles: View {
                 VStack(spacing: 6) {
                     Image(systemName: fav.resolvedIconSymbol)
                         .font(.title2)
-                        .foregroundStyle(.accent)
+                        .foregroundStyle(Color.accentColor)
                     Text(fav.name).font(.footnote.weight(.medium)).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, minHeight: 64)

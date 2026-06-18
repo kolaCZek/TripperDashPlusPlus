@@ -246,7 +246,7 @@ final class AppStatus {
 
     /// Forward GPS fixes into ActiveNavigator. Called from the picker
     /// once per LocationService update.
-    func navigatorIngest(_ fix: CLLocation) {
+    func navigatorIngest(_ fix: Fix) {
         Task { @MainActor in
             await activeNavigator.ingest(fix: fix)
         }

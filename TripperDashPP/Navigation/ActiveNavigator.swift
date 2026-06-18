@@ -104,7 +104,7 @@ final class ActiveNavigator {
     /// Push a fresh GPS fix into the navigator. Call from a location
     /// observer wherever the app already digests fixes (e.g.
     /// AppStatus.observe(locationService:)).
-    func ingest(fix: CLLocation) async {
+    func ingest(fix: Fix) async {
         guard isNavigating, let route = activeRoute else { return }
         let coord = fix.coordinate
 
