@@ -70,7 +70,7 @@ enum PolylineMath {
     /// Used to surface the upcoming maneuver in the HUD.
     static func nextStepIndex(in route: MKRoute,
                               afterPolylineIndex segmentIndex: Int) -> Int? {
-        // MKRouteStep's polyline is a subset of the route polyline —
+        // MKRoute.Step's polyline is a subset of the route polyline —
         // we don't get a global index, so we compare coordinate
         // matches against the route polyline's points.
         let routePoints = route.polyline.points()

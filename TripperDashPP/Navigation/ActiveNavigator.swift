@@ -41,7 +41,7 @@ final class ActiveNavigator {
     private(set) var etaSeconds: TimeInterval = 0
 
     /// The next maneuver step the rider should anticipate.
-    private(set) var nextStep: MKRouteStep?
+    private(set) var nextStep: MKRoute.Step?
 
     /// Distance from current position to the next maneuver.
     private(set) var distanceToNextStep: CLLocationDistance = 0
@@ -192,12 +192,12 @@ final class ActiveNavigator {
     }
 }
 
-/// SF Symbol picker for an MKRouteStep maneuver. Apple doesn't expose
-/// a typed maneuver enum on MKRouteStep — we have to NLP the
+/// SF Symbol picker for an MKRoute.Step maneuver. Apple doesn't expose
+/// a typed maneuver enum on MKRoute.Step — we have to NLP the
 /// instructions string. Best-effort, falls back to a generic arrow
 /// so we always have something to draw.
 enum ManeuverGlyph {
-    static func symbol(for step: MKRouteStep) -> String {
+    static func symbol(for step: MKRoute.Step) -> String {
         let s = step.instructions.lowercased()
         // Czech + English heuristics — Apple Maps returns localized
         // instructions in the system language, which on this user's

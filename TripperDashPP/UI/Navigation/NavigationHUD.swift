@@ -134,10 +134,10 @@ struct NavigationHUD: View {
         return f.string(from: arr)
     }
 
-    /// Map MKRouteStep.instructions to a vague SF Symbol guess. Apple
+    /// Map MKRoute.Step.instructions to a vague SF Symbol guess. Apple
     /// doesn't expose maneuver type publicly, so we keyword-match the
     /// instruction text (cs + en). Falls back to arrow.up.
-    private func maneuverSymbol(for step: MKRouteStep?) -> String {
+    private func maneuverSymbol(for step: MKRoute.Step?) -> String {
         guard let s = step?.instructions.lowercased() else { return "arrow.up" }
         if s.contains("vlevo") || s.contains("doleva") || s.contains("left") { return "arrow.turn.up.left" }
         if s.contains("vpravo") || s.contains("doprava") || s.contains("right") { return "arrow.turn.up.right" }
