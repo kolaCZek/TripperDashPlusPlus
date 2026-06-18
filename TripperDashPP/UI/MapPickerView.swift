@@ -35,6 +35,10 @@ struct MapPickerView: View {
     @State private var favoriteEditorSeed: Destination?
     @State private var previewDestination: Destination?
     @State private var showRoutePreview = false
+    /// When set, the next destination picked in DestinationSearchSheet
+    /// is committed straight into this quick-access slot instead of
+    /// going through the preview/route flow.
+    @State private var slotToFill: QuickAccessSlot?
 
     /// Pin dropped on the map (via long-press / tap) before user chose
     /// to either save it or calculate a route.
@@ -89,10 +93,18 @@ struct MapPickerView: View {
         }
         .sheet(isPresented: $showSearch) {
             DestinationSearchSheet { dest in
-                droppedPin = dest.coordinate
-                previewDestination = dest
+                if let slot = slotToFill {
+                    // Empty-tile path: drop the result straight into
+                    // the pinned slot, no preview, no editor.
+                    store.setQuickAccess(slot, from: dest)
+                    slotToFill = nil
+                } else {
+                    droppedPin = dest.coordinate
+                    previewDestination = dest
+                }
             }
             .environment(status)
+            .environment(status.navigationStore)
         }
         .sheet(isPresented: $showFavoriteEditor) {
             FavoriteEditorSheet(existing: nil, seed: favoriteEditorSeed)
@@ -171,11 +183,8 @@ struct MapPickerView: View {
                         droppedPin = fav.coordinate
                         previewDestination = dest
                     },
-                    onAddEmptyTile: { _ in
-                        // Empty-tile path: prompt the user to search
-                        // first, since we need a coordinate before we
-                        // can save a favorite.
-                        favoriteEditorSeed = nil
+                    onFillSlot: { slot in
+                        slotToFill = slot
                         showSearch = true
                     }
                 )

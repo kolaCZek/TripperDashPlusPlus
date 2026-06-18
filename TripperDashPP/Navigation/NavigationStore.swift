@@ -3,19 +3,48 @@
 //  TripperDashPP
 //
 //  Phase 7d — main-actor owner of NavSettings. Handles persistence,
-//  favorites CRUD, quick-access slot management. UI observes it via
-//  @Environment(NavigationStore.self).
+//  favorites CRUD, fixed-pin quick-access slot management. UI observes
+//  it via @Environment(NavigationStore.self).
+//
+//  Quick Access redesign (Phase 7g — June 2026): the v1 free-form
+//  4-slot system was replaced by exactly two hard-coded pinned slots,
+//  Home and Work. Names and icons are fixed (house.fill / briefcase.fill),
+//  the user just picks the coordinate. Everything else lives in the
+//  `Others` list as a regular favorite with a user-chosen name + icon.
 //
 //  Why a separate store (not a property on AppStatus): AppStatus is
 //  already big (bike link, location, streaming pipeline, wakelock).
 //  Navigation is a wholly separate concern that doesn't touch the
-//  streaming path. Keeping them apart means MapPickerView can be
-//  reasoned about without dragging the whole transport pipeline.
+//  streaming path.
 //
 
+import CoreLocation
 import Foundation
 import os
 import SwiftUI
+
+/// Identifies one of the two fixed pinned quick-access slots.
+enum QuickAccessSlot: String, CaseIterable, Sendable {
+    case home
+    case work
+
+    /// Display label shown in tile + editor sheets. Hard-coded: the
+    /// user does NOT get to rename a pinned slot.
+    var displayName: String {
+        switch self {
+        case .home: "Home"
+        case .work: "Work"
+        }
+    }
+
+    /// SF Symbol shown in the tile. Hard-coded.
+    var iconSymbol: String {
+        switch self {
+        case .home: "house.fill"
+        case .work: "briefcase.fill"
+        }
+    }
+}
 
 @MainActor
 @Observable
@@ -24,7 +53,7 @@ final class NavigationStore {
     private(set) var settings: NavSettings = NavSettings()
 
     private let defaults: UserDefaults
-    private let storageKey = "NavigationStore.settings.v1"
+    private let storageKey = "NavigationStore.settings.v1"  // key kept stable across schema bumps
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "NavigationStore")
 
     // MARK: - Init
@@ -32,9 +61,9 @@ final class NavigationStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.settings = load() ?? NavSettings()
-        // Enforce slot invariant (always exactly 4 entries) in case a
-        // hand-edited or migrated payload arrives malformed.
-        normaliseSlots()
+        // Drop dangling pin references to deleted favorites (e.g.
+        // hand-edited payload or a crash mid-delete).
+        prunePinnedRefs()
     }
 
     // MARK: - Persistence
@@ -60,28 +89,18 @@ final class NavigationStore {
         }
     }
 
-    private func normaliseSlots() {
-        var slots = settings.quickAccessSlotIds
-        if slots.count < 4 {
-            slots.append(contentsOf: Array(repeating: nil, count: 4 - slots.count))
-        } else if slots.count > 4 {
-            slots = Array(slots.prefix(4))
-        }
-        // Drop slot references to deleted favorites.
-        let existingIds = Set(settings.favorites.map(\.id))
-        slots = slots.map { id in (id.flatMap { existingIds.contains($0) ? $0 : nil }) }
-        settings.quickAccessSlotIds = slots
+    private func prunePinnedRefs() {
+        let existing = Set(settings.favorites.map(\.id))
+        if let h = settings.pinnedHomeId, !existing.contains(h) { settings.pinnedHomeId = nil }
+        if let w = settings.pinnedWorkId, !existing.contains(w) { settings.pinnedWorkId = nil }
     }
 
     // MARK: - Favorites CRUD
 
     /// Insert at end. Returns the newly-created favorite (includes id).
     @discardableResult
-    func addFavorite(_ fav: Favorite, pinToQuickAccess: Bool = false) -> Favorite {
+    func addFavorite(_ fav: Favorite) -> Favorite {
         settings.favorites.append(fav)
-        if pinToQuickAccess {
-            assignToFirstFreeSlot(fav.id)
-        }
         persist()
         return fav
     }
@@ -97,55 +116,81 @@ final class NavigationStore {
 
     func removeFavorite(id: UUID) {
         settings.favorites.removeAll { $0.id == id }
-        // Clear any slot pointing at it.
-        for i in settings.quickAccessSlotIds.indices {
-            if settings.quickAccessSlotIds[i] == id {
-                settings.quickAccessSlotIds[i] = nil
-            }
+        // Clear any pin pointing at it.
+        if settings.pinnedHomeId == id { settings.pinnedHomeId = nil }
+        if settings.pinnedWorkId == id { settings.pinnedWorkId = nil }
+        persist()
+    }
+
+    // MARK: - Quick Access (fixed Home/Work)
+
+    /// Favorite pinned to a slot (or nil if empty).
+    func favorite(in slot: QuickAccessSlot) -> Favorite? {
+        let id: UUID?
+        switch slot {
+        case .home: id = settings.pinnedHomeId
+        case .work: id = settings.pinnedWorkId
+        }
+        return id.flatMap { fid in settings.favorites.first { $0.id == fid } }
+    }
+
+    /// Fill a quick-access slot from a search result. Creates a fresh
+    /// Favorite with the slot's fixed name + icon, replacing whatever
+    /// was previously pinned there (the old one becomes a regular
+    /// favorite available in the Others list — or, if it was created
+    /// purely as a pin, the caller can decide to remove it).
+    ///
+    /// The fixed-name/icon design means we never reuse an existing
+    /// favorite for the Home/Work pin — each slot owns its own Favorite
+    /// record so the user can move a pin around (e.g. set a temporary
+    /// Home while travelling) without renaming what's in the Others
+    /// list.
+    @discardableResult
+    func setQuickAccess(_ slot: QuickAccessSlot, from destination: Destination) -> Favorite {
+        // Drop the previous pin (it was slot-owned, no point keeping it).
+        if let oldId = pinnedId(for: slot) {
+            settings.favorites.removeAll { $0.id == oldId }
+        }
+        let fav = Favorite(
+            name: slot.displayName,
+            iconSymbol: slot.iconSymbol,
+            coordinate: destination.coordinate,
+            addressLine: destination.addressLine
+        )
+        settings.favorites.append(fav)
+        switch slot {
+        case .home: settings.pinnedHomeId = fav.id
+        case .work: settings.pinnedWorkId = fav.id
+        }
+        persist()
+        return fav
+    }
+
+    /// Unpin and delete the favorite in the given slot. Tile becomes
+    /// empty again.
+    func clearQuickAccess(_ slot: QuickAccessSlot) {
+        if let id = pinnedId(for: slot) {
+            settings.favorites.removeAll { $0.id == id }
+        }
+        switch slot {
+        case .home: settings.pinnedHomeId = nil
+        case .work: settings.pinnedWorkId = nil
         }
         persist()
     }
 
-    // MARK: - Quick-access slots
-
-    /// Place a favorite into a specific slot (0…3). Pass nil to clear.
-    /// If the favorite is already in another slot, it's moved (no
-    /// duplicate slot assignments).
-    func setQuickAccessSlot(_ slot: Int, favoriteId: UUID?) {
-        guard (0..<4).contains(slot) else { return }
-        if let favId = favoriteId {
-            for i in settings.quickAccessSlotIds.indices where settings.quickAccessSlotIds[i] == favId {
-                settings.quickAccessSlotIds[i] = nil
-            }
+    private func pinnedId(for slot: QuickAccessSlot) -> UUID? {
+        switch slot {
+        case .home: settings.pinnedHomeId
+        case .work: settings.pinnedWorkId
         }
-        settings.quickAccessSlotIds[slot] = favoriteId
-        persist()
     }
 
-    /// Returns the favorite for a given slot (0…3), nil if empty or
-    /// the referenced favorite no longer exists.
-    func favoriteAtSlot(_ slot: Int) -> Favorite? {
-        guard (0..<4).contains(slot),
-              let id = settings.quickAccessSlotIds[slot]
-        else { return nil }
-        return settings.favorites.first { $0.id == id }
-    }
-
-    /// Favorites that are NOT in any quick-access slot. Used by the
-    /// "Others" list under the tiles.
+    /// Favorites that are NOT pinned to a quick-access slot. Used by
+    /// the "Others" list under the tiles.
     var otherFavorites: [Favorite] {
-        let pinned = Set(settings.quickAccessSlotIds.compactMap { $0 })
+        let pinned: Set<UUID> = [settings.pinnedHomeId, settings.pinnedWorkId].compactMap { $0 }.reduce(into: []) { $0.insert($1) }
         return settings.favorites.filter { !pinned.contains($0.id) }
-    }
-
-    private func assignToFirstFreeSlot(_ id: UUID) {
-        for i in settings.quickAccessSlotIds.indices {
-            if settings.quickAccessSlotIds[i] == nil {
-                settings.quickAccessSlotIds[i] = id
-                return
-            }
-        }
-        // All slots full — leave it in the Others list.
     }
 
     // MARK: - Route preferences

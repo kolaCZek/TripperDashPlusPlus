@@ -2,12 +2,13 @@
 //  FavoriteEditorSheet.swift
 //  TripperDashPP
 //
-//  Phase 7d — create or edit a favorite. Two creation paths:
-//    - "Add favorite" with no destination → user has to search/tap a
-//      location first (in this version: show "use a destination from
-//      search/pin first" hint; simpler than embedding a second search).
-//    - "Add to favorites" from an already-resolved Destination → form
-//      is pre-filled, user just gives it a name + icon.
+//  Phase 7d — create or edit a custom favorite (Others list).
+//
+//  IMPORTANT (Phase 7g): this sheet is NO LONGER used to set the
+//  pinned Home/Work slots. Those use a fixed name + icon and are
+//  filled by `DestinationSearchSheet → store.setQuickAccess(slot,…)`
+//  directly from the empty-tile tap. This editor only ever creates or
+//  edits user-named entries that live in the "Others" list.
 //
 
 import SwiftUI
@@ -24,20 +25,19 @@ struct FavoriteEditorSheet: View {
 
     @State private var name: String = ""
     @State private var icon: String = ""
-    @State private var pinToQuickAccess: Bool = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Name") {
-                    TextField("Home / Work / Mountain hut…", text: $name)
+                    TextField("Mountain hut, café, parking…", text: $name)
                         .textInputAutocapitalization(.words)
                 }
                 Section("Icon") {
                     TextField("SF Symbol name (optional)", text: $icon)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Text("Leave blank to auto-pick from the name (e.g. \"Home\" → house, \"Work\" → briefcase, fuel/coffee/etc. are detected).")
+                    Text("Leave blank to auto-pick from the name (fuel/coffee/garage/etc. are detected).")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -51,9 +51,14 @@ struct FavoriteEditorSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if existing == nil {
+                if existing != nil {
                     Section {
-                        Toggle("Pin to Quick Access", isOn: $pinToQuickAccess)
+                        Button(role: .destructive) {
+                            if let existing { store.removeFavorite(id: existing.id) }
+                            dismiss()
+                        } label: {
+                            Label("Delete favorite", systemImage: "trash")
+                        }
                     }
                 }
             }
@@ -93,7 +98,7 @@ struct FavoriteEditorSheet: View {
                                iconSymbol: resolvedIcon,
                                coordinate: seed.coordinate,
                                addressLine: seed.addressLine)
-            store.addFavorite(fav, pinToQuickAccess: pinToQuickAccess)
+            store.addFavorite(fav)
         }
         dismiss()
     }
