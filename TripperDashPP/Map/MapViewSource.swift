@@ -294,11 +294,12 @@ extension MapViewSource {
         let centerLat = fix.coordinate.latitude
 
         ctx.saveGState()
-        // Outer ctx already has Y-flipped (Y-up math) coords from the
-        // global flip at the top of renderMapViewToPixelBuffer. Do NOT
-        // re-flip here — `ctx.draw(image, in: rect)` honors the active
-        // CTM and Y-flips the image internally, so the bitmap renders
-        // right-side up.
+        // Re-flip Y for the duration of this draw. The outer ctx has a
+        // global Y-flip into math-convention coords (Y up), but tile
+        // bitmaps and `ctx.draw(image, in:)` expect Y-down (UIKit).
+        // Without this second flip the bitmaps render upside-down.
+        ctx.translateBy(x: 0, y: frameSize.height)
+        ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
@@ -312,12 +313,12 @@ extension MapViewSource {
         // requested centre — and the geographic centre of the
         // rendered image), not `t.region.center`. MKMapSnapshotter
         // can adjust the region span but the centre stays put.
-        // In Y-up coords, latitude grows northwards = +y, so a tile
-        // whose centre is north of the user (t.lat > user.lat) lands
-        // at positive dy (= upper part of the frame). ✓
+        // In Y-down coords (after the second flip), north = -y, so a
+        // tile whose centre is north of the user (t.lat > user.lat)
+        // lands at NEGATIVE dy = upper part of the frame. ✓
         for (t, cg) in tilesToDraw {
             let dx = (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = (t.center.latitude - centerLat) * pxPerDegLat
+            let dy = (centerLat - t.center.latitude) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
             ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2,
@@ -325,7 +326,7 @@ extension MapViewSource {
                                     width: tw, height: th))
         }
 
-        // Draw the route polyline in the same rotated coordinate space.
+        // Draw the route polyline in the same Y-down coordinate space.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
             ctx.setLineWidth(8)
@@ -335,7 +336,7 @@ extension MapViewSource {
             var first = true
             for c in routePolylineCoords {
                 let dx = (c.longitude - centerLon) * pxPerDegLon
-                let dy = (c.latitude - centerLat) * pxPerDegLat
+                let dy = (centerLat - c.latitude) * pxPerDegLat
                 let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
                 if first {
                     ctx.move(to: pt)
