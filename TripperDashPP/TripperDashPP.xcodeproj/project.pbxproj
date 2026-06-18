@@ -36,6 +36,7 @@
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
 		A4E71CB02FE3128D00CFD473 /* PiPSampleBufferSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CB12FE3128D00CFD473 /* PiPSampleBufferSink.swift */; };
+		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
 		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
 		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
@@ -79,6 +80,7 @@
 		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
 		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
 		A4E71CB12FE3128D00CFD473 /* PiPSampleBufferSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiPSampleBufferSink.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 		A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapSnapshotSource.swift; sourceTree = "<group>"; };
@@ -170,6 +172,7 @@
 			isa = PBXGroup;
 			children = (
 				A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */,
+				CAFEFEED00000000DEADBEEF /* MapViewSource.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -306,6 +309,7 @@
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
 				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
 				A4E71CB02FE3128D00CFD473 /* PiPSampleBufferSink.swift in Sources */,
+				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,
 				A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */,
 				A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */,
 				A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */,

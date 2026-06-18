@@ -237,10 +237,27 @@ struct MapPickerView: View {
                 // rejection. We can refine the placement (drag, dock
                 // to corner, etc.) later; for now: top-right pill.
                 if status.isStreaming {
-                    PiPHostView(sink: status.pipSink)
-                        .frame(width: 90, height: 54)
-                        .cornerRadius(6)
-                        .padding(.trailing, 12)
+                    HStack(spacing: 8) {
+                        // Live MKMapView host. Mounted in the view
+                        // hierarchy so MapKit keeps rendering even
+                        // when the screen locks (PiP keeps the
+                        // *process* alive; this view's presence in
+                        // the hierarchy keeps MapKit's tile fetcher
+                        // and Metal pipeline online).
+                        if let mvs = status.mapViewSource {
+                            MapViewHost(source: mvs)
+                                .frame(width: 80, height: 48)
+                                .cornerRadius(4)
+                                .opacity(0.6)   // visible but unobtrusive
+                        }
+                        // PiP source layer (decoded H264). When iOS
+                        // backgrounds the app, this is the layer
+                        // that gets promoted to a floating bubble.
+                        PiPHostView(sink: status.pipSink)
+                            .frame(width: 90, height: 54)
+                            .cornerRadius(6)
+                    }
+                    .padding(.trailing, 12)
                         .padding(.top, 12)
                         .shadow(radius: 3)
                         .allowsHitTesting(false)

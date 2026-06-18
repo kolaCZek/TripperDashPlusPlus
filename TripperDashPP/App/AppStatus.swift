@@ -78,10 +78,11 @@ final class AppStatus {
     /// without touching the map subsystem.
     enum SourceKind: String, CaseIterable, Identifiable, Sendable {
         case liveMap = "Live map"
+        case mapView = "Live MKMapView"
         case testPattern = "Test pattern"
         var id: String { rawValue }
     }
-    var sourceKind: SourceKind = .liveMap
+    var sourceKind: SourceKind = .mapView
 
     // MARK: - Background keep-alive (Phase 6)
 
@@ -149,6 +150,11 @@ final class AppStatus {
     /// background map render — see PiPSampleBufferSink for the why.
     let pipSink = PiPSampleBufferSink()
 
+    /// Strong reference to the live MKMapView source when streaming
+    /// from .mapView. The HUD overlay needs this to mount the same
+    /// MKMapView as the PiP host — keeping it live, not snapshotted.
+    private(set) var mapViewSource: MapViewSource?
+
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
@@ -158,6 +164,11 @@ final class AppStatus {
         case .liveMap:
             source = MapSnapshotSource(locationService: locationService,
                                         activeNavigator: activeNavigator)
+        case .mapView:
+            let mvs = MapViewSource(locationService: locationService,
+                                    activeNavigator: activeNavigator)
+            mapViewSource = mvs   // keep the strong reference for HUD mounting
+            source = mvs
         case .testPattern:
             source = TestPatternSource()
         }
@@ -183,6 +194,7 @@ final class AppStatus {
     func stopStreaming() {
         streamer?.stop()
         streamer = nil
+        mapViewSource = nil   // release MKMapView so PiP host detaches cleanly
         metrics = .zero
         applyKeepAwake()
     }
