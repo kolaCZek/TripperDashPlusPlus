@@ -348,6 +348,19 @@ extension MapViewSource {
             ctx.strokePath()
         }
 
+        // DEBUG: draw test rings at 100/200/500m. With pxPerDegLat=94920,
+        // 100m = 85 px, 200m = 170 px, 500m = 426 px (off-frame). If the
+        // bitmap renders at a different scale, we'll see the rings sized
+        // wrong relative to map features (e.g. Otrok rybník at 530m SW).
+        let pxPer100m = pxPerDegLat * (100.0 / 111320.0)
+        ctx.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 0.9))
+        ctx.setLineWidth(2)
+        for meters in [100.0, 200.0, 500.0] {
+            let r = pxPerDegLat * (meters / 111320.0)
+            ctx.strokeEllipse(in: CGRect(x: -r, y: -r, width: 2*r, height: 2*r))
+        }
+        _ = pxPer100m
+
         ctx.restoreGState()
 
         // Draw user dot in the center (always upright — drawn after
