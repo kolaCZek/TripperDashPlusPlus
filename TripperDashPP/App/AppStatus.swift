@@ -141,6 +141,14 @@ final class AppStatus {
         }
     }
 
+    /// Shared PiP sink. Created lazily once StreamingView mounts its
+    /// preview, and re-used across start/stop cycles. RtpStreamer
+    /// publishes raw CVPixelBuffers here as it encodes them, so PiP
+    /// can promote our inline layer to a floating bubble whenever the
+    /// app backgrounds. This is the App-Store-clean path to a live
+    /// background map render — see PiPSampleBufferSink for the why.
+    let pipSink = PiPSampleBufferSink()
+
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
@@ -154,6 +162,7 @@ final class AppStatus {
             source = TestPatternSource()
         }
         let s = RtpStreamer(bikeHost: host, source: source)
+        s.pipSink = pipSink   // fan-out frames to PiP preview/bubble
         s.onMetrics = { [weak self] m in
             guard let self else { return }
             self.metrics = StreamMetrics(

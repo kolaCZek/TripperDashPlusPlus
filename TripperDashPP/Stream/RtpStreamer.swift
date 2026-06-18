@@ -85,6 +85,14 @@ final class RtpStreamer {
         )
     }
 
+    /// Optional secondary sink for raw CVPixelBuffers. Wired up by
+    /// AppStatus when PiP is enabled — the same frames that go to
+    /// the H.264 encoder also feed the AVSampleBufferDisplayLayer
+    /// that drives PiP. Keeping this on the streamer instead of
+    /// inside the FrameSource means PiP doesn't have to know about
+    /// frame source kinds (test pattern vs. live map both work).
+    var pipSink: PiPSampleBufferSink?
+
     deinit {
         // deinit may run off-main; tear down inline.
         connection?.cancel()
@@ -124,9 +132,13 @@ final class RtpStreamer {
             return
         }
 
-        // 3. Source → encoder
+        // 3. Source → encoder (and optionally → PiP layer). The
+        //    callback is on the source's background queue; encoder
+        //    serialises onto its own VideoToolbox queue and the PiP
+        //    sink hops to MainActor internally — neither blocks here.
         source.start { [weak self] pixelBuffer, pts in
             self?.encoder.encode(pixelBuffer: pixelBuffer, presentationTime: pts)
+            self?.pipSink?.push(pixelBuffer, presentationTime: pts)
         }
 
         // 4. Metrics tick — once per second on main

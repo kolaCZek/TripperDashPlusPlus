@@ -91,6 +91,28 @@ struct StreamingView: View {
                 LabeledContent("Packets dropped", value: "\(status.metrics.packetsDropped)")
             }
 
+            Section {
+                // Visible inline preview of the live stream. Doubles as:
+                //   1) "what does the dash see right now" diagnostic
+                //   2) source surface for Picture-in-Picture, which auto-
+                //      promotes to a floating bubble when the app moves
+                //      to background (screen lock) — keeps MapKit GPU
+                //      access alive so the map keeps updating with the
+                //      phone in your pocket. Apple-blessed path for nav
+                //      apps (`canStartPictureInPictureAutomaticallyFromInline`).
+                PiPHostView(sink: status.pipSink)
+                    .aspectRatio(526.0 / 300.0, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .listRowInsets(EdgeInsets())
+                    .background(Color.black)
+            } header: {
+                Text("Dash preview & PiP")
+            } footer: {
+                Text("Stays live in the background as a floating Picture-in-Picture bubble so the map keeps rendering with the screen locked. Dismiss the bubble and iOS will suspend the app after ~30 s.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
             Section("Background") {
                 Toggle(isOn: Binding(
                     get: { status.keepAwakeWhileStreaming },
