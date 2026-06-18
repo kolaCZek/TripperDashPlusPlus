@@ -150,10 +150,16 @@ final class AppStatus {
     /// background map render — see PiPSampleBufferSink for the why.
     let pipSink = PiPSampleBufferSink()
 
-    /// Strong reference to the live MKMapView source when streaming
-    /// from .mapView. The HUD overlay needs this to mount the same
-    /// MKMapView as the PiP host — keeping it live, not snapshotted.
-    private(set) var mapViewSource: MapViewSource?
+    /// Strong reference to the live MKMapView source. Created lazily
+    /// the first time the navigation HUD asks for it (so PiP can be
+    /// armed even when streaming is not yet running). Lives for the
+    /// duration of the app session - we do NOT release it on
+    /// stopStreaming() because tearing down the MKMapView would also
+    /// tear down the PiP wiring, defeating the purpose.
+    private(set) lazy var mapViewSource: MapViewSource = MapViewSource(
+        locationService: locationService,
+        activeNavigator: activeNavigator
+    )
 
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
@@ -165,10 +171,7 @@ final class AppStatus {
             source = MapSnapshotSource(locationService: locationService,
                                         activeNavigator: activeNavigator)
         case .mapView:
-            let mvs = MapViewSource(locationService: locationService,
-                                    activeNavigator: activeNavigator)
-            mapViewSource = mvs   // keep the strong reference for HUD mounting
-            source = mvs
+            source = mapViewSource   // shared instance, lazily created
         case .testPattern:
             source = TestPatternSource()
         }
@@ -194,7 +197,9 @@ final class AppStatus {
     func stopStreaming() {
         streamer?.stop()
         streamer = nil
-        mapViewSource = nil   // release MKMapView so PiP host detaches cleanly
+        // mapViewSource is intentionally NOT released - it owns the
+        // PiP wiring (MapPiPController) which must survive across
+        // stop/start cycles so PiP stays armed for the next ride.
         metrics = .zero
         applyKeepAwake()
     }

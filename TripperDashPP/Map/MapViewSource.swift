@@ -79,6 +79,11 @@ final class MapViewSource: NSObject, FrameSource {
     private var pixelBufferPool: CVPixelBufferPool?
     private var routePolyline: MKPolyline?
 
+    /// PiP wrapper. Reparents `mapView` between HUD and PiP overlay
+    /// when system backgrounds the app. Set by `MapViewHost` after
+    /// the host UIView is in the window with a non-zero frame.
+    let mapPiP: MapPiPController = MapPiPController()
+
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {
         self.locationService = locationService
         self.activeNavigator = activeNavigator
@@ -277,17 +282,28 @@ extension MapViewSource: MKMapViewDelegate {
 
 import SwiftUI
 
-/// Mounts a MapViewSource's live MKMapView in the SwiftUI hierarchy.
+/// Mounts a MapViewSource's live MKMapView in the SwiftUI hierarchy
+/// AND wires up VideoCall-style PiP so the map keeps rendering when
+/// the screen locks.
 ///
-/// Critical: the underlying MKMapView is kept at its native size
-/// (526×300) regardless of the on-screen frame. SwiftUI would
-/// otherwise resize it to the .frame() container, and then
-/// layer.render(in:) would only fill that subregion of our CGContext
-/// — the rest of the encoded frame would be black. We wrap the
-/// mapView in a UIView container and scale it down via CGAffineTransform
-/// so it visually fits the thumb but the layer geometry stays native.
+/// Why a container UIView around the MKMapView:
+///   1. SwiftUI .frame() shrinks our 526×300 mapView to a thumb. We
+///      keep mapView at native size and scale it via CGAffineTransform
+///      so layer.render(in:) still gets a full-resolution frame.
+///   2. PiP needs a STABLE "source view" reference for the transition
+///      animation. The container plays that role - mapView itself gets
+///      reparented into the PiP overlay on willStart, so it's not a
+///      stable anchor.
+///   3. When PiP stops, MapPiPController returns mapView to this same
+///      container, which is still mounted in the SwiftUI hierarchy.
 struct MapViewHost: UIViewRepresentable {
     let source: MapViewSource
+
+    final class Coordinator {
+        var didWirePiP = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
@@ -303,8 +319,24 @@ struct MapViewHost: UIViewRepresentable {
         let bounds = container.bounds
         guard bounds.width > 0, bounds.height > 0 else { return }
 
-        // Reset transform first, set native bounds, then scale to fit.
+        // Wire PiP on the first layout pass where we know the
+        // container is in the view hierarchy and has a real frame.
+        // AVPictureInPictureController.isPictureInPicturePossible
+        // returns false until both conditions hold.
+        if !context.coordinator.didWirePiP, container.window != nil {
+            source.mapPiP.attach(mapView: mapView,
+                                  sourceView: container,
+                                  hudContainer: container)
+            context.coordinator.didWirePiP = true
+        }
+
+        // Only rescale mapView when it's actually living inside our
+        // container. When PiP is active, mapView is parented to the
+        // PiP overlay and its geometry is managed by AVKit.
+        guard mapView.superview === container else { return }
+
         mapView.transform = .identity
+        mapView.translatesAutoresizingMaskIntoConstraints = true
         mapView.frame = CGRect(origin: .zero, size: native)
         let scale = min(bounds.width / native.width, bounds.height / native.height)
         mapView.transform = CGAffineTransform(scaleX: scale, y: scale)
