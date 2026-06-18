@@ -272,7 +272,12 @@ extension MapViewSource {
             let expected = CGPoint(x: t.pixelSize.width / 2, y: t.pixelSize.height / 2)
             let offsetX = cp.x - expected.x
             let offsetY = cp.y - expected.y
-            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY))")
+            // Compare measured pxPerDeg vs naive (from region.span).
+            let naivePxPerDegLon = Double(t.pixelSize.width) / t.region.span.longitudeDelta
+            let naivePxPerDegLat = Double(t.pixelSize.height) / t.region.span.latitudeDelta
+            let scaleRatioLon = t.pxPerDegLon / naivePxPerDegLon
+            let scaleRatioLat = t.pxPerDegLat / naivePxPerDegLat
+            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY)) pxPerDeg measured=(\(Int(t.pxPerDegLon)),\(Int(t.pxPerDegLat))) naive=(\(Int(naivePxPerDegLon)),\(Int(naivePxPerDegLat))) ratio=(\(String(format: \"%.2f\", scaleRatioLon)),\(String(format: \"%.2f\", scaleRatioLat)))")
         }
 
         // Pick the centre tile + 2 neighbours either side. After
@@ -289,9 +294,15 @@ extension MapViewSource {
         }
         guard let refTile = tilesToDraw.first?.0 else { return }
 
-        // Pixels-per-degree (every tile is built with the same span/size).
-        let pxPerDegLon = Double(refTile.pixelSize.width) / refTile.region.span.longitudeDelta
-        let pxPerDegLat = Double(refTile.pixelSize.height) / refTile.region.span.latitudeDelta
+        // Pixels-per-degree — MEASURED from snap.point(for:) probes during
+        // bake, NOT computed from region.span. MKMapSnapshotter renders
+        // at the nearest tile zoom level which may cover 2-3× more area
+        // than the requested region, so the naive ratio
+        // `pixelSize / region.span` over-estimates scale and makes the
+        // entire composite render zoomed in. The measured value is the
+        // ground truth: how many ctx-pixels span 1 degree on this bitmap.
+        let pxPerDegLon = refTile.pxPerDegLon
+        let pxPerDegLat = refTile.pxPerDegLat
 
         // Anchor coordinate space on the user — they sit at the origin
         // after rotation; neighbouring tiles draw offset from that.

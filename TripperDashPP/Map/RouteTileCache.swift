@@ -57,6 +57,15 @@ struct RouteTile: Sendable {
     /// always `pixelSize / 2`. Stored in *image-pixel* space (top-left
     /// origin, Y-down).
     let centerPixel: CGPoint
+    /// MEASURED pixels-per-degree at `center`, derived from
+    /// `snap.point(for:)` on offset probe coords — NOT from
+    /// `pixelSize / region.span`. MKMapSnapshotter renders at the
+    /// nearest tile zoom level, which often covers MORE area than
+    /// the requested region; the naive pxPerDeg from request span
+    /// over-estimates scale by 2-3×, making everything render
+    /// "zoomed in" relative to real geography.
+    let pxPerDegLon: Double
+    let pxPerDegLat: Double
 }
 
 /// Container + builder for `RouteTile`s along an `MKRoute`.
@@ -292,12 +301,38 @@ final class RouteTileCache {
         // bitmap may end up offset by tens of pixels relative to math
         // that assumes pixelSize/2.
         let centerPt = snap.point(for: center)
+
+        // MEASURE actual pxPerDeg by probing two offset coords.
+        // MKMapSnapshotter renders at the nearest tile zoom level, which
+        // may cover noticeably more (or less) area than the requested
+        // region.span. Naive `pixelSize / region.span` over-estimates
+        // scale by 2-3× → tile draws at wrong size and everything
+        // appears offset. Measuring from `snap.point(for:)` on coords
+        // that are a known number of degrees away gives ground truth.
+        let probeDelta = 0.001  // ~111 m lat, ~70 m lon at 50°N
+        let probeLon = CLLocationCoordinate2D(
+            latitude: center.latitude,
+            longitude: center.longitude + probeDelta
+        )
+        let probeLat = CLLocationCoordinate2D(
+            latitude: center.latitude + probeDelta,
+            longitude: center.longitude
+        )
+        let probeLonPt = snap.point(for: probeLon)
+        let probeLatPt = snap.point(for: probeLat)
+        // X axis: lon increases east, pixel x increases east → positive.
+        let measuredPxPerDegLon = abs(Double(probeLonPt.x - centerPt.x)) / probeDelta
+        // Y axis: lat increases north, pixel y increases south → flipped.
+        let measuredPxPerDegLat = abs(Double(probeLatPt.y - centerPt.y)) / probeDelta
+
         return RouteTile(
             center: center,
             region: options.region,
             jpeg: jpeg,
             pixelSize: img.size,
-            centerPixel: centerPt
+            centerPixel: centerPt,
+            pxPerDegLon: measuredPxPerDegLon,
+            pxPerDegLat: measuredPxPerDegLat
         )
     }
 }
