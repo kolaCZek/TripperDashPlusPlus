@@ -217,7 +217,35 @@ struct MapPickerView: View {
     private var navigatingBody: some View {
         NavigationHUD(onStop: stopNavigation)
             .environment(status.activeNavigator)
-            .padding()
+            .overlay(alignment: .topTrailing) {
+                // Picture-in-Picture host. While the streamer is
+                // running and the dash is connected, the H.264 source
+                // (MKMapSnapshotter → encoder) is also fed into this
+                // AVSampleBufferDisplayLayer. PiP is what tells iOS
+                // "this is a video player" so MapKit / Metal keep
+                // running with the screen locked and the phone in
+                // the rider's pocket — same trick Waze and GMaps use.
+                //
+                // Lives here (not in StreamingView) because Streaming
+                // View is a settings sheet that gets dismissed during
+                // a ride; navigatingBody is on-screen the whole time
+                // we need PiP to be armed.
+                //
+                // Visible but small (90×54, 16:9). App Store rule
+                // 2.5.x requires the PiP source layer be visible to
+                // the user — an invisible 1×1 host is grounds for
+                // rejection. We can refine the placement (drag, dock
+                // to corner, etc.) later; for now: top-right pill.
+                if status.isStreaming {
+                    PiPHostView(sink: status.pipSink)
+                        .frame(width: 90, height: 54)
+                        .cornerRadius(6)
+                        .padding(.trailing, 12)
+                        .padding(.top, 12)
+                        .shadow(radius: 3)
+                        .allowsHitTesting(false)
+                }
+            }
             .onAppear {
                 // Pipe GPS into the navigator while it's active.
                 // LocationService is observable; subscribe lazily.

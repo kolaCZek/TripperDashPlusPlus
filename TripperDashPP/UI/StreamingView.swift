@@ -92,23 +92,13 @@ struct StreamingView: View {
             }
 
             Section {
-                // Visible inline preview of the live stream. Doubles as:
-                //   1) "what does the dash see right now" diagnostic
-                //   2) source surface for Picture-in-Picture, which auto-
-                //      promotes to a floating bubble when the app moves
-                //      to background (screen lock) — keeps MapKit GPU
-                //      access alive so the map keeps updating with the
-                //      phone in your pocket. Apple-blessed path for nav
-                //      apps (`canStartPictureInPictureAutomaticallyFromInline`).
-                PiPHostView(sink: status.pipSink)
-                    .aspectRatio(526.0 / 300.0, contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .listRowInsets(EdgeInsets())
-                    .background(Color.black)
+                Text("Picture-in-Picture hostuje 90×54 thumbnail nad navigací (vpravo nahoře) — drží MapKit / GPU pipeline naživu, když je obrazovka uzamčená.\n\nDůvod: iOS suspenduje běžné apky při locku. PiP přesvědčí systém že jsme video player, takže `MKMapSnapshotter` jede dál a stream do dashe se neblokuje. Stejný trik jako Waze a GMaps.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             } header: {
-                Text("Dash preview & PiP")
+                Text("Background runtime (PiP)")
             } footer: {
-                Text("Stays live in the background as a floating Picture-in-Picture bubble so the map keeps rendering with the screen locked. Dismiss the bubble and iOS will suspend the app after ~30 s.")
+                Text("PiP thumbnail je viditelný jen během aktivní navigace v MapPickerView. Tady jen vysvětlení; preview view jsme přesunuli tam, aby drželo PiP controller naživu i když je tato obrazovka zavřená.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
