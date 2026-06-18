@@ -142,11 +142,11 @@ final class MapViewSource: NSObject, FrameSource {
 extension MapViewSource {
     private func subscribeLocation() {
         guard let service = locationService else { return }
-        locationToken = service.start(reason: .stream)
+        locationToken = service.start(mode: .mapping)
         fixSubscription = service.subscribeFixes { [weak self] fix in
             Task { @MainActor in self?.handleFix(fix) }
         }
-        headingSubscription = service.subscribeHeadings { [weak self] heading in
+        headingSubscription = service.subscribeHeading { [weak self] heading in
             Task { @MainActor in self?.handleHeading(heading) }
         }
     }
