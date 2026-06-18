@@ -375,14 +375,39 @@ extension MapViewSource {
         // 100m = 85 px, 200m = 170 px, 500m = 426 px (off-frame). If the
         // bitmap renders at a different scale, we'll see the rings sized
         // wrong relative to map features (e.g. Otrok rybník at 530m SW).
-        let pxPer100m = pxPerDegLat * (100.0 / 111320.0)
         ctx.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 0.9))
         ctx.setLineWidth(2)
         for meters in [100.0, 200.0, 500.0] {
             let r = pxPerDegLat * (meters / 111320.0)
             ctx.strokeEllipse(in: CGRect(x: -r, y: -r, width: 2*r, height: 2*r))
         }
-        _ = pxPer100m
+
+        // DEBUG: anchor probes — draw a YELLOW dot exactly where our
+        // projection formula puts `tile.center` (we KNOW where that is
+        // on the bitmap: at `t.centerPixel`), and a MAGENTA dot where
+        // we project Otrok pond (50.227882, 14.174704) which is ~530m
+        // SSW of the user position. If the YELLOW dot lands on the
+        // bitmap centre AND the MAGENTA dot lands on the rendered
+        // pond, math is right and the bug is elsewhere. If they're
+        // mirrored/offset, formula sign or coord-space is wrong.
+        if let cgImg = tilesToDraw.first?.1 {
+            let t = tilesToDraw.first!.0
+            let dxT = (t.center.longitude - centerLon) * pxPerDegLon
+            let dyT = (centerLat - t.center.latitude) * pxPerDegLat
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1))
+            ctx.fillEllipse(in: CGRect(x: CGFloat(dxT) - 5, y: CGFloat(dyT) - 5, width: 10, height: 10))
+            _ = cgImg
+        }
+        // Otrok rybník — known landmark at 50.227882°N, 14.174704°E
+        let otrokLat = 50.227882
+        let otrokLon = 14.174704
+        let dxO = (otrokLon - centerLon) * pxPerDegLon
+        let dyO = (centerLat - otrokLat) * pxPerDegLat
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: CGFloat(dxO) - 5, y: CGFloat(dyO) - 5, width: 10, height: 10))
+        if frameIndex % 30 == 0 {
+            log.debug("debug probes: tile.center @ ctx (\(Int(((tilesToDraw.first?.0.center.longitude ?? 0) - centerLon) * pxPerDegLon)), \(Int((centerLat - (tilesToDraw.first?.0.center.latitude ?? 0)) * pxPerDegLat))) | Otrok @ ctx (\(Int(dxO)), \(Int(dyO))) | frame=\(Int(self.frameSize.width))x\(Int(self.frameSize.height))")
+        }
 
         ctx.restoreGState()
 
