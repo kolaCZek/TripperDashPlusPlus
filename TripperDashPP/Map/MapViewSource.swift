@@ -79,6 +79,24 @@ final class MapViewSource: NSObject, FrameSource {
     private var pixelBufferPool: CVPixelBufferPool?
     private var routePolyline: MKPolyline?
 
+    // MARK: - Background snapshot pipeline
+    //
+    // MKMapView.layer.render(in:) returns BLACK once the app is in
+    // background, regardless of PiP / audio session / Task executor.
+    // MapKit's Metal renderer is genuinely paused. The ONLY rendering
+    // path that produces map tiles in BG is MKMapSnapshotter — Apple's
+    // off-screen, async, system-rendered alternative.
+    //
+    // Foreground path:  mapView.layer.render(in: ctx) every frame.
+    // Background path:  refresh cachedSnapshot via MKMapSnapshotter
+    //                   ~once/second, draw it into the frame each tick
+    //                   + overlay current user-location dot on top so
+    //                   the rider sees real movement at full 6 fps.
+    private var cachedSnapshotImage: UIImage?
+    private var cachedSnapshotRegion: MKCoordinateRegion?
+    private var snapshotInFlight: Bool = false
+    private var lastSnapshotTime: CFTimeInterval = 0
+
     /// PiP wrapper. Reparents `mapView` between HUD and PiP overlay
     /// when system backgrounds the app. Set by `MapViewHost` after
     /// the host UIView is in the window with a non-zero frame.
@@ -125,6 +143,7 @@ final class MapViewSource: NSObject, FrameSource {
         preparePool()
         subscribeLocation()
         startTimer()
+        primeSnapshotCache()
         log.info("MapViewSource started (live MKMapView, \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
     }
 
@@ -233,7 +252,6 @@ extension MapViewSource {
         let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        // BGRA on iOS, premultiplied first = native CALayer format
         let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue |
                          CGBitmapInfo.byteOrder32Little.rawValue
 
@@ -247,22 +265,127 @@ extension MapViewSource {
             bitmapInfo: bitmapInfo
         ) else { return nil }
 
-        // Clear the context to opaque black before render. Without this
-        // the buffer accumulates whatever was last drawn there, which
-        // shows up as a growing "trail" or "shadow" behind the user
-        // location pin when MapKit refuses to fully repaint in BG
-        // (CVPixelBufferPool recycles buffers, so old pixels persist).
+        // Clear to opaque black so a recycled CVPixelBuffer never
+        // leaks old pixels through transparent regions.
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
-        // CGContext for CVPixelBuffer has its origin at the bottom-left;
-        // CALayer expects top-left. Without the flip, MapKit content
-        // lands in the wrong half of the frame (bottom-up).
+        // CGContext for CVPixelBuffer has origin at bottom-left;
+        // CALayer/UIImage expect top-left. Flip the Y axis once and
+        // both render paths can draw without further transforms.
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
-        mapView.layer.render(in: ctx)
+
+        let inBackground = (UIApplication.shared.applicationState != .active)
+
+        if inBackground, let snapshot = cachedSnapshotImage {
+            // BG path: draw cached MKMapSnapshotter tile + live overlay
+            // for the user position so the rider sees the dot move at
+            // full 6 fps even though the underlying map only refreshes
+            // ~1 Hz (snapshotter is too expensive for every frame).
+            drawBackgroundFrame(into: ctx, snapshot: snapshot)
+            maybeRefreshSnapshot()
+        } else if inBackground {
+            // BG path with no cached snapshot yet — leave black frame.
+            // Should be very rare: primeSnapshotCache() runs at start
+            // and a fresh tile lands within ~500ms.
+            maybeRefreshSnapshot()
+        } else {
+            // FG path: MapKit's live layer is awake, just sample it.
+            mapView.layer.render(in: ctx)
+        }
 
         return buffer
+    }
+
+    /// BG drawing: cached tile + projection of current user-location
+    /// onto the cached region.
+    private func drawBackgroundFrame(into ctx: CGContext, snapshot: UIImage) {
+        // 1. Draw cached snapshot full-frame.
+        if let cg = snapshot.cgImage {
+            ctx.draw(cg, in: CGRect(origin: .zero, size: frameSize))
+        }
+
+        // 2. Overlay current user-location pin. We project the latest
+        //    Fix into the cached snapshot's coordinate space so the
+        //    dot moves even between snapshot refreshes.
+        guard let fix = lastFix, let region = cachedSnapshotRegion else { return }
+        let pt = projectCoordinate(fix.coordinate, in: region)
+        // Skip off-screen — happens right at snapshot refresh boundary
+        // when the cached region hasn't caught up yet.
+        guard pt.x.isFinite, pt.y.isFinite,
+              pt.x >= -20, pt.x <= frameSize.width + 20,
+              pt.y >= -20, pt.y <= frameSize.height + 20 else { return }
+
+        // White halo
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: pt.x - 9, y: pt.y - 9, width: 18, height: 18))
+        // Blue center
+        ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: pt.x - 6, y: pt.y - 6, width: 12, height: 12))
+    }
+
+    /// Project a lat/lon into the cached snapshot's pixel space.
+    private func projectCoordinate(_ coord: CLLocationCoordinate2D, in region: MKCoordinateRegion) -> CGPoint {
+        let dLat = region.span.latitudeDelta
+        let dLon = region.span.longitudeDelta
+        let topLat = region.center.latitude + dLat / 2
+        let leftLon = region.center.longitude - dLon / 2
+        // X grows east, Y grows north — but ctx is already Y-flipped
+        // so we hand it screen-natural coordinates (top-down).
+        let xFrac = (coord.longitude - leftLon) / dLon
+        let yFrac = (topLat - coord.latitude) / dLat
+        // Flip Y back because we already applied ctx.scaleBy(y:-1):
+        // drawing into the ctx now expects bottom-up coords.
+        let x = CGFloat(xFrac) * frameSize.width
+        let y = frameSize.height - CGFloat(yFrac) * frameSize.height
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Kick off a fresh MKMapSnapshotter at most once/second.
+    /// MKMapSnapshotter works in BG and renders REAL map tiles, but
+    /// each call is ~100-500ms wallclock, so we cap the refresh rate.
+    private func maybeRefreshSnapshot() {
+        let now = CACurrentMediaTime()
+        guard !snapshotInFlight, now - lastSnapshotTime > 1.0 else { return }
+        guard let fix = lastFix else { return }
+
+        let region = MKCoordinateRegion(
+            center: fix.coordinate,
+            latitudinalMeters: 400,
+            longitudinalMeters: 400
+        )
+        let options = MKMapSnapshotter.Options()
+        options.region = region
+        options.size = frameSize
+        options.mapType = .standard
+        options.showsBuildings = true
+
+        snapshotInFlight = true
+        lastSnapshotTime = now
+        let snapshotter = MKMapSnapshotter(options: options)
+        snapshotter.start(with: .main) { [weak self] snap, err in
+            guard let self else { return }
+            self.snapshotInFlight = false
+            if let snap {
+                self.cachedSnapshotImage = snap.image
+                self.cachedSnapshotRegion = region
+                if self.frameIndex % 6 == 0 {
+                    self.log.info("snapshot refreshed (frame=\(self.frameIndex, privacy: .public))")
+                }
+            } else if let err {
+                self.log.error("snapshot failed: \(err.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Pre-warm the snapshot cache during FG so that the first BG
+    /// frame has something to draw immediately on lock screen.
+    private func primeSnapshotCache() {
+        guard cachedSnapshotImage == nil else { return }
+        // Trigger one synchronous-ish refresh from current fix or
+        // mapView region.
+        maybeRefreshSnapshot()
     }
 
     private func preparePool() {
