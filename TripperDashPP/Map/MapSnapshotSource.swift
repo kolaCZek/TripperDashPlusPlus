@@ -388,11 +388,11 @@ final class MapSnapshotSource: FrameSource {
     /// scale (1052×600 of source pixels) and then downsample here into
     /// the 526×300 buffer — gives smoother glyphs and road antialiasing
     /// after the H.264 encoder rounds everything.
-    /// Post-process the MKMapSnapshot to overlay the active route
+    /// Post-process the MKMapSnapshotter.Snapshot to overlay the active route
     /// polyline and a next-step maneuver glyph. Returns the original
     /// snapshot image when no navigation is active — so this is also
     /// the right path for the no-nav streaming case (test, pre-flight).
-    private func composeOverlay(on snap: MKMapSnapshot) -> UIImage {
+    private func composeOverlay(on snap: MKMapSnapshotter.Snapshot) -> UIImage {
         let baseImage = snap.image
         guard let nav = activeNavigator, nav.isNavigating,
               let polyline = nav.activeRoute?.polyline else {
