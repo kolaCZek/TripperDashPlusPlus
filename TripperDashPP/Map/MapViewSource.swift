@@ -267,7 +267,8 @@ extension MapViewSource {
         if frameIndex % 30 == 0 {
             let t = cache.tiles[idx]
             let dist = PolylineMath.haversine(fix.coordinate, t.center)
-            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))°")
+            let cgW = cache.image(for: t, atIndex: idx)?.cgImage?.width ?? -1
+            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta))")
         }
 
         // Pick the centre tile + 2 neighbours either side. After
@@ -303,8 +304,9 @@ extension MapViewSource {
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
-        let theta = -lastHeading * .pi / 180
-        ctx.rotate(by: theta)
+        // DEBUG: temporarily north-up while we sort out the map alignment.
+        // let theta = -lastHeading * .pi / 180
+        // ctx.rotate(by: theta)
 
         // Draw every overlapping tile shifted by the delta from its
         // own centre to the user's position. Use `t.center` (the
