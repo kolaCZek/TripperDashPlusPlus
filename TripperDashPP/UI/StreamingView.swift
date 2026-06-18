@@ -75,6 +75,14 @@ struct StreamingView: View {
                     } else {
                         Text("GPS: acquiring…").font(.caption).foregroundStyle(.secondary)
                     }
+                case .mapView:
+                    Text("Live MKMapView mounted in the HUD (visible thumb). Renders @ 6 fps via layer.render(in:). Keeps MapKit alive in BG without the MKMapSnapshotter throttle.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let fix = status.locationService.lastFix {
+                        LabeledContent("GPS", value: String(format: "%.5f, %.5f  (±%.0f m)", fix.coordinate.latitude, fix.coordinate.longitude, fix.horizontalAccuracy))
+                            .font(.caption.monospaced())
+                    }
                 case .testPattern:
                     Text("Synthetic 526×300 test pattern (clock, frame counter, colour bars). Useful for validating the encoder/RTP path without touching Mapbox.")
                         .font(.caption)
