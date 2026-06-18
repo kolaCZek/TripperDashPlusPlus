@@ -72,7 +72,8 @@ final class MapViewSource: NSObject, FrameSource {
     private var lastFix: Fix?
 
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
-    private var timer: DispatchSourceTimer?
+    private var displayLink: CADisplayLink?
+    private var lastRenderTime: CFTimeInterval = 0
     private var frameIndex: UInt64 = 0
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
@@ -129,8 +130,8 @@ final class MapViewSource: NSObject, FrameSource {
     }
 
     func stop() {
-        timer?.cancel()
-        timer = nil
+        displayLink?.invalidate()
+        displayLink = nil
         if let service = locationService, let token = locationToken {
             service.stop(token: token)
         }
@@ -179,15 +180,36 @@ extension MapViewSource {
 // MARK: - Render tick
 
 extension MapViewSource {
-    private func startTimer() {
-        let t = DispatchSource.makeTimerSource(queue: queue)
-        let interval = DispatchTimeInterval.milliseconds(1000 / targetFps)
-        t.schedule(deadline: .now(), repeating: interval, leeway: .milliseconds(20))
-        t.setEventHandler { [weak self] in
-            Task { @MainActor in self?.tick() }
-        }
-        timer = t
-        t.resume()
+    /// CADisplayLink runs on the main runloop at display refresh rate.
+    /// Crucially, when the app is backgrounded BUT PiP is active, the
+    /// PiP overlay window has its own display refresh - and CADisplay
+    /// Link continues to tick in that case. DispatchSourceTimer does
+    /// NOT - it gets suspended at lock screen even with PiP holding
+    /// the app awake. This is the difference between "frames stop" and
+    /// "frames keep flowing with screen locked".
+    @objc private func startTimer() {
+        let link = CADisplayLink(target: self, selector: #selector(displayLinkTick))
+        // Cap at our target fps (e.g. 6) - display ticks at 60-120 fps
+        // but we only want 6 frames/sec.
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: Float(targetFps),
+            maximum: Float(targetFps),
+            preferred: Float(targetFps)
+        )
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+        lastRenderTime = 0
+    }
+
+    @objc private func displayLinkTick() {
+        // Throttle: only emit a frame every 1/targetFps seconds. We
+        // request preferredFrameRateRange but iOS sometimes ticks
+        // faster (especially on ProMotion); enforce our cap.
+        let now = CACurrentMediaTime()
+        let minInterval = 1.0 / Double(targetFps)
+        if now - lastRenderTime < minInterval { return }
+        lastRenderTime = now
+        tick()
     }
 
     private func tick() {
@@ -195,6 +217,12 @@ extension MapViewSource {
         guard let buffer = renderMapViewToPixelBuffer() else { return }
         let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(targetFps))
         frameIndex &+= 1
+        // Heartbeat every 60 frames (~10s @ 6fps) so the next ride
+        // log shows whether the render loop survives screen lock.
+        if frameIndex % 60 == 0 {
+            let state = UIApplication.shared.applicationState.rawValue
+            log.info("frame tick #\(self.frameIndex, privacy: .public) (appState=\(state, privacy: .public))")
+        }
         onFrame?(buffer, pts)
     }
 
