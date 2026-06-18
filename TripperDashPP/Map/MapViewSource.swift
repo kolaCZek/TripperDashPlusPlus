@@ -303,10 +303,8 @@ extension MapViewSource {
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
-        // DEBUG: rotation disabled for diagnostic — verify position alignment
-        // with map north-up before re-enabling heading rotation.
-        // let theta = -lastHeading * .pi / 180
-        // ctx.rotate(by: theta)
+        let theta = -lastHeading * .pi / 180
+        ctx.rotate(by: theta)
 
         // Draw every overlapping tile shifted by the delta from its
         // own centre to the user's position. Use `t.center` (the
