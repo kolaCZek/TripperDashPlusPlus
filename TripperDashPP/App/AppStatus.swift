@@ -142,25 +142,10 @@ final class AppStatus {
         }
     }
 
-    /// Shared PiP sink. Created lazily once StreamingView mounts its
-    /// preview, and re-used across start/stop cycles. RtpStreamer
-    /// publishes raw CVPixelBuffers here as it encodes them, so PiP
-    /// can promote our inline layer to a floating bubble whenever the
-    /// app backgrounds. This is the App-Store-clean path to a live
-    /// background map render — see PiPSampleBufferSink for the why.
-    let pipSink = PiPSampleBufferSink()
-
     /// Strong reference to the live MKMapView source. Created lazily
-    /// on first access (so PiP can be armed even when streaming is
-    /// not yet running). Lives for the duration of the app session -
-    /// we do NOT release it on stopStreaming() because tearing down
-    /// the MKMapView would also tear down the PiP wiring, defeating
-    /// the purpose.
-    ///
-    /// @ObservationIgnored because @Observable forbids lazy stored
-    /// properties (the macro generates an init accessor that can't
-    /// reference _-prefixed backing storage). Manual lazy via a
-    /// computed property + backing optional.
+    /// on first access. Lives for the duration of the app session so
+    /// the FG-baked tile cache and the location subscription persist
+    /// across start/stop streaming cycles.
     @ObservationIgnored private var _mapViewSource: MapViewSource?
     var mapViewSource: MapViewSource {
         if let s = _mapViewSource { return s }
@@ -169,7 +154,6 @@ final class AppStatus {
         _mapViewSource = s
         return s
     }
-
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
@@ -185,7 +169,6 @@ final class AppStatus {
             source = TestPatternSource()
         }
         let s = RtpStreamer(bikeHost: host, source: source)
-        s.pipSink = pipSink   // fan-out frames to PiP preview/bubble
         s.onMetrics = { [weak self] m in
             guard let self else { return }
             self.metrics = StreamMetrics(
@@ -201,23 +184,14 @@ final class AppStatus {
         streamer = s
         s.start()
         applyKeepAwake()
-        // Start PiP proactively once frames are flowing. We delay a
-        // tick so AVAudioSession is fully active and isPossible flips
-        // to true. If sourceView is not yet in window (rare), the
-        // willResignActive handler will catch it.
-        if sourceKind == .mapView {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.mapViewSource.mapPiP.startPiPNow()
-            }
-        }
     }
 
     func stopStreaming() {
         streamer?.stop()
         streamer = nil
-        // mapViewSource is intentionally NOT released - it owns the
-        // PiP wiring (MapPiPController) which must survive across
-        // stop/start cycles so PiP stays armed for the next ride.
+        // mapViewSource is intentionally NOT released — its tile cache
+        // + location subscription should survive stop/start cycles so
+        // the next ride doesn't have to re-bake.
         metrics = .zero
         applyKeepAwake()
     }

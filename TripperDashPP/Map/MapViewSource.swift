@@ -68,7 +68,9 @@ final class MapViewSource: NSObject, FrameSource {
     private var lastTileHintIndex: Int = 0
 
     /// PiP wrapper.
-    let mapPiP: MapPiPController = MapPiPController()
+    /// Phase 8d removed — tile cache + CGContext composite is BG-safe
+    /// without PiP. AVAudioSession (SilentAudioKeeper) keeps the
+    /// process awake on lock screen.
 
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {
         self.locationService = locationService
@@ -457,24 +459,11 @@ import SwiftUI
 struct MapViewHost: UIViewRepresentable {
     let source: MapViewSource
 
-    final class Coordinator {
-        var didWirePiP = false
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
         container.clipsToBounds = true
         container.backgroundColor = .black
         container.addSubview(source.hostView)
-        DispatchQueue.main.async {
-            if container.window != nil {
-                source.mapPiP.attach(mapView: source.hostView,
-                                     sourceView: container,
-                                     hudContainer: container)
-            }
-        }
         return container
     }
 
@@ -483,14 +472,6 @@ struct MapViewHost: UIViewRepresentable {
         let native = source.frameSize
         let bounds = container.bounds
         guard bounds.width > 0, bounds.height > 0 else { return }
-
-        if !context.coordinator.didWirePiP, container.window != nil {
-            source.mapPiP.attach(mapView: mapView,
-                                  sourceView: container,
-                                  hudContainer: container)
-            context.coordinator.didWirePiP = true
-        }
-
         guard mapView.superview === container else { return }
 
         mapView.transform = .identity
