@@ -109,6 +109,17 @@ final class MapSnapshotSource: FrameSource {
     /// 12 fps encoder tick.
     private var lastSnapshotRequestAt: TimeInterval = 0
 
+    /// Watchdog: when iOS suspends MKMapSnapshotter in the background
+    /// (screen-lock with the app still entitled to background location
+    /// + audio), `snapshotter.start(with:)` sometimes NEVER calls the
+    /// completion handler. Without a stuck-flag reset, `snapshotInFlight`
+    /// would remain true forever after the screen wakes back up and no
+    /// further snapshot would ever be kicked off — the encoder would
+    /// keep re-emitting the last cached frame from the moment the lock
+    /// happened. After this many seconds with the flag stuck we drop
+    /// the orphan and allow a fresh request through.
+    private let snapshotStuckTimeoutSec: TimeInterval = 4.0
+
     /// Diagnostics: consecutive snapshotter failures, reset on success.
     /// If this climbs high while the screen is off, we know Apple Maps
     /// hit the same Metal background restriction as Mapbox did.
@@ -230,7 +241,22 @@ final class MapSnapshotSource: FrameSource {
         // Maybe kick off a new MapKit snapshot, rate-limited to
         // `snapshotFps`. We only fire one at a time (no overlap), and
         // never sooner than 1/snapshotFps after the previous request.
+        //
+        // Stuck-flag watchdog: when the screen locks, MKMapSnapshotter
+        // can swallow the start() call silently and never invoke our
+        // completion handler. If that happens we'd be stuck with
+        // `snapshotInFlight = true` forever once the screen wakes back
+        // up. After `snapshotStuckTimeoutSec` we drop the orphan
+        // generation and let a fresh request through.
         let now = CACurrentMediaTime()
+        if snapshotInFlight, now - lastSnapshotRequestAt >= snapshotStuckTimeoutSec {
+            log.warning("MKMapSnapshotter watchdog: stuck \(String(format: "%.1f", now - self.lastSnapshotRequestAt))s — dropping orphan and forcing a new request")
+            // Bump generation so the orphan completion (if it ever
+            // fires) is ignored, and clear the in-flight flag.
+            generation &+= 1
+            snapshotInFlight = false
+            currentSnapshotter = nil
+        }
         let minGap = 1.0 / Double(snapshotFps)
         guard !snapshotInFlight, now - lastSnapshotRequestAt >= minGap else { return }
         guard let fix = lastFix else { return }
@@ -281,8 +307,34 @@ final class MapSnapshotSource: FrameSource {
         generation &+= 1
         let myGen = generation
 
+        // Begin a UIApplication background task so iOS gives MapKit
+        // the runtime it needs to finish the snapshot even when the
+        // screen is locked. Without this, MKMapSnapshotter.start()
+        // silently swallows the request once the app moves to .background
+        // and never calls our completion handler — the streamed map
+        // freezes on the last good frame. The task is ended in the
+        // completion handler below (and in the watchdog if the orphan
+        // never lands), so we don't leak the assertion. iOS gives us
+        // up to ~30 s per task, which is well over the 250 ms a
+        // snapshot needs.
+        let bgTask = UIApplication.shared.beginBackgroundTask(
+            withName: "TripperDashPP.MKMapSnapshotter"
+        ) { [weak self] in
+            // Expiration handler — iOS is killing this task because
+            // we held it too long. Mark the request done so the next
+            // tick can issue a fresh one with a fresh task identifier.
+            guard let self else { return }
+            self.log.warning("MKMapSnapshotter background task expired")
+            self.snapshotInFlight = false
+        }
+
         snapshotter.start(with: .main) { [weak self] snapshot, error in
             Task { @MainActor in
+                defer {
+                    if bgTask != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgTask)
+                    }
+                }
                 guard let self else {
                     // Self gone (view torn down) — still park the
                     // snapshotter so its GPU work can drain without
