@@ -95,7 +95,7 @@ struct RoutePreviewSheet: View {
     private func routeRow(_ opt: RouteOption) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: opt == selected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(opt == selected ? .accentColor : .secondary)
+                .foregroundStyle(opt == selected ? Color.accentColor : Color.secondary)
                 .font(.title3)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
