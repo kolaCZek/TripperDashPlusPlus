@@ -52,6 +52,11 @@ struct RouteTile: Sendable {
     let jpeg: Data
     /// Pixel dimensions of the decoded image.
     let pixelSize: CGSize
+    /// Pixel coordinates inside `jpeg` where `center` actually lands.
+    /// `MKMapSnapshotter` clamps to tile boundaries so this is NOT
+    /// always `pixelSize / 2`. Stored in *image-pixel* space (top-left
+    /// origin, Y-down).
+    let centerPixel: CGPoint
 }
 
 /// Container + builder for `RouteTile`s along an `MKRoute`.
@@ -282,11 +287,17 @@ final class RouteTileCache {
         guard let snap = snapshot else { return nil }
         let img = snap.image
         guard let jpeg = img.jpegData(compressionQuality: jpegQuality) else { return nil }
+        // Where does the *requested* center actually land in image pixels?
+        // MKMapSnapshotter clamps the region to tile boundaries, so the
+        // bitmap may end up offset by tens of pixels relative to math
+        // that assumes pixelSize/2.
+        let centerPt = snap.point(for: center)
         return RouteTile(
             center: center,
             region: options.region,
             jpeg: jpeg,
-            pixelSize: img.size
+            pixelSize: img.size,
+            centerPixel: centerPt
         )
     }
 }

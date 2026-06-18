@@ -268,7 +268,11 @@ extension MapViewSource {
             let t = cache.tiles[idx]
             let dist = PolylineMath.haversine(fix.coordinate, t.center)
             let cgW = cache.image(for: t, atIndex: idx)?.cgImage?.width ?? -1
-            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta))")
+            let cp = t.centerPixel
+            let expected = CGPoint(x: t.pixelSize.width / 2, y: t.pixelSize.height / 2)
+            let offsetX = cp.x - expected.x
+            let offsetY = cp.y - expected.y
+            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY))")
         }
 
         // Pick the centre tile + 2 neighbours either side. After
@@ -317,12 +321,20 @@ extension MapViewSource {
         // tile whose centre is north of the user (t.lat > user.lat)
         // lands at NEGATIVE dy = upper part of the frame. ✓
         for (t, cg) in tilesToDraw {
+            // Where would `tile.center` land in ctx coordinates if the
+            // bitmap centre WERE the geographic centre?
             let dx = (t.center.longitude - centerLon) * pxPerDegLon
             let dy = (centerLat - t.center.latitude) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
-            ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2,
-                                    y: CGFloat(dy) - th / 2,
+            // MKMapSnapshotter clamps the region, so the actual pixel
+            // location of `t.center` is `t.centerPixel` — NOT (tw/2, th/2).
+            // Compensate by shifting the tile rect so the centerPixel
+            // lands at (dx, dy) instead of the bitmap midpoint.
+            let mpX = tw / 2 - t.centerPixel.x   // px to shift in X
+            let mpY = th / 2 - t.centerPixel.y   // px to shift in Y (Y-down)
+            ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2 + mpX,
+                                    y: CGFloat(dy) - th / 2 + mpY,
                                     width: tw, height: th))
         }
 
