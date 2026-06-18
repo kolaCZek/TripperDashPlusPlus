@@ -247,6 +247,14 @@ extension MapViewSource {
             bitmapInfo: bitmapInfo
         ) else { return nil }
 
+        // Clear the context to opaque black before render. Without this
+        // the buffer accumulates whatever was last drawn there, which
+        // shows up as a growing "trail" or "shadow" behind the user
+        // location pin when MapKit refuses to fully repaint in BG
+        // (CVPixelBufferPool recycles buffers, so old pixels persist).
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
+
         // CGContext for CVPixelBuffer has its origin at the bottom-left;
         // CALayer expects top-left. Without the flip, MapKit content
         // lands in the wrong half of the frame (bottom-up).
