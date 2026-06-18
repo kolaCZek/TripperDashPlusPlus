@@ -201,6 +201,15 @@ final class AppStatus {
         streamer = s
         s.start()
         applyKeepAwake()
+        // Start PiP proactively once frames are flowing. We delay a
+        // tick so AVAudioSession is fully active and isPossible flips
+        // to true. If sourceView is not yet in window (rare), the
+        // willResignActive handler will catch it.
+        if sourceKind == .mapView {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.mapViewSource.mapPiP.startPiPNow()
+            }
+        }
     }
 
     func stopStreaming() {

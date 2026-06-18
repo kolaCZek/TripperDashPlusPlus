@@ -143,6 +143,28 @@ final class MapPiPController: NSObject {
         hudContainer = nil
     }
 
+    /// Proactively start PiP. Call when streaming starts so PiP is
+    /// already active before the user locks the screen. Without this,
+    /// we rely on willResignActive — which fires too late on some
+    /// phones (the app is already moving to background by then and
+    /// PiP refuses to start).
+    func startPiPNow() {
+        guard let controller = pipController else {
+            log.warning("startPiPNow: no controller yet, will retry on willResignActive")
+            return
+        }
+        guard controller.isPictureInPicturePossible else {
+            log.warning("startPiPNow: PiP not possible (sourceView likely not in window) - will retry on willResignActive")
+            return
+        }
+        guard !controller.isPictureInPictureActive else {
+            log.debug("startPiPNow: already active")
+            return
+        }
+        log.info("startPiPNow: starting PiP proactively")
+        controller.startPictureInPicture()
+    }
+
     // MARK: - Setup
 
     private func setupPiP() {

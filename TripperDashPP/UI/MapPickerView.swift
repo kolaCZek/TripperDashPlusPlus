@@ -61,6 +61,32 @@ struct MapPickerView: View {
                 case .transitioning: transitioningBody
                 }
 
+                // Live MKMapView thumb in top-right. Mounted ALWAYS
+                // (regardless of mode/isStreaming) so the PiP source
+                // view stays in-window. If MapViewHost gets remounted
+                // while PiP is active, AVKit drops the session and
+                // MapKit stops rendering in background. Keeping the
+                // source stable across navigation start/stop is the
+                // single most important thing for screen-locked BG.
+                //
+                // Hidden in picking mode (opacity 0) but the UIView
+                // is still in the hierarchy, so PiP wiring stays
+                // alive across navigation start/stop transitions.
+                VStack {
+                    HStack {
+                        Spacer()
+                        MapViewHost(source: status.mapViewSource)
+                            .frame(width: 120, height: 68)
+                            .cornerRadius(6)
+                            .shadow(radius: 3)
+                            .allowsHitTesting(false)
+                            .padding(.trailing, 12)
+                            .padding(.top, 12)
+                            .opacity(mode == .navigating ? 1 : 0)
+                    }
+                    Spacer()
+                }
+
                 if case .error = status.bikeLink.state, let err = status.lastError {
                     VStack {
                         Spacer()
@@ -217,43 +243,6 @@ struct MapPickerView: View {
     private var navigatingBody: some View {
         NavigationHUD(onStop: stopNavigation)
             .environment(status.activeNavigator)
-            .overlay(alignment: .topTrailing) {
-                // Picture-in-Picture host. While the streamer is
-                // running and the dash is connected, the H.264 source
-                // (MKMapSnapshotter → encoder) is also fed into this
-                // AVSampleBufferDisplayLayer. PiP is what tells iOS
-                // "this is a video player" so MapKit / Metal keep
-                // running with the screen locked and the phone in
-                // the rider's pocket — same trick Waze and GMaps use.
-                //
-                // Lives here (not in StreamingView) because Streaming
-                // View is a settings sheet that gets dismissed during
-                // a ride; navigatingBody is on-screen the whole time
-                // we need PiP to be armed.
-                //
-                // Visible but small (90×54, 16:9). App Store rule
-                // 2.5.x requires the PiP source layer be visible to
-                // the user — an invisible 1×1 host is grounds for
-                // rejection. We can refine the placement (drag, dock
-                // to corner, etc.) later; for now: top-right pill.
-                // HUD overlay: live MKMapView thumb in top-right.
-                // This is BOTH the on-screen preview AND the PiP
-                // source. When the app backgrounds, AVKit reparents
-                // this view's MKMapView into the PiP overlay window
-                // (visible bubble) and MapKit keeps rendering because
-                // its view is still "visible" to the system.
-                //
-                // Mounted whenever the navigatingBody is on screen
-                // (regardless of isStreaming) so PiP is armed and
-                // ready before the user pockets the phone.
-                MapViewHost(source: status.mapViewSource)
-                    .frame(width: 120, height: 68)
-                    .cornerRadius(6)
-                    .padding(.trailing, 12)
-                    .padding(.top, 12)
-                    .shadow(radius: 3)
-                    .allowsHitTesting(false)
-            }
             .onAppear {
                 // Pipe GPS into the navigator while it's active.
                 // LocationService is observable; subscribe lazily.
