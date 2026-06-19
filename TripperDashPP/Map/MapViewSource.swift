@@ -66,6 +66,11 @@ final class MapViewSource: NSObject, FrameSource {
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
+    /// Speed-adaptive zoom factor applied to the rendered tile composite
+    /// and polyline. 1.0 = native scale (~0.85 m/px at 1024 px tile).
+    /// Lerped each frame toward `targetZoom(forSpeed:)` so the view
+    /// transitions smoothly between speed regimes (no flicker).
+    private var currentZoom: CGFloat = 1.0
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
@@ -262,6 +267,7 @@ extension MapViewSource {
             return
         }
         lastTileHintIndex = idx
+        updateZoom()
 
         // Pick the centre tile + 2 neighbours either side. After
         // heading-up rotation, frame corners can reach beyond a single
@@ -305,6 +311,11 @@ extension MapViewSource {
         // in radians; heading is degrees CW from north. To bring the
         // heading direction to +y (= top of frame), rotate by -heading.
         ctx.rotate(by: -lastHeading * .pi / 180)
+        // Speed-adaptive zoom (slow lerp toward target, no thresholds
+        // — see targetZoom/updateZoom). Applied AFTER rotation so the
+        // origin sits at the user puck and zoom scales toward/away
+        // from the rider.
+        ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         // Draw every overlapping tile shifted by the delta from its
         // own centre to the user's position. Use `t.center` (the
@@ -412,10 +423,37 @@ extension MapViewSource {
         ctx.restoreGState()
     }
 
+    /// Speed → zoom mapping. Linear ramp from "close" at standstill to
+    /// "wide" at highway speeds, so the rider sees more road ahead the
+    /// faster they go.
+    ///   0 km/h → 1.5×   (city, lots of detail)
+    ///  60 km/h → 1.1×   (rural / regional)
+    /// 130+ km/h → 0.6×  (highway, ~2 km field of view)
+    /// Returned value is clamped to [0.6, 1.5]; if speed is invalid
+    /// (CoreLocation reports < 0 when unknown) we keep the current zoom.
+    private func targetZoom(forSpeedMPS speed: Double) -> CGFloat {
+        guard speed >= 0 else { return currentZoom }
+        let kmh = speed * 3.6
+        // slope: (0.6 - 1.5) / 130 = -0.00692 per km/h
+        let raw = 1.5 - CGFloat(kmh) * 0.00692
+        return min(max(raw, 0.6), 1.5)
+    }
+
+    /// Lerp `currentZoom` toward the target by 5%/frame. At 6 fps this
+    /// gives roughly 10 seconds for a full city→highway transition
+    /// (95% completion in ~58 frames). Slow enough that the rider
+    /// doesn't see the map "breathing" on small speed wobbles.
+    private func updateZoom() {
+        let target = targetZoom(forSpeedMPS: lastFix?.speed ?? -1)
+        let factor: CGFloat = 0.05
+        currentZoom += (target - currentZoom) * factor
+    }
+
     /// Vector-only fallback: dark background + polyline + dot.
     /// Used when the tile cache is unavailable or the user has gone
     /// off the cached corridor.
     private func drawVectorOnlyFrame(into ctx: CGContext) {
+        updateZoom()
         // Dark slate background
         ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
@@ -437,6 +475,7 @@ extension MapViewSource {
         ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         ctx.rotate(by: -lastHeading * .pi / 180)
+        ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
         ctx.setLineWidth(6)
