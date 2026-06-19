@@ -62,7 +62,12 @@ def test_handshake_end_to_end(server, tmp_path):
     phone_sock.settimeout(2.0)
 
     # 1) Phone → bike: request pubkey (q3c.e shape).
-    request = build_envelope([Segment(type=0x07, sub=0x04, payload=b"\x01")])
+    #    Type 0x08 (session, phone → bike) NOT 0x07 (auth, bike → phone
+    #    only). Earlier revisions of this test used 0x07 and matched the
+    #    server's old loose handler — but the real Tripper dash silently
+    #    drops 0x07 from the phone side, so the Swift client and the
+    #    server now both speak 0x08 for outbound auth requests.
+    request = build_envelope([Segment(type=0x08, sub=0x04, payload=b"\x01")])
     phone_sock.sendto(patch_seq(request, 0), ("127.0.0.1", server.k1g_port))
 
     # 2) Receive modulus + exponent.

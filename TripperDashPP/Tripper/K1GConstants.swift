@@ -42,19 +42,34 @@ enum K1G {
 
     /// Top-level segment type byte. Combine with a sub-type for the full
     /// message identity.
+    ///
+    /// Direction matters: `0x07` (auth) is **bike → phone only** — the dash
+    /// uses it for handshake replies (modulus / exponent / status). The
+    /// phone never originates a 0x07 segment; outbound auth requests live
+    /// under `session` (0x08).
+    ///
+    /// Confirmed against `better-dash/tripper_app_like_nav.py` outbound
+    /// constants (Q3C_E_REQUEST_AUTH starts `… 00 08 04 00 01 01`, not
+    /// `… 00 07 04 …`). Sending 0x07 outbound to the real Tripper dash
+    /// causes a silent drop and the handshake times out.
     enum SegType: UInt8 {
-        case auth   = 0x07   // Auth handshake (sub-types below)
-        case session = 0x08  // Encrypted-session payload (q3c.d uses sub=0x00)
-        case button = 0x09   // Joystick / button events
+        case auth   = 0x07   // bike → phone, auth replies (sub-types below)
+        case session = 0x08  // phone → bike, auth + session payloads (q3c.e, q3c.d)
+        case button = 0x09   // bike → phone, joystick / button events
         case nav    = 0x0A   // Turn-by-turn payloads (Phase 6)
     }
 
-    /// Sub-type bytes scoped to `SegType.auth`.
+    /// Sub-type bytes scoped to `SegType.auth` (bike → phone replies).
     enum AuthSub: UInt8 {
         case modulus  = 0x00  // bike → phone, 128-byte RSA-1024 modulus
         case status   = 0x01  // bike → phone, 0x01=OK, 0x00=fail
         case exponent = 0x03  // bike → phone, RSA exponent (00 01 00 01)
-        case requestPubkey = 0x04  // phone → bike, q3c.e
+    }
+
+    /// Sub-type bytes scoped to `SegType.session` (phone → bike outbound).
+    enum SessionSub: UInt8 {
+        case sessionKey   = 0x00  // q3c.d: 128-byte RSA-PKCS1v1.5(ssid ‖ aesKey)
+        case requestPubkey = 0x04  // q3c.e: "give me your RSA pubkey" (payload = [0x01])
     }
 
     /// AES session key length the phone packs at the tail of the

@@ -22,6 +22,9 @@
 import Foundation
 import os
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -173,13 +176,33 @@ final class BikeLink {
     }
 
     private func runHandshake(socket: DashSocket) async throws -> HandshakeOutcome {
-        // 1) Send q3c.e
-        let req = K1GPacket.makeRequestPubkey(seq: seq.consume())
-        try await socket.send(req)
-        log.debug("Sent q3c.e (\(req.count) B)")
+        // 0) Initial burst — 9 capability/identity packets the real Tripper
+        //    app fires on startup. The dash uses this exact sequence as a
+        //    discovery handshake; if any are missing it never transitions
+        //    out of "Connected to <phone>" pairing and the RSA handshake
+        //    never completes. See InitialBurst doc + better-dash.
+        let hostname = await Self.deviceHostname()
+        let burst = InitialBurst.packets(
+            hostname: hostname,
+            fixedTempC: 20,
+            seq: seq
+        )
+        log.info("Sending initial burst (\(burst.count) packets, hostname=\(hostname, privacy: .public))")
+        for (i, pkt) in burst.enumerated() {
+            try Task.checkCancellation()
+            try await socket.send(pkt)
+            log.debug("Burst #\(i + 1)/\(burst.count) sent (\(pkt.count) B)")
+            // 60 ms gap matches better-dash's default --burst-pause.
+            // Skip the gap after the last packet so the handshake can start
+            // listening immediately.
+            if i + 1 < burst.count {
+                try? await Task.sleep(nanoseconds: 60_000_000)
+            }
+        }
 
-        // 2) Wait for modulus + exponent (may arrive as one packet with two segments,
-        //    or two packets — accept either).
+        // 1) Wait for modulus + exponent. The bike replies to q3c.e (which
+        //    was packet #1 in the burst above) with two segments. They may
+        //    arrive in one packet or split across two.
         var modulus: Data?
         var exponent: Data?
         let deadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
@@ -202,7 +225,7 @@ final class BikeLink {
         }
         log.info("Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString, privacy: .public)")
 
-        // 3) Build SecKey, generate AES key, encrypt session payload.
+        // 2) Build SecKey, generate AES key, encrypt session payload.
         let pub = try RsaHandshake.makePublicKey(modulus: modulus, exponent: exponent)
         let aesKey = try RsaHandshake.makeAesKey()
         let ct = try RsaHandshake.encryptSessionKey(ssid: ssid, aesKey: aesKey, bikePublicKey: pub)
@@ -210,7 +233,7 @@ final class BikeLink {
         try await socket.send(q3cd)
         log.debug("Sent q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B)")
 
-        // 4) Wait for auth-OK (07 01 01).
+        // 3) Wait for auth-OK (07 01 01).
         let okDeadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
         for await packet in socket.inbound {
             let segs = K1GPacket.decode(packet)
@@ -223,6 +246,19 @@ final class BikeLink {
             }
         }
         throw HandshakeError.missingSegment("auth-OK (stream ended)")
+    }
+
+    /// Build the hostname the dash will show on its pairing screen.
+    /// Mirrors the Android app: prefers the device's user-set name,
+    /// falls back to "TripperDashPP" if iOS denies access.
+    private static func deviceHostname() async -> String {
+        await MainActor.run {
+            #if canImport(UIKit)
+            let name = UIDevice.current.name
+            if !name.isEmpty { return name }
+            #endif
+            return "TripperDashPP"
+        }
     }
 
     private func startInboundLoop(socket: DashSocket) {

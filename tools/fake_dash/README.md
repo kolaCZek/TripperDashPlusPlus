@@ -49,7 +49,7 @@ open captures/dash_capture_*.h264
 
 | K1G segment | Direction | Meaning |
 |-------------|-----------|---------|
-| `07 04`     | phone → bike | request pubkey (`q3c.e`) |
+| `08 04`     | phone → bike | request pubkey (`q3c.e`) — NOT 0x07; that family is inbound-only |
 | `07 00`     | bike → phone | RSA modulus (128 B, big-endian) |
 | `07 03`     | bike → phone | RSA exponent (typically `00 01 00 01`) |
 | `08 00`     | phone → bike | RSA-encrypted `ssid ‖ aes_key` (`q3c.d`) |

@@ -178,7 +178,7 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
     Q3C_* hex constants):
 
         [len: u16 BE = 0]           # patched after assembly
-        [seg_count: u16 BE]
+        [seg_count: u16 BE]         # always len(segs) + 1 (see below)
         [pad: 4 bytes of 0x00]
         [marker: 02 01 00 05]
         [K1G magic: "K1G "]
@@ -186,11 +186,18 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
         [segments…]
 
     The leading outer_len is patched via `patch_seq` at the end.
+
+    seg_count quirk: every Q3C_* template in better-dash hardcodes
+    `00 02` for single-segment packets, and `active_nav_packet`
+    computes `len(tlvs) + 1` for multi-segment packets. The real
+    Tripper dash validates this byte — packets with the naive count
+    silently drop. So we always emit `actual_count + 1` here too,
+    matching `TripperDashPP/Tripper/K1GPacket.swift::encode()`.
     """
     segs = list(segments)
     body = bytearray()
     body.extend(b"\x00\x00")                          # outer_len placeholder
-    body.extend(struct.pack(">H", len(segs)))         # seg_count
+    body.extend(struct.pack(">H", len(segs) + 1))     # seg_count = N + 1
     body.extend(b"\x00\x00\x00\x00")                  # pad
     body.extend(b"\x02\x01\x00\x05")                  # IC header marker
     body.extend(K1G_MAGIC)

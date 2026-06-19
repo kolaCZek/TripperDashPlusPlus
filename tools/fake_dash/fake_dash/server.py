@@ -311,12 +311,15 @@ class FakeDashServer:
             self._handle_session_key(seg.payload, peer)
             return
 
-        # Type 0x07 sub 0x04 = q3c.e: phone is requesting our pubkey.
-        # Better-dash sends this as "0804000101" which is type=0x08
-        # sub=0x04 — but the actual q3c.e payload from a phone we
-        # observed has type=0x08 sub=0x04 OR type=0x07 sub=0x04 depending
-        # on firmware. Accept both.
-        if (seg.type, seg.sub) in {(0x07, 0x04), (0x08, 0x04)}:
+        # Type 0x08 sub 0x04 = q3c.e: phone requesting our RSA pubkey.
+        # Better-dash + the real Tripper Android app both send this as
+        # `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
+        # match was kept while we figured out which type byte was correct;
+        # confirmed via better-dash that 0x07 is INBOUND-ONLY (bike → phone)
+        # so the phone never legitimately sends 0x07. Stay strict — that
+        # way a regression in the Swift client surfaces immediately as
+        # "auth request dropped" instead of being silently accepted.
+        if seg.type == 0x08 and seg.sub == 0x04:
             self._handle_auth_request(peer)
             return
 
