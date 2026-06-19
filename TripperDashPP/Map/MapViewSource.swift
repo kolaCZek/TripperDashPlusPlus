@@ -378,9 +378,8 @@ extension MapViewSource {
     }
 
     /// Apple Maps navigation-mode user puck: blue circle with a white
-    /// chevron arrow inside, plus a translucent radial cone fanning out
-    /// in the heading direction. The map is rotated heading-up, so the
-    /// chevron and cone always point toward the top of the frame
+    /// chevron arrow inside. The map is rotated heading-up, so the
+    /// chevron always points toward the top of the frame
     /// (= direction of travel).
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
@@ -389,42 +388,6 @@ extension MapViewSource {
         ctx.saveGState()
         ctx.translateBy(x: cx, y: cy)
         ctx.scaleBy(x: 1, y: -1)   // local Y-flip: +y = up on screen
-
-        // ── Heading cone (drawn first so the puck sits on top) ──
-        // 90° fan (±45°), length 56 px, radial fade from blue → clear.
-        let coneLen: CGFloat = 56
-        let halfAngle: CGFloat = .pi / 4    // 45°
-        let cone = CGMutablePath()
-        cone.move(to: .zero)
-        // Sweep a circular arc at the far end so the cone has a soft
-        // rounded outer edge instead of two straight lines meeting at
-        // a point. Angles measured from +x axis in the local Y-up
-        // frame; "up" is +y = π/2.
-        let start = CGFloat.pi / 2 - halfAngle     // right edge
-        let end   = CGFloat.pi / 2 + halfAngle     // left edge
-        cone.addArc(center: .zero,
-                    radius: coneLen,
-                    startAngle: start,
-                    endAngle: end,
-                    clockwise: false)
-        cone.closeSubpath()
-
-        ctx.saveGState()
-        ctx.addPath(cone)
-        ctx.clip()
-        let coneColors = [
-            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.75),  // bright near puck
-            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.0),   // fade to clear
-        ] as CFArray
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                     colors: coneColors,
-                                     locations: [0.0, 1.0]) {
-            ctx.drawRadialGradient(gradient,
-                                   startCenter: .zero, startRadius: 0,
-                                   endCenter: .zero,   endRadius: coneLen,
-                                   options: [])
-        }
-        ctx.restoreGState()
 
         // ── White outer ring (acts as a 2 px border around the puck) ──
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
