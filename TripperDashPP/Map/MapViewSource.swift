@@ -367,17 +367,47 @@ extension MapViewSource {
 
         ctx.restoreGState()
 
-        // Draw user dot in the center (always upright — drawn after
-        // restoreGState so heading rotation doesn't tilt it).
+        // Draw user direction arrow in the center. The map is rotated
+        // heading-up, so the arrow always points toward the top of the
+        // frame (= direction of travel). Drawn AFTER restoreGState so
+        // it's not affected by tile rotation; uses a local Y-flip so
+        // "tip up" matches screen-up regardless of the outer ctx's
+        // bottom-left vs top-left origin (CVPixelBuffer rows go top→
+        // bottom, so we flip locally to draw in intuitive "tip = +y").
+        drawHeadingArrow(into: ctx)
+    }
+
+    /// Filled chevron arrow centered at the frame midpoint, pointing
+    /// toward the top of the rendered frame.
+    private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
         let cy = frameSize.height / 2
-        // Re-flip Y just for the dot (we restored to ctx top-down state,
-        // but the outer ctx is bottom-up; cy is fine in either since
-        // it's the center).
+
+        ctx.saveGState()
+        ctx.translateBy(x: cx, y: cy)
+        ctx.scaleBy(x: 1, y: -1)   // local Y-flip: +y = up on screen
+
+        // White outline chevron (slightly larger)
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: cx - 9, y: cy - 9, width: 18, height: 18))
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: 0,   y:  16))   // tip (top)
+        ctx.addLine(to: CGPoint(x: 13,  y: -12))   // right base
+        ctx.addLine(to: CGPoint(x: 0,   y:  -5))   // back notch
+        ctx.addLine(to: CGPoint(x: -13, y: -12))   // left base
+        ctx.closePath()
+        ctx.fillPath()
+
+        // Blue inner chevron
         ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: cx - 6, y: cy - 6, width: 12, height: 12))
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: 0,   y:  12))
+        ctx.addLine(to: CGPoint(x: 10,  y: -10))
+        ctx.addLine(to: CGPoint(x: 0,   y:  -4))
+        ctx.addLine(to: CGPoint(x: -10, y: -10))
+        ctx.closePath()
+        ctx.fillPath()
+
+        ctx.restoreGState()
     }
 
     /// Vector-only fallback: dark background + polyline + dot.
@@ -426,13 +456,9 @@ extension MapViewSource {
         ctx.strokePath()
         ctx.restoreGState()
 
-        // Dot in the center.
-        let cx = frameSize.width / 2
-        let cy = frameSize.height / 2
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: cx - 9, y: cy - 9, width: 18, height: 18))
-        ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: cx - 6, y: cy - 6, width: 12, height: 12))
+        // User direction arrow in the centre (same chevron as the
+        // tile-cache path; map is heading-up so arrow always points up).
+        drawHeadingArrow(into: ctx)
     }
 
     private func preparePool() {
