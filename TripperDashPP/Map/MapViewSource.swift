@@ -377,8 +377,10 @@ extension MapViewSource {
         drawHeadingArrow(into: ctx)
     }
 
-    /// Filled chevron arrow centered at the frame midpoint, pointing
-    /// toward the top of the rendered frame.
+    /// Apple Maps-style user location: blue dot with white halo, plus a
+    /// translucent fan of light pointing in the heading direction. The
+    /// map is rotated heading-up, so the cone always points toward the
+    /// top of the frame (= direction of travel).
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
         let cy = frameSize.height / 2
@@ -387,25 +389,49 @@ extension MapViewSource {
         ctx.translateBy(x: cx, y: cy)
         ctx.scaleBy(x: 1, y: -1)   // local Y-flip: +y = up on screen
 
-        // White outline chevron (slightly larger)
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: 0,   y:  16))   // tip (top)
-        ctx.addLine(to: CGPoint(x: 13,  y: -12))   // right base
-        ctx.addLine(to: CGPoint(x: 0,   y:  -5))   // back notch
-        ctx.addLine(to: CGPoint(x: -13, y: -12))   // left base
-        ctx.closePath()
-        ctx.fillPath()
+        // ── Heading cone (drawn first so the dot sits on top) ──
+        // 90° fan (±45°), length 56 px, radial fade from blue → clear.
+        let coneLen: CGFloat = 56
+        let halfAngle: CGFloat = .pi / 4    // 45°
+        let cone = CGMutablePath()
+        cone.move(to: .zero)
+        // Sweep a circular arc at the far end so the cone has a soft
+        // rounded outer edge instead of two straight lines meeting at
+        // a point. Angles measured from +x axis in the local Y-up
+        // frame; "up" is +y = π/2.
+        let start = CGFloat.pi / 2 - halfAngle     // right edge
+        let end   = CGFloat.pi / 2 + halfAngle     // left edge
+        cone.addArc(center: .zero,
+                    radius: coneLen,
+                    startAngle: start,
+                    endAngle: end,
+                    clockwise: false)
+        cone.closeSubpath()
 
-        // Blue inner chevron
+        ctx.saveGState()
+        ctx.addPath(cone)
+        ctx.clip()
+        let coneColors = [
+            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.75),  // bright near dot
+            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.0),   // fade to clear
+        ] as CFArray
+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                     colors: coneColors,
+                                     locations: [0.0, 1.0]) {
+            ctx.drawRadialGradient(gradient,
+                                   startCenter: .zero, startRadius: 0,
+                                   endCenter: .zero,   endRadius: coneLen,
+                                   options: [])
+        }
+        ctx.restoreGState()
+
+        // ── White halo ring ──
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: -12, y: -12, width: 24, height: 24))
+
+        // ── Blue dot ──
         ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: 0,   y:  12))
-        ctx.addLine(to: CGPoint(x: 10,  y: -10))
-        ctx.addLine(to: CGPoint(x: 0,   y:  -4))
-        ctx.addLine(to: CGPoint(x: -10, y: -10))
-        ctx.closePath()
-        ctx.fillPath()
+        ctx.fillEllipse(in: CGRect(x: -9, y: -9, width: 18, height: 18))
 
         ctx.restoreGState()
     }
