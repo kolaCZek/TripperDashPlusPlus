@@ -263,23 +263,6 @@ extension MapViewSource {
         }
         lastTileHintIndex = idx
 
-        // Debug: log mismatch between user GPS and selected tile centre.
-        if frameIndex % 30 == 0 {
-            let t = cache.tiles[idx]
-            let dist = PolylineMath.haversine(fix.coordinate, t.center)
-            let cgW = cache.image(for: t, atIndex: idx)?.cgImage?.width ?? -1
-            let cp = t.centerPixel
-            let expected = CGPoint(x: t.pixelSize.width / 2, y: t.pixelSize.height / 2)
-            let offsetX = cp.x - expected.x
-            let offsetY = cp.y - expected.y
-            // Compare measured pxPerDeg vs naive (from region.span).
-            let naivePxPerDegLon = Double(t.pixelSize.width) / t.region.span.longitudeDelta
-            let naivePxPerDegLat = Double(t.pixelSize.height) / t.region.span.latitudeDelta
-            let scaleRatioLon = String(format: "%.2f", t.pxPerDegLon / naivePxPerDegLon)
-            let scaleRatioLat = String(format: "%.2f", t.pxPerDegLat / naivePxPerDegLat)
-            log.debug("tile pick idx=\(idx) user=(\(fix.coordinate.latitude),\(fix.coordinate.longitude)) tile.center=(\(t.center.latitude),\(t.center.longitude)) dist=\(Int(dist))m heading=\(Int(self.lastHeading))° pixelSize=\(t.pixelSize.width)x\(t.pixelSize.height) cgWidth=\(cgW) span=(\(t.region.span.latitudeDelta),\(t.region.span.longitudeDelta)) centerPx=(\(cp.x),\(cp.y)) offsetFromMid=(\(offsetX),\(offsetY)) pxPerDeg measured=(\(Int(t.pxPerDegLon)),\(Int(t.pxPerDegLat))) naive=(\(Int(naivePxPerDegLon)),\(Int(naivePxPerDegLat))) ratio=(\(scaleRatioLon),\(scaleRatioLat))")
-        }
-
         // Pick the centre tile + 2 neighbours either side. After
         // heading-up rotation, frame corners can reach beyond a single
         // tile's footprint — drawing all overlapping tiles keeps the
@@ -317,15 +300,11 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
-        // Heading-up: rotate by -heading (heading is deg cw from north;
-        // CGContext rotates counter-clockwise in radians).
-        // After the inner Y-flip ctx is Y-UP, so CCW rotation of -heading
-        // brings the heading direction to +y (= north on screen). When
-        // re-enabling, verify by setting heading=90 and confirming the
-        // route polyline rotates so east becomes "up".
-        // DEBUG: temporarily north-up while we sort out the map alignment.
-        // let theta = -lastHeading * .pi / 180
-        // ctx.rotate(by: theta)
+        // Heading-up: after the inner Y-flip ctx is Y-UP (math
+        // convention, north = +y). CGContext rotates counter-clockwise
+        // in radians; heading is degrees CW from north. To bring the
+        // heading direction to +y (= top of frame), rotate by -heading.
+        ctx.rotate(by: -lastHeading * .pi / 180)
 
         // Draw every overlapping tile shifted by the delta from its
         // own centre to the user's position. Use `t.center` (the
@@ -384,44 +363,6 @@ extension MapViewSource {
                 }
             }
             ctx.strokePath()
-        }
-
-        // DEBUG: draw test rings at 100/200/500m. With pxPerDegLat=94920,
-        // 100m = 85 px, 200m = 170 px, 500m = 426 px (off-frame). If the
-        // bitmap renders at a different scale, we'll see the rings sized
-        // wrong relative to map features (e.g. Otrok rybník at 530m SW).
-        ctx.setStrokeColor(CGColor(red: 1, green: 0, blue: 0, alpha: 0.9))
-        ctx.setLineWidth(2)
-        for meters in [100.0, 200.0, 500.0] {
-            let r = pxPerDegLat * (meters / 111320.0)
-            ctx.strokeEllipse(in: CGRect(x: -r, y: -r, width: 2*r, height: 2*r))
-        }
-
-        // DEBUG: anchor probes — draw a YELLOW dot exactly where our
-        // projection formula puts `tile.center` (we KNOW where that is
-        // on the bitmap: at `t.centerPixel`), and a MAGENTA dot where
-        // we project Otrok pond (50.227882, 14.174704) which is ~530m
-        // SSW of the user position. If the YELLOW dot lands on the
-        // bitmap centre AND the MAGENTA dot lands on the rendered
-        // pond, math is right and the bug is elsewhere. If they're
-        // mirrored/offset, formula sign or coord-space is wrong.
-        if let cgImg = tilesToDraw.first?.1 {
-            let t = tilesToDraw.first!.0
-            let dxT = (t.center.longitude - centerLon) * pxPerDegLon
-            let dyT = (t.center.latitude - centerLat) * pxPerDegLat
-            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1))
-            ctx.fillEllipse(in: CGRect(x: CGFloat(dxT) - 5, y: CGFloat(dyT) - 5, width: 10, height: 10))
-            _ = cgImg
-        }
-        // Otrok rybník — known landmark at 50.227882°N, 14.174704°E
-        let otrokLat = 50.227882
-        let otrokLon = 14.174704
-        let dxO = (otrokLon - centerLon) * pxPerDegLon
-        let dyO = (otrokLat - centerLat) * pxPerDegLat
-        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: CGFloat(dxO) - 5, y: CGFloat(dyO) - 5, width: 10, height: 10))
-        if frameIndex % 30 == 0 {
-            log.debug("debug probes: tile.center @ ctx (\(Int(((tilesToDraw.first?.0.center.longitude ?? 0) - centerLon) * pxPerDegLon)), \(Int(((tilesToDraw.first?.0.center.latitude ?? 0) - centerLat) * pxPerDegLat))) | Otrok @ ctx (\(Int(dxO)), \(Int(dyO))) | frame=\(Int(self.frameSize.width))x\(Int(self.frameSize.height))")
         }
 
         ctx.restoreGState()
