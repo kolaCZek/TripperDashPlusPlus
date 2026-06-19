@@ -319,6 +319,10 @@ extension MapViewSource {
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
         // Heading-up: rotate by -heading (heading is deg cw from north;
         // CGContext rotates counter-clockwise in radians).
+        // After the inner Y-flip ctx is Y-UP, so CCW rotation of -heading
+        // brings the heading direction to +y (= north on screen). When
+        // re-enabling, verify by setting heading=90 and confirming the
+        // route polyline rotates so east becomes "up".
         // DEBUG: temporarily north-up while we sort out the map alignment.
         // let theta = -lastHeading * .pi / 180
         // ctx.rotate(by: theta)
@@ -328,28 +332,39 @@ extension MapViewSource {
         // requested centre — and the geographic centre of the
         // rendered image), not `t.region.center`. MKMapSnapshotter
         // can adjust the region span but the centre stays put.
-        // In Y-down coords (after the second flip), north = -y, so a
-        // tile whose centre is north of the user (t.lat > user.lat)
-        // lands at NEGATIVE dy = upper part of the frame. ✓
+        //
+        // After the second flip the inner ctx is Y-UP (math convention,
+        // confirmed empirically: yellow tile.center probe at dy<0 landed
+        // SOUTH of the user dot — Y-UP semantics). So north = +y. A tile
+        // whose centre is north of the user (t.lat > user.lat) lands at
+        // POSITIVE dy = upper part of the frame. CGImage drawn via
+        // ctx.draw(in:) in a Y-UP context renders upright (the inner
+        // flip cancels the bitmap's own Y-down pixel layout).
         for (t, cg) in tilesToDraw {
             // Where would `tile.center` land in ctx coordinates if the
             // bitmap centre WERE the geographic centre?
             let dx = (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = (centerLat - t.center.latitude) * pxPerDegLat
+            let dy = (t.center.latitude - centerLat) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
             // MKMapSnapshotter clamps the region, so the actual pixel
             // location of `t.center` is `t.centerPixel` — NOT (tw/2, th/2).
             // Compensate by shifting the tile rect so the centerPixel
             // lands at (dx, dy) instead of the bitmap midpoint.
-            let mpX = tw / 2 - t.centerPixel.x   // px to shift in X
-            let mpY = th / 2 - t.centerPixel.y   // px to shift in Y (Y-down)
+            //
+            // In Y-UP, ctx.draw maps bitmap row R to ctx_y = rect.y + (th - R).
+            // We want bitmap row `centerPixel.y` to land at `dy`, so
+            //   rect.y = dy + centerPixel.y - th = dy - (th - centerPixel.y).
+            // For centered tile (centerPixel.y = th/2) this collapses to
+            //   rect.y = dy - th/2  — same as the X axis. ✓
+            let mpX = tw / 2 - t.centerPixel.x                // px to shift in X
+            let mpY = t.centerPixel.y - th / 2                // px to shift in Y (Y-up)
             ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2 + mpX,
                                     y: CGFloat(dy) - th / 2 + mpY,
                                     width: tw, height: th))
         }
 
-        // Draw the route polyline in the same Y-down coordinate space.
+        // Draw the route polyline in the same Y-UP coordinate space.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
             ctx.setLineWidth(8)
@@ -359,7 +374,7 @@ extension MapViewSource {
             var first = true
             for c in routePolylineCoords {
                 let dx = (c.longitude - centerLon) * pxPerDegLon
-                let dy = (centerLat - c.latitude) * pxPerDegLat
+                let dy = (c.latitude - centerLat) * pxPerDegLat
                 let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
                 if first {
                     ctx.move(to: pt)
@@ -393,7 +408,7 @@ extension MapViewSource {
         if let cgImg = tilesToDraw.first?.1 {
             let t = tilesToDraw.first!.0
             let dxT = (t.center.longitude - centerLon) * pxPerDegLon
-            let dyT = (centerLat - t.center.latitude) * pxPerDegLat
+            let dyT = (t.center.latitude - centerLat) * pxPerDegLat
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 0, alpha: 1))
             ctx.fillEllipse(in: CGRect(x: CGFloat(dxT) - 5, y: CGFloat(dyT) - 5, width: 10, height: 10))
             _ = cgImg
@@ -402,11 +417,11 @@ extension MapViewSource {
         let otrokLat = 50.227882
         let otrokLon = 14.174704
         let dxO = (otrokLon - centerLon) * pxPerDegLon
-        let dyO = (centerLat - otrokLat) * pxPerDegLat
+        let dyO = (otrokLat - centerLat) * pxPerDegLat
         ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
         ctx.fillEllipse(in: CGRect(x: CGFloat(dxO) - 5, y: CGFloat(dyO) - 5, width: 10, height: 10))
         if frameIndex % 30 == 0 {
-            log.debug("debug probes: tile.center @ ctx (\(Int(((tilesToDraw.first?.0.center.longitude ?? 0) - centerLon) * pxPerDegLon)), \(Int((centerLat - (tilesToDraw.first?.0.center.latitude ?? 0)) * pxPerDegLat))) | Otrok @ ctx (\(Int(dxO)), \(Int(dyO))) | frame=\(Int(self.frameSize.width))x\(Int(self.frameSize.height))")
+            log.debug("debug probes: tile.center @ ctx (\(Int(((tilesToDraw.first?.0.center.longitude ?? 0) - centerLon) * pxPerDegLon)), \(Int(((tilesToDraw.first?.0.center.latitude ?? 0) - centerLat) * pxPerDegLat))) | Otrok @ ctx (\(Int(dxO)), \(Int(dyO))) | frame=\(Int(self.frameSize.width))x\(Int(self.frameSize.height))")
         }
 
         ctx.restoreGState()
@@ -458,7 +473,7 @@ extension MapViewSource {
         var first = true
         for c in routePolylineCoords {
             let dxM = (c.longitude - centerLon) * mPerDegLon
-            let dyM = (centerLat - c.latitude) * mPerDegLat
+            let dyM = (c.latitude - centerLat) * mPerDegLat
             let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
             if first {
                 ctx.move(to: pt)
