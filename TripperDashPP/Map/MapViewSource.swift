@@ -377,10 +377,11 @@ extension MapViewSource {
         drawHeadingArrow(into: ctx)
     }
 
-    /// Apple Maps-style user location: blue dot with white halo, plus a
-    /// translucent fan of light pointing in the heading direction. The
-    /// map is rotated heading-up, so the cone always points toward the
-    /// top of the frame (= direction of travel).
+    /// Apple Maps navigation-mode user puck: blue circle with a white
+    /// chevron arrow inside, plus a translucent radial cone fanning out
+    /// in the heading direction. The map is rotated heading-up, so the
+    /// chevron and cone always point toward the top of the frame
+    /// (= direction of travel).
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
         let cy = frameSize.height / 2
@@ -389,7 +390,7 @@ extension MapViewSource {
         ctx.translateBy(x: cx, y: cy)
         ctx.scaleBy(x: 1, y: -1)   // local Y-flip: +y = up on screen
 
-        // ── Heading cone (drawn first so the dot sits on top) ──
+        // ── Heading cone (drawn first so the puck sits on top) ──
         // 90° fan (±45°), length 56 px, radial fade from blue → clear.
         let coneLen: CGFloat = 56
         let halfAngle: CGFloat = .pi / 4    // 45°
@@ -412,7 +413,7 @@ extension MapViewSource {
         ctx.addPath(cone)
         ctx.clip()
         let coneColors = [
-            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.75),  // bright near dot
+            CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.75),  // bright near puck
             CGColor(red: 0.10, green: 0.55, blue: 1.0, alpha: 0.0),   // fade to clear
         ] as CFArray
         if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
@@ -425,13 +426,25 @@ extension MapViewSource {
         }
         ctx.restoreGState()
 
-        // ── White halo ring ──
+        // ── White outer ring (acts as a 2 px border around the puck) ──
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: -14, y: -14, width: 28, height: 28))
+
+        // ── Blue circle ──
+        ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
         ctx.fillEllipse(in: CGRect(x: -12, y: -12, width: 24, height: 24))
 
-        // ── Blue dot ──
-        ctx.setFillColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: -9, y: -9, width: 18, height: 18))
+        // ── White chevron inside the blue circle (Apple Maps nav style) ──
+        // Tip at top, base near bottom of the circle. Sized to sit cleanly
+        // inside the 24 px disc with ~2 px padding.
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x:  0,   y:  8))    // tip
+        ctx.addLine(to: CGPoint(x:  7,   y: -7))    // right base
+        ctx.addLine(to: CGPoint(x:  0,   y: -3))    // back notch
+        ctx.addLine(to: CGPoint(x: -7,   y: -7))    // left base
+        ctx.closePath()
+        ctx.fillPath()
 
         ctx.restoreGState()
     }
