@@ -66,7 +66,7 @@ final class MapSnapshotSource: FrameSource {
     // MARK: - Dependencies
 
     private weak var locationService: LocationService?
-    private let log = Logger(subsystem: "TripperDashPP", category: "MapSource")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "MapSource")
 
     // MARK: - State
 

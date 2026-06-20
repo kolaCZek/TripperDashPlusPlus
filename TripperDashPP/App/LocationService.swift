@@ -123,7 +123,7 @@ final class LocationService: NSObject {
 
     // MARK: - Internals
 
-    private let log = Logger(subsystem: "TripperDashPP", category: "LocationService")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "LocationService")
     private let manager = CLLocationManager()
 
     /// Active consumers and the mode each one requires. The service

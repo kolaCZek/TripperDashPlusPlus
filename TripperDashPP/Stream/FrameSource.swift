@@ -54,7 +54,7 @@ final class TestPatternSource: FrameSource {
     let frameSize = CGSize(width: 526, height: 300)
     let targetFps = 12
 
-    private let log = Logger(subsystem: "TripperDashPP", category: "TestPattern")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "TestPattern")
     private let queue = DispatchQueue(label: "TripperDashPP.TestPattern", qos: .userInitiated)
     private var timer: DispatchSourceTimer?
     private var frameIndex: UInt64 = 0

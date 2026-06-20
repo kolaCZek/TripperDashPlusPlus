@@ -103,7 +103,7 @@ final class RouteTileCache {
 
     private(set) var tiles: [RouteTile] = []
     private let imageCache = NSCache<NSNumber, UIImage>()
-    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp.map", category: "RouteTileCache")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RouteTileCache")
 
     init() {
         imageCache.countLimit = 8

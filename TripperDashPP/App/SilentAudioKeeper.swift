@@ -27,7 +27,7 @@ import os.log
 @MainActor
 final class SilentAudioKeeper {
 
-    private let log = Logger(subsystem: "TripperDashPP", category: "SilentAudio")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "SilentAudio")
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var buffer: AVAudioPCMBuffer?

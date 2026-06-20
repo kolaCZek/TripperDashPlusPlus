@@ -140,21 +140,24 @@ final class BikeLink {
     // MARK: - Flow
 
     private func runConnectFlow() async {
+        let t0 = Date()
+        func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
         do {
             state = .connecting
-            log.info("Opening UDP socket to \(self.bikeHost):\(K1G.controlPort) on Wi-Fi")
+            log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.controlPort) on Wi-Fi")
             let s = DashSocket(host: bikeHost, port: K1G.controlPort)
             try await s.start(timeout: 5.0)
             try Task.checkCancellation()
             self.socket = s
+            log.info("[\(ms(), privacy: .public)ms] DashSocket ready, entering handshake")
 
             state = .handshaking
-            let outcome = try await runHandshake(socket: s)
+            let outcome = try await runHandshake(socket: s, startedAt: t0)
             try Task.checkCancellation()
             self.aesKey = outcome.aesKey
 
             state = .connected
-            log.info("BikeLink connected (ssid=\(self.ssid, privacy: .public))")
+            log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
 
@@ -175,7 +178,9 @@ final class BikeLink {
         self.connectTask = nil
     }
 
-    private func runHandshake(socket: DashSocket) async throws -> HandshakeOutcome {
+    private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {
+        func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
+
         // 0) Initial burst — 9 capability/identity packets the real Tripper
         //    app fires on startup. The dash uses this exact sequence as a
         //    discovery handshake; if any are missing it never transitions
@@ -187,11 +192,11 @@ final class BikeLink {
             fixedTempC: 20,
             seq: seq
         )
-        log.info("Sending initial burst (\(burst.count) packets, hostname=\(hostname, privacy: .public))")
+        log.info("[\(ms(), privacy: .public)ms] Sending initial burst (\(burst.count) packets, hostname=\(hostname, privacy: .public))")
         for (i, pkt) in burst.enumerated() {
             try Task.checkCancellation()
             try await socket.send(pkt)
-            log.debug("Burst #\(i + 1)/\(burst.count) sent (\(pkt.count) B)")
+            log.info("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
             // 60 ms gap matches better-dash's default --burst-pause.
             // Skip the gap after the last packet so the handshake can start
             // listening immediately.
@@ -199,16 +204,23 @@ final class BikeLink {
                 try? await Task.sleep(nanoseconds: 60_000_000)
             }
         }
+        log.info("[\(ms(), privacy: .public)ms] Initial burst done, waiting for modulus+exponent (timeout=\(K1G.handshakeStepTimeout, privacy: .public)s)")
 
         // 1) Wait for modulus + exponent. The bike replies to q3c.e (which
         //    was packet #1 in the burst above) with two segments. They may
         //    arrive in one packet or split across two.
         var modulus: Data?
         var exponent: Data?
+        var rxCount = 0
         let deadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
 
         for await packet in socket.inbound {
+            rxCount += 1
             let segs = K1GPacket.decode(packet)
+            let segSummary = segs.isEmpty
+                ? "no decodable segments"
+                : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
+            log.info("[\(ms(), privacy: .public)ms] RX #\(rxCount) handshake-step1 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
             for seg in segs {
                 if seg.type == K1G.SegType.auth.rawValue {
                     if seg.sub == K1G.AuthSub.modulus.rawValue { modulus = seg.payload }
@@ -217,13 +229,15 @@ final class BikeLink {
             }
             if modulus != nil && exponent != nil { break }
             if Date() > deadline {
+                log.error("[\(ms(), privacy: .public)ms] handshake step1 timed out — received \(rxCount) packets, modulus=\(modulus != nil ? "yes" : "NO"), exponent=\(exponent != nil ? "yes" : "NO")")
                 throw HandshakeError.missingSegment("modulus+exponent within \(K1G.handshakeStepTimeout)s")
             }
         }
         guard let modulus, let exponent else {
+            log.error("[\(ms(), privacy: .public)ms] inbound stream ended before modulus+exponent arrived (rx=\(rxCount), mod=\(modulus != nil ? "yes" : "NO"), exp=\(exponent != nil ? "yes" : "NO"))")
             throw HandshakeError.missingSegment("modulus or exponent")
         }
-        log.info("Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString, privacy: .public)")
+        log.info("[\(ms(), privacy: .public)ms] Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString, privacy: .public)")
 
         // 2) Build SecKey, generate AES key, encrypt session payload.
         let pub = try RsaHandshake.makePublicKey(modulus: modulus, exponent: exponent)
@@ -231,17 +245,24 @@ final class BikeLink {
         let ct = try RsaHandshake.encryptSessionKey(ssid: ssid, aesKey: aesKey, bikePublicKey: pub)
         let q3cd = K1GPacket.makeSessionKey(ciphertext: ct, seq: seq.consume())
         try await socket.send(q3cd)
-        log.debug("Sent q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B)")
+        log.info("[\(ms(), privacy: .public)ms] TX q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B): \(q3cd.hexPreview, privacy: .public)")
 
         // 3) Wait for auth-OK (07 01 01).
         let okDeadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
+        var step3Rx = 0
         for await packet in socket.inbound {
+            step3Rx += 1
             let segs = K1GPacket.decode(packet)
+            let segSummary = segs.isEmpty
+                ? "no decodable segments"
+                : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
+            log.info("[\(ms(), privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
             if RsaHandshake.isAuthOK(segs) {
-                log.info("Got auth OK (07 01 01)")
+                log.info("[\(ms(), privacy: .public)ms] Got auth OK (07 01 01)")
                 return HandshakeOutcome(aesKey: aesKey, ssid: ssid)
             }
             if Date() > okDeadline {
+                log.error("[\(ms(), privacy: .public)ms] handshake step3 timed out — received \(step3Rx) packets, no auth-OK")
                 throw HandshakeError.missingSegment("auth-OK within \(K1G.handshakeStepTimeout)s")
             }
         }
@@ -309,5 +330,18 @@ final class BikeLink {
 private extension Data {
     var hexString: String {
         return self.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Short, log-friendly hex preview: first 32 bytes as space-separated
+    /// hex pairs, with "… +N more" suffix if longer. Designed for OSLog
+    /// where we want enough bytes to identify K1G headers + first TLV but
+    /// not spam the log with 800 B RSA ciphertext.
+    var hexPreview: String {
+        let cap = 32
+        if count <= cap {
+            return self.map { String(format: "%02X", $0) }.joined(separator: " ")
+        }
+        let head = self.prefix(cap).map { String(format: "%02X", $0) }.joined(separator: " ")
+        return "\(head) … +\(count - cap) more"
     }
 }

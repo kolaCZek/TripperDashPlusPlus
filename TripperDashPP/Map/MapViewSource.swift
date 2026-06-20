@@ -46,7 +46,7 @@ final class MapViewSource: NSObject, FrameSource {
     private let mapView = MKMapView()
     private weak var locationService: LocationService?
     private weak var activeNavigator: ActiveNavigator?
-    private let log = Logger(subsystem: "TripperDashPP", category: "MapViewSource")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "MapViewSource")
 
     private var locationToken: UUID?
     private var fixSubscription: LocationSubscription?

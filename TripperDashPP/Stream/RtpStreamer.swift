@@ -72,7 +72,7 @@ final class RtpStreamer {
     // RTP timestamp base (90 kHz, per RFC 6184)
     private let timestampBase: UInt32 = UInt32.random(in: 0..<UInt32.max)
 
-    private let log = Logger(subsystem: "TripperDashPP", category: "RtpStreamer")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
 
     init(bikeHost: String, bikePort: UInt16 = K1G.rtpPort, source: FrameSource = TestPatternSource()) {
         self.bikeHost = bikeHost

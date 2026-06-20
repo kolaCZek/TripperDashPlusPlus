@@ -42,6 +42,10 @@ actor DashSocket {
     private let conn: NWConnection
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "DashSocket")
     private var state: State = .setup
+    /// Total datagrams received since socket creation. Logged at first-RX
+    /// (info level) and at cancel, so timeouts can be diagnosed without
+    /// digging through debug spam.
+    private var rxDatagramCount: UInt64 = 0
 
     // MARK: - Init
 
@@ -119,6 +123,12 @@ actor DashSocket {
         conn.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
             if let data, !data.isEmpty {
+                self.rxDatagramCount &+= 1
+                if self.rxDatagramCount == 1 {
+                    // First-RX log uses .info so it shows up at default level —
+                    // critical for "did the dash respond at all?" diagnosis.
+                    self.log.info("DashSocket first RX (\(data.count) B)")
+                }
                 self.inboundContinuation.yield(data)
             }
             if let error {
@@ -137,12 +147,12 @@ actor DashSocket {
         switch s {
         case .setup:
             state = .setup
+            log.debug("DashSocket state: setup")
         case .waiting(let err):
             state = .waiting(err.localizedDescription)
             log.notice("DashSocket waiting: \(err.localizedDescription, privacy: .public)")
         case .preparing:
-            // No-op
-            break
+            log.debug("DashSocket state: preparing")
         case .ready:
             if state != .ready {
                 state = .ready
@@ -155,6 +165,7 @@ actor DashSocket {
             startContinuation.resume(throwing: err)
         case .cancelled:
             state = .cancelled
+            log.info("DashSocket cancelled (rx=\(self.rxDatagramCount))")
             inboundContinuation.finish()
         @unknown default:
             break

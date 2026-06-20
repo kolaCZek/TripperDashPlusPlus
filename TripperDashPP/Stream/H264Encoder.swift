@@ -57,7 +57,7 @@ final class H264Encoder {
     /// callback thread for every emitted NAL.
     var onNAL: ((EncodedNAL) -> Void)?
 
-    private let log = Logger(subsystem: "TripperDashPP", category: "H264")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "H264")
     private var session: VTCompressionSession?
     private var lastFormatDescription: CMFormatDescription?
     /// Set when the next emitted frame must be an IDR. Used after a
