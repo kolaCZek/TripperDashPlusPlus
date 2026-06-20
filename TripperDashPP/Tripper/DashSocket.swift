@@ -249,9 +249,14 @@ actor DashSocket {
         while true {
             let n: ssize_t = buf.withUnsafeMutableBufferPointer { bptr -> ssize_t in
                 guard let base = bptr.baseAddress else { return -1 }
+                // NOTE: use `bptr.count`, not `buf.count`. Swift exclusivity
+                // rules forbid reading `buf` while `buf` is also being
+                // mutated via `withUnsafeMutableBufferPointer` (overlapping
+                // access). The inner buffer pointer's `count` mirrors it
+                // exactly and is safe to read.
                 return withUnsafeMutablePointer(to: &fromAddr) { ptr -> ssize_t in
                     ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                        recvfrom(fd, base, buf.count, 0, sa, &fromLen)
+                        recvfrom(fd, base, bptr.count, 0, sa, &fromLen)
                     }
                 }
             }
