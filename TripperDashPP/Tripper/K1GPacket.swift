@@ -381,31 +381,32 @@ enum InitialBurst {
         // in the template.
         let p8 = Self.hexToData("001d000200000000020100054b314720080a020008aa55000000000000")
 
-        // Packet 9: initial 0044 status frame. Use our heartbeat builder
-        // with the same defaults the Android app uses (FF cell, 0x42 batt,
-        // music bucket 0x13, alarm bucket 0x19, distance 0).
-        var p9 = K1GPacket.makeHeartbeat0044(
-            seq: 0x09,
-            fixedTempC: fixedTempC,
-            cellSignal0to255: 0xFF,
-            batteryPct0to100: 2,        // 2 + 100 = 0xA2 (matches captured 0xA2)
-            gpsOn: true,
-            charging: false,
-            musicRatio0to1: 0.3,        // bucket 0x13
-            navDistanceRounded: 0,
-            alarmRatio0to1: 0.9         // bucket 0x19
+        // Packet 9: initial 0044 status frame — verbatim from
+        // `better-dash/tripper_app_like_nav.py:INITIAL_BURST_HEX[8]`. This
+        // is the EXACT byte sequence the Android Tripper app emits in the
+        // pairing burst and the real dash silently drops anything else.
+        //
+        // Critically different from a `makeHeartbeat0044` payload:
+        //   - 10 TLVs, NOT 11 (no `06 10` engine-temp TLV here)
+        //   - TLV order: 06 08, 06 03, 06 04, 06 0F, 06 01, 05 4C,
+        //                05 2D, 05 1B, 05 21, 05 4D
+        //   - `seg_count = 0x000A` matches the actual TLV count
+        //
+        // Earlier revisions reused `makeHeartbeat0044` + tail TLVs, which
+        // produced an 11-TLV / 73 B packet with `seg_count=10`. The real
+        // dash treats that as malformed, never replies to packet #1 (q3c.e),
+        // and the phone times out with "missing modulus or exponent". The
+        // emulator (fake_dash) doesn't validate seg_count so the bug only
+        // shows up against real hardware. See SKILL pitfall "Initial burst
+        // p9 must be verbatim, NOT generated".
+        let p9 = Self.hexToData(
+            "0044000a00000000020100054b3147200906080001ff060300015506040001a2" +
+            "060f0001aa0601000101054c000113052d00020000051b0001190521000132054d000132"
         )
-        // Also append the captured "extra" tail TLVs the bursts ship:
-        // 06 01 00 01 01 (call-state placeholder) + 05 21 00 01 32 (mode flag)
-        // + 05 4D 00 01 32 (cell signal echo). These are present in the
-        // captured packet but our heartbeat builder omits them because
-        // the 1 Hz tick loop doesn't include them either.
-        p9.append(contentsOf: [0x06, 0x01, 0x00, 0x01, 0x01,
-                               0x05, 0x21, 0x00, 0x01, 0x32,
-                               0x05, 0x4D, 0x00, 0x01, 0x32])
-        let total9 = UInt16(p9.count)
-        p9[0] = UInt8((total9 >> 8) & 0xFF)
-        p9[1] = UInt8(total9 & 0xFF)
+        // fixedTempC is intentionally unused for the initial burst — engine
+        // temp shows up only in the 1 Hz heartbeat ticks (makeHeartbeat0044
+        // sends it under `06 10`), not the pairing handshake.
+        _ = fixedTempC
 
         return [p1, p2, p3, p4, p5, p6, p7, p8, p9]
     }
