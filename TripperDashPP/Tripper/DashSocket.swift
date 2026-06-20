@@ -49,8 +49,18 @@ actor DashSocket {
 
     // MARK: - Init
 
-    /// Create a UDP socket targeting `host:port`. Bound to Wi-Fi.
-    init(host: String, port: UInt16) {
+    /// Create a UDP "connection" targeting `host:remotePort`. Bound to
+    /// Wi-Fi only.
+    ///
+    /// - Parameter localPort: REQUIRED local-bind port. The real dash
+    ///   replies on a fixed port (2002), NOT to the ephemeral source port
+    ///   of our outbound packets. If we use an ephemeral source port, the
+    ///   dash's reply triggers an ICMP port-unreachable on the phone and
+    ///   the K1G handshake never gets a modulus/exponent (rx=0). Always
+    ///   pass `K1G.rxPort` here unless you know exactly what you're doing.
+    ///   See `better-dash/tripper_app_like_nav.py:1856`
+    ///   (`open_listen_socket_2002`) for the canonical Python equivalent.
+    init(host: String, port: UInt16, localPort: UInt16) {
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
             port: NWEndpoint.Port(integerLiteral: port)
@@ -59,6 +69,16 @@ actor DashSocket {
         params.requiredInterfaceType = .wifi
         params.prohibitExpensivePaths = true        // no LTE fallback
         params.prohibitConstrainedPaths = true      // no Low Data Mode
+        // Pin the local source port so the dash's replies land on our
+        // bound socket instead of triggering ICMP port-unreachable.
+        // `SO_REUSEADDR` is implied by NWParameters; if it isn't and a
+        // previous run left the port wedged, calling .cancel() on the
+        // old conn before reconnecting should free it.
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: .ipv4(.any),
+            port: NWEndpoint.Port(integerLiteral: localPort)
+        )
+        params.allowLocalEndpointReuse = true
 
         self.conn = NWConnection(to: endpoint, using: params)
 

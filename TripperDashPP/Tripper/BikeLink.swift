@@ -144,8 +144,8 @@ final class BikeLink {
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
         do {
             state = .connecting
-            log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.controlPort) on Wi-Fi")
-            let s = DashSocket(host: bikeHost, port: K1G.controlPort)
+            log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi")
+            let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
             try await s.start(timeout: 5.0)
             try Task.checkCancellation()
             self.socket = s

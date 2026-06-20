@@ -19,8 +19,29 @@ enum K1G {
 
     // MARK: - Network endpoints
 
-    /// UDP port the dash listens on for control-plane traffic.
-    static let controlPort: UInt16 = 2002
+    /// UDP port the dash actually LISTENS on for the K1G control-plane
+    /// (initial burst, heartbeats, nav commands). This is the destination
+    /// port for all phone→dash traffic.
+    ///
+    /// **Watch out**: an earlier revision set this to 2002, because the
+    /// `fake_dash` test harness for convenience also listened on 2002.
+    /// The real dash does NOT — it listens on 2000, and a phone sending
+    /// to 2002 gets silently dropped (rx=0 in the BikeLink log). The
+    /// authority is `better-dash/tripper_app_like_nav.py:1572`
+    /// (`--udp-port default=2000`). Don't "fix" this back to 2002.
+    static let txPort: UInt16 = 2000
+
+    /// UDP port the dash REPLIES on (auth segments, ack frames, status).
+    /// We must bind locally to this port so the dash's responses are
+    /// delivered to us instead of generating ICMP port-unreachable, which
+    /// confuses the dash's protocol state machine. Source of truth:
+    /// `better-dash/tripper_app_like_nav.py:1856` (`rx_sock =
+    /// open_listen_socket_2002`).
+    static let rxPort: UInt16 = 2002
+
+    /// **Deprecated**: use `txPort` / `rxPort`. Kept until callers migrate.
+    @available(*, deprecated, renamed: "txPort")
+    static var controlPort: UInt16 { txPort }
 
     /// UDP port the dash listens on for the H.264 RTP stream.
     static let rtpPort: UInt16 = 5000
