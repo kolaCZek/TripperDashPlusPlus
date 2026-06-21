@@ -19,6 +19,7 @@
 		A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E00 /* ActiveNavLoop.swift */; };
 		A4F000000000000000000E11 /* DashNavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E10 /* DashNavSettings.swift */; };
 		A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E20 /* ManeuverIcon.swift */; };
+		A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */; };
 		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
 		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
 		A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */; };
@@ -63,6 +64,7 @@
 		A4F000000000000000000E00 /* ActiveNavLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavLoop.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E10 /* DashNavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNavSettings.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E20 /* ManeuverIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverIcon.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundaboutInstructionParser.swift; sourceTree = "<group>"; };
 		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
 		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
 		A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewSheet.swift; sourceTree = "<group>"; };
@@ -207,6 +209,7 @@
 				A4F000000000000000000070 /* NavSettings.swift */,
 				A4F000000000000000000E10 /* DashNavSettings.swift */,
 				A4F000000000000000000E20 /* ManeuverIcon.swift */,
+				A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -309,6 +312,7 @@
 				A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */,
 				A4F000000000000000000E11 /* DashNavSettings.swift in Sources */,
 				A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */,
+				A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */,
 				A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */,
 				A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */,
 				A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */,
