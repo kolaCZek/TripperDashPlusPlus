@@ -19,6 +19,13 @@ struct TripperDashPPApp: App {
         WindowGroup {
             RootView()
                 .environment(status)
+                .task {
+                    // Once-per-launch eviction sweep — removes stale
+                    // map tiles and brings the cache under its size
+                    // cap. Runs on the actor so it can't race with
+                    // live reads/writes from the prerender loop.
+                    await TileDiskCache.shared.evictIfNeeded()
+                }
         }
     }
 }

@@ -139,12 +139,62 @@ struct StreamingView: View {
                     .foregroundStyle(.tertiary)
             }
 
+            MapCacheSection()
+
             Section("Build") {
                 LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildNumber))")
             }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Settings cell that shows the on-disk map tile cache size and
+/// offers a one-tap "Clear" button. Kept as its own `View` (not
+/// inlined) so the `@State` for the stats stays scoped — the parent
+/// Form re-renders constantly when other settings change and we
+/// don't want every keystroke to trigger another disk walk.
+private struct MapCacheSection: View {
+    @State private var stats: (count: Int, bytes: Int) = (0, 0)
+    @State private var isClearing = false
+
+    var body: some View {
+        Section("Map cache") {
+            LabeledContent("On disk") {
+                if isClearing {
+                    ProgressView()
+                } else {
+                    Text(formatStats(stats))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            Button(role: .destructive) {
+                Task {
+                    isClearing = true
+                    await TileDiskCache.shared.clear()
+                    stats = await TileDiskCache.shared.stats()
+                    isClearing = false
+                }
+            } label: {
+                Label("Clear map cache", systemImage: "trash")
+            }
+            .disabled(isClearing || stats.bytes == 0)
+        }
+        .task {
+            // First appearance: load real numbers. Cheap walk (~few
+            // hundred files at most), no need for a background queue.
+            stats = await TileDiskCache.shared.stats()
+        }
+    }
+
+    private func formatStats(_ s: (count: Int, bytes: Int)) -> String {
+        if s.count == 0 { return "Empty" }
+        let fmt = ByteCountFormatter()
+        fmt.allowedUnits = [.useKB, .useMB]
+        fmt.countStyle = .file
+        return "\(s.count) tiles • \(fmt.string(fromByteCount: Int64(s.bytes)))"
     }
 }
 

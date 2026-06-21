@@ -41,6 +41,7 @@
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
 		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
 		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
+		F00DBABE00000000DEADBEF7 /* TileDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */; };
 		F00DBABE00000000DEADBEF2 /* SnapshotterPark.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */; };
 		EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEF1001000000000000A001 /* PrerenderProgressView.swift */; };
 		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
@@ -90,6 +91,7 @@
 		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTileCache.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileDiskCache.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotterPark.swift; sourceTree = "<group>"; };
 		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 			children = (
 				CAFEFEED00000000DEADBEEF /* MapViewSource.swift */,
 				CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */,
+				CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */,
 				CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */,
 			);
 			path = Map;
@@ -329,6 +332,7 @@
 				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
 				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,
 				F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */,
+				F00DBABE00000000DEADBEF7 /* TileDiskCache.swift in Sources */,
 				F00DBABE00000000DEADBEF2 /* SnapshotterPark.swift in Sources */,
 				EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */,
 				A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */,

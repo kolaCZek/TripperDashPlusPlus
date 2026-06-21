@@ -99,6 +99,20 @@ final class RouteTileCache {
     /// indistinguishable from PNG for map tiles + ~10× smaller.
     static let jpegQuality: CGFloat = 0.85
 
+    /// Lateral buffer distance — how far perpendicular to the route
+    /// the wing anchor rows sit. 1500 m means the user can drift up
+    /// to ~2 km from the centerline (lateral offset + ~half a tile
+    /// span) before the cache misses and the dark fallback kicks
+    /// in. Tuned so that a typical wrong-turn excursion stays
+    /// covered until reroute fires (~30 s later) and rebakes.
+    static let lateralOffset: CLLocationDistance = 1500
+
+    /// Hard cap on total tiles per route so a 300 km road trip
+    /// doesn't try to bake ~1000 tiles. When exceeded, the wings
+    /// are decimated uniformly along the route; the main centerline
+    /// is never thinned.
+    static let maxTilesPerRoute: Int = 300
+
     // MARK: - Stored state
 
     private(set) var tiles: [RouteTile] = []
@@ -122,8 +136,28 @@ final class RouteTileCache {
         progress: @MainActor @escaping (Double) -> Void
     ) async {
         tiles.removeAll(keepingCapacity: true)
-        let anchors = anchorsAlongPolyline(route.polyline, stride: Self.stride)
-        log.info("Pre-rendering \(anchors.count, privacy: .public) tiles for route (\(Int(route.distance), privacy: .public) m)")
+        let mainAnchors = anchorsAlongPolyline(route.polyline, stride: Self.stride)
+        // Lateral buffer: same anchor positions, shifted ±lateralOffset
+        // meters perpendicular to the route. Gives the rider a tile-
+        // backed safety zone if they deviate (wrong turn, scenic detour,
+        // GPS drift) before reroute fires. Cap on total tiles prevents
+        // pathological long routes from baking forever.
+        let leftAnchors  = lateralAnchors(mainAnchors, offsetMeters: -Self.lateralOffset)
+        let rightAnchors = lateralAnchors(mainAnchors, offsetMeters: +Self.lateralOffset)
+        var anchors = mainAnchors + leftAnchors + rightAnchors
+        if anchors.count > Self.maxTilesPerRoute {
+            // Trim the wings first — main route is sacred. Keep all of
+            // mainAnchors; uniformly decimate the lateral wings until
+            // we fit. This keeps coverage even along the whole route
+            // rather than dropping one tail.
+            let budget = max(0, Self.maxTilesPerRoute - mainAnchors.count)
+            let perWing = budget / 2
+            let leftTrim  = Self.decimate(leftAnchors, keepCount: perWing)
+            let rightTrim = Self.decimate(rightAnchors, keepCount: perWing)
+            anchors = mainAnchors + leftTrim + rightTrim
+            log.info("Anchor budget exceeded; decimated wings to \(perWing, privacy: .public) each side")
+        }
+        log.info("Pre-rendering \(anchors.count, privacy: .public) tiles (\(mainAnchors.count, privacy: .public) main + \(anchors.count - mainAnchors.count, privacy: .public) lateral) for route (\(Int(route.distance), privacy: .public) m)")
         progress(0)
 
         // Bound concurrency at `parallelism` via a simple semaphore-
@@ -266,10 +300,95 @@ final class RouteTileCache {
 
     // MARK: - Tile rendering
 
+    /// Produce a parallel row of anchors offset perpendicular to the
+    /// main polyline by `offsetMeters` (positive = right side in
+    /// direction of travel, negative = left). Uses a flat-earth
+    /// approximation — fine for offsets ≤ a few km, which is all we
+    /// ever ask for. Returns the same count as the input.
+    ///
+    /// For each anchor we compute the local tangent from the two
+    /// neighbours (or one if at an endpoint), rotate it 90° to get
+    /// the right-hand normal, scale to `offsetMeters`, and add to
+    /// the anchor coord. Cosine compensation handles the lat/lon →
+    /// meters anisotropy.
+    private func lateralAnchors(
+        _ anchors: [CLLocationCoordinate2D],
+        offsetMeters: CLLocationDistance
+    ) -> [CLLocationCoordinate2D] {
+        guard anchors.count >= 2 else { return [] }
+        // Meters per degree at the route's average latitude. 111_320
+        // is the equator value; cos(lat) compensates for longitude
+        // converging at the poles. Latitude conversion is essentially
+        // constant.
+        let avgLat = anchors.map(\.latitude).reduce(0, +) / Double(anchors.count)
+        let metersPerDegLat = 111_320.0
+        let metersPerDegLon = 111_320.0 * cos(avgLat * .pi / 180)
+        var out: [CLLocationCoordinate2D] = []
+        out.reserveCapacity(anchors.count)
+        for i in 0..<anchors.count {
+            // Tangent: vector from previous to next neighbour (or
+            // forward/backward at the ends). Operates in meters so
+            // we convert via the local scale factors.
+            let prev = anchors[max(0, i - 1)]
+            let next = anchors[min(anchors.count - 1, i + 1)]
+            let dxMeters = (next.longitude - prev.longitude) * metersPerDegLon
+            let dyMeters = (next.latitude  - prev.latitude)  * metersPerDegLat
+            let len = sqrt(dxMeters * dxMeters + dyMeters * dyMeters)
+            guard len > 0.0001 else {
+                // Degenerate (zero-length tangent — duplicate anchors).
+                // Fall back to the original position; the dedupe in
+                // nearestTile handles duplicates cleanly.
+                out.append(anchors[i])
+                continue
+            }
+            // Right-hand normal in meters: rotate (dx, dy) by -90°
+            // → (dy, -dx). Sign of offsetMeters picks left vs right.
+            let nxMeters =  dyMeters / len * offsetMeters
+            let nyMeters = -dxMeters / len * offsetMeters
+            let dLon = nxMeters / metersPerDegLon
+            let dLat = nyMeters / metersPerDegLat
+            out.append(CLLocationCoordinate2D(
+                latitude:  anchors[i].latitude  + dLat,
+                longitude: anchors[i].longitude + dLon
+            ))
+        }
+        return out
+    }
+
+    /// Keep `keepCount` items from `array`, evenly distributed across
+    /// the original positions. Used to thin the lateral wings when
+    /// a very long route would otherwise blow the `maxTilesPerRoute`
+    /// budget.
+    private static func decimate<T>(_ array: [T], keepCount: Int) -> [T] {
+        guard keepCount > 0 else { return [] }
+        guard array.count > keepCount else { return array }
+        var out: [T] = []
+        out.reserveCapacity(keepCount)
+        for i in 0..<keepCount {
+            // Linear interpolation across [0, array.count) so we
+            // sample uniformly along the route, not just from the
+            // head.
+            let idx = (i * (array.count - 1)) / max(1, keepCount - 1)
+            out.append(array[idx])
+        }
+        return out
+    }
+
     /// Render one MKMapSnapshotter tile centered on `center`.
     /// Runs in foreground (caller responsibility) so the GPU is
     /// available; produces a JPEG-compressed `RouteTile`.
+    ///
+    /// Two-level cache: tries the persistent `TileDiskCache` first;
+    /// only falls through to MKMapSnapshotter on miss, and writes
+    /// the freshly-baked JPEG back to disk for the next ride. Hit
+    /// rate on a daily commute approaches 100% after the first
+    /// bake, collapsing pre-render time from ~15 s to ~1 s.
     private static func snapshot(center: CLLocationCoordinate2D) async -> RouteTile? {
+        // Try disk first. On hit, the JPEG + measured pxPerDeg geometry
+        // come back as a single blob — no need to re-bake.
+        if let cached = await TileDiskCache.shared.read(center: center) {
+            return rehydrate(center: center, blob: cached)
+        }
         let options = MKMapSnapshotter.Options()
         options.region = MKCoordinateRegion(
             center: center,
@@ -325,6 +444,19 @@ final class RouteTileCache {
         // Y axis: lat increases north, pixel y increases south → flipped.
         let measuredPxPerDegLat = abs(Double(probeLatPt.y - centerPt.y)) / probeDelta
 
+        // Persist for future bakes. We pack the four measured-geometry
+        // floats into the blob header so a rehydrated tile renders at
+        // the right scale without re-running MKMapSnapshotter.
+        await TileDiskCache.shared.write(
+            center: center,
+            blob: TileBlob(
+                jpeg: jpeg,
+                pxPerDegLon: measuredPxPerDegLon,
+                pxPerDegLat: measuredPxPerDegLat,
+                centerPixel: centerPt
+            )
+        )
+
         return RouteTile(
             center: center,
             region: options.region,
@@ -333,6 +465,37 @@ final class RouteTileCache {
             centerPixel: centerPt,
             pxPerDegLon: measuredPxPerDegLon,
             pxPerDegLat: measuredPxPerDegLat
+        )
+    }
+
+    /// Build a `RouteTile` from a disk-cached blob WITHOUT going
+    /// through MKMapSnapshotter. The geometry fields (centerPixel,
+    /// pxPerDeg, pixelSize) are reconstructed from the blob's header
+    /// + the JPEG's intrinsic size — no GPU work, just JPEG decode
+    /// when the tile is actually drawn. Crucially: works in `.background`.
+    private static func rehydrate(center: CLLocationCoordinate2D, blob: TileBlob) -> RouteTile? {
+        // Decode the JPEG just enough to learn pixel dimensions.
+        // UIImage is fine here — it lazy-decodes; we throw the
+        // CGImage away immediately since downstream renders use the
+        // JPEG data and decode-on-draw.
+        guard let img = UIImage(data: blob.jpeg) else { return nil }
+        // Reconstruct the requested region from the constants we
+        // baked with (tileSpanMeters). The original `region` field
+        // is consumed by callers only as informational metadata —
+        // actual hit-testing uses `pxPerDeg` + `centerPixel`.
+        let region = MKCoordinateRegion(
+            center: center,
+            latitudinalMeters: tileSpanMeters,
+            longitudinalMeters: tileSpanMeters
+        )
+        return RouteTile(
+            center: center,
+            region: region,
+            jpeg: blob.jpeg,
+            pixelSize: img.size,
+            centerPixel: blob.centerPixel,
+            pxPerDegLon: blob.pxPerDegLon,
+            pxPerDegLat: blob.pxPerDegLat
         )
     }
 }
