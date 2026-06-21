@@ -365,6 +365,46 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x06, payload: Data([wireByte]))
     }
 
+    /// `05 03 0002 <code> <flags>` — t3c.n(): secondary maneuver glyph,
+    /// the look-ahead chevron the dash renders when two turns are
+    /// stacked within a few hundred meters (e.g. "turn right onto X,
+    /// then immediately left onto Y"). The first byte is the same
+    /// glyph enum as the primary maneuver TLV (0x02). The second
+    /// byte is undocumented in better-dash and in the Tripper Android
+    /// decomp; we send 0x00 as a safe placeholder.
+    ///
+    /// **F2c TODO**: field-test to determine the second byte's
+    /// semantics. Hypotheses worth pcap-bisecting:
+    ///   - reserved / padding (most likely, since `0x00` works for the
+    ///     primary case and the dash silently accepts it)
+    ///   - exit counter for a secondary roundabout (so the rider sees
+    ///     "1st exit, then 2nd exit" stacked)
+    ///   - bit-flags (CW vs CCW for the secondary glyph, mirrored
+    ///     handedness, etc.)
+    /// Until field test, treat as 0x00.
+    static func tlvSecondaryManeuver(code: UInt8, flags: UInt8 = 0x00) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code, flags]))
+    }
+
+    /// `05 05 0002 <meters_BE>` — t3c.o(): distance to the secondary
+    /// maneuver. Same wire shape as `tlvPrimaryDistance` (2-byte BE
+    /// meters). The dash uses this to render the small "in 1.2 km"
+    /// chip next to the secondary chevron.
+    static func tlvSecondaryDistance(meters: UInt16) -> K1GSegment {
+        var be = meters.bigEndian
+        return K1GSegment(
+            type: .navInfo, sub: 0x05,
+            payload: Data(bytes: &be, count: 2)
+        )
+    }
+
+    /// `05 07 0001 <unit>` — t3c.p(): unit byte for secondary
+    /// distance. Same decimal-ASCII encoding as `tlvPrimaryUnit`
+    /// (`0x10`/`0x20`/`0x30`/`0x50`).
+    static func tlvSecondaryUnit(_ wireByte: UInt8) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x07, payload: Data([wireByte]))
+    }
+
     /// `05 09 0002 <meters_BE>` — t3c.q(): total distance remaining.
     static func tlvTotalDistance(meters: UInt16) -> K1GSegment {
         var be = meters.bigEndian
@@ -467,6 +507,10 @@ extension K1GPacket {
         primaryManeuver: UInt8 = 0x0B,
         primaryDistanceMeters: UInt16,
         primaryUnit: UInt8,
+        secondaryManeuver: UInt8? = nil,
+        secondaryFlags: UInt8 = 0x00,
+        secondaryDistanceMeters: UInt16? = nil,
+        secondaryUnit: UInt8? = nil,
         totalDistanceMeters: UInt16,
         totalDistanceUnit: UInt8,
         useCommaDecimal: Bool,
@@ -484,6 +528,19 @@ extension K1GPacket {
         segs.append(tlvPrimaryManeuver(primaryManeuver))
         segs.append(tlvPrimaryDistance(meters: primaryDistanceMeters))
         segs.append(tlvPrimaryUnit(primaryUnit))
+        // F2c: secondary maneuver chevron (look-ahead). All three
+        // sub-TLVs go together — sending just one without the other
+        // two would be ill-defined. Insert immediately after the
+        // primary block, before ETA, to match the better-dash field
+        // ordering from `q3c.java`.
+        if let code = secondaryManeuver,
+           let dist = secondaryDistanceMeters,
+           let unit = secondaryUnit
+        {
+            segs.append(tlvSecondaryManeuver(code: code, flags: secondaryFlags))
+            segs.append(tlvSecondaryDistance(meters: dist))
+            segs.append(tlvSecondaryUnit(unit))
+        }
         if let eta = eta {
             segs.append(tlvEta(date: eta))
         }

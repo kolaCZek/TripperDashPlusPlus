@@ -90,6 +90,10 @@ final class ActiveNavLoop {
         let distNext: Double = nav.distanceToNextStep
         let distTotal: Double = nav.remainingDistance
         let etaSec: TimeInterval = nav.etaSeconds
+        // F2c: secondary snapshot. Always read, decision-to-emit
+        // happens below.
+        let secondStep: MKRoute.Step? = nav.secondNextStep
+        let distSecond: Double = nav.distanceToSecondNextStep
 
         // Classify maneuver for the burned-in glyph. If there's no
         // active step we fall back to "straight" so the rider sees a
@@ -101,6 +105,31 @@ final class ActiveNavLoop {
         let totalUnit = settings.totalDistanceUnitWireByte(forMeters: distTotal)
         let primaryDist = settings.distanceWireValue(meters: distNext, unitByte: primaryUnit)
         let totalDist = settings.distanceWireValue(meters: distTotal, unitByte: totalUnit)
+
+        // F2c: secondary wire values. Only attach the chevron when:
+        //   1. The feature is enabled in settings (default: yes).
+        //   2. There IS a step after `nextStep` (we're not on the last leg).
+        //   3. The primary maneuver is close enough that a look-ahead is
+        //      actually useful — far enough out, the chevron is just noise.
+        // Distance/unit follow the same magnitude-based logic as the
+        // primary block so units stay consistent across both chips.
+        let emitSecondary = settings.lookaheadEnabled
+            && secondStep != nil
+            && distNext <= settings.lookaheadThresholdMeters
+        let secondaryManeuverByte: UInt8?
+        let secondaryDistanceMeters: UInt16?
+        let secondaryUnitByte: UInt8?
+        if emitSecondary, let s2 = secondStep {
+            let kind2 = ManeuverKind.classify(s2)
+            let unit2 = settings.primaryUnitWireByte(forMeters: distSecond)
+            secondaryManeuverByte = kind2.wireByte
+            secondaryDistanceMeters = settings.distanceWireValue(meters: distSecond, unitByte: unit2)
+            secondaryUnitByte = unit2
+        } else {
+            secondaryManeuverByte = nil
+            secondaryDistanceMeters = nil
+            secondaryUnitByte = nil
+        }
 
         let etaDate: Date? = settings.includeEtaTlv && etaSec > 0
             ? Date(timeIntervalSinceNow: etaSec)
@@ -125,6 +154,9 @@ final class ActiveNavLoop {
             primaryManeuver: kind.wireByte,
             primaryDistanceMeters: primaryDist,
             primaryUnit: primaryUnit,
+            secondaryManeuver: secondaryManeuverByte,
+            secondaryDistanceMeters: secondaryDistanceMeters,
+            secondaryUnit: secondaryUnitByte,
             totalDistanceMeters: totalDist,
             totalDistanceUnit: totalUnit,
             useCommaDecimal: settings.useCommaDecimal,

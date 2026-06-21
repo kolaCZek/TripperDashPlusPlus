@@ -70,6 +70,21 @@ final class ActiveNavigator {
     /// Distance from current position to the next maneuver.
     private(set) var distanceToNextStep: CLLocationDistance = 0
 
+    /// F2c: the maneuver after `nextStep` — the look-ahead. Nil if
+    /// `nextStep` is already the destination (no further turns).
+    /// Populated unconditionally; whether we actually emit the
+    /// secondary TLV chain depends on `distanceToNextStep`
+    /// versus the lookahead threshold (decided downstream in
+    /// `ActiveNavLoop`).
+    private(set) var secondNextStep: MKRoute.Step?
+
+    /// Distance from the *current position* to the secondary
+    /// maneuver. This is `distanceToNextStep + secondNextStep.distance`
+    /// — the next step's distance field is measured FROM the previous
+    /// maneuver TO this step's maneuver point, so it's also the
+    /// "between primary and secondary" leg length.
+    private(set) var distanceToSecondNextStep: CLLocationDistance = 0
+
     /// True if we're currently off-route. Reroute logic in 7h reads
     /// this together with the timestamps below.
     private(set) var isOffRoute: Bool = false
@@ -110,6 +125,13 @@ final class ActiveNavigator {
         self.etaSeconds = route.expectedTravelTime
         self.nextStep = route.steps.first
         self.distanceToNextStep = route.steps.first?.distance ?? 0
+        // F2c: dropIndex 1 gets us the step *after* `nextStep`. Nil if
+        // the route is a single-step trip (rare — usually `[origin,
+        // dest, arrive]`). distanceToSecondNextStep is the sum of the
+        // two leg lengths at start.
+        self.secondNextStep = route.steps.dropFirst().first
+        self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
+            + (route.steps.dropFirst().first?.distance ?? 0)
     }
 
     func stop() {
@@ -121,6 +143,8 @@ final class ActiveNavigator {
         self.etaSeconds = 0
         self.nextStep = nil
         self.distanceToNextStep = 0
+        self.secondNextStep = nil
+        self.distanceToSecondNextStep = 0
         // F4: drop the smoothed-speed history so the next route
         // starts cold and doesn't inherit yesterday's average.
         self.smoothedSpeedMps = 0
@@ -175,6 +199,22 @@ final class ActiveNavigator {
                 coord,
                 step.polyline.points()[0].coordinate
             )
+            // F2c: secondary maneuver = step *after* the next one, if
+            // any. `step.distance` is the leg length from this step's
+            // start to the following maneuver — so the distance from
+            // the rider to the secondary turn is "distance to primary
+            // turn + distance the primary leg itself covers". That
+            // matches what the dash expects in the 0x05 TLV.
+            let secondIdx = stepIdx + 1
+            if secondIdx < route.steps.count {
+                let secondStep = route.steps[secondIdx]
+                self.secondNextStep = secondStep
+                self.distanceToSecondNextStep = self.distanceToNextStep
+                    + secondStep.distance
+            } else {
+                self.secondNextStep = nil
+                self.distanceToSecondNextStep = 0
+            }
         }
 
         // On-route detection + hysteresis-based reroute trigger.
@@ -217,6 +257,12 @@ final class ActiveNavigator {
             self.etaSeconds = computeEta(remaining: newRoute.distance, route: newRoute)
             self.nextStep = newRoute.steps.first
             self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
+            // F2c: rebuild secondary too. Reroute usually keeps the
+            // first step short (Apple Maps fences the next maneuver),
+            // so the look-ahead is most useful right after a reroute.
+            self.secondNextStep = newRoute.steps.dropFirst().first
+            self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
+                + (newRoute.steps.dropFirst().first?.distance ?? 0)
         } else {
             log.warning("Reroute failed — keeping existing route, will retry after cooldown")
         }

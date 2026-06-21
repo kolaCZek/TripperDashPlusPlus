@@ -102,6 +102,23 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// F2c: emit the secondary-maneuver TLV chain (look-ahead chevron)
+    /// when the primary maneuver is closer than `lookaheadThresholdMeters`.
+    /// Defaults to ON. Disable to drop the chevron entirely if the
+    /// dash misrenders it on a particular Tripper firmware revision.
+    var lookaheadEnabled: Bool = true {
+        didSet { persist() }
+    }
+
+    /// F2c: distance threshold (m) below which we attach the
+    /// secondary-maneuver TLV. Default 300 m — a normal city block
+    /// or a typical motorway off-ramp lead-in. Higher = chevron
+    /// appears earlier; lower = only stacks immediately consecutive
+    /// turns.
+    var lookaheadThresholdMeters: Double = 300 {
+        didSet { persist() }
+    }
+
     // MARK: - Derived wire helpers
 
     /// Wire byte for the primary distance TLV (`05 06`).
@@ -150,16 +167,21 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v3 when the Bug 3 diagnostic toggles were retired.
-    // Old v1/v2 blobs are silently ignored on first read; we just rewrite
-    // them under the new key with current defaults.
-    private static let storeKey = "dashNavSettings.v3"
+    // Bumped to v4 when the F2c lookahead toggles landed. v3 blobs
+    // are silently ignored on first read; we just rewrite them under
+    // the new key with current defaults (lookahead ON, threshold 300 m).
+    private static let storeKey = "dashNavSettings.v4"
 
     private struct Persisted: Codable {
         var units: UnitSystem
         var decimalSeparator: DecimalSeparator
         var clockFormat: ClockFormat
         var bottomLine: BottomLineMode
+        // Optional so we can still decode v3 blobs that lack these
+        // fields — Codable's silent ignore handles forward additions
+        // when the keys are optional. Defaults applied in load().
+        var lookaheadEnabled: Bool?
+        var lookaheadThresholdMeters: Double?
     }
 
     init() {
@@ -174,6 +196,8 @@ final class DashNavSettings {
         self.decimalSeparator = p.decimalSeparator
         self.clockFormat = p.clockFormat
         self.bottomLine = p.bottomLine
+        self.lookaheadEnabled = p.lookaheadEnabled ?? true
+        self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
     }
 
     private func persist() {
@@ -181,7 +205,9 @@ final class DashNavSettings {
             units: units,
             decimalSeparator: decimalSeparator,
             clockFormat: clockFormat,
-            bottomLine: bottomLine
+            bottomLine: bottomLine,
+            lookaheadEnabled: lookaheadEnabled,
+            lookaheadThresholdMeters: lookaheadThresholdMeters
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
