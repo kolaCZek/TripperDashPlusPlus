@@ -490,7 +490,11 @@ final class RouteTileCache {
                     best = i
                 }
             }
-            if bestDist < Self.tileSpanMeters * 0.45 {
+            // Each tile is a 1024×1024 OSM stitch covering ~5 km, so
+            // anything within `stride` of an anchor centre is squarely
+            // inside that anchor's tile. The 700 m guardrail (≈ stride)
+            // catches "rider has wandered off route" gracefully.
+            if bestDist < 700 {
                 return (tiles[best], best)
             }
         }
@@ -504,7 +508,10 @@ final class RouteTileCache {
                 bestIdx = i
             }
         }
-        guard bestDist < Self.tileSpanMeters * 0.6 else { return nil }
+        // Wider fallback guardrail than the hinted-window check —
+        // if we've fallen back to a full scan, a wing anchor's
+        // lateral offset (1.5 km) is still acceptable.
+        guard bestDist < 2500 else { return nil }
         return (tiles[bestIdx], bestIdx)
     }
 

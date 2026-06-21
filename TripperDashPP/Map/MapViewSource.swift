@@ -472,16 +472,22 @@ extension MapViewSource {
         updateHeading()
         updateZoom()
 
-        // Pick the centre tile + 2 neighbours either side. After
-        // heading-up rotation, frame corners can reach beyond a single
-        // tile's footprint — drawing all overlapping tiles keeps the
-        // composite seamless.
+        // Each baked tile is already a 4×4 OSM grid stitch — a
+        // 1024×1024 px composite covering ~5 km on a side at z=15
+        // (mpp ≈ 4.9 m/px × 1024 ≈ 5000 m). That single bitmap is
+        // wider than the dash frame at every zoom level we use, so
+        // drawing the centre tile alone fully covers the visible area.
+        //
+        // The old "draw nearest ±2" was inherited from the
+        // MKMapSnapshotter era where each tile was a small clamp
+        // and the renderer had to mosaic neighbours. With OSM stitches
+        // those neighbours OVERLAP each other (anchor stride = 700 m,
+        // tile span = 5 km → 85 % overlap) and stack on top with
+        // slightly different lat-dependent pxPerDeg → visible seams
+        // and a smeared composite. Single-tile draw is correct here.
         var tilesToDraw: [(RouteTile, CGImage)] = []
-        for offset in -2...2 {
-            let i = idx + offset
-            guard i >= 0, i < cache.tiles.count else { continue }
-            let t = cache.tiles[i]
-            guard let img = cache.image(for: t, atIndex: i)?.cgImage else { continue }
+        let t = cache.tiles[idx]
+        if let img = cache.image(for: t, atIndex: idx)?.cgImage {
             tilesToDraw.append((t, img))
         }
         guard let refTile = tilesToDraw.first?.0 else { return }
