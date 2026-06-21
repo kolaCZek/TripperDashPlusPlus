@@ -44,7 +44,7 @@ the burned SCAN label directly:
 |--------|-------|---------|
 | ✅ **anchor** | 85 | OCR of the SCAN label parsed cleanly — image and label match |
 | 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 3 | `0x00`, `0x01`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| 📸 **user photo** | 4 | `0x00`, `0x01`, `0x04`, `0x5F` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
 | ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), confirmed by manual byte-by-byte field-check |
 
 A glyph marked **interpolated** is still a real bubble frame from the
@@ -201,7 +201,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x5C` | ✅ | TBD | ![0x5C](glyphs/0x5C.png) |
 | `0x5D` | ✅ | TBD | ![0x5D](glyphs/0x5D.png) |
 | `0x5E` | ✅ | TBD | ![0x5E](glyphs/0x5E.png) |
-| `0x5F` | 🟡 | TBD | ![0x5F](glyphs/0x5F.png) |
+| `0x5F` | 📸 user photo | **Empty bubble — no glyph rendered** (bubble background drawn, but no arrow/pin/symbol inside; SCAN 0x5F label confirms byte) — second known "no-symbol" byte alongside the `0x82..0xFF` hidden-bubble range | ![0x5F](glyphs/0x5F.png) |
 | `0x60` | 🟡 | TBD | ![0x60](glyphs/0x60.png) |
 | `0x61` | 🟡 | TBD | ![0x61](glyphs/0x61.png) |
 | `0x62` | ✅ | TBD | ![0x62](glyphs/0x62.png) |
