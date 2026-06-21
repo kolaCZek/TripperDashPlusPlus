@@ -55,17 +55,43 @@ match the row's byte, the row is misaligned and needs re-extraction.
 
 | Byte | Glyph | Description |
 |------|-------|-------------|
-| `0x00` | 📍↑ | **Arrival — destination AHEAD** (pin directly above straight arrow, user-photo) |
-| `0x01` | 📍↑ ← | **Arrival — destination ahead-LEFT** (pin top-left + straight arrow, user-photo) |
-| `0x02` | 📍AHEAD-variant | (similar to 0x01, pin position differs) — **pending re-classify** |
-| `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
-| `0x04` | T+📍 | **Arrival at T-junction — destination ahead-LEFT** (T-shape with red pin top-left, user-photo) |
-| `0x05`..`0x59` | various | Captured but **not yet labelled** — see catalog below |
-| `0x5A`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
+| `0x00` | 📍↑ | **Arrival** — destination AHEAD (user-photo) |
+| `0x01` | 📍↖ | **Arrival** — destination ahead-LEFT (user-photo) |
+| `0x02` | 📍↗ | **Arrival** — destination ahead-RIGHT |
+| `0x03` | T📍↗ | **Arrival at T-junction** — destination ahead-RIGHT |
+| `0x04` | T📍↖ | **Arrival at T-junction** — destination ahead-LEFT (user-photo) |
+| `0x05`..`0x08` | ↰Y / ↱Y | **Y-fork** — stay LEFT (0x05–0x06) / stay RIGHT (0x07–0x08) |
+| `0x09` | ↑ | **Continue straight** |
+| `0x0A`..`0x13` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (small style) |
+| `0x14`..`0x15` | ↰ / ↱ | **Turn LEFT / RIGHT** (90°) |
+| `0x16`..`0x17` | ⤴ / ⤵ | **Sharp LEFT / RIGHT** (>90° hairpin) |
+| `0x18`..`0x19` | ↖ / ↗ | **Slight LEFT / RIGHT** |
+| `0x1A` / `0x1C` | ↺ / ↻ | **U-turn LEFT / RIGHT** (180°) |
+| `0x1B`, `0x1D`..`0x20` | Y↑ | **Y-fork — continue straight** (centre arrow between legs) |
+| `0x21`..`0x22` | ⊤↑ | **T-junction — continue straight across** |
+| `0x23`..`0x25` | ⊤↱ | **T-junction — turn RIGHT** (variants; 0x25 faded) |
+| `0x26` | ┃↑ | **Cross-roads — continue straight** |
+| `0x27`, `0x2A` | ┳↰ | **Side-road LEFT** — turn left onto side road |
+| `0x28`, `0x29` | ┳↱ | **Side-road RIGHT** — turn right onto side road |
+| `0x2D`..`0x2E` | ┳↗ / ┳↖ | **Side-road slight RIGHT / LEFT** |
+| `0x2F`..`0x30` | ┻↱ / ┻↰ | **Side-road merge from RIGHT / LEFT** |
+| `0x31`..`0x3A` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (large style) |
+| `0x3B` | ↑ | **Continue straight (long-distance)** |
+| `0x3C` | 📍 | **Arrival pin** — destination marker only |
+| `0x3D` | ⤺ | **U-turn at next junction** |
+| `0x3E` | ⛴ | **Ferry crossing** |
+| `0x3F` | 🚆 | **Train / level crossing** |
+| `0x40` | 📍… | **Arrival approaching** (pin with dotted trail) |
+| `0x42` | 📶 | **Signal / Wi-Fi indicator** (purpose unclear — info icon?) |
+| `0x46`..`0x4F` | ⟳10..⟳19 | **Roundabout CW** — exit numbers 10..19 |
+| `0x50`..`0x59` | ⟲10..⟲19 | **Roundabout CCW** — exit numbers 10..19 (left-hand-traffic style) |
+| `0x2B`, `0x2C`, `0x41`, `0x43`..`0x45` | ⚪ | **Empty bubble** — no glyph rendered (placeholders inside visible range) |
+| `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (useful as "no maneuver" signal) |
 
-> **Important**: the earlier text descriptions for `0x05..0x81` were
-> derived from a misaligned mapping and have been removed. Re-labeling
-> proceeds row-by-row from the actual glyph in each PNG.
+> **Note**: descriptions for `0x05..0x59` were derived from visual
+> inspection of the bubble glyph in each PNG (no SDK / firmware
+> docs). Treat them as best-guess from the bubble shape — verify
+> by sending the byte to the dash before relying on it in a route.
 
 ## How to send a custom maneuver
 
@@ -74,7 +100,7 @@ The dash will render any glyph code you send. From phone-side code:
 ```swift
 // Send single primary maneuver:
 await link.sendActiveNav(
-    primaryManeuver: 0x33,                    // any byte 0x00..0x81 from catalog
+    primaryManeuver: 0x33,                    // any byte 0x00..0x59 from catalog
     primaryDistanceMeters: 200,
     primaryUnit: 0x30,                         // 0x30 = metres
     totalDistanceMeters: 1200,
@@ -106,94 +132,94 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 |------|--------|-------------|-------|
 | `0x00` | 📸 user photo | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
 | `0x01` | 📸 user photo | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
-| `0x02` | ✅ | TBD — pending classification | ![0x02](glyphs/0x02.png) |
-| `0x03` | ✅ | TBD — pending classification | ![0x03](glyphs/0x03.png) |
+| `0x02` | ✅ 📍↑→ | **Arrival — destination ahead-RIGHT** (mirror of 0x01: pin top-right + straight arrow) | ![0x02](glyphs/0x02.png) |
+| `0x03` | ✅ 📍T→ | **Arrival at T-junction — destination ahead-RIGHT** (mirror of 0x04: T-shape with pin top-right) | ![0x03](glyphs/0x03.png) |
 | `0x04` | 📸 user photo | **Arrival at T-junction — destination ahead-LEFT of the T** (thick vertical shaft branching left+right, red pin top-left above the split, user-confirmed) | ![0x04](glyphs/0x04.png) |
-| `0x05` | 🟡 | TBD | ![0x05](glyphs/0x05.png) |
-| `0x06` | ✅ | TBD | ![0x06](glyphs/0x06.png) |
-| `0x07` | ✅ | TBD | ![0x07](glyphs/0x07.png) |
-| `0x08` | ✅ | TBD | ![0x08](glyphs/0x08.png) |
-| `0x09` | 🟡 | TBD | ![0x09](glyphs/0x09.png) |
-| `0x0A` | ✅ | TBD | ![0x0A](glyphs/0x0A.png) |
-| `0x0B` | ✅ | TBD | ![0x0B](glyphs/0x0B.png) |
-| `0x0C` | 🟡 | TBD | ![0x0C](glyphs/0x0C.png) |
-| `0x0D` | 🟡 | TBD | ![0x0D](glyphs/0x0D.png) |
-| `0x0E` | ✅ | TBD | ![0x0E](glyphs/0x0E.png) |
-| `0x0F` | ✅ | TBD | ![0x0F](glyphs/0x0F.png) |
-| `0x10` | ✅ | TBD | ![0x10](glyphs/0x10.png) |
-| `0x11` | 🟡 | TBD | ![0x11](glyphs/0x11.png) |
-| `0x12` | ✅ | TBD | ![0x12](glyphs/0x12.png) |
-| `0x13` | ✅ | TBD | ![0x13](glyphs/0x13.png) |
-| `0x14` | ✅ | TBD | ![0x14](glyphs/0x14.png) |
-| `0x15` | 🟡 | TBD | ![0x15](glyphs/0x15.png) |
-| `0x16` | 🟡 | TBD | ![0x16](glyphs/0x16.png) |
-| `0x17` | ✅ | TBD | ![0x17](glyphs/0x17.png) |
-| `0x18` | ✅ | TBD | ![0x18](glyphs/0x18.png) |
-| `0x19` | ✅ | TBD | ![0x19](glyphs/0x19.png) |
-| `0x1A` | 🟡 | TBD | ![0x1A](glyphs/0x1A.png) |
-| `0x1B` | ✅ | TBD | ![0x1B](glyphs/0x1B.png) |
-| `0x1C` | ✅ | TBD | ![0x1C](glyphs/0x1C.png) |
-| `0x1D` | 🟡 | TBD | ![0x1D](glyphs/0x1D.png) |
-| `0x1E` | 🟡 | TBD | ![0x1E](glyphs/0x1E.png) |
-| `0x1F` | ✅ | TBD | ![0x1F](glyphs/0x1F.png) |
-| `0x20` | ✅ | TBD | ![0x20](glyphs/0x20.png) |
-| `0x21` | ✅ | TBD | ![0x21](glyphs/0x21.png) |
-| `0x22` | 🟡 | TBD | ![0x22](glyphs/0x22.png) |
-| `0x23` | ✅ | TBD | ![0x23](glyphs/0x23.png) |
-| `0x24` | ✅ | TBD | ![0x24](glyphs/0x24.png) |
-| `0x25` | ✅ | TBD | ![0x25](glyphs/0x25.png) |
-| `0x26` | 🟡 | TBD | ![0x26](glyphs/0x26.png) |
-| `0x27` | 🟡 | TBD | ![0x27](glyphs/0x27.png) |
-| `0x28` | ✅ | TBD | ![0x28](glyphs/0x28.png) |
-| `0x29` | ✅ | TBD | ![0x29](glyphs/0x29.png) |
-| `0x2A` | ✅ | TBD | ![0x2A](glyphs/0x2A.png) |
-| `0x2B` | ✅ | TBD | ![0x2B](glyphs/0x2B.png) |
-| `0x2C` | ✅ | TBD | ![0x2C](glyphs/0x2C.png) |
-| `0x2D` | ✅ | TBD | ![0x2D](glyphs/0x2D.png) |
-| `0x2E` | ✅ | TBD | ![0x2E](glyphs/0x2E.png) |
-| `0x2F` | 🟡 | TBD | ![0x2F](glyphs/0x2F.png) |
-| `0x30` | ✅ | TBD | ![0x30](glyphs/0x30.png) |
-| `0x31` | ✅ | TBD | ![0x31](glyphs/0x31.png) |
-| `0x32` | 🟡 | TBD | ![0x32](glyphs/0x32.png) |
-| `0x33` | 🟡 | TBD | ![0x33](glyphs/0x33.png) |
-| `0x34` | 🟡 | TBD | ![0x34](glyphs/0x34.png) |
-| `0x35` | 🟡 | TBD | ![0x35](glyphs/0x35.png) |
-| `0x36` | 🟡 | TBD | ![0x36](glyphs/0x36.png) |
-| `0x37` | 🟡 | TBD | ![0x37](glyphs/0x37.png) |
-| `0x38` | 🟡 | TBD | ![0x38](glyphs/0x38.png) |
-| `0x39` | ✅ | TBD | ![0x39](glyphs/0x39.png) |
-| `0x3A` | ✅ | TBD | ![0x3A](glyphs/0x3A.png) |
-| `0x3B` | ✅ | TBD | ![0x3B](glyphs/0x3B.png) |
-| `0x3C` | 🟡 | TBD | ![0x3C](glyphs/0x3C.png) |
-| `0x3D` | 🟡 | TBD | ![0x3D](glyphs/0x3D.png) |
-| `0x3E` | ✅ | TBD | ![0x3E](glyphs/0x3E.png) |
-| `0x3F` | ✅ | TBD | ![0x3F](glyphs/0x3F.png) |
-| `0x40` | ✅ | TBD | ![0x40](glyphs/0x40.png) |
-| `0x41` | ✅ | TBD | ![0x41](glyphs/0x41.png) |
-| `0x42` | ✅ | TBD | ![0x42](glyphs/0x42.png) |
-| `0x43` | ✅ | TBD | ![0x43](glyphs/0x43.png) |
-| `0x44` | ✅ | TBD | ![0x44](glyphs/0x44.png) |
-| `0x45` | ✅ | TBD | ![0x45](glyphs/0x45.png) |
-| `0x46` | 🟡 | TBD | ![0x46](glyphs/0x46.png) |
-| `0x47` | ✅ | TBD | ![0x47](glyphs/0x47.png) |
-| `0x48` | ✅ | TBD | ![0x48](glyphs/0x48.png) |
-| `0x49` | ✅ | TBD | ![0x49](glyphs/0x49.png) |
-| `0x4A` | ✅ | TBD | ![0x4A](glyphs/0x4A.png) |
-| `0x4B` | ✅ | TBD | ![0x4B](glyphs/0x4B.png) |
-| `0x4C` | ✅ | TBD | ![0x4C](glyphs/0x4C.png) |
-| `0x4D` | 🟡 | TBD | ![0x4D](glyphs/0x4D.png) |
-| `0x4E` | 🟡 | TBD | ![0x4E](glyphs/0x4E.png) |
-| `0x4F` | ✅ | TBD | ![0x4F](glyphs/0x4F.png) |
-| `0x50` | ✅ | TBD | ![0x50](glyphs/0x50.png) |
-| `0x51` | ✅ | TBD | ![0x51](glyphs/0x51.png) |
-| `0x52` | ✅ | TBD | ![0x52](glyphs/0x52.png) |
-| `0x53` | ✅ | TBD | ![0x53](glyphs/0x53.png) |
-| `0x54` | ✅ | TBD | ![0x54](glyphs/0x54.png) |
-| `0x55` | ✅ | TBD | ![0x55](glyphs/0x55.png) |
-| `0x56` | 🟡 | TBD | ![0x56](glyphs/0x56.png) |
-| `0x57` | 🟡 | TBD | ![0x57](glyphs/0x57.png) |
-| `0x58` | ✅ | TBD | ![0x58](glyphs/0x58.png) |
-| `0x59` | ✅ | TBD | ![0x59](glyphs/0x59.png) |
+| `0x05` | 🟡 ↰Y | **Y-fork — stay LEFT** (pin top-left + Y-shape, left leg highlighted) | ![0x05](glyphs/0x05.png) |
+| `0x06` | ✅ ↰Y | **Y-fork — stay LEFT** (variant; left leg highlighted) | ![0x06](glyphs/0x06.png) |
+| `0x07` | ✅ ↱Y | **Y-fork — stay RIGHT** (right leg highlighted) | ![0x07](glyphs/0x07.png) |
+| `0x08` | ✅ ↱Y | **Y-fork — stay RIGHT** (variant; right leg highlighted) | ![0x08](glyphs/0x08.png) |
+| `0x09` | 🟡 ↑ | **Continue straight** (straight arrow, no junction) | ![0x09](glyphs/0x09.png) |
+| `0x0A` | ✅ ⟳0 | **Roundabout CW — exit 0** (entry indicator / no specific exit) | ![0x0A](glyphs/0x0A.png) |
+| `0x0B` | ✅ ⟳1 | **Roundabout CW — take exit 1** | ![0x0B](glyphs/0x0B.png) |
+| `0x0C` | 🟡 ⟳2 | **Roundabout CW — take exit 2** | ![0x0C](glyphs/0x0C.png) |
+| `0x0D` | 🟡 ⟳3 | **Roundabout CW — take exit 3** | ![0x0D](glyphs/0x0D.png) |
+| `0x0E` | ✅ ⟳4 | **Roundabout CW — take exit 4** | ![0x0E](glyphs/0x0E.png) |
+| `0x0F` | ✅ ⟳5 | **Roundabout CW — take exit 5** | ![0x0F](glyphs/0x0F.png) |
+| `0x10` | ✅ ⟳6 | **Roundabout CW — take exit 6** | ![0x10](glyphs/0x10.png) |
+| `0x11` | 🟡 ⟳7 | **Roundabout CW — take exit 7** | ![0x11](glyphs/0x11.png) |
+| `0x12` | ✅ ⟳8 | **Roundabout CW — take exit 8** | ![0x12](glyphs/0x12.png) |
+| `0x13` | ✅ ⟳9 | **Roundabout CW — take exit 9** | ![0x13](glyphs/0x13.png) |
+| `0x14` | ✅ ↰ | **Turn LEFT** (90° left, L-shape) | ![0x14](glyphs/0x14.png) |
+| `0x15` | 🟡 ↱ | **Turn RIGHT** (90° right, L-shape, mirror of 0x14) | ![0x15](glyphs/0x15.png) |
+| `0x16` | 🟡 ⤴ | **Sharp LEFT** (>90° hairpin to the left) | ![0x16](glyphs/0x16.png) |
+| `0x17` | ✅ ⤵ | **Sharp RIGHT** (>90° hairpin to the right, mirror of 0x16) | ![0x17](glyphs/0x17.png) |
+| `0x18` | ✅ ↖ | **Slight LEFT** (shallow left curve) | ![0x18](glyphs/0x18.png) |
+| `0x19` | ✅ ↗ | **Slight RIGHT** (shallow right curve, mirror of 0x18) | ![0x19](glyphs/0x19.png) |
+| `0x1A` | 🟡 ↺ | **U-turn LEFT** (180° via left side) | ![0x1A](glyphs/0x1A.png) |
+| `0x1B` | ✅ Y↑ | **Y-fork — continue straight** (arrow up the centre between the two legs) | ![0x1B](glyphs/0x1B.png) |
+| `0x1C` | ✅ ↻? | **U-turn RIGHT** (180° via right side, mirror of 0x1A — image partly obscured) | ![0x1C](glyphs/0x1C.png) |
+| `0x1D` | 🟡 Y↑ | **Y-fork — continue straight** (variant of 0x1B) | ![0x1D](glyphs/0x1D.png) |
+| `0x1E` | 🟡 Y↑ | **Y-fork — continue straight** (variant) | ![0x1E](glyphs/0x1E.png) |
+| `0x1F` | ✅ Y↑ | **Y-fork — continue straight** (variant) | ![0x1F](glyphs/0x1F.png) |
+| `0x20` | ✅ Y↑ | **Y-fork — continue straight** (wider Y) | ![0x20](glyphs/0x20.png) |
+| `0x21` | ✅ ⊤↑ | **T-junction — continue straight across** (cross the T; arrow continues forward) | ![0x21](glyphs/0x21.png) |
+| `0x22` | 🟡 ⊤↑ | **T-junction — continue straight across** (variant of 0x21) | ![0x22](glyphs/0x22.png) |
+| `0x23` | ✅ ⊤↱ | **T-junction — turn RIGHT** (right branch highlighted) | ![0x23](glyphs/0x23.png) |
+| `0x24` | ✅ ⊤↱ | **T-junction — turn RIGHT** (variant) | ![0x24](glyphs/0x24.png) |
+| `0x25` | ✅ ⊤? | **T-junction variant** — image very faded, classification tentative | ![0x25](glyphs/0x25.png) |
+| `0x26` | 🟡 ┃↑ | **Cross-roads — continue straight** (vertical road, arrow forward) | ![0x26](glyphs/0x26.png) |
+| `0x27` | 🟡 ┳↰ | **Side-road LEFT — turn LEFT onto side road** (main road continues straight, left turn taken) | ![0x27](glyphs/0x27.png) |
+| `0x28` | ✅ ┳↱ | **Side-road RIGHT — turn RIGHT onto side road** | ![0x28](glyphs/0x28.png) |
+| `0x29` | ✅ ┳↱ | **Side-road RIGHT — turn RIGHT onto side road** (variant) | ![0x29](glyphs/0x29.png) |
+| `0x2A` | ✅ ┳↰ | **Side-road LEFT — turn LEFT onto side road** (variant) | ![0x2A](glyphs/0x2A.png) |
+| `0x2B` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2B](glyphs/0x2B.png) |
+| `0x2C` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2C](glyphs/0x2C.png) |
+| `0x2D` | ✅ ┳↗ | **Side-road RIGHT — slight RIGHT onto side road** | ![0x2D](glyphs/0x2D.png) |
+| `0x2E` | ✅ ┳↖ | **Side-road LEFT — slight LEFT onto side road** (mirror of 0x2D) | ![0x2E](glyphs/0x2E.png) |
+| `0x2F` | 🟡 ┻↱ | **Side-road from RIGHT — merge then turn RIGHT** | ![0x2F](glyphs/0x2F.png) |
+| `0x30` | ✅ ┻↰ | **Side-road from LEFT — merge then turn LEFT** | ![0x30](glyphs/0x30.png) |
+| `0x31` | ✅ ⟳0 | **Roundabout CW — exit 0** (large style; entry indicator) | ![0x31](glyphs/0x31.png) |
+| `0x32` | 🟡 ⟳1 | **Roundabout CW — take exit 1** (large style) | ![0x32](glyphs/0x32.png) |
+| `0x33` | 🟡 ⟳2 | **Roundabout CW — take exit 2** (large style) | ![0x33](glyphs/0x33.png) |
+| `0x34` | 🟡 ⟳3 | **Roundabout CW — take exit 3** (large style) | ![0x34](glyphs/0x34.png) |
+| `0x35` | 🟡 ⟳4 | **Roundabout CW — take exit 4** (large style) | ![0x35](glyphs/0x35.png) |
+| `0x36` | 🟡 ⟳5 | **Roundabout CW — take exit 5** (large style) | ![0x36](glyphs/0x36.png) |
+| `0x37` | 🟡 ⟳6 | **Roundabout CW — take exit 6** (large style) | ![0x37](glyphs/0x37.png) |
+| `0x38` | 🟡 ⟳7 | **Roundabout CW — take exit 7** (large style) | ![0x38](glyphs/0x38.png) |
+| `0x39` | ✅ ⟳8 | **Roundabout CW — take exit 8** (large style) | ![0x39](glyphs/0x39.png) |
+| `0x3A` | ✅ ⟳9 | **Roundabout CW — take exit 9** (large style) | ![0x3A](glyphs/0x3A.png) |
+| `0x3B` | ✅ ↑ | **Continue straight (long-distance)** (tall straight arrow) | ![0x3B](glyphs/0x3B.png) |
+| `0x3C` | 🟡 📍 | **Arrival pin (destination marker only)** — no arrow | ![0x3C](glyphs/0x3C.png) |
+| `0x3D` | 🟡 ⤺ | **U-turn at the next junction** (curved 180° arrow) | ![0x3D](glyphs/0x3D.png) |
+| `0x3E` | ✅ ⛴ | **Ferry crossing** — board ferry / waterway | ![0x3E](glyphs/0x3E.png) |
+| `0x3F` | ✅ 🚆 | **Train / level crossing** — railway | ![0x3F](glyphs/0x3F.png) |
+| `0x40` | ✅ 📍… | **Arrival approaching** (pin with dotted trail — destination near) | ![0x40](glyphs/0x40.png) |
+| `0x41` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x41](glyphs/0x41.png) |
+| `0x42` | ✅ 📶 | **Signal / Wi-Fi-style indicator** — purpose unclear (info icon? GPS-signal state?) | ![0x42](glyphs/0x42.png) |
+| `0x43` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x43](glyphs/0x43.png) |
+| `0x44` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x44](glyphs/0x44.png) |
+| `0x45` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x45](glyphs/0x45.png) |
+| `0x46` | 🟡 ⟳10 | **Roundabout CW — take exit 10** | ![0x46](glyphs/0x46.png) |
+| `0x47` | ✅ ⟳11 | **Roundabout CW — take exit 11** | ![0x47](glyphs/0x47.png) |
+| `0x48` | ✅ ⟳12 | **Roundabout CW — take exit 12** | ![0x48](glyphs/0x48.png) |
+| `0x49` | ✅ ⟳13 | **Roundabout CW — take exit 13** | ![0x49](glyphs/0x49.png) |
+| `0x4A` | ✅ ⟳14 | **Roundabout CW — take exit 14** | ![0x4A](glyphs/0x4A.png) |
+| `0x4B` | ✅ ⟳15 | **Roundabout CW — take exit 15** | ![0x4B](glyphs/0x4B.png) |
+| `0x4C` | ✅ ⟳16 | **Roundabout CW — take exit 16** | ![0x4C](glyphs/0x4C.png) |
+| `0x4D` | 🟡 ⟳17 | **Roundabout CW — take exit 17** | ![0x4D](glyphs/0x4D.png) |
+| `0x4E` | 🟡 ⟳18 | **Roundabout CW — take exit 18** | ![0x4E](glyphs/0x4E.png) |
+| `0x4F` | ✅ ⟳19 | **Roundabout CW — take exit 19** | ![0x4F](glyphs/0x4F.png) |
+| `0x50` | ✅ ⟲10 | **Roundabout CCW — take exit 10** (counter-clockwise / left-hand-traffic style) | ![0x50](glyphs/0x50.png) |
+| `0x51` | ✅ ⟲11 | **Roundabout CCW — take exit 11** | ![0x51](glyphs/0x51.png) |
+| `0x52` | ✅ ⟲12 | **Roundabout CCW — take exit 12** | ![0x52](glyphs/0x52.png) |
+| `0x53` | ✅ ⟲13 | **Roundabout CCW — take exit 13** | ![0x53](glyphs/0x53.png) |
+| `0x54` | ✅ ⟲14 | **Roundabout CCW — take exit 14** | ![0x54](glyphs/0x54.png) |
+| `0x55` | ✅ ⟲15 | **Roundabout CCW — take exit 15** | ![0x55](glyphs/0x55.png) |
+| `0x56` | 🟡 ⟲16 | **Roundabout CCW — take exit 16** | ![0x56](glyphs/0x56.png) |
+| `0x57` | 🟡 ⟲17 | **Roundabout CCW — take exit 17** | ![0x57](glyphs/0x57.png) |
+| `0x58` | ✅ ⟲18 | **Roundabout CCW — take exit 18** | ![0x58](glyphs/0x58.png) |
+| `0x59` | ✅ ⟲19 | **Roundabout CCW — take exit 19** | ![0x59](glyphs/0x59.png) |
 | `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
 
 ## How to regenerate
@@ -224,13 +250,21 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## Open questions / pending work
 
-- [ ] **Re-classify `0x02..0x59`**: row-by-row labelling based on the
-      self-labeled glyph image; the earlier text descriptions were
-      derived from misaligned timing-based mapping and have been removed
-- [ ] **Re-verify `0x03`**: legacy "Y-fork stay-left" label was derived
-      under the old (misaligned) mapping — verify against scan2 frame
-      and against a controlled field run on a real fork (0x04 was
-      already re-classified as a T-junction arrival, not a Y-fork)
+- [ ] **Re-verify roundabout-exit numbering**: catalog assigns CW
+      exits 0..9 to `0x0A..0x13` (small style) and `0x31..0x3A`
+      (large style), CW exits 10..19 to `0x46..0x4F`, CCW exits 10..19
+      to `0x50..0x59`. Field-test by sending each byte while a
+      multi-exit roundabout is active and confirm the rendered number.
+- [ ] **Verify CCW exits 0..9**: the catalog has no obvious slot for
+      `⟲0..⟲9` — they may be missing from `0x00..0x59` entirely, or
+      reusing the CW glyphs. Check before assuming left-hand-traffic
+      coverage.
+- [ ] **Confirm `0x3E` (ferry) and `0x3F` (train)**: by sending each
+      byte during a route — both are visually distinct from the
+      turn/roundabout family but unconfirmed by field use.
+- [ ] **Identify `0x42`**: looks like a signal-strength / Wi-Fi icon,
+      not a navigation maneuver — may be a status indicator that
+      leaked into the maneuver enum, or a "no GPS" warning glyph.
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
