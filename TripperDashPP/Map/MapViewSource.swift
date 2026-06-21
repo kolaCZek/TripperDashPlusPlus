@@ -72,6 +72,16 @@ final class MapViewSource: NSObject, FrameSource {
     /// transitions smoothly between speed regimes (no flicker).
     private var currentZoom: CGFloat = 1.0
 
+    /// Vertical offset of the user puck from the geometric centre of
+    /// the frame, expressed as a fraction of the frame height. Positive
+    /// values push the puck *down* on the dash screen, which exposes
+    /// more map ahead of the rider. 0.0 = dead-center (legacy behaviour);
+    /// 0.20 ≈ puck at 70% from the top, 30% above the bottom edge.
+    ///
+    /// Authority: rider-feedback from real-bike run 2026-06-21 ("posun
+    /// aktuální polohu trochu níž ke spodnímu okraji").
+    private let forwardBiasFraction: CGFloat = 0.20
+
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
     /// without PiP. AVAudioSession (SilentAudioKeeper) keeps the
@@ -305,7 +315,13 @@ extension MapViewSource {
         // Without this second flip the bitmaps render upside-down.
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
+        // Forward bias: instead of anchoring the user puck at the
+        // geometric centre (y = height/2 in Y-UP), drop the anchor
+        // toward the bottom of the screen so more map is visible
+        // ahead of the rider. Subtracting `bias` from the Y origin in
+        // the Y-UP context = moving the puck DOWN in screen space.
+        let biasPx = frameSize.height * forwardBiasFraction
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
         // Heading-up: after the inner Y-flip ctx is Y-UP (math
         // convention, north = +y). CGContext rotates counter-clockwise
         // in radians; heading is degrees CW from north. To bring the
@@ -394,7 +410,15 @@ extension MapViewSource {
     /// (= direction of travel).
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
-        let cy = frameSize.height / 2
+        // Match the forward-bias anchor used in drawTileCacheFrame /
+        // drawVectorOnlyFrame. The outer ctx here is the OUTER (already
+        // global-Y-flipped) one — those drawing routines saveGState +
+        // do their own inner Y-flip, but we draw the puck OUTSIDE that
+        // inner flip so the geometry below mirrors theirs in outer
+        // Y-DOWN convention. In outer-Y-DOWN, "lower on screen" =
+        // "higher y" → ADD biasPx instead of subtract.
+        let biasPx = frameSize.height * forwardBiasFraction
+        let cy = frameSize.height / 2 + biasPx
 
         ctx.saveGState()
         ctx.translateBy(x: cx, y: cy)
@@ -473,7 +497,11 @@ extension MapViewSource {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2)
+        // Forward bias (same logic as drawTileCacheFrame — keep them
+        // in lock-step so switching to vector fallback doesn't visibly
+        // jump the puck).
+        let biasPx = frameSize.height * forwardBiasFraction
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
         ctx.rotate(by: -lastHeading * .pi / 180)
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
