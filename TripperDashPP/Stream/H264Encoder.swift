@@ -12,13 +12,14 @@
 //  packetizer can either bundle them with the IDR (Tripper expects this)
 //  or send them standalone.
 //
-//  Configuration: baseline profile, 6 fps, ~450 kbps, keyframe every
-//  12 frames (2 s). These match what the Tripper dash tolerates per
-//  better-dash captures — stock phone app runs at 4 fps, 8–12 is the
+//  Configuration: baseline profile, ~450 kbps, keyframe every 12 frames
+//  (2 s at 6 fps). The encoder constructor takes fps as a parameter —
+//  RtpStreamer hands it `source.targetFps` (currently 6 fps in
+//  MapViewSource). These match what the Tripper dash tolerates per
+//  better-dash captures: stock phone app runs at 4 fps, 8–12 is the
 //  upper reliable limit (above that the dash decoder blinks), bitrate
 //  300–450 kbps keeps Wi-Fi and the dash jitter buffer happy. High
-//  profile + B-frames break the firmware decoder. Match snapshotFps in
-//  MapSnapshotSource.
+//  profile + B-frames break the firmware decoder.
 //
 
 import CoreMedia
@@ -179,9 +180,9 @@ final class H264Encoder {
 
     func encode(pixelBuffer: CVPixelBuffer, presentationTime: CMTime) {
         guard let session else { return }
-        // Phase 6: when iOS resumes us, the first frame after a session
-        // rebuild MUST be an IDR so the dash can re-sync. Same flag is
-        // set by createSession() so the very first frame is always a key.
+        // The first frame after a session rebuild MUST be an IDR so the
+        // dash can resync — same flag is set by createSession() for the
+        // initial frame.
         var frameProperties: [CFString: Any] = [:]
         if pendingForceKeyframe {
             frameProperties[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue

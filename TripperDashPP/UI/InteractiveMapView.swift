@@ -2,21 +2,24 @@
 //  InteractiveMapView.swift
 //  TripperDashPP
 //
-//  Phase 7a — live interactive MKMapView wrapped in UIViewRepresentable
-//  with hardened teardown so we don't repeat the SwiftUI `Map(position:)`
-//  crash that forced us to fall back to MapPreviewView in Phase 5.
+//  Live interactive MKMapView wrapped in UIViewRepresentable with
+//  hardened teardown.
 //
-//  Why this exists: SwiftUI's `Map` view wraps MKMapView with lifecycle
-//  semantics we don't control. On NavigationStack pop, SwiftUI dealloc's
-//  the MKMapView while its CAMetalLayer command buffer is still draining,
-//  triggering MTLDebugDevice assertion + app freeze. Symptom log line
-//  right before crash: `CAMetalLayer ignoring invalid setDrawableSize
-//  width=0.000000 height=0.000000` = MKMapView going to zero size
-//  mid-teardown while still rendering.
+//  Why a UIViewRepresentable instead of SwiftUI's `Map`: SwiftUI's
+//  `Map` view wraps MKMapView with lifecycle semantics we don't
+//  control. On NavigationStack pop, SwiftUI dealloc's the MKMapView
+//  while its CAMetalLayer command buffer is still draining, triggering
+//  an MTLDebugDevice assertion and a hard app freeze. Symptom log line
+//  right before the crash: `CAMetalLayer ignoring invalid setDrawableSize
+//  width=0.000000 height=0.000000` — MKMapView going to zero size
+//  mid-teardown while still rendering. Wrapping the raw UIKit view
+//  lets us route dismantle through `MapViewPark` (bottom of file),
+//  which keeps the view alive long enough for the GPU command buffer
+//  to drain before ARC frees the Metal resources.
 //
-//  Phase 7b/7c additions:
-//   - tap gesture → drop pin → onTapPin(coord) callback to picker
-//   - destinationPin annotation rendered as a red MKMarkerAnnotationView
+//  Capabilities:
+//   - single-tap → drop pin → `onTapPin(coord)` callback
+//   - destination pin annotation rendered as a red flag.checkered
 //   - route polyline overlay rendered as a fat blue stroke
 //
 
@@ -176,8 +179,8 @@ struct InteractiveMapView: UIViewRepresentable {
 }
 
 /// Custom subclass so we can distinguish our destination pin from any
-/// future annotations (Phase 7+ traffic incidents, favorites overlay,
-/// etc.) without dance-around `isKindOf` on MKPointAnnotation.
+/// future annotations (traffic incidents, favorites overlay, etc.)
+/// without dancing around `isKindOf` on MKPointAnnotation.
 final class DestinationAnnotation: NSObject, MKAnnotation {
     dynamic var coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: 0, longitude: 0)
     var title: String?
@@ -191,8 +194,9 @@ final class DestinationAnnotation: NSObject, MKAnnotation {
 /// has time to drain on the GPU before the view (and its Metal
 /// resources) get dealloc'd.
 ///
-/// Pattern parallels `SnapshotterPark` in MapSnapshotSource.swift — same
-/// MTLDebugDevice assertion problem, same bounded-LIFO-ring solution.
+/// Pattern parallels `SnapshotterPark` in Map/SnapshotterPark.swift —
+/// same MTLDebugDevice assertion problem, same bounded-LIFO-ring
+/// solution.
 /// Capacity is much smaller here (10 vs 100) because MKMapView creation
 /// is rare (once per picker appearance) and each view holds way more
 /// memory than a snapshotter (~5–10 MB tile cache + Metal resources).
