@@ -449,7 +449,15 @@ extension MapViewSource {
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
         // primary-maneuver TLV (whose enum is largely undocumented).
-        drawNavOverlay(into: ctx)
+        // Nav overlay (maneuver glyph + distance + road name) used to
+        // be baked into the stream here. Removed: turn-by-turn info
+        // now travels to the dash via the K1G "active-nav" bubble
+        // (separate TLV channel), so drawing it on the video would
+        // duplicate the same information on the dash screen. Keep
+        // `drawNavOverlay`/`drawText`/`formatDistance` as dead code
+        // for now in case we want to reintroduce a video-side hint
+        // (e.g. for non-K1G dashes or for the in-app preview).
+        // drawNavOverlay(into: ctx)
 
         return buffer
     }
@@ -508,28 +516,34 @@ extension MapViewSource {
         let centerLat = fix.coordinate.latitude
 
         ctx.saveGState()
-        // Re-flip Y for the duration of this draw. The outer ctx has a
-        // global Y-flip into math-convention coords (Y up), but tile
-        // bitmaps and `ctx.draw(image, in:)` expect Y-down (UIKit).
-        // Without this second flip the bitmaps render upside-down.
-        ctx.translateBy(x: 0, y: frameSize.height)
-        ctx.scaleBy(x: 1, y: -1)
+        // The outer ctx is already Y-DOWN (CVPixelBuffer rows go top→
+        // bottom, line 434-435's flip put us into UIKit-convention
+        // top-left origin). OSM tile bitmaps are also Y-DOWN memory
+        // (row 0 = north edge). Drawing them with `ctx.draw(in:)` in
+        // a Y-DOWN ctx renders them upright with north on top.
+        //
+        // Earlier versions did a SECOND flip here, which combined with
+        // the outer flip cancelled to a Y-UP ctx — and then the inner
+        // overlay draws (`drawText`, `drawHeadingArrow`) each did their
+        // own local flip on the assumption that they were correcting a
+        // Y-DOWN base ctx. Net effect was 180° upside-down map labels
+        // and a chevron pointing back the wrong way. Removing the
+        // double-flip lets each overlay's local flip do the right
+        // single correction.
         // Forward bias: instead of anchoring the user puck at the
-        // geometric centre (y = height/2 in Y-UP), drop the anchor
-        // toward the bottom of the screen so more map is visible
-        // ahead of the rider. Subtracting `bias` from the Y origin in
-        // the Y-UP context = moving the puck DOWN in screen space.
+        // geometric centre, drop the anchor toward the bottom of the
+        // screen so more map is visible ahead of the rider. In Y-DOWN
+        // "lower on screen" = "higher y" → ADD bias.
         let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
-        // Heading-up: after the inner Y-flip ctx is Y-UP (math
-        // convention, north = +y). CGContext rotates counter-clockwise
-        // in radians; heading is degrees CW from north. To bring the
-        // heading direction to +y (= top of frame), rotate by -heading.
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
+        // Heading-up: in Y-DOWN ctx north should appear at the top of
+        // the frame after rotation. Heading is degrees CW from north
+        // in geographic convention. In a Y-DOWN ctx CGContext's
+        // `rotate(by:)` rotates CLOCKWISE for positive angles (Y-down
+        // inverts the usual "CCW positive" semantics). So to bring the
+        // heading direction to the top of the frame, rotate by
+        // `-heading` (same expression as before — the sign works out).
         ctx.rotate(by: -lastHeading * .pi / 180)
-        // Speed-adaptive zoom (slow lerp toward target, no thresholds
-        // — see targetZoom/updateZoom). Applied AFTER rotation so the
-        // origin sits at the user puck and zoom scales toward/away
-        // from the rider.
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         // Draw every overlapping tile shifted by the delta from its
@@ -538,38 +552,36 @@ extension MapViewSource {
         // rendered image), not `t.region.center`. MKMapSnapshotter
         // can adjust the region span but the centre stays put.
         //
-        // After the second flip the inner ctx is Y-UP (math convention,
-        // confirmed empirically: yellow tile.center probe at dy<0 landed
-        // SOUTH of the user dot — Y-UP semantics). So north = +y. A tile
-        // whose centre is north of the user (t.lat > user.lat) lands at
-        // POSITIVE dy = upper part of the frame. CGImage drawn via
-        // ctx.draw(in:) in a Y-UP context renders upright (the inner
-        // flip cancels the bitmap's own Y-down pixel layout).
+        // In Y-DOWN screen ctx (after the outer flip; we did NOT
+        // re-flip inside this saveGState), a coordinate north of the
+        // user (lat > centerLat) should land at NEGATIVE user y
+        // (= upward on screen). So screen_y = -(lat-centerLat)*pxPerDegLat.
+        // East of user (lon > centerLon) still maps to positive x.
         for (t, cg) in tilesToDraw {
-            // Where would `tile.center` land in ctx coordinates if the
-            // bitmap centre WERE the geographic centre?
-            let dx = (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = (t.center.latitude - centerLat) * pxPerDegLat
+            let dx =  (t.center.longitude - centerLon) * pxPerDegLon
+            let dy = -(t.center.latitude  - centerLat) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
-            // MKMapSnapshotter clamps the region, so the actual pixel
-            // location of `t.center` is `t.centerPixel` — NOT (tw/2, th/2).
-            // Compensate by shifting the tile rect so the centerPixel
-            // lands at (dx, dy) instead of the bitmap midpoint.
-            //
-            // In Y-UP, ctx.draw maps bitmap row R to ctx_y = rect.y + (th - R).
-            // We want bitmap row `centerPixel.y` to land at `dy`, so
-            //   rect.y = dy + centerPixel.y - th = dy - (th - centerPixel.y).
-            // For centered tile (centerPixel.y = th/2) this collapses to
-            //   rect.y = dy - th/2  — same as the X axis. ✓
-            let mpX = tw / 2 - t.centerPixel.x                // px to shift in X
-            let mpY = t.centerPixel.y - th / 2                // px to shift in Y (Y-up)
+            // OSM tile bitmap row 0 = north edge. In a Y-DOWN ctx,
+            // ctx.draw(in: rect) places row 0 at rect.minY (the
+            // smaller y = visually higher on screen). So drawing the
+            // tile with rect.minY = -th/2 (top edge above the centre)
+            // and rect.maxY = +th/2 (bottom edge below the centre)
+            // places the OSM north edge at the top of the rect ✓.
+            // centerPixel compensation for clamped MKMapSnapshotter
+            // regions: shift the rect so the bitmap's actual
+            // geographic centre pixel lands at (dx, dy). In Y-DOWN,
+            // moving the rect DOWN means INCREASING y, so the y-axis
+            // shift is the negation of the Y-UP version.
+            let mpX = tw / 2 - t.centerPixel.x                // shift in X (unchanged)
+            let mpY = th / 2 - t.centerPixel.y                // shift in Y (Y-down)
             ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2 + mpX,
                                     y: CGFloat(dy) - th / 2 + mpY,
                                     width: tw, height: th))
         }
 
-        // Draw the route polyline in the same Y-UP coordinate space.
+        // Polyline — same Y-DOWN convention as tiles. Negate dy so
+        // points north of the user appear above the puck on screen.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
             ctx.setLineWidth(8)
@@ -578,8 +590,8 @@ extension MapViewSource {
             ctx.beginPath()
             var first = true
             for c in routePolylineCoords {
-                let dx = (c.longitude - centerLon) * pxPerDegLon
-                let dy = (c.latitude - centerLat) * pxPerDegLat
+                let dx =  (c.longitude - centerLon) * pxPerDegLon
+                let dy = -(c.latitude  - centerLat) * pxPerDegLat
                 let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
                 if first {
                     ctx.move(to: pt)
@@ -715,13 +727,11 @@ extension MapViewSource {
         let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
 
         ctx.saveGState()
-        ctx.translateBy(x: 0, y: frameSize.height)
-        ctx.scaleBy(x: 1, y: -1)
-        // Forward bias (same logic as drawTileCacheFrame — keep them
-        // in lock-step so switching to vector fallback doesn't visibly
-        // jump the puck).
+        // Outer ctx is already Y-DOWN (line 434-435 flip). Don't add
+        // a second flip — that would cancel to Y-UP and break the
+        // overlay text/arrow draws downstream. Match drawTileCacheFrame.
         let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
         ctx.rotate(by: -lastHeading * .pi / 180)
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
@@ -732,8 +742,9 @@ extension MapViewSource {
         ctx.beginPath()
         var first = true
         for c in routePolylineCoords {
-            let dxM = (c.longitude - centerLon) * mPerDegLon
-            let dyM = (c.latitude - centerLat) * mPerDegLat
+            // Negate dyM so north appears above the rider in Y-DOWN.
+            let dxM =  (c.longitude - centerLon) * mPerDegLon
+            let dyM = -(c.latitude  - centerLat) * mPerDegLat
             let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
             if first {
                 ctx.move(to: pt)
