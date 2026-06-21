@@ -43,7 +43,7 @@ the burned SCAN label directly:
 |--------|-------|---------|
 | ✅ **anchor** | ~55 | OCR of the SCAN label parsed cleanly — image and label match |
 | 🟡 **interpolated** | ~32 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 3 | `0x00`, `0x01`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| 📸 **user photo** | 4 | `0x00`, `0x01`, `0x03`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
 | ⚫ **hidden bubble** | 166 | `0x5A..0xFF` — dash renders nothing (overlay fully suppressed), field-verified byte-by-byte |
 
 A glyph marked **interpolated** is still a real bubble frame from the
@@ -58,8 +58,8 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x00` | 📍↑ | **Arrival** — destination AHEAD (user-photo) |
 | `0x01` | 📍↖ | **Arrival** — destination ahead-LEFT (user-photo) |
 | `0x02` | 📍↗ | **Arrival** — destination ahead-RIGHT |
-| `0x03` | T📍↗ | **Arrival at T-junction** — destination ahead-RIGHT |
-| `0x04` | T📍↖ | **Arrival at T-junction** — destination ahead-LEFT (user-photo) |
+| `0x03` | ↗Y↑ | **Y-merge — joining from LEFT** (your road comes in from the left and merges into the continuing road; user-confirmed) |
+| `0x04` | ↖Y↑ | **Y-merge — joining from RIGHT** (your road comes in from the right and merges into the continuing road; user-confirmed via user-photo) |
 | `0x05`..`0x08` | ↰Y / ↱Y | **Y-fork** — stay LEFT (0x05–0x06) / stay RIGHT (0x07–0x08) |
 | `0x09` | ↑ | **Continue straight** |
 | `0x0A`..`0x13` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (small style) |
@@ -133,8 +133,8 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x00` | 📸 user photo | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
 | `0x01` | 📸 user photo | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
 | `0x02` | ✅ 📍↑→ | **Arrival — destination ahead-RIGHT** (mirror of 0x01: pin top-right + straight arrow) | ![0x02](glyphs/0x02.png) |
-| `0x03` | ✅ 📍T→ | **Arrival at T-junction — destination ahead-RIGHT** (mirror of 0x04: T-shape with pin top-right) | ![0x03](glyphs/0x03.png) |
-| `0x04` | 📸 user photo | **Arrival at T-junction — destination ahead-LEFT of the T** (thick vertical shaft branching left+right, red pin top-left above the split, user-confirmed) | ![0x04](glyphs/0x04.png) |
+| `0x03` | 📸 user photo | **Y-merge — joining from LEFT** (your road comes in from the left, merges into the continuing road; user-confirmed) | ![0x03](glyphs/0x03.png) |
+| `0x04` | 📸 user photo | **Y-merge — joining from RIGHT** (your road comes in from the right, merges into the continuing road; user-confirmed) | ![0x04](glyphs/0x04.png) |
 | `0x05` | 🟡 ↰Y | **Y-fork — stay LEFT** (pin top-left + Y-shape, left leg highlighted) | ![0x05](glyphs/0x05.png) |
 | `0x06` | ✅ ↰Y | **Y-fork — stay LEFT** (variant; left leg highlighted) | ![0x06](glyphs/0x06.png) |
 | `0x07` | ✅ ↱Y | **Y-fork — stay RIGHT** (right leg highlighted) | ![0x07](glyphs/0x07.png) |
