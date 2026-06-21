@@ -91,21 +91,54 @@ enum K1GPacket {
     // MARK: - Decode
 
     /// Split a wire-format K1G packet into its TLV segments. Returns an
-    /// empty array if the packet is too short or doesn't carry the magic.
+    /// empty array if the packet is too short.
+    ///
+    /// **Important**: segments start at offset 8, IMMEDIATELY after the
+    /// `outer_len(2) + seg_count(2) + pad(4)` header — NOT after the K1G
+    /// magic. Outbound (phone → bike) packets do carry the magic + IC
+    /// header + rolling seq between offsets 8 and 17, but inbound packets
+    /// from the bike typically OMIT them and start the first TLV at
+    /// offset 8 directly. The authoritative reference is better-dash
+    /// `decode_ic_to_app_segments()` (`tripper_app_like_nav.py:506`),
+    /// which slices unconditionally from offset 8.
+    ///
+    /// An earlier revision of this function searched for the magic
+    /// (`4B 31 47 20`) before parsing segments. This worked for the
+    /// outbound encode/decode round-trip but silently dropped almost
+    /// every inbound packet from the real dash — including the
+    /// `07 00 <128B>` RSA modulus reply — because the bike does NOT
+    /// include the magic in its handshake replies. Symptom: handshake
+    /// step 1 times out with "no decodable segments" on every RX line
+    /// even though the modulus byte sequence is clearly present in the
+    /// hex dump. See `references/k1g-wire-protocol.md` and the regression
+    /// note at the end of `K1GPacket.swift`.
     static func decode(_ data: Data) -> [K1GSegment] {
         guard data.count >= 8 else { return [] }
-        guard let magicRange = findMagic(in: data) else { return [] }
 
-        // Walk past the magic + 1-byte seq.
-        var off = magicRange.upperBound + 1
+        // Parse from the fixed-shape header at offsets 0-7.
+        let outerLen = Int(readU16BE(data, at: 0))
+        let segCount = Int(readU16BE(data, at: 2))
+        // pad at 4..7 ignored
+
+        // Trust outer_len when it agrees with the buffer; otherwise fall
+        // back to data.count so we don't lose tail TLVs from a slightly
+        // mis-sized envelope.
+        let limit = (outerLen > 0 && outerLen <= data.count) ? outerLen : data.count
+
+        var off = 8
         var out: [K1GSegment] = []
+        // Defensive cap — bike packets in the wild carry at most ~16
+        // segments. seg_count is wire-format magic (often 0x0001 or
+        // 0x0002 even with more TLVs), so don't trust it as a count;
+        // just walk until we run out of bytes or hit a hard sanity cap.
+        let maxSegments = max(segCount, 64)
 
-        while off + 4 <= data.count {
+        while off + 4 <= limit && out.count < maxSegments {
             let type = data[data.index(data.startIndex, offsetBy: off)]
             let sub  = data[data.index(data.startIndex, offsetBy: off + 1)]
-            let segLen = readU16BE(data, at: off + 2)
+            let segLen = Int(readU16BE(data, at: off + 2))
             off += 4
-            let end = min(off + Int(segLen), data.count)
+            let end = min(off + segLen, limit)
             let payload = data.subdata(in: data.index(data.startIndex, offsetBy: off)..<data.index(data.startIndex, offsetBy: end))
             out.append(K1GSegment(type: type, sub: sub, payload: payload))
             off = end
