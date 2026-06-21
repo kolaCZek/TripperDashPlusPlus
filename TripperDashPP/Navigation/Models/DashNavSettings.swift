@@ -18,8 +18,9 @@
 //     the ETA TLV when bottomLine == .distance so the bubble picks
 //     distance to render.
 //
-//  Persisted in UserDefaults under "dashNavSettings.v1". Observable so
-//  StreamingView's settings sheet binds cleanly.
+//  Persisted in UserDefaults under "dashNavSettings.v2" (v1 → v2 added
+//  Bug 3 diagnostic toggles below). Observable so StreamingView's
+//  settings sheet binds cleanly.
 //
 
 import Foundation
@@ -79,6 +80,53 @@ final class DashNavSettings {
             case .distance: return "Distance remaining"
             }
         }
+    }
+
+    // MARK: - Diagnostics (Bug 3 — clock-shift A/B isolation)
+    //
+    // Field-test 2026-06-21 caught a reproducible bug: connecting the
+    // phone to the dash shifts the dash clock by a few hours (e.g.
+    // 11:25 → 14:52, +3h27m; 11:33 → 14:51, +3h18m). The offset is
+    // NOT constant, so it's not a hardcoded byte or a timezone error.
+    // The two observed target values are within 1 minute of each
+    // other — the suspect is a stale ETA value the dash interprets as
+    // a clock-sync.
+    //
+    // We can't isolate the culprit without a packet capture from the
+    // real Android Tripper app, so these toggles let us A/B test on
+    // the bike: flip one off, reconnect, watch whether the clock still
+    // drifts. The shipping defaults match the current (broken)
+    // behaviour so we don't regress anything that works today.
+
+    /// Skip every TLV with type 0x05 sub 0x08 (the "ETA HH:MM" tag).
+    /// If the dash stops drifting when this is off, the ETA TLV is
+    /// being treated as a set-time payload.
+    var suppressEtaTlv: Bool = false {
+        didSet { persist() }
+    }
+
+    /// Skip the 1 Hz `0044` heartbeat once the handshake is done.
+    /// The heartbeat carries two undocumented tags (`05 21` and
+    /// `05 4D`); we don't know what they do. If the dash stops
+    /// drifting with this off, one of them is the culprit.
+    var sendHeartbeat0044: Bool = true {
+        didSet { persist() }
+    }
+
+    /// Skip the very last packet of the initial handshake burst — the
+    /// captured `0044` status frame with 10 TLVs incl. the two
+    /// undocumented tags. The dash MAY refuse to complete pairing
+    /// without it; in that case flip back on.
+    var sendInitialBurstPacket9: Bool = true {
+        didSet { persist() }
+    }
+
+    /// Log every outbound K1G packet with its hex preview to os_log.
+    /// Use `log stream --predicate 'subsystem == "eu.kolaczek.tripperdashpp"'`
+    /// on the Mac to watch the traffic in real time and correlate
+    /// against the dash's clock movement.
+    var verbosePacketLogging: Bool = false {
+        didSet { persist() }
     }
 
     // MARK: - State
@@ -147,13 +195,21 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    private static let storeKey = "dashNavSettings.v1"
+    // Bumped to v2 when we added the Bug 3 diagnostic toggles. The
+    // optional fields below are decoded with `decodeIfPresent` so an
+    // old v1 blob still loads cleanly — we just keep the defaults
+    // (everything as it was) and ignore the missing keys.
+    private static let storeKey = "dashNavSettings.v2"
 
     private struct Persisted: Codable {
         var units: UnitSystem
         var decimalSeparator: DecimalSeparator
         var clockFormat: ClockFormat
         var bottomLine: BottomLineMode
+        var suppressEtaTlv: Bool?
+        var sendHeartbeat0044: Bool?
+        var sendInitialBurstPacket9: Bool?
+        var verbosePacketLogging: Bool?
     }
 
     init() {
@@ -168,6 +224,10 @@ final class DashNavSettings {
         self.decimalSeparator = p.decimalSeparator
         self.clockFormat = p.clockFormat
         self.bottomLine = p.bottomLine
+        if let v = p.suppressEtaTlv          { self.suppressEtaTlv = v }
+        if let v = p.sendHeartbeat0044       { self.sendHeartbeat0044 = v }
+        if let v = p.sendInitialBurstPacket9 { self.sendInitialBurstPacket9 = v }
+        if let v = p.verbosePacketLogging    { self.verbosePacketLogging = v }
     }
 
     private func persist() {
@@ -175,7 +235,11 @@ final class DashNavSettings {
             units: units,
             decimalSeparator: decimalSeparator,
             clockFormat: clockFormat,
-            bottomLine: bottomLine
+            bottomLine: bottomLine,
+            suppressEtaTlv: suppressEtaTlv,
+            sendHeartbeat0044: sendHeartbeat0044,
+            sendInitialBurstPacket9: sendInitialBurstPacket9,
+            verbosePacketLogging: verbosePacketLogging
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

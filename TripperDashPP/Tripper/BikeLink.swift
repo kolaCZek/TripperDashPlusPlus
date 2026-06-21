@@ -84,6 +84,17 @@ final class BikeLink {
 
     // MARK: - Init
 
+    /// Dash display / diagnostic preferences. Optional because BikeLink
+    /// is created at AppStatus init time (inline stored property), but
+    /// the settings object is itself a property of AppStatus — so we
+    /// can't reference it from BikeLink's inline initializer. AppStatus
+    /// assigns this right after both are constructed.
+    ///
+    /// Read paths (initial-burst gating, heartbeat gating, verbose
+    /// packet logging) treat `nil` as "behave like before the toggles
+    /// existed" — no regression for code paths that forget to wire it.
+    var settings: DashNavSettings?
+
     init() {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
@@ -263,7 +274,15 @@ final class BikeLink {
             state = .connected
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
             startInboundLoop(socket: s)
-            startHeartbeat(socket: s)
+            // Bug 3 diagnostic: skip the 1 Hz heartbeat when the user
+            // wants to A/B-test whether the heartbeat (which carries
+            // the undocumented `05 21` / `05 4D` tags) is what shifts
+            // the dash clock.
+            if settings?.sendHeartbeat0044 != false {
+                startHeartbeat(socket: s)
+            } else {
+                log.info("Heartbeat 0044 SUPPRESSED via DashNavSettings (Bug 3 diagnostic)")
+            }
 
         } catch is CancellationError {
             // disconnect() yanked us. State + cleanup already handled
@@ -296,15 +315,25 @@ final class BikeLink {
             fixedTempC: 20,
             seq: seq
         )
-        log.info("[\(ms(), privacy: .public)ms] Sending initial burst (\(burst.count) packets, hostname=\(hostname, privacy: .public))")
-        for (i, pkt) in burst.enumerated() {
+        // Bug 3 diagnostic: optionally drop the very last packet (the
+        // 10-TLV status frame with the undocumented `05 21` / `05 4D`
+        // tags) to test whether one of those tags is what shifts the
+        // dash's clock after pairing.
+        let sendCount: Int = {
+            if settings?.sendInitialBurstPacket9 == false {
+                return max(0, burst.count - 1)
+            }
+            return burst.count
+        }()
+        log.info("[\(ms(), privacy: .public)ms] Sending initial burst (\(sendCount)/\(burst.count) packets, hostname=\(hostname, privacy: .public))")
+        for (i, pkt) in burst.prefix(sendCount).enumerated() {
             try Task.checkCancellation()
             try await socket.send(pkt)
-            log.info("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
+            log.info("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(sendCount) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
             // 60 ms gap matches better-dash's default --burst-pause.
             // Skip the gap after the last packet so the handshake can start
             // listening immediately.
-            if i + 1 < burst.count {
+            if i + 1 < sendCount {
                 try? await Task.sleep(nanoseconds: 60_000_000)
             }
         }

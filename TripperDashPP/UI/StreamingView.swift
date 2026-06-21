@@ -128,6 +128,31 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Toggle("Suppress ETA TLV", isOn: Binding(
+                    get: { status.dashNavSettings.suppressEtaTlv },
+                    set: { status.dashNavSettings.suppressEtaTlv = $0 }
+                ))
+                Toggle("Send 1 Hz heartbeat", isOn: Binding(
+                    get: { status.dashNavSettings.sendHeartbeat0044 },
+                    set: { status.dashNavSettings.sendHeartbeat0044 = $0 }
+                ))
+                Toggle("Send initial-burst packet 9", isOn: Binding(
+                    get: { status.dashNavSettings.sendInitialBurstPacket9 },
+                    set: { status.dashNavSettings.sendInitialBurstPacket9 = $0 }
+                ))
+                Toggle("Verbose packet logging", isOn: Binding(
+                    get: { status.dashNavSettings.verbosePacketLogging },
+                    set: { status.dashNavSettings.verbosePacketLogging = $0 }
+                ))
+            } header: {
+                Text("Diagnostics (Bug 3 / Bug 4)")
+            } footer: {
+                Text("A/B-test toggles for the dash clock-shift bug. Defaults match shipping behaviour; flip individual switches off, reconnect to the bike, watch whether the dash clock still jumps. Verbose logging surfaces every ETA tick and outbound packet to Console.app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Stream") {
                 LabeledContent("Encoded fps",     value: String(format: "%.1f", status.metrics.encodedFps))
                 LabeledContent("Bitrate (kbps)",  value: String(format: "%.0f", status.metrics.kbpsOut))
