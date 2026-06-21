@@ -29,8 +29,8 @@ turn-by-turn is active).
 
 | Category | Byte ranges | Notes |
 |----------|-------------|-------|
-| Startup / empty | `0x00` | Stream not yet rendered after byte change |
-| Destination | `0x01..0x06` | Pin + Y-fork variants |
+| Arrival / destination | `0x00..0x02` | Pin position: ahead / left / right of road |
+| Y-fork (stay side) | `0x03..0x04` | Pick the thicker leg: left / right |
 | Ramp / exit | `0x07` | Y with right branch (motorway exit?) |
 | Roundabout group A | `0x08..0x10` | Exits 2,3,4,5,7,8,9 (gaps from timing — exits 1,6 missed) |
 | Turn arrows | `0x11..0x14` | Right, left, U-turn left, U-turn right |
@@ -51,7 +51,7 @@ maneuver byte.
 
 | Byte | Glyph | Description | Image |
 |------|-------|-------------|-------|
-| `0x00` | 📍 | Destination pin (red) — **WARNING:** also rendered as 0x00 when stream hasn't started after byte change | ![0x00](glyphs/0x00.png) |
+| `0x00` | 📍↑ | **Arrival — destination AHEAD** (pin above straight road, end of route) | ![0x00](glyphs/0x00.png) |
 | `0x01` | 📍← | **Arrival — destination on the LEFT** (pin left of road glyph) | ![0x01](glyphs/0x01.png) |
 | `0x02` | →📍 | **Arrival — destination on the RIGHT** (pin right of road glyph) | ![0x02](glyphs/0x02.png) |
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (left leg is the thicker/main road) | ![0x03](glyphs/0x03.png) |
