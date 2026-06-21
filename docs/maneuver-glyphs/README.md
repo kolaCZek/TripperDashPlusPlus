@@ -39,14 +39,15 @@ The catalog re-build on 2026-06-21 replaced the earlier timing-based
 mapping (which was misaligned) with **OCR-anchored** mapping that reads
 the burned SCAN label directly:
 
-| Status | Count | Meaning |
+| Source | Count | Meaning |
 |--------|-------|---------|
-| ✅ **anchor** | ~55 | OCR of the SCAN label parsed cleanly — image and label match |
-| 🟡 **interpolated** | ~32 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 4 | `0x00`, `0x01`, `0x03`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| ✅ **user-verified** | 90 | All `0x00..0x59` visible glyphs reviewed and confirmed by user during field walks (6/2026) |
 | ⚫ **hidden bubble** | 166 | `0x5A..0xFF` — dash renders nothing (overlay fully suppressed), field-verified byte-by-byte |
 
-A glyph marked **interpolated** is still a real bubble frame from the
+The original capture pipeline tagged glyphs as ✅ anchor (OCR-confirmed)
+or 🟡 interpolated (image picked by interp between neighbours); after
+the row-by-row user review in 6/2026 every visible glyph has been
+re-verified, so the source-flag column now uniformly shows ✅.
 video — the OCR just couldn't read the label cleanly in that specific
 frame. The SCAN label inside the PNG is the ground truth; if it doesn't
 match the row's byte, the row is misaligned and needs re-extraction.
@@ -127,20 +128,20 @@ maneuver block) and is unrelated to the maneuver byte. Every captured
 PNG includes the burned `SCAN 0xNN` label at the bottom for
 self-verification.
 
-Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
+Legend: ✅ = user-verified.
 
 | Byte | Source | Description | Image |
 |------|--------|-------------|-------|
-| `0x00` | 📸 user photo | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
-| `0x01` | 📸 user photo | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
+| `0x00` | ✅ | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
+| `0x01` | ✅ | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
 | `0x02` | ✅ 📍↑→ | **Arrival — destination ahead-RIGHT** (mirror of 0x01: pin top-right + straight arrow) | ![0x02](glyphs/0x02.png) |
-| `0x03` | 📸 user photo | **Y-merge — joining from LEFT** (your road comes in from the left, merges into the continuing road; user-confirmed) | ![0x03](glyphs/0x03.png) |
-| `0x04` | 📸 user photo | **Y-merge — joining from RIGHT** (your road comes in from the right, merges into the continuing road; user-confirmed) | ![0x04](glyphs/0x04.png) |
+| `0x03` | ✅ | **Y-merge — joining from LEFT** (your road comes in from the left, merges into the continuing road; user-confirmed) | ![0x03](glyphs/0x03.png) |
+| `0x04` | ✅ | **Y-merge — joining from RIGHT** (your road comes in from the right, merges into the continuing road; user-confirmed) | ![0x04](glyphs/0x04.png) |
 | `0x05` | ✅ ↱Y | **Y-fork — stay RIGHT** (right leg highlighted; user-confirmed) | ![0x05](glyphs/0x05.png) |
 | `0x06` | ✅ ↰Y | **Y-fork — stay LEFT** (variant; left leg highlighted) | ![0x06](glyphs/0x06.png) |
 | `0x07` | ✅ ↑→ | **Side-road branches off RIGHT** (parallel road peels off to the right; user-confirmed) | ![0x07](glyphs/0x07.png) |
 | `0x08` | ✅ ↑← | **Side-road branches off LEFT** (parallel road peels off to the left; user-confirmed) | ![0x08](glyphs/0x08.png) |
-| `0x09` | 🟡 ↑ | **Continue straight** (straight arrow, no junction) | ![0x09](glyphs/0x09.png) |
+| `0x09` | ✅ ↑ | **Continue straight** (straight arrow, no junction) | ![0x09](glyphs/0x09.png) |
 | `0x0A` | ✅ ⟲0 | **Roundabout CCW — take exit 0** (small style, user-confirmed) | ![0x0A](glyphs/0x0A.png) |
 | `0x0B` | ✅ ⟲1 | **Roundabout CCW — take exit 1** (small style, user-confirmed) | ![0x0B](glyphs/0x0B.png) |
 | `0x0C` | ✅ ⟲2 | **Roundabout CCW — take exit 2** (small style, user-confirmed) | ![0x0C](glyphs/0x0C.png) |
@@ -152,8 +153,8 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x12` | ✅ ⟲8 | **Roundabout CCW — take exit 8** (small style, user-confirmed) | ![0x12](glyphs/0x12.png) |
 | `0x13` | ✅ ⟲9 | **Roundabout CCW — take exit 9** (small style, user-confirmed) | ![0x13](glyphs/0x13.png) |
 | `0x14` | ✅ ↰ | **Turn LEFT** (90° left, L-shape) | ![0x14](glyphs/0x14.png) |
-| `0x15` | 🟡 ↱ | **Turn RIGHT** (90° right, L-shape, mirror of 0x14) | ![0x15](glyphs/0x15.png) |
-| `0x16` | 🟡 ⤴ | **Sharp LEFT** (>90° hairpin to the left) | ![0x16](glyphs/0x16.png) |
+| `0x15` | ✅ ↱ | **Turn RIGHT** (90° right, L-shape, mirror of 0x14) | ![0x15](glyphs/0x15.png) |
+| `0x16` | ✅ ⤴ | **Sharp LEFT** (>90° hairpin to the left) | ![0x16](glyphs/0x16.png) |
 | `0x17` | ✅ ⤵ | **Sharp RIGHT** (>90° hairpin to the right, mirror of 0x16) | ![0x17](glyphs/0x17.png) |
 | `0x18` | ✅ ↖ | **Slight LEFT** (shallow left curve) | ![0x18](glyphs/0x18.png) |
 | `0x19` | ✅ ↗ | **Slight RIGHT** (shallow right curve, mirror of 0x18) | ![0x19](glyphs/0x19.png) |
@@ -191,7 +192,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x39` | ✅ ⟳8 | **Roundabout CW — take exit 8** (large style, user-confirmed) | ![0x39](glyphs/0x39.png) |
 | `0x3A` | ✅ ⟳9 | **Roundabout CW — take exit 9** (large style, user-confirmed) | ![0x3A](glyphs/0x3A.png) |
 | `0x3B` | ✅ ↑ | **Continue straight (long-distance)** (tall straight arrow) | ![0x3B](glyphs/0x3B.png) |
-| `0x3C` | 🟡 📍 | **Arrival pin (destination marker only)** — no arrow | ![0x3C](glyphs/0x3C.png) |
+| `0x3C` | ✅ 📍 | **Arrival pin (destination marker only)** — no arrow | ![0x3C](glyphs/0x3C.png) |
 | `0x3D` | ✅ ↺ | **U-turn LEFT** (180° via left side; user-confirmed — pairs with 0x1A=RIGHT) | ![0x3D](glyphs/0x3D.png) |
 | `0x3E` | ✅ ⛴ | **Ferry crossing** — board ferry / waterway | ![0x3E](glyphs/0x3E.png) |
 | `0x3F` | ✅ 🚆 | **Train / level crossing** — railway | ![0x3F](glyphs/0x3F.png) |
