@@ -44,7 +44,7 @@ the burned SCAN label directly:
 |--------|-------|---------|
 | ✅ **anchor** | 85 | OCR of the SCAN label parsed cleanly — image and label match |
 | 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 2 | `0x00`, `0x01` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| 📸 **user photo** | 3 | `0x00`, `0x01`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
 | ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), confirmed by manual byte-by-byte field-check |
 
 A glyph marked **interpolated** is still a real bubble frame from the
@@ -60,7 +60,7 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x01` | 📍↑ ← | **Arrival — destination ahead-LEFT** (pin top-left + straight arrow, user-photo) |
 | `0x02` | 📍AHEAD-variant | (similar to 0x01, pin position differs) — **pending re-classify** |
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
-| `0x04` | ⤴ | **Y-fork up — stay RIGHT** (thicker right leg, user-confirmed) — re-verify against scan2 |
+| `0x04` | T+📍 | **Arrival at T-junction — destination ahead-LEFT** (T-shape with red pin top-left, user-photo) |
 | `0x05`..`0x81` | various | Captured but **not yet labelled** — see catalog below |
 | `0x82`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
 
@@ -110,7 +110,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x01` | 📸 user photo | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
 | `0x02` | ✅ | TBD — pending classification | ![0x02](glyphs/0x02.png) |
 | `0x03` | ✅ | TBD — pending classification | ![0x03](glyphs/0x03.png) |
-| `0x04` | 🟡 | TBD | ![0x04](glyphs/0x04.png) |
+| `0x04` | 📸 user photo | **Arrival at T-junction — destination ahead-LEFT of the T** (thick vertical shaft branching left+right, red pin top-left above the split, user-confirmed) | ![0x04](glyphs/0x04.png) |
 | `0x05` | 🟡 | TBD | ![0x05](glyphs/0x05.png) |
 | `0x06` | ✅ | TBD | ![0x06](glyphs/0x06.png) |
 | `0x07` | ✅ | TBD | ![0x07](glyphs/0x07.png) |
@@ -269,10 +269,10 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Re-classify `0x02..0x81`**: row-by-row labelling based on the
       self-labeled glyph image; the earlier text descriptions were
       derived from misaligned timing-based mapping and have been removed
-- [ ] **Re-verify `0x03..0x04`**: legacy "Y-fork stay-left / stay-right"
-      labels were derived under the old (misaligned) mapping — verify
-      against scan2 frame and against a controlled field run on a real
-      fork
+- [ ] **Re-verify `0x03`**: legacy "Y-fork stay-left" label was derived
+      under the old (misaligned) mapping — verify against scan2 frame
+      and against a controlled field run on a real fork (0x04 was
+      already re-classified as a T-junction arrival, not a Y-fork)
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
