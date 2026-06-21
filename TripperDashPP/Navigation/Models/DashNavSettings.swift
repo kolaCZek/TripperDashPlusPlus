@@ -129,61 +129,6 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
-    // MARK: - Maneuver scanner (empirical enum discovery)
-    //
-    // The Royal Enfield Q3C protocol carries primary maneuvers as a
-    // single byte (TLV `05 02 00 01 XX`). Only two values are confirmed
-    // from the Python authority: `0x0B` = continue/straight, `0x3C` =
-    // bear-right. The full enum is undocumented and Android decompile
-    // proved the official RE app delegates the symbol to a private
-    // BluConnect bitmap channel, not the K1G UDP path — so we can't
-    // read the table out of the APK either.
-    //
-    // The pragmatic answer: sweep every byte ourselves and watch which
-    // glyph the dash burns into its TFT for each one. The scanner
-    // replaces both the map source and the ActiveNavLoop with:
-    //   - a test-pattern frame source that draws the current byte huge
-    //     on the H.264 stream (the rider can correlate dash + stream
-    //     pixel-to-pixel in a single video)
-    //   - a 1 Hz pump that builds an active-nav packet with the byte
-    //     in the primary maneuver TLV
-    // Each byte holds for `scanHoldMs`, then a `scanPauseMs` black
-    // frame separates it from the next, so a video review can step
-    // through transitions cleanly.
-
-    /// When true, the next `startStreaming()` enters maneuver scan
-    /// mode instead of regular map streaming. Persisted because the
-    /// rider may want to resume a scan after an app relaunch.
-    var maneuverScanEnabled: Bool = false {
-        didSet { persist() }
-    }
-
-    /// First byte to send (inclusive). Defaults to `0x00`.
-    var scanStartByte: UInt8 = 0x00 {
-        didSet { persist() }
-    }
-
-    /// Last byte to send (inclusive). Defaults to `0x7F` so a default
-    /// run is 128 bytes — long enough to cover the interesting low
-    /// half of the table at ~10 minutes total.
-    var scanEndByte: UInt8 = 0x7F {
-        didSet { persist() }
-    }
-
-    /// How long each byte is held on the dash (milliseconds). The
-    /// rider needs enough time to glance at the TFT and confirm the
-    /// glyph between camera frames. 5 s is the default.
-    var scanHoldMs: Int = 5000 {
-        didSet { persist() }
-    }
-
-    /// Black-frame pause between bytes (milliseconds). 1 s gives the
-    /// camera a clear visual delimiter so video review can step
-    /// frame-by-frame without ambiguity.
-    var scanPauseMs: Int = 1000 {
-        didSet { persist() }
-    }
-
     // MARK: - State
 
     var units: UnitSystem = .metric {
@@ -256,6 +201,10 @@ final class DashNavSettings {
     // (everything as it was) and ignore the missing keys.
     private static let storeKey = "dashNavSettings.v2"
 
+    // Note: scan* fields used to be persisted here. Removed in the
+    // settings-cleanup refactor (catalog complete 2026-06-21) — old
+    // v2 blobs with those keys still decode cleanly because Codable
+    // silently ignores unknown JSON keys on decode.
     private struct Persisted: Codable {
         var units: UnitSystem
         var decimalSeparator: DecimalSeparator
@@ -265,11 +214,6 @@ final class DashNavSettings {
         var sendHeartbeat0044: Bool?
         var sendInitialBurstPacket9: Bool?
         var verbosePacketLogging: Bool?
-        var maneuverScanEnabled: Bool?
-        var scanStartByte: UInt8?
-        var scanEndByte: UInt8?
-        var scanHoldMs: Int?
-        var scanPauseMs: Int?
     }
 
     init() {
@@ -288,11 +232,6 @@ final class DashNavSettings {
         if let v = p.sendHeartbeat0044       { self.sendHeartbeat0044 = v }
         if let v = p.sendInitialBurstPacket9 { self.sendInitialBurstPacket9 = v }
         if let v = p.verbosePacketLogging    { self.verbosePacketLogging = v }
-        if let v = p.maneuverScanEnabled     { self.maneuverScanEnabled = v }
-        if let v = p.scanStartByte           { self.scanStartByte = v }
-        if let v = p.scanEndByte             { self.scanEndByte = v }
-        if let v = p.scanHoldMs              { self.scanHoldMs = v }
-        if let v = p.scanPauseMs             { self.scanPauseMs = v }
     }
 
     private func persist() {
@@ -304,12 +243,7 @@ final class DashNavSettings {
             suppressEtaTlv: suppressEtaTlv,
             sendHeartbeat0044: sendHeartbeat0044,
             sendInitialBurstPacket9: sendInitialBurstPacket9,
-            verbosePacketLogging: verbosePacketLogging,
-            maneuverScanEnabled: maneuverScanEnabled,
-            scanStartByte: scanStartByte,
-            scanEndByte: scanEndByte,
-            scanHoldMs: scanHoldMs,
-            scanPauseMs: scanPauseMs
+            verbosePacketLogging: verbosePacketLogging
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

@@ -79,7 +79,7 @@ final class RtpStreamer {
 
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
 
-    init(bikeHost: String, bikePort: UInt16 = K1G.rtpPort, source: FrameSource = TestPatternSource()) {
+    init(bikeHost: String, bikePort: UInt16 = K1G.rtpPort, source: FrameSource) {
         self.bikeHost = bikeHost
         self.bikePort = bikePort
         self.source = source

@@ -17,7 +17,6 @@
 		A4F000000000000000000061 /* Favorite.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000060 /* Favorite.swift */; };
 		A4F000000000000000000071 /* NavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000070 /* NavSettings.swift */; };
 		A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E00 /* ActiveNavLoop.swift */; };
-		A4F000000000000000000F01 /* ManeuverScannerLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F00 /* ManeuverScannerLoop.swift */; };
 		A4F000000000000000000E11 /* DashNavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E10 /* DashNavSettings.swift */; };
 		A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E20 /* ManeuverIcon.swift */; };
 		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
@@ -43,12 +42,10 @@
 		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
 		EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEF1001000000000000A001 /* PrerenderProgressView.swift */; };
 		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
-		A4E71CB12FE3128D00CFD473 /* ManeuverScanSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CB02FE3128D00CFD473 /* ManeuverScanSource.swift */; };
 		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
 		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
 		A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */; };
-		A4B6F0052FE6500000AA36C3 /* MapSnapshotSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -63,7 +60,6 @@
 		A4F000000000000000000060 /* Favorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorite.swift; sourceTree = "<group>"; };
 		A4F000000000000000000070 /* NavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavSettings.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E00 /* ActiveNavLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavLoop.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F00 /* ManeuverScannerLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverScannerLoop.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E10 /* DashNavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNavSettings.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E20 /* ManeuverIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverIcon.swift; sourceTree = "<group>"; };
 		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
@@ -86,7 +82,6 @@
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
 		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
 		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
-		A4E71CB02FE3128D00CFD473 /* ManeuverScanSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverScanSource.swift; sourceTree = "<group>"; };
 		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
 		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
 		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
@@ -95,7 +90,6 @@
 		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
-		A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapSnapshotSource.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -172,7 +166,6 @@
 			isa = PBXGroup;
 			children = (
 				A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */,
-				A4E71CB02FE3128D00CFD473 /* ManeuverScanSource.swift */,
 				A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */,
 				A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */,
 				A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */,
@@ -183,7 +176,6 @@
 		A4B6F0062FE6500000AA36C3 /* Map */ = {
 			isa = PBXGroup;
 			children = (
-				A4B6F0042FE6500000AA36C3 /* MapSnapshotSource.swift */,
 				CAFEFEED00000000DEADBEEF /* MapViewSource.swift */,
 				CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */,
 			);
@@ -200,7 +192,6 @@
 				A4F000000000000000000030 /* PolylineMath.swift */,
 				A4F000000000000000000040 /* ActiveNavigator.swift */,
 				A4F000000000000000000E00 /* ActiveNavLoop.swift */,
-				A4F000000000000000000F00 /* ManeuverScannerLoop.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -343,10 +334,6 @@
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
 				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
-				A4B6F0052FE6500000AA36C3 /* MapSnapshotSource.swift in Sources */,
-			
-				A4F000000000000000000F01 /* ManeuverScannerLoop.swift in Sources */,
-				A4E71CB12FE3128D00CFD473 /* ManeuverScanSource.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
