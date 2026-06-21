@@ -44,8 +44,7 @@ the burned SCAN label directly:
 |--------|-------|---------|
 | ✅ **anchor** | 85 | OCR of the SCAN label parsed cleanly — image and label match |
 | 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 1 | `0x00` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
-| 🔄 **legacy** | 1 | `0x01` not captured in this scan — synthesized from earlier user-confirmed scan (no SCAN label burned) |
+| 📸 **user photo** | 2 | `0x00`, `0x01` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
 | ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), confirmed by manual byte-by-byte field-check |
 
 A glyph marked **interpolated** is still a real bubble frame from the
@@ -58,7 +57,7 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | Byte | Glyph | Description |
 |------|-------|-------------|
 | `0x00` | 📍↑ | **Arrival — destination AHEAD** (pin directly above straight arrow, user-photo) |
-| `0x01` | 📍AHEAD-variant | (legacy scan; earlier "LEFT" interpretation was misaligned) — **pending re-classify** |
+| `0x01` | 📍↑ ← | **Arrival — destination ahead-LEFT** (pin top-left + straight arrow, user-photo) |
 | `0x02` | 📍AHEAD-variant | (similar to 0x01, pin position differs) — **pending re-classify** |
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
 | `0x04` | ⤴ | **Y-fork up — stay RIGHT** (thicker right leg, user-confirmed) — re-verify against scan2 |
@@ -108,7 +107,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | Byte | Source | Description | Image |
 |------|--------|-------------|-------|
 | `0x00` | 📸 user photo | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
-| `0x01` | 🔄 legacy | Arrival — destination AHEAD variant (earlier "LEFT" interp misaligned — needs re-classify against scan2 glyph) | ![0x01](glyphs/0x01.png) |
+| `0x01` | 📸 user photo | **Arrival — destination ahead, slightly LEFT of route** (pin top-left + straight arrow, user-confirmed) | ![0x01](glyphs/0x01.png) |
 | `0x02` | ✅ | TBD — pending classification | ![0x02](glyphs/0x02.png) |
 | `0x03` | ✅ | TBD — pending classification | ![0x03](glyphs/0x03.png) |
 | `0x04` | 🟡 | TBD | ![0x04](glyphs/0x04.png) |
@@ -270,10 +269,10 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Re-classify `0x02..0x81`**: row-by-row labelling based on the
       self-labeled glyph image; the earlier text descriptions were
       derived from misaligned timing-based mapping and have been removed
-- [ ] **Re-verify `0x00..0x04`**: scan2 video did not capture `0x00`
-      and `0x01` cleanly; verify against future field-run output to
-      confirm the legacy user-confirmed labels still hold for this
-      bike + firmware
+- [ ] **Re-verify `0x03..0x04`**: legacy "Y-fork stay-left / stay-right"
+      labels were derived under the old (misaligned) mapping — verify
+      against scan2 frame and against a controlled field run on a real
+      fork
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
