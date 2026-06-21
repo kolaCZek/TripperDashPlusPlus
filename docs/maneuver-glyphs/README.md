@@ -1,6 +1,6 @@
 # Tripper Dash — Maneuver Glyph Catalog
 
-Empirically captured glyph rendering for every byte value 0x00..0x81 of the
+Empirical glyph rendering for every byte value `0x00..0x81` of the
 **maneuver TLV** sent to the Royal Enfield Tripper Dash (model "K1G",
 bike: Guerrilla 450 / Himalayan 450).
 
@@ -15,189 +15,265 @@ This document is the ground truth for what each byte renders as in the
 **active-nav bubble** (the round overlay shown over the map view when
 turn-by-turn is active).
 
-> **Capture context**
-> - **Date:** 2026-06-21
-> - **Source video:** `IMG_4587_2.mov` (1080p HEVC, 30 fps, 400 s, cropped + rotated +22°)
-> - **Capture method:** [`ManeuverScannerLoop`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) walking 0x00..0xFF with `holdSeconds=5`
-> - **Validation overlay:** scanner burns `0xNN / dec NN / N/256` onto the video stream so the
->   ground-truth byte is visible in every frame alongside the dash output (`SCAN 0xNN`).
-> - **Coverage:** 0x00..0x4A captured + 0x59 (roundabout exit 19) caught at boundary.
->   0x4B..0x58 fell in a frame-timing gap. 0x5A..0x81 rendered as **hidden bubble** (no overlay).
->   0x82..0xFF not yet scanned — needs a second field-run.
+## Capture context
 
-## Quick reference
+- **Date**: 2026-06-21
+- **Source video**: `IMG_4587_2.mov` (1080p HEVC, 30 fps, 400 s, rotated +22° CW)
+- **Capture method**: [`ManeuverScannerLoop`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift)
+  walks `0x00..0xFF` with `holdSeconds=5`. The phone sends
+  `primaryManeuver: byte` together with `roadName: "SCAN 0xNN"` for the
+  **same** byte — see [`ManeuverScannerLoop.swift#sendNavPacket`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift#L183). The dash renders both: the active-nav bubble on
+  the left, and the burned "SCAN 0xNN" label at the bottom. **The
+  burned label is the authoritative ground truth.**
+- **Coverage**: `0x00..0x81` (130 bytes). `0x82..0xFF` not yet scanned —
+  needs a second field-run.
+- **Extraction**: each glyph crop is **self-labeled** — the SCAN text under the
+  bubble appears in every PNG so you can verify the byte → glyph mapping
+  by eye without trusting any external mapping.
 
-| Category | Byte ranges | Notes |
-|----------|-------------|-------|
-| Arrival / destination | `0x00..0x02` | Pin position: ahead / left / right of road |
-| Y-fork (stay side) | `0x03..0x04` | Pick the thicker leg: left / right |
-| Ramp / exit | `0x07` | Y with right branch (motorway exit?) |
-| Roundabout group A | `0x08..0x10` | Exits 2,3,4,5,7,8,9 (gaps from timing — exits 1,6 missed) |
-| Turn arrows | `0x11..0x14` | Right, left, U-turn left, U-turn right |
-| Unknown / special | `0x15..0x17` | "Eye"-like + Y variants |
-| Junction varianty | `0x18..0x24` | Fork-up + various Y shapes (active branch marked) |
-| Roundabout group B | `0x25..0x2C` | Exits 1,2,4,5,6,7,9 (1st re-render set) |
-| Arrow up + Ferry + Train | `0x2E..0x30` | `0x2F` = ferry/lighthouse, `0x30` = subway/train |
-| Destination route | `0x31` | Pin + dotted waypoints |
-| Blank fallback | `0x32..0x35` | Empty bubble (circle + "100m"), no glyph |
-| Roundabout group C | `0x36..0x4A` | Exits 11..18 (full range) |
-| Hidden bubble | `0x4B..0x81` | No overlay rendered — bubble fully suppressed |
+## Glyph index status
+
+The catalog re-build on 2026-06-21 replaced the earlier timing-based
+mapping (which was misaligned) with **OCR-anchored** mapping that reads
+the burned SCAN label directly:
+
+| Status | Count | Meaning |
+|--------|-------|---------|
+| ✅ **anchor** | 85 | OCR of the SCAN label parsed cleanly — image and label match |
+| 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
+| 📸 **user photo** | 1 | `0x00` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| 🔄 **legacy** | 1 | `0x01` not captured in this scan — synthesized from earlier user-confirmed scan (no SCAN label burned) |
+| ⚪ **not scanned** | 126 | `0x82..0xFF` — pending second field-run |
+
+A glyph marked **interpolated** is still a real bubble frame from the
+video — the OCR just couldn't read the label cleanly in that specific
+frame. The SCAN label inside the PNG is the ground truth; if it doesn't
+match the row's byte, the row is misaligned and needs re-extraction.
+
+## Quick reference (user-confirmed; rest pending re-classification)
+
+| Byte | Glyph | Description |
+|------|-------|-------------|
+| `0x00` | 📍↑ | **Arrival — destination AHEAD** (pin directly above straight arrow, user-photo) |
+| `0x01` | 📍AHEAD-variant | (legacy scan; earlier "LEFT" interpretation was misaligned) — **pending re-classify** |
+| `0x02` | 📍AHEAD-variant | (similar to 0x01, pin position differs) — **pending re-classify** |
+| `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
+| `0x04` | ⤴ | **Y-fork up — stay RIGHT** (thicker right leg, user-confirmed) — re-verify against scan2 |
+| `0x05`..`0x81` | various | Captured but **not yet labelled** — see catalog below |
+| `0x82`..`0xFF` | ❓ | **Not scanned** — pending second field-run |
+
+> **Important**: the earlier text descriptions for `0x05..0x81` were
+> derived from a misaligned mapping and have been removed. Re-labeling
+> proceeds row-by-row from the actual glyph in each PNG.
+
+## How to send a custom maneuver
+
+The dash will render any glyph code you send. From phone-side code:
+
+```swift
+// Send single primary maneuver:
+await link.sendActiveNav(
+    primaryManeuver: 0x33,                    // any byte 0x00..0x81 from catalog
+    primaryDistanceMeters: 200,
+    primaryUnit: 0x30,                         // 0x30 = metres
+    totalDistanceMeters: 1200,
+    totalDistanceUnit: 0x30,
+    useCommaDecimal: false,
+    decimalFmtOn: false,
+    roadName: "Main St",
+    eta: Date(timeIntervalSinceNow: 600),
+    is24Hour: true,
+    remainingSeconds: nil
+)
+```
+
+Bytes in `0x82..0xFF` likely fall in the "hidden bubble" range that
+suppresses the overlay — useful as a "no maneuver" signal.
 
 ## Catalog (byte → glyph)
 
-Each entry shows the bubble rendered on dash. `100m` distance is from a separate
-TLV (see [`k1g-tlv-catalog.md`](../k1g-tlv-catalog.md)) and is unrelated to the
-maneuver byte.
+Each entry shows the bubble captured from the dash. The `100m` distance
+under the symbol comes from a separate TLV (see
+[`k1g-tlv-catalog.md`](../k1g-tlv-catalog.md)) and is unrelated to the
+maneuver byte. Every captured PNG includes the burned `SCAN 0xNN` label
+at the bottom for self-verification.
 
-| Byte | Glyph | Description | Image |
-|------|-------|-------------|-------|
-| `0x00` | 📍↑ | **Arrival — destination AHEAD** (pin above straight road, end of route) | ![0x00](glyphs/0x00.png) |
-| `0x01` | 📍← | **Arrival — destination on the LEFT** (pin left of road glyph) | ![0x01](glyphs/0x01.png) |
-| `0x02` | →📍 | **Arrival — destination on the RIGHT** (pin right of road glyph) | ![0x02](glyphs/0x02.png) |
-| `0x03` | ⤵ | **Y-fork up — stay LEFT** (left leg is the thicker/main road) | ![0x03](glyphs/0x03.png) |
-| `0x04` | ⤴ | **Y-fork up — stay RIGHT** (right leg is the thicker/main road) | ![0x04](glyphs/0x04.png) |
-| `0x05` | ⎬ | T-fork, right branch up | ![0x05](glyphs/0x05.png) |
-| `0x06` | ⎰ | Y-fork, left active | ![0x06](glyphs/0x06.png) |
-| `0x07` | ⥃ | Ramp / motorway exit right | ![0x07](glyphs/0x07.png) |
-| `0x08` | ⊚ | Roundabout (no exit indicated) | ![0x08](glyphs/0x08.png) |
-| `0x09` | ②  | Roundabout, exit 2 | ![0x09](glyphs/0x09.png) |
-| `0x0A` | ③ | Roundabout, exit 3 | ![0x0A](glyphs/0x0A.png) |
-| `0x0B` | ④ | Roundabout, exit 4 | ![0x0B](glyphs/0x0B.png) |
-| `0x0C` | ⑤ | Roundabout, exit 5 | ![0x0C](glyphs/0x0C.png) |
-| `0x0D` | (gap) | (timing-gap, possibly exit 6) | ![0x0D](glyphs/0x0D.png) |
-| `0x0E` | ⑦ | Roundabout, exit 7 | ![0x0E](glyphs/0x0E.png) |
-| `0x0F` | ⑧ | Roundabout, exit 8 | ![0x0F](glyphs/0x0F.png) |
-| `0x10` | ⑨ | Roundabout, exit 9 | ![0x10](glyphs/0x10.png) |
-| `0x11` | ⤷ | Turn right (gentle arc) | ![0x11](glyphs/0x11.png) |
-| `0x12` | ⤶ | Turn left (gentle arc) | ![0x12](glyphs/0x12.png) |
-| `0x13` | ↶ | U-turn left (hard) | ![0x13](glyphs/0x13.png) |
-| `0x14` | ↷ | U-turn right (hard) | ![0x14](glyphs/0x14.png) |
-| `0x15` | 👁 | Eye-like shape (purpose unknown — speed-camera marker?) | ![0x15](glyphs/0x15.png) |
-| `0x16` | ⎴ | Y-fork up wide | ![0x16](glyphs/0x16.png) |
-| `0x17` | ⎴ | Y-fork up narrow | ![0x17](glyphs/0x17.png) |
-| `0x18` | Y | Y-fork (active) | ![0x18](glyphs/0x18.png) |
-| `0x19` | ⬛Y | Y-fork with **highlighted black** active branch (selected/imminent?) | ![0x19](glyphs/0x19.png) |
-| `0x1A` | ↑ | Straight up arrow | ![0x1A](glyphs/0x1A.png) |
-| `0x1B` | ↑ | Straight up (variant) | ![0x1B](glyphs/0x1B.png) |
-| `0x1C` | ⌐ | L-shape (small left turn?) | ![0x1C](glyphs/0x1C.png) |
-| `0x1D` | ⏐ | Vertical bar (faded) | ![0x1D](glyphs/0x1D.png) |
-| `0x1E` | ⌐ | L-shape (right) | ![0x1E](glyphs/0x1E.png) |
-| `0x1F` | ⊥ | T-junction with left branch | ![0x1F](glyphs/0x1F.png) |
-| `0x20` | ⊥ | T-junction with right branch (active right) | ![0x20](glyphs/0x20.png) |
-| `0x21` | _ | Blank fallback | ![0x21](glyphs/0x21.png) |
-| `0x22` | ⤷ | Right turn variant | ![0x22](glyphs/0x22.png) |
-| `0x23` | ↑ | Up arrow (faded) | ![0x23](glyphs/0x23.png) |
-| `0x24` | ⊥| Up with right branch | ![0x24](glyphs/0x24.png) |
-| `0x25` | ⊚ | Roundabout (no exit shown) | ![0x25](glyphs/0x25.png) |
-| `0x26` | ① | Roundabout, exit 1 | ![0x26](glyphs/0x26.png) |
-| `0x27` | ② | Roundabout, exit 2 | ![0x27](glyphs/0x27.png) |
-| `0x28` | ④ | Roundabout, exit 4 (exit 3 missed in timing) | ![0x28](glyphs/0x28.png) |
-| `0x29` | ⑤ | Roundabout, exit 5 | ![0x29](glyphs/0x29.png) |
-| `0x2A` | ⑥ | Roundabout, exit 6 | ![0x2A](glyphs/0x2A.png) |
-| `0x2B` | ⑦ | Roundabout, exit 7 | ![0x2B](glyphs/0x2B.png) |
-| `0x2C` | ⑨ | Roundabout, exit 9 | ![0x2C](glyphs/0x2C.png) |
-| `0x2D` | ↑ | Up arrow | ![0x2D](glyphs/0x2D.png) |
-| `0x2E` | ⬩ | (faded marker / waypoint?) | ![0x2E](glyphs/0x2E.png) |
-| `0x2F` | ⛵ | **Ferry / lighthouse** with waves | ![0x2F](glyphs/0x2F.png) |
-| `0x30` | 🚆 | **Subway / train** | ![0x30](glyphs/0x30.png) |
-| `0x31` | 📍· | **Destination pin + dotted waypoints** (route preview) | ![0x31](glyphs/0x31.png) |
-| `0x32` | (blank) | Empty bubble (circle + 100m) | ![0x32](glyphs/0x32.png) |
-| `0x33` | (blank) | Empty bubble | ![0x33](glyphs/0x33.png) |
-| `0x34` | (blank) | Empty bubble | ![0x34](glyphs/0x34.png) |
-| `0x35` | (blank) | Empty bubble | ![0x35](glyphs/0x35.png) |
-| `0x36` | ⑪ | Roundabout, exit 11 | ![0x36](glyphs/0x36.png) |
-| `0x37` | ⑫ | Roundabout, exit 12 | ![0x37](glyphs/0x37.png) |
-| `0x38` | ⑬ | Roundabout, exit 13 | ![0x38](glyphs/0x38.png) |
-| `0x39` | ⑭ | Roundabout, exit 14 | ![0x39](glyphs/0x39.png) |
-| `0x3A` | ⑯ | Roundabout, exit 16 (15 missed in timing) | ![0x3A](glyphs/0x3A.png) |
-| `0x3B` | ⑰ | Roundabout, exit 17 | ![0x3B](glyphs/0x3B.png) |
-| `0x3C` | ⑱ | Roundabout, exit 18 | ![0x3C](glyphs/0x3C.png) |
-| `0x3D` | ⑲ | Roundabout, exit 19 | ![0x3D](glyphs/0x3D.png) |
-| `0x3E` | ⑩ | Roundabout, exit 10 | ![0x3E](glyphs/0x3E.png) |
-| `0x3F` | ⑪ | Roundabout, exit 11 (dup with 0x36) | ![0x3F](glyphs/0x3F.png) |
-| `0x40` | ⑪ | Roundabout, exit 11 (dup) | ![0x40](glyphs/0x40.png) |
-| `0x41` | ⑫ | Roundabout, exit 12 (dup) | ![0x41](glyphs/0x41.png) |
-| `0x42` | ⑬ | Roundabout, exit 13 (dup) | ![0x42](glyphs/0x42.png) |
-| `0x43` | ⑬ | Roundabout, exit 13 (dup) | ![0x43](glyphs/0x43.png) |
-| `0x44` | ⑭ | Roundabout, exit 14 (dup) | ![0x44](glyphs/0x44.png) |
-| `0x45` | ⑮ | Roundabout, exit 15 | ![0x45](glyphs/0x45.png) |
-| `0x46` | ⑯ | Roundabout, exit 16 (dup) | ![0x46](glyphs/0x46.png) |
-| `0x47` | ⑰ | Roundabout, exit 17 (dup) | ![0x47](glyphs/0x47.png) |
-| `0x48` | ⑰ | Roundabout, exit 17 (dup) | ![0x48](glyphs/0x48.png) |
-| `0x49` | ⑰ | Roundabout, exit 17 (dup) | ![0x49](glyphs/0x49.png) |
-| `0x4A` | ⑱ | Roundabout, exit 18 (dup, with 100m+highlighted active) | ![0x4A](glyphs/0x4A.png) |
-| `0x4B`..`0x58` | (gap) | Not captured in this scan (frame-timing gap) | — |
-| `0x59` | ⑲ | Roundabout, exit 19 | ![0x59](glyphs/0x59.png) |
-| `0x5A`..`0x81` | **HIDDEN** | No bubble overlay rendered — dashboard suppresses display | — |
-| `0x82`..`0xFF` | **NOT SCANNED** | Pending second field-run | — |
+Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 
-## Key insights
-
-### Roundabout numbering is NOT a simple `0x0B + N` offset
-
-Earlier (text-only) interpretation assumed roundabout exits map as
-`0x0B + exit_number`. **This is wrong.** The actual rendering uses
-**three overlapping byte groups** for the same conceptual exits:
-
-| Group | Byte range | Exits covered |
-|-------|------------|---------------|
-| A | `0x08..0x10` | 2..9 (with exit 1 + 6 timing-missed) |
-| B | `0x25..0x2C` | 1..9 (with exits 3 + 8 timing-missed) |
-| C | `0x36..0x4A` | 10..18 (full, with several duplicates) |
-| D | `0x3E` + `0x59` | 10 (recovered) + 19 |
-
-Multiple bytes producing the same exit number suggests the dashboard
-may interpret extra bits within the byte for **direction** (CW vs CCW)
-or for **visual emphasis** (e.g. exit + highlight). A controlled scan
-playing the same exit number with different upper-nibble bits would
-confirm.
-
-### "Hidden bubble" range (`0x5A..0x81`) is real
-
-For all bytes in `0x5A..0x81` the dashboard suppresses the active-nav
-bubble entirely (just bike background visible). This is **useful**:
-sending `0x80` is the canonical "no maneuver" signal that hides the
-overlay without cutting the route. Some bytes in this range may still
-trigger non-bubble effects (text channel, beep) — needs separate test.
-
-### Special-purpose glyphs
-
-- `0x2F` — **Ferry / lighthouse** with waves. Currently never sent by
-  navigation engine but dashboard renders it. Use for boat-route hops.
-- `0x30` — **Subway / train**. Useful for multi-modal navigation.
-- `0x31` — **Pin + dotted waypoints**. Render this for "route preview"
-  before active turn-by-turn starts.
-- `0x19` — Y-fork with **black-highlighted active branch**. May be
-  "imminent" variant (distance < threshold).
+| Byte | Source | Description | Image |
+|------|--------|-------------|-------|
+| `0x00` | 📸 user photo | **Arrival — destination AHEAD** (pin directly above straight arrow, end of route, user-confirmed) | ![0x00](glyphs/0x00.png) |
+| `0x01` | 🔄 legacy | Arrival — destination AHEAD variant (earlier "LEFT" interp misaligned — needs re-classify against scan2 glyph) | ![0x01](glyphs/0x01.png) |
+| `0x02` | ✅ | TBD — pending classification | ![0x02](glyphs/0x02.png) |
+| `0x03` | ✅ | TBD — pending classification | ![0x03](glyphs/0x03.png) |
+| `0x04` | 🟡 | TBD | ![0x04](glyphs/0x04.png) |
+| `0x05` | 🟡 | TBD | ![0x05](glyphs/0x05.png) |
+| `0x06` | ✅ | TBD | ![0x06](glyphs/0x06.png) |
+| `0x07` | ✅ | TBD | ![0x07](glyphs/0x07.png) |
+| `0x08` | ✅ | TBD | ![0x08](glyphs/0x08.png) |
+| `0x09` | 🟡 | TBD | ![0x09](glyphs/0x09.png) |
+| `0x0A` | ✅ | TBD | ![0x0A](glyphs/0x0A.png) |
+| `0x0B` | ✅ | TBD | ![0x0B](glyphs/0x0B.png) |
+| `0x0C` | 🟡 | TBD | ![0x0C](glyphs/0x0C.png) |
+| `0x0D` | 🟡 | TBD | ![0x0D](glyphs/0x0D.png) |
+| `0x0E` | ✅ | TBD | ![0x0E](glyphs/0x0E.png) |
+| `0x0F` | ✅ | TBD | ![0x0F](glyphs/0x0F.png) |
+| `0x10` | ✅ | TBD | ![0x10](glyphs/0x10.png) |
+| `0x11` | 🟡 | TBD | ![0x11](glyphs/0x11.png) |
+| `0x12` | ✅ | TBD | ![0x12](glyphs/0x12.png) |
+| `0x13` | ✅ | TBD | ![0x13](glyphs/0x13.png) |
+| `0x14` | ✅ | TBD | ![0x14](glyphs/0x14.png) |
+| `0x15` | 🟡 | TBD | ![0x15](glyphs/0x15.png) |
+| `0x16` | 🟡 | TBD | ![0x16](glyphs/0x16.png) |
+| `0x17` | ✅ | TBD | ![0x17](glyphs/0x17.png) |
+| `0x18` | ✅ | TBD | ![0x18](glyphs/0x18.png) |
+| `0x19` | ✅ | TBD | ![0x19](glyphs/0x19.png) |
+| `0x1A` | 🟡 | TBD | ![0x1A](glyphs/0x1A.png) |
+| `0x1B` | ✅ | TBD | ![0x1B](glyphs/0x1B.png) |
+| `0x1C` | ✅ | TBD | ![0x1C](glyphs/0x1C.png) |
+| `0x1D` | 🟡 | TBD | ![0x1D](glyphs/0x1D.png) |
+| `0x1E` | 🟡 | TBD | ![0x1E](glyphs/0x1E.png) |
+| `0x1F` | ✅ | TBD | ![0x1F](glyphs/0x1F.png) |
+| `0x20` | ✅ | TBD | ![0x20](glyphs/0x20.png) |
+| `0x21` | ✅ | TBD | ![0x21](glyphs/0x21.png) |
+| `0x22` | 🟡 | TBD | ![0x22](glyphs/0x22.png) |
+| `0x23` | ✅ | TBD | ![0x23](glyphs/0x23.png) |
+| `0x24` | ✅ | TBD | ![0x24](glyphs/0x24.png) |
+| `0x25` | ✅ | TBD | ![0x25](glyphs/0x25.png) |
+| `0x26` | 🟡 | TBD | ![0x26](glyphs/0x26.png) |
+| `0x27` | 🟡 | TBD | ![0x27](glyphs/0x27.png) |
+| `0x28` | ✅ | TBD | ![0x28](glyphs/0x28.png) |
+| `0x29` | ✅ | TBD | ![0x29](glyphs/0x29.png) |
+| `0x2A` | ✅ | TBD | ![0x2A](glyphs/0x2A.png) |
+| `0x2B` | ✅ | TBD | ![0x2B](glyphs/0x2B.png) |
+| `0x2C` | ✅ | TBD | ![0x2C](glyphs/0x2C.png) |
+| `0x2D` | ✅ | TBD | ![0x2D](glyphs/0x2D.png) |
+| `0x2E` | ✅ | TBD | ![0x2E](glyphs/0x2E.png) |
+| `0x2F` | 🟡 | TBD | ![0x2F](glyphs/0x2F.png) |
+| `0x30` | ✅ | TBD | ![0x30](glyphs/0x30.png) |
+| `0x31` | ✅ | TBD | ![0x31](glyphs/0x31.png) |
+| `0x32` | 🟡 | TBD | ![0x32](glyphs/0x32.png) |
+| `0x33` | 🟡 | TBD | ![0x33](glyphs/0x33.png) |
+| `0x34` | 🟡 | TBD | ![0x34](glyphs/0x34.png) |
+| `0x35` | 🟡 | TBD | ![0x35](glyphs/0x35.png) |
+| `0x36` | 🟡 | TBD | ![0x36](glyphs/0x36.png) |
+| `0x37` | 🟡 | TBD | ![0x37](glyphs/0x37.png) |
+| `0x38` | 🟡 | TBD | ![0x38](glyphs/0x38.png) |
+| `0x39` | ✅ | TBD | ![0x39](glyphs/0x39.png) |
+| `0x3A` | ✅ | TBD | ![0x3A](glyphs/0x3A.png) |
+| `0x3B` | ✅ | TBD | ![0x3B](glyphs/0x3B.png) |
+| `0x3C` | 🟡 | TBD | ![0x3C](glyphs/0x3C.png) |
+| `0x3D` | 🟡 | TBD | ![0x3D](glyphs/0x3D.png) |
+| `0x3E` | ✅ | TBD | ![0x3E](glyphs/0x3E.png) |
+| `0x3F` | ✅ | TBD | ![0x3F](glyphs/0x3F.png) |
+| `0x40` | ✅ | TBD | ![0x40](glyphs/0x40.png) |
+| `0x41` | ✅ | TBD | ![0x41](glyphs/0x41.png) |
+| `0x42` | ✅ | TBD | ![0x42](glyphs/0x42.png) |
+| `0x43` | ✅ | TBD | ![0x43](glyphs/0x43.png) |
+| `0x44` | ✅ | TBD | ![0x44](glyphs/0x44.png) |
+| `0x45` | ✅ | TBD | ![0x45](glyphs/0x45.png) |
+| `0x46` | 🟡 | TBD | ![0x46](glyphs/0x46.png) |
+| `0x47` | ✅ | TBD | ![0x47](glyphs/0x47.png) |
+| `0x48` | ✅ | TBD | ![0x48](glyphs/0x48.png) |
+| `0x49` | ✅ | TBD | ![0x49](glyphs/0x49.png) |
+| `0x4A` | ✅ | TBD | ![0x4A](glyphs/0x4A.png) |
+| `0x4B` | ✅ | TBD | ![0x4B](glyphs/0x4B.png) |
+| `0x4C` | ✅ | TBD | ![0x4C](glyphs/0x4C.png) |
+| `0x4D` | 🟡 | TBD | ![0x4D](glyphs/0x4D.png) |
+| `0x4E` | 🟡 | TBD | ![0x4E](glyphs/0x4E.png) |
+| `0x4F` | ✅ | TBD | ![0x4F](glyphs/0x4F.png) |
+| `0x50` | ✅ | TBD | ![0x50](glyphs/0x50.png) |
+| `0x51` | ✅ | TBD | ![0x51](glyphs/0x51.png) |
+| `0x52` | ✅ | TBD | ![0x52](glyphs/0x52.png) |
+| `0x53` | ✅ | TBD | ![0x53](glyphs/0x53.png) |
+| `0x54` | ✅ | TBD | ![0x54](glyphs/0x54.png) |
+| `0x55` | ✅ | TBD | ![0x55](glyphs/0x55.png) |
+| `0x56` | 🟡 | TBD | ![0x56](glyphs/0x56.png) |
+| `0x57` | 🟡 | TBD | ![0x57](glyphs/0x57.png) |
+| `0x58` | ✅ | TBD | ![0x58](glyphs/0x58.png) |
+| `0x59` | ✅ | TBD | ![0x59](glyphs/0x59.png) |
+| `0x5A` | ✅ | TBD | ![0x5A](glyphs/0x5A.png) |
+| `0x5B` | ✅ | TBD | ![0x5B](glyphs/0x5B.png) |
+| `0x5C` | ✅ | TBD | ![0x5C](glyphs/0x5C.png) |
+| `0x5D` | ✅ | TBD | ![0x5D](glyphs/0x5D.png) |
+| `0x5E` | ✅ | TBD | ![0x5E](glyphs/0x5E.png) |
+| `0x5F` | 🟡 | TBD | ![0x5F](glyphs/0x5F.png) |
+| `0x60` | 🟡 | TBD | ![0x60](glyphs/0x60.png) |
+| `0x61` | 🟡 | TBD | ![0x61](glyphs/0x61.png) |
+| `0x62` | ✅ | TBD | ![0x62](glyphs/0x62.png) |
+| `0x63` | ✅ | TBD | ![0x63](glyphs/0x63.png) |
+| `0x64` | ✅ | TBD | ![0x64](glyphs/0x64.png) |
+| `0x65` | ✅ | TBD | ![0x65](glyphs/0x65.png) |
+| `0x66` | ✅ | TBD | ![0x66](glyphs/0x66.png) |
+| `0x67` | ✅ | TBD | ![0x67](glyphs/0x67.png) |
+| `0x68` | 🟡 | TBD | ![0x68](glyphs/0x68.png) |
+| `0x69` | ✅ | TBD | ![0x69](glyphs/0x69.png) |
+| `0x6A` | ✅ | TBD | ![0x6A](glyphs/0x6A.png) |
+| `0x6B` | ✅ | TBD | ![0x6B](glyphs/0x6B.png) |
+| `0x6C` | ✅ | TBD | ![0x6C](glyphs/0x6C.png) |
+| `0x6D` | ✅ | TBD | ![0x6D](glyphs/0x6D.png) |
+| `0x6E` | ✅ | TBD | ![0x6E](glyphs/0x6E.png) |
+| `0x6F` | ✅ | TBD | ![0x6F](glyphs/0x6F.png) |
+| `0x70` | ✅ | TBD | ![0x70](glyphs/0x70.png) |
+| `0x71` | 🟡 | TBD | ![0x71](glyphs/0x71.png) |
+| `0x72` | ✅ | TBD | ![0x72](glyphs/0x72.png) |
+| `0x73` | ✅ | TBD | ![0x73](glyphs/0x73.png) |
+| `0x74` | 🟡 | TBD | ![0x74](glyphs/0x74.png) |
+| `0x75` | 🟡 | TBD | ![0x75](glyphs/0x75.png) |
+| `0x76` | 🟡 | TBD | ![0x76](glyphs/0x76.png) |
+| `0x77` | 🟡 | TBD | ![0x77](glyphs/0x77.png) |
+| `0x78` | 🟡 | TBD | ![0x78](glyphs/0x78.png) |
+| `0x79` | 🟡 | TBD | ![0x79](glyphs/0x79.png) |
+| `0x7A` | ✅ | TBD | ![0x7A](glyphs/0x7A.png) |
+| `0x7B` | ✅ | TBD | ![0x7B](glyphs/0x7B.png) |
+| `0x7C` | ✅ | TBD | ![0x7C](glyphs/0x7C.png) |
+| `0x7D` | 🟡 | TBD | ![0x7D](glyphs/0x7D.png) |
+| `0x7E` | 🟡 | TBD | ![0x7E](glyphs/0x7E.png) |
+| `0x7F` | 🟡 | TBD | ![0x7F](glyphs/0x7F.png) |
+| `0x80` | ✅ | TBD | ![0x80](glyphs/0x80.png) |
+| `0x81` | ✅ | TBD | ![0x81](glyphs/0x81.png) |
+| `0x82`..`0xFF` | — | **Not scanned** — pending second field-run | — |
 
 ## How to regenerate
 
 ```bash
-# 1. Run scanner mode on phone via ManeuverScannerLoop (with holdSeconds=5)
-# 2. Mount Tripper, run "Active Nav (Scan)" mode
-# 3. Record video of bike dash with the burned overlay visible
-# 4. Crop video to dash + rotate so SCAN text is horizontal
-# 5. Run extract+catalog pipeline:
+# 1. Run scanner mode on phone via ManeuverScannerLoop with holdSeconds=5.
+# 2. Mount Tripper, ride briefly, switch to "Active Nav (Scan)" mode.
+# 3. Record video of the dash (selfie stick + 1080p phone camera works
+#    better than the in-app UDP recorder for visual clarity).
+# 4. Crop video to dash + rotate so the SCAN text is horizontal:
+
 ffmpeg -i SCAN_VIDEO.mov \
   -vf "rotate=22*PI/180:ow=rotw(22*PI/180):oh=roth(22*PI/180):c=black,fps=0.5" \
   -q:v 3 frames/f_%03d.jpg
-# 6. Crop bubble region (x=130 y=510 w=280 h=260 for 1259×1157 frames)
-# 7. Vision pass per-byte to label each glyph
-# 8. Update this README
+
+# 5. Extract bubble + SCAN label region for each frame (self-labeling):
+#    crop = (100, 460, 470, 830)  →  370×370 px
+#    bubble visible at top, "100 m" beneath, "SCAN 0xNN" along the bottom.
+
+# 6. OCR the SCAN label to get the ground-truth byte for each frame,
+#    then map first-occurrence frame → byte for the catalog file name.
+
+# 7. For bytes without an OCR anchor, linearly interpolate between
+#    neighbouring anchors and flag the entry as 🟡 interpolated.
+
+# 8. Verify each glyph by reading the SCAN label inside the PNG itself.
 ```
 
 ## Open questions / pending work
 
-- [ ] **Range 0x82..0xFF**: never scanned — needs second field-run with
-      `holdSeconds=5`, byte_start=0x80
-- [ ] **Re-scan timing-missed bytes**: 0x0D (exit 6?), 0x4B..0x58
-- [ ] **Direction bits hypothesis**: do bits 7..4 control rotation direction?
-      Run controlled scan with same exit number but flipped bits.
-- [ ] **Lower-byte semantics**: 0x05 with secondary form (`05 03 00 02 NN MM`)
-      — what does the second byte affect?
-- [ ] **Text overlay channel**: does any of 0x5A..0x81 trigger
-      dash text bar ("Za 200m..."")?
-- [ ] **Tagy 0x21 a 0x4D from main TLV catalog**: still unidentified
+- [ ] **Range `0x82..0xFF`**: never scanned — needs second field-run with
+      `holdSeconds=5`, `byte_start=0x80`
+- [ ] **Re-classify `0x02..0x81`**: row-by-row labelling based on the
+      self-labeled glyph image; the earlier text descriptions were
+      derived from misaligned timing-based mapping and have been removed
+- [ ] **Re-verify `0x00..0x04`**: scan2 video did not capture `0x00`
+      and `0x01` cleanly; verify against future field-run output to
+      confirm the legacy user-confirmed labels still hold for this
+      bike + firmware
+- [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
+      whether bits 7..4 control rotation direction for roundabouts —
+      drop and re-derive after re-classification
 
 ## See also
 
@@ -205,4 +281,4 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [`protocol-capabilities.md`](../protocol-capabilities.md) — High-level protocol overview
 - [`../../TripperDashPP/Navigation/ManeuverScannerLoop.swift`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) — Scanner implementation
 - [`../../TripperDashPP/Stream/ManeuverScanSource.swift`](../../TripperDashPP/Stream/ManeuverScanSource.swift) — Video overlay
-- [Overview grid (all 115 captured)](all-glyphs-overview.jpg)
+- [Overview grid (all 130 captured)](all-glyphs-overview.jpg)
