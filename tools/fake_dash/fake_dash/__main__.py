@@ -8,7 +8,7 @@ Subcommands:
 
 Configuration via env vars (overridable on the CLI):
   FAKE_DASH_BIND            (default: 0.0.0.0)
-  FAKE_DASH_K1G_PORT        (default: 2002)
+  FAKE_DASH_K1G_PORT        (default: 2000)
   FAKE_DASH_RTP_PORT        (default: 5000)
   FAKE_DASH_CAPTURES_DIR    (default: /captures)
   FAKE_DASH_KEYS_DIR        (default: /keys)

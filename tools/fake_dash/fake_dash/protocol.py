@@ -2,7 +2,7 @@
 K1G wire-format helpers.
 
 K1G is the protocol Royal Enfield uses between the Tripper TFT dash and
-the companion smartphone app over UDP/2002. Every K1G packet has the
+the companion smartphone app over UDP/2000. Every K1G packet has the
 shape:
 
     [outer_len: u16 BE] [seg_count: u16 BE] [pad: 4 bytes] [segments…]
@@ -160,8 +160,9 @@ class RollingSeq:
 # ---------------------------------------------------------------------------
 
 # When the bike comes up, it broadcasts a periodic "BLE-style" announce on
-# UDP/2002. Phones snoop these to discover the dash IP. We replay one of
-# the two announce shapes the better-dash project captured in the wild.
+# UDP/2000 (the K1G dash port — phones snoop the broadcast to discover the
+# dash IP). We replay one of the two announce shapes the better-dash
+# project captured in the wild.
 BIKE_ANNOUNCE_HEX = "0018000200000000020100054B31472002060600030E3334"
 
 # Auth status segment templates. These are wrapped in the outer K1G frame

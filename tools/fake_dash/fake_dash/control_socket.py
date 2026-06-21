@@ -4,7 +4,7 @@ server process.
 
 Why: the CLI runs in a *separate* process (`docker compose exec`) so it
 can't reach the server's in-memory peer registry directly. Before this
-module, the CLI just sent the raw button packet to `127.0.0.1:2002` and
+module, the CLI just sent the raw button packet to `127.0.0.1:2000` and
 ended up registered as a fake phone peer — the bytes never reached the
 real iPhone. Now the CLI talks to the server over a tiny line-oriented
 Unix-domain protocol and the server fans the event out to every known

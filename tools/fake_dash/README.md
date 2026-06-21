@@ -2,7 +2,7 @@
 
 Python test harness that mimics the Tripper dashboard so you can develop
 **TripperDash++** without parking your iPhone in front of a parked
-motorcycle. Speaks the K1G control plane on UDP/2002 and accepts an RTP
+motorcycle. Speaks the K1G control plane on UDP/2000 and accepts an RTP
 H.264 stream on UDP/5000 — exactly what the real dash does on the bike's
 `RE_xxxx_yymmdd` Wi-Fi AP.
 
@@ -14,7 +14,7 @@ docker compose up --build
 ```
 
 The container exposes:
-- `udp://0.0.0.0:2002` — K1G control plane (RSA handshake, route card,
+- `udp://0.0.0.0:2000` — K1G control plane (RSA handshake, route card,
   joystick events)
 - `udp://0.0.0.0:5000` — RTP video sink (H.264 baseline, payload type
   96, FU-A reassembly)
@@ -66,7 +66,7 @@ Reference implementation (the phone side): https://github.com/kolaCZek/better-da
                 ┌───────────────────────────────────┐
                 │     fake_dash container           │
                 │                                   │
-   UDP/2002 ───▶│ server.py  ◀──▶  rsa_handshake.py│
+   UDP/2000 ───▶│ server.py  ◀──▶  rsa_handshake.py│
                 │     │                             │
                 │     ▼                             │
                 │  buttons.py (fan-out)             │

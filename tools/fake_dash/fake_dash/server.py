@@ -1,8 +1,8 @@
 """
-K1G control-plane server — UDP/2002 listener that plays the *bike* side.
+K1G control-plane server — UDP/2000 listener that plays the *bike* side.
 
 Responsibilities:
-  - Listen on UDP/2002 for incoming phone packets
+  - Listen on UDP/2000 for incoming phone packets
   - Track phone peers (by source IP) so we know where to send heartbeats
     and joystick events
   - On `q3c.e` ("request auth") respond with our RSA pubkey
@@ -55,7 +55,7 @@ from .rtp_sink import RtpSink
 log = logging.getLogger("fake_dash.server")
 
 
-DEFAULT_K1G_PORT = 2002
+DEFAULT_K1G_PORT = 2000
 DEFAULT_RTP_PORT = 5000
 BEACON_INTERVAL_SEC = 1.0
 
@@ -257,8 +257,10 @@ class FakeDashServer:
                 return
             # Filter out our own broadcast that the OS / Docker bridge
             # loops back to the listening socket. The bike announce we
-            # send out has source port == bind port (2002), and a real
-            # phone would never use that as its ephemeral port.
+            # send out has source port == bind port (2000, the K1G dash
+            # port), and a real phone would never use that as its
+            # ephemeral source port — phones bind 2002 locally per the
+            # K1G protocol.
             if addr[1] == self.k1g_port:
                 continue
             peer = self._record_peer(addr)

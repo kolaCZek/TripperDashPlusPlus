@@ -10,7 +10,7 @@
 #   - Default `bridge` + port mapping works everywhere (Linux, macOS Docker
 #     Desktop, Windows WSL2). iOS Simulator can hit it via 127.0.0.1.
 #   - For a physical iPhone on the same LAN, set `bike_ip = <host IP>` in
-#     the iOS app — Docker forwards UDP/2002 and UDP/5000 to this container.
+#     the iOS app — Docker forwards UDP/2000 and UDP/5000 to this container.
 #
 
 services:
@@ -24,7 +24,7 @@ services:
     # Uncomment on Linux for direct UDP access (avoids Docker NAT):
     # network_mode: host
     ports:
-      - "2002:2002/udp"   # K1G control plane
+      - "2000:2000/udp"   # K1G control plane
       - "5000:5000/udp"   # RTP video sink
     volumes:
       - ./captures:/captures

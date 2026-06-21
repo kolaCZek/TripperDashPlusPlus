@@ -3,7 +3,7 @@
 # fake_dash — TripperDash++ test harness
 #
 # Emulates the Royal Enfield Tripper TFT dashboard for iOS app development.
-# Speaks K1G control-plane (UDP/2002) + RTP video sink (UDP/5000).
+# Speaks K1G control-plane (UDP/2000) + RTP video sink (UDP/5000).
 #
 # Build:  docker compose build
 # Run:    docker compose up
@@ -35,9 +35,9 @@ RUN pip install --no-cache-dir -e .
 RUN mkdir -p /captures /keys
 VOLUME ["/captures", "/keys"]
 
-# UDP/2002 = K1G control plane (RSA handshake, route card, joystick)
-# UDP/5000 = RTP video sink (H.264 from iPhone)
-EXPOSE 2002/udp 5000/udp
+# UDP/2000 = K1G control plane (RSA handshake, route card, joystick)
+# UDP/5000 = RTP video sink (H.264 from the phone)
+EXPOSE 2000/udp 5000/udp
 
 ENV FAKE_DASH_BIND=0.0.0.0 \
     FAKE_DASH_CAPTURES_DIR=/captures \
