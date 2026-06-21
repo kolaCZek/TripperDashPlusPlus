@@ -25,8 +25,11 @@ turn-by-turn is active).
   **same** byte — see [`ManeuverScannerLoop.swift#sendNavPacket`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift#L183). The dash renders both: the active-nav bubble on
   the left, and the burned "SCAN 0xNN" label at the bottom. **The
   burned label is the authoritative ground truth.**
-- **Coverage**: `0x00..0x81` (130 bytes). `0x82..0xFF` not yet scanned —
-  needs a second field-run.
+- **Coverage**: `0x00..0xFF` (full 8-bit range). Bytes `0x00..0x81` produce
+  visible bubble glyphs (130 distinct entries captured). Bytes
+  `0x82..0xFF` are **hidden bubble** — dashboard suppresses the overlay
+  entirely for every value in that range (manually verified
+  byte-by-byte on the bike).
 - **Extraction**: each glyph crop is **self-labeled** — the SCAN text under the
   bubble appears in every PNG so you can verify the byte → glyph mapping
   by eye without trusting any external mapping.
@@ -43,7 +46,7 @@ the burned SCAN label directly:
 | 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
 | 📸 **user photo** | 1 | `0x00` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
 | 🔄 **legacy** | 1 | `0x01` not captured in this scan — synthesized from earlier user-confirmed scan (no SCAN label burned) |
-| ⚪ **not scanned** | 126 | `0x82..0xFF` — pending second field-run |
+| ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), confirmed by manual byte-by-byte field-check |
 
 A glyph marked **interpolated** is still a real bubble frame from the
 video — the OCR just couldn't read the label cleanly in that specific
@@ -60,7 +63,7 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
 | `0x04` | ⤴ | **Y-fork up — stay RIGHT** (thicker right leg, user-confirmed) — re-verify against scan2 |
 | `0x05`..`0x81` | various | Captured but **not yet labelled** — see catalog below |
-| `0x82`..`0xFF` | ❓ | **Not scanned** — pending second field-run |
+| `0x82`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
 
 > **Important**: the earlier text descriptions for `0x05..0x81` were
 > derived from a misaligned mapping and have been removed. Re-labeling
@@ -87,8 +90,10 @@ await link.sendActiveNav(
 )
 ```
 
-Bytes in `0x82..0xFF` likely fall in the "hidden bubble" range that
-suppresses the overlay — useful as a "no maneuver" signal.
+Bytes in `0x82..0xFF` fall in the **hidden bubble** range — sending any
+of them suppresses the active-nav overlay completely. Use `0xFF` (or
+any byte in that range) as the canonical "no maneuver" signal that
+hides the bubble without tearing down the route.
 
 ## Catalog (byte → glyph)
 
@@ -232,7 +237,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x7F` | 🟡 | TBD | ![0x7F](glyphs/0x7F.png) |
 | `0x80` | ✅ | TBD | ![0x80](glyphs/0x80.png) |
 | `0x81` | ✅ | TBD | ![0x81](glyphs/0x81.png) |
-| `0x82`..`0xFF` | — | **Not scanned** — pending second field-run | — |
+| `0x82`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
 
 ## How to regenerate
 
@@ -262,8 +267,6 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## Open questions / pending work
 
-- [ ] **Range `0x82..0xFF`**: never scanned — needs second field-run with
-      `holdSeconds=5`, `byte_start=0x80`
 - [ ] **Re-classify `0x02..0x81`**: row-by-row labelling based on the
       self-labeled glyph image; the earlier text descriptions were
       derived from misaligned timing-based mapping and have been removed
@@ -274,6 +277,9 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
+- [ ] **Non-visual side effects in `0x82..0xFF`**: bubble is suppressed,
+      but does any byte in that range still trigger non-visual effects
+      (beep, text bar, vibration)? — needs separate test
 
 ## See also
 
