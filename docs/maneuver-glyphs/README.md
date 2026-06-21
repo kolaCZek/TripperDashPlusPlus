@@ -52,8 +52,8 @@ maneuver byte.
 | Byte | Glyph | Description | Image |
 |------|-------|-------------|-------|
 | `0x00` | 📍 | Destination pin (red) — **WARNING:** also rendered as 0x00 when stream hasn't started after byte change | ![0x00](glyphs/0x00.png) |
-| `0x01` | ⤴ | Y-fork up (small, left highlight) | ![0x01](glyphs/0x01.png) |
-| `0x02` | ⤴ | Y-fork up (medium) | ![0x02](glyphs/0x02.png) |
+| `0x01` | 📍← | **Arrival — destination on the LEFT** (pin left of road glyph) | ![0x01](glyphs/0x01.png) |
+| `0x02` | →📍 | **Arrival — destination on the RIGHT** (pin right of road glyph) | ![0x02](glyphs/0x02.png) |
 | `0x03` | Ψ | Y-junction, right branch up (active) | ![0x03](glyphs/0x03.png) |
 | `0x04` | Ψ | Y-junction, left branch up (active) | ![0x04](glyphs/0x04.png) |
 | `0x05` | ⎬ | T-fork, right branch up | ![0x05](glyphs/0x05.png) |
