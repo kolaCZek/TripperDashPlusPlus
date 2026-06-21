@@ -70,11 +70,11 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x1A` / `0x3D` | ↻ / ↺ | **U-turn RIGHT (0x1A) / LEFT (0x3D)** (180°, user-confirmed pair) |
 | `0x1B`, `0x1D`..`0x20` | Y↑ | **Y-fork — continue straight** (5 visual variants, no functional difference — user-confirmed) |
 | `0x1C` | 🧭 | **Recalculating route** (spinning compass, user-confirmed) |
-| `0x21`..`0x22` | ↗Y / ↖Y | **Y-merge (variant)** — joining from LEFT (0x21) / RIGHT (0x22), siblings of 0x03/0x04 |
+| `0x21`..`0x22` | ↗Y / ↖Y | **Y-merge** — joining from LEFT (0x21) / RIGHT (0x22), **visual duplicates of 0x03/0x04** (same maneuver, user-confirmed) |
 | `0x23`..`0x24` | ┝↑ / ┥↑ | **Side-road joining from LEFT (0x23) / RIGHT (0x24)** — shallow angle, parallel road merges in |
 | `0x25`..`0x26` | ┝↑ / ┥↑ | **Side-road joining from LEFT (0x25) / RIGHT (0x26)** — steeper angle than 0x23/0x24 |
-| `0x27`..`0x28` | ↑→exit / ↑←exit | **Exit RIGHT (0x27) / LEFT (0x28) off main road** |
-| `0x29`..`0x2A` | ↑→exit | **Exit RIGHT (0x29) / LEFT (0x2A)** — visual variants of 0x27/0x28 |
+| `0x27`..`0x28` | ↑↩exit / ↑↪exit | **Exit RIGHT (0x27) / LEFT (0x28)** — gentle ramp / smooth-curve sjezd off the main road |
+| `0x29`..`0x2A` | ↑↘turn / ↑↙turn | **Turn-off RIGHT (0x29) / LEFT (0x2A)** — sharper, angular odbočka off the main road |
 | `0x2D`..`0x2E` | ↑↗exit / ↑↖exit | **Slight exit RIGHT (0x2D) / LEFT (0x2E)** — gentle ramp |
 | `0x2F`..`0x30` | ↑↘exit / ↑↙exit | **Exit RIGHT (0x2F) / LEFT (0x30)** — sharper, more angled break-off |
 | `0x31`..`0x3A` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (large style, field-confirmed) |
@@ -164,16 +164,16 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x1E` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x1E](glyphs/0x1E.png) |
 | `0x1F` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x1F](glyphs/0x1F.png) |
 | `0x20` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x20](glyphs/0x20.png) |
-| `0x21` | ✅ ↗Y↑ | **Y-merge — joining from LEFT** (incoming road on the left, merges into the continuing road; user-confirmed, sibling of 0x03) | ![0x21](glyphs/0x21.png) |
-| `0x22` | ✅ ↖Y↑ | **Y-merge — joining from RIGHT** (incoming road on the right, merges into the continuing road; user-confirmed, sibling of 0x04) | ![0x22](glyphs/0x22.png) |
+| `0x21` | ✅ ↗Y↑ | **Y-merge — joining from LEFT** (visual duplicate of 0x03; same maneuver, user-confirmed) | ![0x21](glyphs/0x21.png) |
+| `0x22` | ✅ ↖Y↑ | **Y-merge — joining from RIGHT** (visual duplicate of 0x04; same maneuver, user-confirmed) | ![0x22](glyphs/0x22.png) |
 | `0x23` | ✅ ┝↑ | **Side-road joining from LEFT** (parallel road merges in from the left at a shallow angle; user-confirmed) | ![0x23](glyphs/0x23.png) |
 | `0x24` | ✅ ┥↑ | **Side-road joining from RIGHT** (parallel road merges in from the right at a shallow angle; user-confirmed) | ![0x24](glyphs/0x24.png) |
 | `0x25` | ✅ ┝↑ | **Side-road joining from LEFT** (steeper angle than 0x23; user-confirmed) | ![0x25](glyphs/0x25.png) |
 | `0x26` | ✅ ┥↑ | **Side-road joining from RIGHT** (steeper angle than 0x24; user-confirmed) | ![0x26](glyphs/0x26.png) |
-| `0x27` | ✅ ↑→exit | **Exit RIGHT off main road** (leave the through-road to the right; user-confirmed) | ![0x27](glyphs/0x27.png) |
-| `0x28` | ✅ ↑←exit | **Exit LEFT off main road** (leave the through-road to the left; user-confirmed) | ![0x28](glyphs/0x28.png) |
-| `0x29` | 🟡 ↑→exit | **Exit RIGHT off main road** (visual variant of 0x27 — sibling, not explicitly user-verified) | ![0x29](glyphs/0x29.png) |
-| `0x2A` | 🟡 ↑←exit | **Exit LEFT off main road** (visual variant of 0x28 — sibling, not explicitly user-verified) | ![0x2A](glyphs/0x2A.png) |
+| `0x27` | ✅ ↑↩exit | **Exit RIGHT (gentle ramp)** — smooth curving sjezd off the main road to the right; user-confirmed | ![0x27](glyphs/0x27.png) |
+| `0x28` | ✅ ↑↪exit | **Exit LEFT (gentle ramp)** — smooth curving sjezd off the main road to the left; user-confirmed | ![0x28](glyphs/0x28.png) |
+| `0x29` | ✅ ↑↘turn | **Turn-off RIGHT (sharper)** — angular odbočka off the main road to the right; user-confirmed | ![0x29](glyphs/0x29.png) |
+| `0x2A` | ✅ ↑↙turn | **Turn-off LEFT (sharper)** — angular odbočka off the main road to the left; user-confirmed | ![0x2A](glyphs/0x2A.png) |
 | `0x2B` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2B](glyphs/0x2B.png) |
 | `0x2C` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2C](glyphs/0x2C.png) |
 | `0x2D` | ✅ ↑↗exit | **Slight exit RIGHT** (gentle ramp off the main road to the right; user-confirmed) | ![0x2D](glyphs/0x2D.png) |
@@ -264,14 +264,6 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Identify `0x42`**: looks like a signal-strength / Wi-Fi icon,
       not a navigation maneuver — may be a status indicator that
       leaked into the maneuver enum, or a "no GPS" warning glyph.
-- [ ] **Distinguish 0x21/0x22 vs 0x03/0x04**: catalog lists them as
-      Y-merge variants but they may differ functionally (sharper merge
-      angle? different lane assignment?). Both pairs are visually
-      Y-merge — field-test to see if dash treats them differently.
-- [ ] **Verify exit-ramp family `0x27..0x30`**: user confirmed the
-      core LEFT/RIGHT exit semantics — but the exact distinction
-      between 0x27/0x28 and the 0x29/0x2A siblings (visual-only?
-      lane-specific?) is still inferred, not field-verified.
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
