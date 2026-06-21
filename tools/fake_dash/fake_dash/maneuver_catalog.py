@@ -5,6 +5,9 @@ README. Single source of truth for what byte → which glyph on the dash.
 Used by:
   - `tests/test_maneuver_catalog.py` to verify the Swift `wireByte`
     mapping in `ManeuverIcon.swift` stays in sync with the catalog.
+  - `tests/test_roundabout_parser.py` to verify the roundabout exit
+    extractor (Swift `RoundaboutInstructionParser`) stays in sync
+    with this Python mirror.
   - Future replay/dump tooling that wants to label captured packets.
 
 The catalog README lives at `docs/maneuver-glyphs/README.md`. It has

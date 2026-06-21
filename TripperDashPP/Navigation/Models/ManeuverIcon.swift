@@ -104,11 +104,20 @@ enum ManeuverKind: Equatable {
         if s.contains("slight right") || s.contains("mírně vpravo") || s.contains("mírně doprava") {
             return .slightRight
         }
-        if s.contains("roundabout") || s.contains("kruhový") || s.contains("kruháč") {
-            // F2a: no exit-count extraction yet. Default to (0, CCW)
-            // which renders as a small CCW roundabout on the dash.
-            // F2b will plug in the real exit number + direction.
-            return .roundabout(exit: 0, clockwise: false)
+        if s.contains("roundabout") || s.contains("kruhový") || s.contains("kruhovém")
+            || s.contains("kruháč") || s.contains("kruhovom") || s.contains("rondzie")
+            || s.contains("kreisverkehr") {
+            // F2b: extract exit number from the instructions string.
+            // Apple Maps emits "2nd exit" / "2. výjezdem" / etc.
+            // Fall back to exit 0 (generic small roundabout glyph) if
+            // we can't parse a number.
+            //
+            // Direction (CW/CCW) is left as `false` (CCW) for now —
+            // most of Continental Europe drives on the right, so
+            // roundabouts run CCW. F2c will fold in geometry-based
+            // CW detection for UK/IE/AU/JP/etc.
+            let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions) ?? 0
+            return .roundabout(exit: exit, clockwise: false)
         }
         if s.contains("merge") || s.contains("zařaďte") || s.contains("připojit") {
             // MKRoute "merge" instruction usually means "the highway
