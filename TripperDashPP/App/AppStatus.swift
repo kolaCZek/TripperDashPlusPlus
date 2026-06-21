@@ -294,6 +294,9 @@ final class AppStatus {
     /// Forward GPS fixes into ActiveNavigator. Called from the picker
     /// once per LocationService update.
     func navigatorIngest(_ fix: Fix) {
+        // Top up the rolling tile-bake window. Throttled inside
+        // MapViewSource so we don't hammer URLSession on every fix.
+        mapViewSource.extendTileCache(near: fix.coordinate)
         Task { @MainActor in
             await activeNavigator.ingest(fix: fix)
         }

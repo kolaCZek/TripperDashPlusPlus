@@ -92,6 +92,17 @@ final class MapViewSource: NSObject, FrameSource {
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
+
+    /// Timestamp of the most recent `extendTileCache(near:)` invocation
+    /// that actually triggered work. Used to throttle the rolling
+    /// extender — GPS fixes arrive at ~1 Hz which is more often than
+    /// we want to re-evaluate the bake window.
+    private var lastTileExtendAt: Date?
+
+    /// Minimum interval between rolling-extend evaluations. At 130
+    /// km/h that's ~72 m between calls — fine granularity given the
+    /// rolling lookahead is 5 km.
+    private static let tileExtendThrottle: TimeInterval = 2.0
     /// Route that needs a fresh tile bake but couldn't run yet (app
     /// in BG/lock). Drained on `didBecomeActiveNotification`. Most
     /// recent value wins — if a second reroute arrives before the
@@ -185,7 +196,35 @@ final class MapViewSource: NSObject, FrameSource {
     func setTileCache(_ cache: RouteTileCache?) {
         routeTileCache = cache
         lastTileHintIndex = 0
+        lastTileExtendAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
+    }
+
+    /// Extend the rolling tile-bake window around `coord`. Called from
+    /// `AppStatus.navigatorIngest` for every GPS fix. Throttled here
+    /// so the underlying URLSession isn't asked to re-evaluate the
+    /// rolling window faster than `tileExtendThrottle` (default 2 s).
+    ///
+    /// Idempotent: `RouteTileCache.extend` skips anchors already baked
+    /// or in flight, so calling more often than necessary is wasteful
+    /// but not incorrect. The throttle is for log noise + battery.
+    ///
+    /// No-op while the app is backgrounded — we'd be issuing fetches
+    /// to URLs that the OS might happily resolve, but the rider can't
+    /// see the result and we'd waste data + battery. The bake catches
+    /// up automatically on the next foreground tick.
+    func extendTileCache(near coord: CLLocationCoordinate2D) {
+        guard let cache = routeTileCache else { return }
+        guard UIApplication.shared.applicationState == .active else { return }
+        let now = Date()
+        if let last = lastTileExtendAt,
+           now.timeIntervalSince(last) < Self.tileExtendThrottle {
+            return
+        }
+        lastTileExtendAt = now
+        Task { @MainActor in
+            await cache.extend(near: coord)
+        }
     }
 
     /// Request a fresh tile cache for `route`. If the app is `.active`

@@ -130,14 +130,113 @@ final class RouteTileCache {
     /// span) before the cache misses and the dark fallback kicks in.
     static let lateralOffset: CLLocationDistance = 1500
 
-    /// Hard cap on total composites per route so a 300 km road trip
-    /// doesn't try to bake ~1000 anchors. When exceeded, the wings
-    /// are decimated uniformly; the main centerline is never thinned.
+    /// Hard cap on total composites per route. Anchors are still
+    /// computed beyond this number, but bake batches will only ever
+    /// process up to this many distinct indices — used as a sanity
+    /// brake for routes that produce truly absurd anchor counts
+    /// (10000+ km loops). For the rolling-window architecture this
+    /// is rarely hit in practice; `prerender`'s fast-start window
+    /// stays well under the cap on every reasonable route.
     static let maxTilesPerRoute: Int = 300
+
+    // MARK: - Rolling-window tunables
+
+    /// How far ahead of the route start the initial `prerender` call
+    /// bakes tiles. Picked so `prerender` finishes in ~3-5 s on 4G
+    /// from cold (no disk hits): 8 km / 700 m stride = ~12 main +
+    /// 24 wings = ~36 composites × 16 tiles = ~500 max tile fetches
+    /// (heavily dedup'd by overlap → typically ~200 unique tiles).
+    static let initialBakeAheadMeters: CLLocationDistance = 8000
+
+    /// How far ahead of the current rider position the rolling
+    /// extender keeps the cache warm. 5 km is comfortable margin:
+    /// at 130 km/h (highway top of guerrilla) that's ~2.3 minutes
+    /// of buffer, far longer than any conceivable bake latency
+    /// even on dodgy mobile data.
+    static let rollingLookaheadMeters: CLLocationDistance = 5000
+
+    /// How far BEHIND the rider position we keep extending. Small
+    /// margin so a temporary stop or u-turn doesn't immediately
+    /// drop the trailing tile, which would look bad to the rider
+    /// (renderer would fall back to dark territory directly behind
+    /// them). We don't actively evict — this just protects against
+    /// a future eviction policy.
+    static let rollingTrailMeters: CLLocationDistance = 500
 
     // MARK: - Stored state
 
+    // MARK: - Rolling-window state
+    //
+    // Rolling-window architecture (mid-2026):
+    //
+    //   The old `prerender` paid the full bake cost upfront — for a
+    //   300 km road trip that meant fetching ~600 tiles and waiting
+    //   30 s before the rider could press "Go". Worse, if you decided
+    //   to ride 10 km then turn back home, you'd have wasted ~80 % of
+    //   that bake on tiles you'd never see.
+    //
+    //   The new architecture:
+    //     1. Compute *all* anchors upfront (main + wings). Cheap —
+    //        just lat/lon arithmetic, no I/O.
+    //     2. Bake only an initial **fast-start window** near the route
+    //        start: ~8 km of main anchors with their wing tiles.
+    //        Typical: 12 main + 24 wing = ~36 composites = ~3-5 s
+    //        on 4G, well under the rider's tolerance for "tap → go".
+    //     3. Expose `extend(near:)`. The navigator hooks this into
+    //        every GPS fix (throttled in the caller — we don't enforce
+    //        that here). It bakes any not-yet-baked anchors that fall
+    //        within the lookahead window of the rider's current
+    //        position. Wings are baked along with their main anchor.
+    //     4. `nearestTile(to:)` only returns baked tiles. Unbaked
+    //        anchors are invisible to the renderer — the dark
+    //        fallback you already see for off-route territory just
+    //        extends to "ahead of the rolling window".
+    //
+    //   Net effect: instant nav start, scale-free behaviour for any
+    //   route length, and rebuilds (reroute mid-trip) are also fast
+    //   because `extend()` is idempotent and disk cache survives
+    //   the cache instance going away.
+
+    /// One anchor in the routeAnchors array. Identifies position
+    /// along the polyline + which lateral row (0=main, -1=left wing,
+    /// +1=right wing, …). Indexing is dense: anchor i+1 always
+    /// neighbours anchor i in the geometry, so we can walk the array
+    /// in index space and stay close in real space.
+    private struct Anchor: Sendable {
+        let coord: CLLocationCoordinate2D
+        /// Distance from the polyline START along the route (meters).
+        /// Used to pick the "front edge" of the rolling window quickly.
+        let routeOffsetMeters: CLLocationDistance
+        /// 0 = main anchor on the polyline, ±1 / ±2 = lateral wing
+        /// offsets. Kept around for diagnostics only — bake order
+        /// treats main and wings equally.
+        let lateralRow: Int
+    }
+
+    /// Built tiles only — `nearestTile` walks this. Sparse w.r.t.
+    /// `allAnchors` (only baked-so-far entries appear).
     private(set) var tiles: [RouteTile] = []
+
+    /// All anchors for the current route. `allAnchors[i]` is unbaked
+    /// unless `bakedIndices.contains(i)`. Used as the source of truth
+    /// for `extend()` — we never re-derive anchors per fix, that'd
+    /// be wasteful.
+    private var allAnchors: [Anchor] = []
+
+    /// Which indices into `allAnchors` have a successfully baked tile.
+    /// `bakedTileByIndex[idx]` gives the actual `RouteTile`.
+    private var bakedTileByIndex: [Int: RouteTile] = [:]
+
+    /// Indices currently being baked. Prevents `extend()` from
+    /// re-issuing fetches for tiles already in flight when two GPS
+    /// fixes arrive close together.
+    private var inFlight: Set<Int> = []
+
+    /// Distance (along route) of the latest GPS fix snapped to the
+    /// closest main anchor. We extend `[snapped, snapped + lookahead]`
+    /// and the lateral wings of every main in that range.
+    private var lastRiderRouteOffset: CLLocationDistance = 0
+
     private let imageCache = NSCache<NSNumber, UIImage>()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RouteTileCache")
 
@@ -147,63 +246,115 @@ final class RouteTileCache {
 
     // MARK: - Build
 
-    /// Pre-fetch + stitch all composites for `route`. Reports `0…1`
-    /// progress on the main actor every time a composite finishes.
+    /// Pre-fetch the **fast-start** window for `route` — enough tiles
+    /// to start moving immediately, without waiting for a full-route
+    /// bake. Subsequent `extend(near:)` calls top up the cache as
+    /// the rider progresses.
     ///
-    /// `progress` callback fires with values strictly increasing
-    /// from 0 to 1. The final call (1.0) only fires after every
-    /// composite has been added to `self.tiles`.
+    /// `progress` callback fires `0…1` over the fast-start window
+    /// only. Once it reaches 1.0, the rider can press Go even though
+    /// most of the route still has no tiles. The rolling extender
+    /// keeps the buffer ahead of the rider from then on.
     func prerender(
         route: MKRoute,
         progress: @MainActor @escaping (Double) -> Void
     ) async {
+        // Reset all rolling state for the new route.
         tiles.removeAll(keepingCapacity: true)
-        let mainAnchors = anchorsAlongPolyline(route.polyline, stride: Self.stride)
-        // Lateral buffer: same anchor positions, shifted ±lateralOffset
-        // meters perpendicular to the route. Gives the rider a tile-
-        // backed safety zone if they deviate before reroute fires.
-        // Cap on total anchors prevents pathological long routes from
-        // pre-fetching forever.
-        let leftAnchors  = lateralAnchors(mainAnchors, offsetMeters: -Self.lateralOffset)
-        let rightAnchors = lateralAnchors(mainAnchors, offsetMeters: +Self.lateralOffset)
-        var anchors = mainAnchors + leftAnchors + rightAnchors
-        if anchors.count > Self.maxTilesPerRoute {
-            let budget = max(0, Self.maxTilesPerRoute - mainAnchors.count)
-            let perWing = budget / 2
-            let leftTrim  = Self.decimate(leftAnchors, keepCount: perWing)
-            let rightTrim = Self.decimate(rightAnchors, keepCount: perWing)
-            anchors = mainAnchors + leftTrim + rightTrim
-            log.info("Anchor budget exceeded; decimated wings to \(perWing, privacy: .public) each side")
-        }
-        log.info("Pre-fetching \(anchors.count, privacy: .public) composites (\(mainAnchors.count, privacy: .public) main + \(anchors.count - mainAnchors.count, privacy: .public) lateral) for route (\(Int(route.distance), privacy: .public) m)")
+        bakedTileByIndex.removeAll(keepingCapacity: true)
+        inFlight.removeAll(keepingCapacity: true)
+        allAnchors = computeAllAnchors(for: route)
+        lastRiderRouteOffset = 0
+        log.info("Route has \(self.allAnchors.count, privacy: .public) total anchors (main + wings); fast-start window = \(Self.initialBakeAheadMeters, privacy: .public) m")
         progress(0)
 
-        // Bound concurrency at `parallelism` via a simple semaphore-
-        // style window. Composite order matches anchor index so
-        // heading-up rotation never has to search the whole list.
-        let total = anchors.count
+        // Fast start: bake every anchor (main + wings) whose
+        // routeOffset falls within [0, initialBakeAheadMeters].
+        let initialIndices = anchorIndices(
+            withinOffsetRange: 0...Self.initialBakeAheadMeters
+        )
+        await bakeAnchors(at: initialIndices, progress: progress)
+        progress(1)
+    }
+
+    /// Top up the cache to cover `near` + `lookaheadMeters` along the
+    /// route. Idempotent — anchors already baked or in flight are
+    /// skipped. Safe to call from every GPS fix (the caller should
+    /// throttle to ~1 Hz to avoid logspam).
+    ///
+    /// No progress callback: this is background work, the rider
+    /// is already navigating and the progress sheet is gone.
+    func extend(
+        near coord: CLLocationCoordinate2D,
+        lookaheadMeters: CLLocationDistance = RouteTileCache.rollingLookaheadMeters
+    ) async {
+        guard !allAnchors.isEmpty else { return }
+
+        // Snap the rider position to the closest **main** anchor and
+        // use its routeOffset as the window's center-back edge. Main
+        // anchors are the ones on the actual polyline; wings would
+        // give a misleading offset for someone briefly drifting.
+        let snappedOffset = snapToMainAnchor(coord: coord) ?? lastRiderRouteOffset
+        lastRiderRouteOffset = snappedOffset
+
+        let frontEdge = snappedOffset + lookaheadMeters
+        // Also keep a small backwards margin so a rider who briefly
+        // stops or reverses doesn't see the trailing tiles get pruned
+        // (we don't prune at all yet, but the principle stays valid).
+        let backEdge = max(0, snappedOffset - Self.rollingTrailMeters)
+
+        let candidateIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
+        let missing = candidateIndices.filter {
+            bakedTileByIndex[$0] == nil && !inFlight.contains($0)
+        }
+        guard !missing.isEmpty else { return }
+        log.debug("extend: rider @ \(Int(snappedOffset), privacy: .public) m, baking \(missing.count, privacy: .public) new anchors (window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m)")
+        await bakeAnchors(at: missing, progress: nil)
+    }
+
+    // MARK: - Bake helpers
+
+    /// Bake `indices` into `allAnchors`, updating `tiles` /
+    /// `bakedTileByIndex` as each completes. `progress` is fed with
+    /// `0…1` of THIS batch when non-nil (used by `prerender` for
+    /// the fast-start sheet; left nil by `extend`).
+    private func bakeAnchors(
+        at indices: [Int],
+        progress: (@MainActor (Double) -> Void)?
+    ) async {
+        guard !indices.isEmpty else {
+            progress?(1)
+            return
+        }
+        // Mark in-flight before we await so a concurrent extend()
+        // call doesn't double up.
+        for i in indices { inFlight.insert(i) }
+        let total = indices.count
         var completed = 0
-        var built: [RouteTile?] = Array(repeating: nil, count: total)
 
         await withTaskGroup(of: (Int, RouteTile?).self) { group in
-            var nextIndex = 0
+            var nextSlot = 0
+            // Prime the pool.
             for _ in 0..<min(Self.parallelism, total) {
-                let idx = nextIndex
-                nextIndex += 1
-                let center = anchors[idx]
+                let i = indices[nextSlot]
+                nextSlot += 1
+                let center = allAnchors[i].coord
                 group.addTask { @MainActor in
                     let tile = await Self.composite(center: center)
-                    return (idx, tile)
+                    return (i, tile)
                 }
             }
             for await (idx, tile) in group {
-                built[idx] = tile
+                inFlight.remove(idx)
+                if let tile = tile {
+                    bakedTileByIndex[idx] = tile
+                }
                 completed += 1
-                progress(Double(completed) / Double(total))
-                if nextIndex < total {
-                    let i = nextIndex
-                    nextIndex += 1
-                    let center = anchors[i]
+                progress?(Double(completed) / Double(total))
+                if nextSlot < total {
+                    let i = indices[nextSlot]
+                    nextSlot += 1
+                    let center = allAnchors[i].coord
                     group.addTask { @MainActor in
                         let tile = await Self.composite(center: center)
                         return (i, tile)
@@ -211,10 +362,105 @@ final class RouteTileCache {
                 }
             }
         }
+        // Rebuild `tiles` in route order from the baked set. We do this
+        // once per batch (not per tile) because `nearestTile(hintIndex:)`
+        // assumes `tiles[i+1]` is geometrically near `tiles[i]` — sparse
+        // / append-order arrays would silently break the heading-up
+        // composite path. Rebuilding is cheap (~100 entries, O(n)).
+        //
+        // Ordering: primary key = routeOffsetMeters, secondary =
+        // lateralRow. That groups every position into a (main,
+        // left, right) triplet block ordered along the route, which
+        // gives `nearestTile`'s `idx ± 2` neighbourhood good
+        // geometric locality.
+        //
+        // SIDE EFFECT: this reorders `tiles`, so any cached
+        // `lastTileHintIndex` over in `MapViewSource` is stale after
+        // a batch finishes. `nearestTile(hintIndex:)` falls back to
+        // a full scan when the hint doesn't land within tileSpan/2,
+        // so correctness is preserved — the cost is one extra full
+        // scan per batch, well under one frame.
+        let sortedIdxs = bakedTileByIndex.keys.sorted { a, b in
+            let aa = allAnchors[a]
+            let bb = allAnchors[b]
+            if aa.routeOffsetMeters != bb.routeOffsetMeters {
+                return aa.routeOffsetMeters < bb.routeOffsetMeters
+            }
+            return aa.lateralRow < bb.lateralRow
+        }
+        tiles = sortedIdxs.map { bakedTileByIndex[$0]! }
+        log.info("Baked batch: \(completed, privacy: .public) anchors, total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public)")
+    }
 
-        tiles = built.compactMap { $0 }
-        log.info("Pre-fetch done: \(self.tiles.count, privacy: .public)/\(total, privacy: .public) composites built")
-        progress(1)
+    /// Build the full anchor list for `route` — every main anchor
+    /// along the polyline + every lateral wing anchor — without
+    /// baking anything. Pure arithmetic, runs in microseconds.
+    private func computeAllAnchors(for route: MKRoute) -> [Anchor] {
+        guard route.polyline.pointCount > 0 else { return [] }
+        let mainCoords = anchorsAlongPolyline(route.polyline, stride: Self.stride)
+        // Tag each main anchor with its routeOffset (distance along
+        // the polyline from start). We need this to define the
+        // rolling window — Euclidean distance to the rider doesn't
+        // know which direction is "ahead".
+        var mainOffsets: [CLLocationDistance] = []
+        mainOffsets.reserveCapacity(mainCoords.count)
+        var prev: CLLocationCoordinate2D? = nil
+        var acc: CLLocationDistance = 0
+        for c in mainCoords {
+            if let p = prev {
+                acc += PolylineMath.haversine(p, c)
+            }
+            mainOffsets.append(acc)
+            prev = c
+        }
+        // Build wing rows with the same offsets as their main counterparts.
+        let leftCoords = lateralAnchors(mainCoords, offsetMeters: -Self.lateralOffset)
+        let rightCoords = lateralAnchors(mainCoords, offsetMeters: +Self.lateralOffset)
+        var out: [Anchor] = []
+        out.reserveCapacity(mainCoords.count * 3)
+        for (i, c) in mainCoords.enumerated() {
+            out.append(Anchor(coord: c, routeOffsetMeters: mainOffsets[i], lateralRow: 0))
+        }
+        for (i, c) in leftCoords.enumerated() {
+            out.append(Anchor(coord: c, routeOffsetMeters: mainOffsets[i], lateralRow: -1))
+        }
+        for (i, c) in rightCoords.enumerated() {
+            out.append(Anchor(coord: c, routeOffsetMeters: mainOffsets[i], lateralRow: +1))
+        }
+        return out
+    }
+
+    /// Filter `allAnchors` to those whose `routeOffsetMeters` falls
+    /// within `range`. Used by both `prerender` (initial window) and
+    /// `extend` (rolling window).
+    private func anchorIndices(
+        withinOffsetRange range: ClosedRange<CLLocationDistance>
+    ) -> [Int] {
+        var out: [Int] = []
+        for (i, a) in allAnchors.enumerated() where range.contains(a.routeOffsetMeters) {
+            out.append(i)
+        }
+        return out
+    }
+
+    /// Find the main-row anchor closest to `coord` and return its
+    /// `routeOffsetMeters`. Used to snap the rider position to a
+    /// well-defined "distance along route" value.
+    ///
+    /// Returns nil if the rider is implausibly far from every main
+    /// anchor (>3 km, off-route plus lateral buffer) — `extend()`
+    /// will then fall back to the last known offset.
+    private func snapToMainAnchor(coord: CLLocationCoordinate2D) -> CLLocationDistance? {
+        var bestOffset: CLLocationDistance = 0
+        var bestDist = CLLocationDistance.greatestFiniteMagnitude
+        for a in allAnchors where a.lateralRow == 0 {
+            let d = PolylineMath.haversine(coord, a.coord)
+            if d < bestDist {
+                bestDist = d
+                bestOffset = a.routeOffsetMeters
+            }
+        }
+        return bestDist < 3000 ? bestOffset : nil
     }
 
     // MARK: - Lookup
@@ -339,6 +585,13 @@ final class RouteTileCache {
     }
 
     /// Keep `keepCount` items evenly distributed.
+    ///
+    /// Currently unused after the rolling-window refactor (the old
+    /// `prerender` decimated wings when total anchors > maxTilesPerRoute).
+    /// Left in place because the unit test in
+    /// `tests/test_lateral_buffer.py` still cross-checks the Swift
+    /// behaviour against a Python port — and because a future
+    /// eviction policy might want it.
     private static func decimate<T>(_ array: [T], keepCount: Int) -> [T] {
         guard keepCount > 0 else { return [] }
         guard array.count > keepCount else { return array }
