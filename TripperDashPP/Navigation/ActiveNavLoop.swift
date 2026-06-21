@@ -102,19 +102,12 @@ final class ActiveNavLoop {
         let primaryDist = settings.distanceWireValue(meters: distNext, unitByte: primaryUnit)
         let totalDist = settings.distanceWireValue(meters: distTotal, unitByte: totalUnit)
 
-        let etaDate: Date? = settings.includeEtaTlv && !settings.suppressEtaTlv && etaSec > 0
+        let etaDate: Date? = settings.includeEtaTlv && etaSec > 0
             ? Date(timeIntervalSinceNow: etaSec)
             : nil
         let remainingSecs: TimeInterval? = settings.includeEtaTlv
             ? nil  // when bottom row shows ETA we omit remaining-time
             : (etaSec > 0 ? etaSec : nil)
-
-        // Bug 4 instrumentation: log ETA pipeline state each tick so we
-        // can correlate against what the dash actually shows. Filter
-        // with `log stream --predicate 'category == "ActiveNavLoop"'`.
-        if settings.verbosePacketLogging || settings.suppressEtaTlv {
-            log.info("nav tick: etaSec=\(etaSec, format: .fixed(precision: 0)) includeEtaTlv=\(self.settings.includeEtaTlv, privacy: .public) suppressEtaTlv=\(self.settings.suppressEtaTlv, privacy: .public) → tlvEta=\(etaDate?.description ?? "nil", privacy: .public)")
-        }
 
         let roadName: String? = {
             // MKRoute.Step doesn't expose the road name directly. Apple

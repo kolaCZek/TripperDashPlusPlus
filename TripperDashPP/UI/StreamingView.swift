@@ -2,11 +2,11 @@
 //  StreamingView.swift
 //  TripperDashPP
 //
-//  Settings / diagnostics surface. The actual stream lifecycle is now
-//  driven from MapPickerView: starting navigation also starts the RTP
-//  pipeline (MapViewSource → H264Encoder → RtpPacketizer), and ending
-//  navigation tears it down. This view is read-mostly — pick units,
-//  flip diagnostic toggles, watch live stream counters, read the build.
+//  Settings surface. The actual stream lifecycle is driven from
+//  MapPickerView: starting navigation also starts the RTP pipeline
+//  (MapViewSource → H264Encoder → RtpPacketizer), and ending navigation
+//  tears it down. This view is read-mostly — pick units, watch live
+//  stream counters, read the build.
 //
 
 import CoreLocation
@@ -87,31 +87,6 @@ struct StreamingView: View {
                     }
                 }
                 Text("Active-nav bubble can show either ETA or remaining distance — pick which one the dash should render.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Suppress ETA TLV", isOn: Binding(
-                    get: { status.dashNavSettings.suppressEtaTlv },
-                    set: { status.dashNavSettings.suppressEtaTlv = $0 }
-                ))
-                Toggle("Send 1 Hz heartbeat", isOn: Binding(
-                    get: { status.dashNavSettings.sendHeartbeat0044 },
-                    set: { status.dashNavSettings.sendHeartbeat0044 = $0 }
-                ))
-                Toggle("Send initial-burst packet 9", isOn: Binding(
-                    get: { status.dashNavSettings.sendInitialBurstPacket9 },
-                    set: { status.dashNavSettings.sendInitialBurstPacket9 = $0 }
-                ))
-                Toggle("Verbose packet logging", isOn: Binding(
-                    get: { status.dashNavSettings.verbosePacketLogging },
-                    set: { status.dashNavSettings.verbosePacketLogging = $0 }
-                ))
-            } header: {
-                Text("Diagnostics (Bug 3 / Bug 4)")
-            } footer: {
-                Text("A/B-test toggles for the dash clock-shift bug. Defaults match shipping behaviour; flip individual switches off, reconnect to the bike, watch whether the dash clock still jumps. Verbose logging surfaces every ETA tick and outbound packet to Console.app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

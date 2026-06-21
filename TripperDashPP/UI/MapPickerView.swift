@@ -27,7 +27,7 @@ struct MapPickerView: View {
 
     @State private var locationToken: UUID?
     @State private var transitioning = false
-    @State private var showDiagnostics = false
+    @State private var showSettings = false
 
     /// Tile pre-render progress (0.0 = idle/done, 0…<1 = in flight).
     /// We use a single shared sheet that watches `prerenderActive`.
@@ -90,13 +90,13 @@ struct MapPickerView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showDiagnostics = true } label: {
+                Button { showSettings = true } label: {
                     Image(systemName: "gearshape")
                 }
-                .accessibilityLabel("Diagnostics")
+                .accessibilityLabel("Settings")
             }
         }
-        .sheet(isPresented: $showDiagnostics) {
+        .sheet(isPresented: $showSettings) {
             NavigationStack { StreamingView() }
                 .environment(status)
         }
@@ -416,7 +416,7 @@ private struct StatusBanner: View {
         case .handshaking:  "Handshaking with dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
-        case .error:        "Error — see diagnostics"
+        case .error:        "Error — see settings"
         }
     }
 }

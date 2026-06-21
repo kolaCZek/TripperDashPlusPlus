@@ -99,10 +99,11 @@ final class AppStatus {
     private var wakelockToken: UUID?
 
     init() {
-        // Wire BikeLink → DashNavSettings so the initial-burst gating,
-        // heartbeat gating, and verbose packet logging toggles take
-        // effect. Both objects exist as inline stored properties, so
-        // this is the first moment we can connect them.
+        // Wire BikeLink → DashNavSettings so the wire-encoding helpers
+        // (units, decimal separator, clock format, bottom-line mutex)
+        // are reachable from inside the connection flow. Both objects
+        // exist as inline stored properties, so this is the first
+        // moment we can connect them.
         bikeLink.settings = dashNavSettings
 
         // Watch `bikeLink.state` so the wakelock follows the link, not
