@@ -485,7 +485,17 @@ extension MapViewSource {
             let dMeters = PolylineMath.haversine(fix.coordinate, refTile.center)
             let dLat = (refTile.center.latitude - fix.coordinate.latitude) * 111_111
             let dLon = (refTile.center.longitude - fix.coordinate.longitude) * 111_111 * cos(fix.coordinate.latitude * .pi / 180)
-            log.info("tile-pick #\(self.frameIndex, privacy: .public) fix=(\(fix.coordinate.latitude, privacy: .public),\(fix.coordinate.longitude, privacy: .public)) tile.center=(\(refTile.center.latitude, privacy: .public),\(refTile.center.longitude, privacy: .public)) dist=\(dMeters, format: .fixed(precision: 1), privacy: .public)m dNorth=\(dLat, format: .fixed(precision: 1), privacy: .public)m dEast=\(dLon, format: .fixed(precision: 1), privacy: .public)m heading=\(self.lastHeading, format: .fixed(precision: 0), privacy: .public)°")
+            // Predicted pixel offset on the rendered screen for tile.center
+            // (relative to puck position):
+            //   pxN = dLat * refTile.pxPerDegLat (deg→px, NORTH on screen)
+            //   pxE = dLon converted using the actual pxPerDegLon at lat
+            //
+            // Then in heading-up rotation, the screen-x/y depend on heading.
+            // Here we just log the unrotated pixel offsets so we can sanity
+            // check whether the pixel math matches the meter offset.
+            let pxN = (refTile.center.latitude - fix.coordinate.latitude) * refTile.pxPerDegLat
+            let pxE = (refTile.center.longitude - fix.coordinate.longitude) * refTile.pxPerDegLon
+            log.info("tile-pick #\(self.frameIndex, privacy: .public) fix=(\(fix.coordinate.latitude, privacy: .public),\(fix.coordinate.longitude, privacy: .public)) tile.center=(\(refTile.center.latitude, privacy: .public),\(refTile.center.longitude, privacy: .public)) dist=\(dMeters, format: .fixed(precision: 1), privacy: .public)m dN=\(dLat, format: .fixed(precision: 1), privacy: .public)m dE=\(dLon, format: .fixed(precision: 1), privacy: .public)m pxN=\(pxN, format: .fixed(precision: 1), privacy: .public) pxE=\(pxE, format: .fixed(precision: 1), privacy: .public) pxPerDegLat=\(refTile.pxPerDegLat, format: .fixed(precision: 1), privacy: .public) pxPerDegLon=\(refTile.pxPerDegLon, format: .fixed(precision: 1), privacy: .public) heading=\(self.lastHeading, format: .fixed(precision: 0), privacy: .public)°")
         }
         updateHeading()
         updateZoom()
