@@ -83,8 +83,8 @@ final class MapViewSource: NSObject, FrameSource {
     /// more map ahead of the rider. 0.0 = dead-center (legacy behaviour);
     /// 0.20 ≈ puck at 70% from the top, 30% above the bottom edge.
     ///
-    /// Authority: rider-feedback from real-bike run 2026-06-21 ("posun
-    /// aktuální polohu trochu níž ke spodnímu okraji").
+    /// Authority: rider feedback from real-bike run 2026-06-21 ("shift
+    /// the current position a bit lower toward the bottom edge").
     private let forwardBiasFraction: CGFloat = 0.20
 
     /// PiP wrapper.

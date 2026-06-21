@@ -155,9 +155,10 @@ final class TestPatternSource: FrameSource {
         let w = CGFloat(width)
         let h = CGFloat(height)
 
-        // Flip CTM tak, aby drawing API mluvilo UIKit-style (y=0 nahoře,
-        // y=h dole). Bez tohoto vychází NSAttributedString.draw upside-down,
-        // protože UIKit text API předpokládá flipped y-axis context.
+        // Flip the CTM so the drawing API speaks UIKit-style (y=0 at top,
+        // y=h at bottom). Without this NSAttributedString.draw renders
+        // upside-down, because UIKit's text API assumes a flipped y-axis
+        // context.
         ctx.translateBy(x: 0, y: h)
         ctx.scaleBy(x: 1, y: -1)
 
@@ -180,7 +181,7 @@ final class TestPatternSource: FrameSource {
             ctx.fill(CGRect(x: CGFloat(i) * blockW, y: 0, width: blockW, height: 40))
         }
 
-        // Title + clock + frame counter (čte se shora dolů).
+        // Title + clock + frame counter (reads top-to-bottom).
         let elapsed = CACurrentMediaTime() - startTime
         let totalMs = Int(elapsed * 1000)
         let hh = (totalMs / 3_600_000) % 24
@@ -200,8 +201,8 @@ final class TestPatternSource: FrameSource {
     }
 
     private func drawText(_ s: String, in ctx: CGContext, at origin: CGPoint, fontSize: CGFloat, color: UIColor) {
-        // CTM už je flipnuté v draw(into:), takže UIKit text draw vychází
-        // čitelně bez další matematiky.
+        // The CTM is already flipped in draw(into:), so UIKit text drawing
+        // comes out readable without any extra math.
         UIGraphicsPushContext(ctx)
         defer { UIGraphicsPopContext() }
         let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)

@@ -21,11 +21,11 @@ struct PrerenderProgressView: View {
                     .font(.system(size: 48, weight: .regular))
                     .foregroundStyle(.white)
 
-                Text("Stahuji mapové podklady")
+                Text("Downloading map tiles")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
 
-                Text("Cache pro navigaci se zamknutým telefonem.")
+                Text("Cache for navigating with the phone locked.")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)

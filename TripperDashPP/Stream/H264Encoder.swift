@@ -14,10 +14,11 @@
 //
 //  Configuration: baseline profile, 6 fps, ~450 kbps, keyframe every
 //  12 frames (2 s). These match what the Tripper dash tolerates per
-//  better-dash captures — stock phone app jede 4 fps, 8–12 je horní
-//  reliable mez (výš dash decoder blikne), bitrate 300–450 kbps drží
-//  Wi-Fi i jitter buffer dashe v pohodě. High profile + B-frames
-//  break the firmware decoder. Match snapshotFps in MapSnapshotSource.
+//  better-dash captures — stock phone app runs at 4 fps, 8–12 is the
+//  upper reliable limit (above that the dash decoder blinks), bitrate
+//  300–450 kbps keeps Wi-Fi and the dash jitter buffer happy. High
+//  profile + B-frames break the firmware decoder. Match snapshotFps in
+//  MapSnapshotSource.
 //
 
 import CoreMedia

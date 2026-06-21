@@ -5,7 +5,7 @@
 //  Phase 7b — wrapper around MKLocalSearchCompleter for live
 //  autocomplete + MKLocalSearch for resolving a completion to a real
 //  coordinate. Owns its region bias (100 km box around the current
-//  GPS, ČR fallback).
+//  GPS, Czech Republic fallback).
 //
 
 import CoreLocation
@@ -44,7 +44,7 @@ final class LocalSearchService: NSObject {
     private let completer = MKLocalSearchCompleter()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "LocalSearch")
 
-    /// ČR centre — fallback when we don't yet have a fix.
+    /// Czech Republic centre — fallback when we don't yet have a fix.
     private static let czechRepublicCenter = CLLocationCoordinate2D(latitude: 49.8, longitude: 15.5)
 
     override init() {
@@ -70,7 +70,7 @@ final class LocalSearchService: NSObject {
     private func applyRegion() {
         let center = biasCenter ?? Self.czechRepublicCenter
         // Tighter box when we have GPS (200 km square, 100 km radius
-        // equivalent), wider when we're guessing the ČR centroid.
+        // equivalent), wider when we're guessing the Czech Republic centroid.
         let span: CLLocationDistance = (biasCenter == nil) ? 600_000 : 200_000
         completer.region = MKCoordinateRegion(
             center: center,

@@ -138,13 +138,13 @@ struct StreamingView: View {
             }
 
             Section {
-                Text("Picture-in-Picture hostuje 90×54 thumbnail nad navigací (vpravo nahoře) — drží MapKit / GPU pipeline naživu, když je obrazovka uzamčená.\n\nDůvod: iOS suspenduje běžné apky při locku. PiP přesvědčí systém že jsme video player, takže `MKMapSnapshotter` jede dál a stream do dashe se neblokuje. Stejný trik jako Waze a GMaps.")
+                Text("Picture-in-Picture hosts a 90×54 thumbnail above the navigation view (top-right) — it keeps the MapKit / GPU pipeline alive while the screen is locked.\n\nWhy: iOS suspends regular apps on lock. PiP convinces the system we're a video player, so `MKMapSnapshotter` keeps running and the stream to the dash doesn't stall. Same trick as Waze and GMaps.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Background runtime (PiP)")
             } footer: {
-                Text("PiP thumbnail je viditelný jen během aktivní navigace v MapPickerView. Tady jen vysvětlení; preview view jsme přesunuli tam, aby drželo PiP controller naživu i když je tato obrazovka zavřená.")
+                Text("The PiP thumbnail is only visible during active navigation in MapPickerView. This screen just explains it; the preview view was moved there so it keeps the PiP controller alive even when this settings screen is closed.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
