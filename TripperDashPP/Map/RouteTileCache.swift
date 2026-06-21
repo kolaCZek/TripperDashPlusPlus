@@ -216,6 +216,11 @@ final class RouteTileCache {
     /// Built tiles only — `nearestTile` walks this. Sparse w.r.t.
     /// `allAnchors` (only baked-so-far entries appear).
     private(set) var tiles: [RouteTile] = []
+    /// Parallel-indexed array of `Anchor.lateralRow` for each entry of
+    /// `tiles[]`. 0 = main row (on-route), ±1 = lateral wing. Used by
+    /// `nearestTile(to:hintIndex:)` to prefer main-row tiles even when
+    /// a wing tile is geometrically closer.
+    private(set) var tileRowKind: [Int] = []
 
     /// All anchors for the current route. `allAnchors[i]` is unbaked
     /// unless `bakedIndices.contains(i)`. Used as the source of truth
@@ -261,6 +266,7 @@ final class RouteTileCache {
     ) async {
         // Reset all rolling state for the new route.
         tiles.removeAll(keepingCapacity: true)
+        tileRowKind.removeAll(keepingCapacity: true)
         bakedTileByIndex.removeAll(keepingCapacity: true)
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
@@ -389,6 +395,7 @@ final class RouteTileCache {
             return aa.lateralRow < bb.lateralRow
         }
         tiles = sortedIdxs.map { bakedTileByIndex[$0]! }
+        tileRowKind = sortedIdxs.map { allAnchors[$0].lateralRow }
         // Reorder invalidates the (idx → UIImage) memo. Without this
         // the renderer's `image(for:atIndex:)` would return a *stale*
         // image for a freshly-shuffled index — i.e. the picture for
@@ -475,12 +482,42 @@ final class RouteTileCache {
     /// Find the composite whose center is closest to `coord`. Returns
     /// `nil` if `coord` is more than ~half a composite span from
     /// every anchor (off-route, re-routing scenario).
+    ///
+    /// **Main-row preference**: a wing tile is centred 1.5 km lateral
+    /// to the route. If the rider is on the route, both a main tile
+    /// (~350 m away in route direction) and a wing tile (~1.5 km
+    /// lateral) qualify under the 700 m hint guardrail — but only the
+    /// main tile is visually correct (the wing tile's geographic centre
+    /// sits 1.5 km off-route, so the rider would appear in the bitmap
+    /// 1.5 km off the polyline). Bias the search toward main-row.
     func nearestTile(to coord: CLLocationCoordinate2D, hintIndex: Int? = nil) -> (RouteTile, Int)? {
         guard !tiles.isEmpty else { return nil }
 
+        // Identify which tiles are main-row (lateralRow == 0). We
+        // cached this at bake-time in `tileRowKind`.
+        func isMain(_ i: Int) -> Bool {
+            return tileRowKind[i] == 0
+        }
+
         if let hint = hintIndex {
-            let lo = max(0, hint - 2)
-            let hi = min(tiles.count - 1, hint + 2)
+            let lo = max(0, hint - 4)
+            let hi = min(tiles.count - 1, hint + 4)
+            // First pass: main-row only.
+            var bestMain = -1
+            var bestMainDist = CLLocationDistance.greatestFiniteMagnitude
+            for i in lo...hi where isMain(i) {
+                let d = PolylineMath.haversine(coord, tiles[i].center)
+                if d < bestMainDist {
+                    bestMainDist = d
+                    bestMain = i
+                }
+            }
+            // If a main-row tile is "close enough" (within stride),
+            // prefer it over any wing tile in the window.
+            if bestMain >= 0 && bestMainDist < 700 {
+                return (tiles[bestMain], bestMain)
+            }
+            // Otherwise fall back to ANY tile (main or wing) within window.
             var best = lo
             var bestDist = PolylineMath.haversine(coord, tiles[lo].center)
             for i in (lo + 1)...hi {
@@ -490,15 +527,25 @@ final class RouteTileCache {
                     best = i
                 }
             }
-            // Each tile is a 1024×1024 OSM stitch covering ~5 km, so
-            // anything within `stride` of an anchor centre is squarely
-            // inside that anchor's tile. The 700 m guardrail (≈ stride)
-            // catches "rider has wandered off route" gracefully.
             if bestDist < 700 {
                 return (tiles[best], best)
             }
         }
 
+        // Full-scan fallback: also bias toward main-row.
+        var bestMainIdx = -1
+        var bestMainDist = CLLocationDistance.greatestFiniteMagnitude
+        for (i, t) in tiles.enumerated() where isMain(i) {
+            let d = PolylineMath.haversine(coord, t.center)
+            if d < bestMainDist {
+                bestMainDist = d
+                bestMainIdx = i
+            }
+        }
+        if bestMainIdx >= 0 && bestMainDist < 1500 {
+            return (tiles[bestMainIdx], bestMainIdx)
+        }
+        // Final fallback: any tile within the wider 2.5 km guardrail.
         var bestIdx = 0
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
         for (i, t) in tiles.enumerated() {
@@ -508,9 +555,6 @@ final class RouteTileCache {
                 bestIdx = i
             }
         }
-        // Wider fallback guardrail than the hinted-window check —
-        // if we've fallen back to a full scan, a wing anchor's
-        // lateral offset (1.5 km) is still acceptable.
         guard bestDist < 2500 else { return nil }
         return (tiles[bestIdx], bestIdx)
     }

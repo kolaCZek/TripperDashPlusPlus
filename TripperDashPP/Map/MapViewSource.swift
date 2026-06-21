@@ -471,12 +471,22 @@ extension MapViewSource {
     /// draw cropped tile → polyline → user dot in the center.
     private func drawTileCacheFrame(into ctx: CGContext) {
         guard let cache = routeTileCache, let fix = lastFix else { return }
-        guard let (_, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
+        guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
             // Off-route / re-routing — fall back to vector-only.
             drawVectorOnlyFrame(into: ctx)
             return
         }
         lastTileHintIndex = idx
+
+        // DIAG (issue #south-shift): log distance from fix to tile centre
+        // every ~5 s so we can see in the OS log whether the renderer is
+        // picking a wing tile (~1.5 km off-route) instead of the main row.
+        if frameIndex % 30 == 0 {
+            let dMeters = PolylineMath.haversine(fix.coordinate, refTile.center)
+            let dLat = (refTile.center.latitude - fix.coordinate.latitude) * 111_111
+            let dLon = (refTile.center.longitude - fix.coordinate.longitude) * 111_111 * cos(fix.coordinate.latitude * .pi / 180)
+            log.info("tile-pick #\(self.frameIndex, privacy: .public) fix=(\(fix.coordinate.latitude, privacy: .public),\(fix.coordinate.longitude, privacy: .public)) tile.center=(\(refTile.center.latitude, privacy: .public),\(refTile.center.longitude, privacy: .public)) dist=\(dMeters, format: .fixed(precision: 1), privacy: .public)m dNorth=\(dLat, format: .fixed(precision: 1), privacy: .public)m dEast=\(dLon, format: .fixed(precision: 1), privacy: .public)m heading=\(self.lastHeading, format: .fixed(precision: 0), privacy: .public)°")
+        }
         updateHeading()
         updateZoom()
 
