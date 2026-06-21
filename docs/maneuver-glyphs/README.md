@@ -93,10 +93,10 @@ suppresses the overlay — useful as a "no maneuver" signal.
 ## Catalog (byte → glyph)
 
 Each entry shows the bubble captured from the dash. The `100m` distance
-under the symbol comes from a separate TLV (see
-[`k1g-tlv-catalog.md`](../k1g-tlv-catalog.md)) and is unrelated to the
-maneuver byte. Every captured PNG includes the burned `SCAN 0xNN` label
-at the bottom for self-verification.
+under the symbol comes from a separate TLV (the K1G `05 02 / 05 03`
+maneuver block) and is unrelated to the maneuver byte. Every captured
+PNG includes the burned `SCAN 0xNN` label at the bottom for
+self-verification.
 
 Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 
@@ -277,8 +277,7 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## See also
 
-- [`k1g-tlv-catalog.md`](../k1g-tlv-catalog.md) — Full K1G TLV reference
-- [`protocol-capabilities.md`](../protocol-capabilities.md) — High-level protocol overview
-- [`../../TripperDashPP/Navigation/ManeuverScannerLoop.swift`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) — Scanner implementation
-- [`../../TripperDashPP/Stream/ManeuverScanSource.swift`](../../TripperDashPP/Stream/ManeuverScanSource.swift) — Video overlay
+- [`ManeuverScannerLoop.swift`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) — Scanner implementation (walks `0x00..0xFF`, burns `SCAN 0xNN` label into the video stream)
+- [`ManeuverScanSource.swift`](../../TripperDashPP/Stream/ManeuverScanSource.swift) — Video overlay that burns the ground-truth label
+- [`ManeuverIcon.swift`](../../TripperDashPP/Navigation/Models/ManeuverIcon.swift) — Asset-free glyph renderer for the phone-side burned arrow (used when the dash enum is untrusted)
 - [Overview grid (all 130 captured)](all-glyphs-overview.jpg)
