@@ -113,7 +113,7 @@ final class ActiveNavLoop {
         // can correlate against what the dash actually shows. Filter
         // with `log stream --predicate 'category == "ActiveNavLoop"'`.
         if settings.verbosePacketLogging || settings.suppressEtaTlv {
-            log.info("nav tick: etaSec=\(etaSec, format: .fixed(precision: 0)) includeEtaTlv=\(settings.includeEtaTlv, privacy: .public) suppressEtaTlv=\(settings.suppressEtaTlv, privacy: .public) → tlvEta=\(etaDate?.description ?? "nil", privacy: .public)")
+            log.info("nav tick: etaSec=\(etaSec, format: .fixed(precision: 0)) includeEtaTlv=\(self.settings.includeEtaTlv, privacy: .public) suppressEtaTlv=\(self.settings.suppressEtaTlv, privacy: .public) → tlvEta=\(etaDate?.description ?? "nil", privacy: .public)")
         }
 
         let roadName: String? = {
