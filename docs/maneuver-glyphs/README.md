@@ -58,33 +58,34 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x00` | 📍↑ | **Arrival** — destination AHEAD (user-photo) |
 | `0x01` | 📍↖ | **Arrival** — destination ahead-LEFT (user-photo) |
 | `0x02` | 📍↗ | **Arrival** — destination ahead-RIGHT |
-| `0x03` | ↗Y↑ | **Y-merge — joining from LEFT** (your road comes in from the left and merges into the continuing road; user-confirmed) |
-| `0x04` | ↖Y↑ | **Y-merge — joining from RIGHT** (your road comes in from the right and merges into the continuing road; user-confirmed via user-photo) |
-| `0x05`..`0x08` | ↰Y / ↱Y | **Y-fork** — stay LEFT (0x05–0x06) / stay RIGHT (0x07–0x08) |
+| `0x03` | ↗Y↑ | **Y-merge — joining from LEFT** (your road merges in from the left, user-confirmed) |
+| `0x04` | ↖Y↑ | **Y-merge — joining from RIGHT** (your road merges in from the right, user-confirmed) |
+| `0x05`..`0x06` | ↱Y / ↰Y | **Y-fork — stay RIGHT (0x05) / stay LEFT (0x06)** |
+| `0x07`..`0x08` | ↑→ / ↑← | **Side-road branches off RIGHT (0x07) / LEFT (0x08)** (parallel road peels off) |
 | `0x09` | ↑ | **Continue straight** |
-| `0x0A`..`0x13` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (small style) |
+| `0x0A`..`0x13` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (small style, field-confirmed) |
 | `0x14`..`0x15` | ↰ / ↱ | **Turn LEFT / RIGHT** (90°) |
 | `0x16`..`0x17` | ⤴ / ⤵ | **Sharp LEFT / RIGHT** (>90° hairpin) |
 | `0x18`..`0x19` | ↖ / ↗ | **Slight LEFT / RIGHT** |
-| `0x1A` / `0x1C` | ↺ / ↻ | **U-turn LEFT / RIGHT** (180°) |
-| `0x1B`, `0x1D`..`0x20` | Y↑ | **Y-fork — continue straight** (centre arrow between legs) |
-| `0x21`..`0x22` | ⊤↑ | **T-junction — continue straight across** |
-| `0x23`..`0x25` | ⊤↱ | **T-junction — turn RIGHT** (variants; 0x25 faded) |
-| `0x26` | ┃↑ | **Cross-roads — continue straight** |
-| `0x27`, `0x2A` | ┳↰ | **Side-road LEFT** — turn left onto side road |
-| `0x28`, `0x29` | ┳↱ | **Side-road RIGHT** — turn right onto side road |
-| `0x2D`..`0x2E` | ┳↗ / ┳↖ | **Side-road slight RIGHT / LEFT** |
-| `0x2F`..`0x30` | ┻↱ / ┻↰ | **Side-road merge from RIGHT / LEFT** |
-| `0x31`..`0x3A` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (large style) |
+| `0x1A` / `0x3D` | ↻ / ↺ | **U-turn RIGHT (0x1A) / LEFT (0x3D)** (180°, user-confirmed pair) |
+| `0x1B`, `0x1D`..`0x20` | Y↑ | **Y-fork — continue straight** (5 visual variants, no functional difference — user-confirmed) |
+| `0x1C` | 🧭 | **Recalculating route** (spinning compass, user-confirmed) |
+| `0x21`..`0x22` | ↗Y / ↖Y | **Y-merge (variant)** — joining from LEFT (0x21) / RIGHT (0x22), siblings of 0x03/0x04 |
+| `0x23`..`0x24` | ┝↑ / ┥↑ | **Side-road joining from LEFT (0x23) / RIGHT (0x24)** — shallow angle, parallel road merges in |
+| `0x25`..`0x26` | ┝↑ / ┥↑ | **Side-road joining from LEFT (0x25) / RIGHT (0x26)** — steeper angle than 0x23/0x24 |
+| `0x27`..`0x28` | ↑→exit / ↑←exit | **Exit RIGHT (0x27) / LEFT (0x28) off main road** |
+| `0x29`..`0x2A` | ↑→exit | **Exit RIGHT (0x29) / LEFT (0x2A)** — visual variants of 0x27/0x28 |
+| `0x2D`..`0x2E` | ↑↗exit / ↑↖exit | **Slight exit RIGHT (0x2D) / LEFT (0x2E)** — gentle ramp |
+| `0x2F`..`0x30` | ↑↘exit / ↑↙exit | **Exit RIGHT (0x2F) / LEFT (0x30)** — sharper, more angled break-off |
+| `0x31`..`0x3A` | ⟳0..⟳9 | **Roundabout CW** — exit numbers 0..9 (large style, field-confirmed) |
 | `0x3B` | ↑ | **Continue straight (long-distance)** |
 | `0x3C` | 📍 | **Arrival pin** — destination marker only |
-| `0x3D` | ⤺ | **U-turn at next junction** |
 | `0x3E` | ⛴ | **Ferry crossing** |
 | `0x3F` | 🚆 | **Train / level crossing** |
 | `0x40` | 📍… | **Arrival approaching** (pin with dotted trail) |
 | `0x42` | 📶 | **Signal / Wi-Fi indicator** (purpose unclear — info icon?) |
-| `0x46`..`0x4F` | ⟳10..⟳19 | **Roundabout CW** — exit numbers 10..19 |
-| `0x50`..`0x59` | ⟲10..⟲19 | **Roundabout CCW** — exit numbers 10..19 (left-hand-traffic style) |
+| `0x46`..`0x4F` | ⟳10..⟳19 | **Roundabout CW** — exit numbers 10..19 (field-confirmed) |
+| `0x50`..`0x59` | ⟲10..⟲19 | **Roundabout CCW** — exit numbers 10..19 (left-hand-traffic style, field-confirmed) |
 | `0x2B`, `0x2C`, `0x41`, `0x43`..`0x45` | ⚪ | **Empty bubble** — no glyph rendered (placeholders inside visible range) |
 | `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (useful as "no maneuver" signal) |
 
@@ -135,10 +136,10 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x02` | ✅ 📍↑→ | **Arrival — destination ahead-RIGHT** (mirror of 0x01: pin top-right + straight arrow) | ![0x02](glyphs/0x02.png) |
 | `0x03` | 📸 user photo | **Y-merge — joining from LEFT** (your road comes in from the left, merges into the continuing road; user-confirmed) | ![0x03](glyphs/0x03.png) |
 | `0x04` | 📸 user photo | **Y-merge — joining from RIGHT** (your road comes in from the right, merges into the continuing road; user-confirmed) | ![0x04](glyphs/0x04.png) |
-| `0x05` | 🟡 ↰Y | **Y-fork — stay LEFT** (pin top-left + Y-shape, left leg highlighted) | ![0x05](glyphs/0x05.png) |
+| `0x05` | ✅ ↱Y | **Y-fork — stay RIGHT** (right leg highlighted; user-confirmed) | ![0x05](glyphs/0x05.png) |
 | `0x06` | ✅ ↰Y | **Y-fork — stay LEFT** (variant; left leg highlighted) | ![0x06](glyphs/0x06.png) |
-| `0x07` | ✅ ↱Y | **Y-fork — stay RIGHT** (right leg highlighted) | ![0x07](glyphs/0x07.png) |
-| `0x08` | ✅ ↱Y | **Y-fork — stay RIGHT** (variant; right leg highlighted) | ![0x08](glyphs/0x08.png) |
+| `0x07` | ✅ ↑→ | **Side-road branches off RIGHT** (parallel road peels off to the right; user-confirmed) | ![0x07](glyphs/0x07.png) |
+| `0x08` | ✅ ↑← | **Side-road branches off LEFT** (parallel road peels off to the left; user-confirmed) | ![0x08](glyphs/0x08.png) |
 | `0x09` | 🟡 ↑ | **Continue straight** (straight arrow, no junction) | ![0x09](glyphs/0x09.png) |
 | `0x0A` | ✅ ⟳0 | **Roundabout CW — exit 0** (entry indicator / no specific exit) | ![0x0A](glyphs/0x0A.png) |
 | `0x0B` | ✅ ⟳1 | **Roundabout CW — take exit 1** | ![0x0B](glyphs/0x0B.png) |
@@ -156,29 +157,29 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x17` | ✅ ⤵ | **Sharp RIGHT** (>90° hairpin to the right, mirror of 0x16) | ![0x17](glyphs/0x17.png) |
 | `0x18` | ✅ ↖ | **Slight LEFT** (shallow left curve) | ![0x18](glyphs/0x18.png) |
 | `0x19` | ✅ ↗ | **Slight RIGHT** (shallow right curve, mirror of 0x18) | ![0x19](glyphs/0x19.png) |
-| `0x1A` | 🟡 ↺ | **U-turn LEFT** (180° via left side) | ![0x1A](glyphs/0x1A.png) |
-| `0x1B` | ✅ Y↑ | **Y-fork — continue straight** (arrow up the centre between the two legs) | ![0x1B](glyphs/0x1B.png) |
-| `0x1C` | ✅ ↻? | **U-turn RIGHT** (180° via right side, mirror of 0x1A — image partly obscured) | ![0x1C](glyphs/0x1C.png) |
-| `0x1D` | 🟡 Y↑ | **Y-fork — continue straight** (variant of 0x1B) | ![0x1D](glyphs/0x1D.png) |
-| `0x1E` | 🟡 Y↑ | **Y-fork — continue straight** (variant) | ![0x1E](glyphs/0x1E.png) |
-| `0x1F` | ✅ Y↑ | **Y-fork — continue straight** (variant) | ![0x1F](glyphs/0x1F.png) |
-| `0x20` | ✅ Y↑ | **Y-fork — continue straight** (wider Y) | ![0x20](glyphs/0x20.png) |
-| `0x21` | ✅ ⊤↑ | **T-junction — continue straight across** (cross the T; arrow continues forward) | ![0x21](glyphs/0x21.png) |
-| `0x22` | 🟡 ⊤↑ | **T-junction — continue straight across** (variant of 0x21) | ![0x22](glyphs/0x22.png) |
-| `0x23` | ✅ ⊤↱ | **T-junction — turn RIGHT** (right branch highlighted) | ![0x23](glyphs/0x23.png) |
-| `0x24` | ✅ ⊤↱ | **T-junction — turn RIGHT** (variant) | ![0x24](glyphs/0x24.png) |
-| `0x25` | ✅ ⊤? | **T-junction variant** — image very faded, classification tentative | ![0x25](glyphs/0x25.png) |
-| `0x26` | 🟡 ┃↑ | **Cross-roads — continue straight** (vertical road, arrow forward) | ![0x26](glyphs/0x26.png) |
-| `0x27` | 🟡 ┳↰ | **Side-road LEFT — turn LEFT onto side road** (main road continues straight, left turn taken) | ![0x27](glyphs/0x27.png) |
-| `0x28` | ✅ ┳↱ | **Side-road RIGHT — turn RIGHT onto side road** | ![0x28](glyphs/0x28.png) |
-| `0x29` | ✅ ┳↱ | **Side-road RIGHT — turn RIGHT onto side road** (variant) | ![0x29](glyphs/0x29.png) |
-| `0x2A` | ✅ ┳↰ | **Side-road LEFT — turn LEFT onto side road** (variant) | ![0x2A](glyphs/0x2A.png) |
+| `0x1A` | ✅ ↻ | **U-turn RIGHT** (180° via right side; user-confirmed) | ![0x1A](glyphs/0x1A.png) |
+| `0x1B` | ✅ Y↑ | **Y-fork — continue straight** (centre arrow between legs; user-confirmed) | ![0x1B](glyphs/0x1B.png) |
+| `0x1C` | ✅ 🧭 | **Recalculating** (spinning compass — shown while the route is being re-computed; user-confirmed) | ![0x1C](glyphs/0x1C.png) |
+| `0x1D` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x1D](glyphs/0x1D.png) |
+| `0x1E` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x1E](glyphs/0x1E.png) |
+| `0x1F` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x1F](glyphs/0x1F.png) |
+| `0x20` | ✅ Y↑ | **Y-fork — continue straight** (visual variant; user says no functional difference vs 0x1B) | ![0x20](glyphs/0x20.png) |
+| `0x21` | ✅ ↗Y↑ | **Y-merge — joining from LEFT** (incoming road on the left, merges into the continuing road; user-confirmed, sibling of 0x03) | ![0x21](glyphs/0x21.png) |
+| `0x22` | ✅ ↖Y↑ | **Y-merge — joining from RIGHT** (incoming road on the right, merges into the continuing road; user-confirmed, sibling of 0x04) | ![0x22](glyphs/0x22.png) |
+| `0x23` | ✅ ┝↑ | **Side-road joining from LEFT** (parallel road merges in from the left at a shallow angle; user-confirmed) | ![0x23](glyphs/0x23.png) |
+| `0x24` | ✅ ┥↑ | **Side-road joining from RIGHT** (parallel road merges in from the right at a shallow angle; user-confirmed) | ![0x24](glyphs/0x24.png) |
+| `0x25` | ✅ ┝↑ | **Side-road joining from LEFT** (steeper angle than 0x23; user-confirmed) | ![0x25](glyphs/0x25.png) |
+| `0x26` | ✅ ┥↑ | **Side-road joining from RIGHT** (steeper angle than 0x24; user-confirmed) | ![0x26](glyphs/0x26.png) |
+| `0x27` | ✅ ↑→exit | **Exit RIGHT off main road** (leave the through-road to the right; user-confirmed) | ![0x27](glyphs/0x27.png) |
+| `0x28` | ✅ ↑←exit | **Exit LEFT off main road** (leave the through-road to the left; user-confirmed) | ![0x28](glyphs/0x28.png) |
+| `0x29` | 🟡 ↑→exit | **Exit RIGHT off main road** (visual variant of 0x27 — sibling, not explicitly user-verified) | ![0x29](glyphs/0x29.png) |
+| `0x2A` | 🟡 ↑←exit | **Exit LEFT off main road** (visual variant of 0x28 — sibling, not explicitly user-verified) | ![0x2A](glyphs/0x2A.png) |
 | `0x2B` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2B](glyphs/0x2B.png) |
 | `0x2C` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x2C](glyphs/0x2C.png) |
-| `0x2D` | ✅ ┳↗ | **Side-road RIGHT — slight RIGHT onto side road** | ![0x2D](glyphs/0x2D.png) |
-| `0x2E` | ✅ ┳↖ | **Side-road LEFT — slight LEFT onto side road** (mirror of 0x2D) | ![0x2E](glyphs/0x2E.png) |
-| `0x2F` | 🟡 ┻↱ | **Side-road from RIGHT — merge then turn RIGHT** | ![0x2F](glyphs/0x2F.png) |
-| `0x30` | ✅ ┻↰ | **Side-road from LEFT — merge then turn LEFT** | ![0x30](glyphs/0x30.png) |
+| `0x2D` | ✅ ↑↗exit | **Slight exit RIGHT** (gentle ramp off the main road to the right; user-confirmed) | ![0x2D](glyphs/0x2D.png) |
+| `0x2E` | ✅ ↑↖exit | **Slight exit LEFT** (gentle ramp off the main road to the left; user-confirmed) | ![0x2E](glyphs/0x2E.png) |
+| `0x2F` | ✅ ↑↘exit | **Exit RIGHT (sharper)** (same idea as 0x2D but steeper, more angled break-off; user-confirmed) | ![0x2F](glyphs/0x2F.png) |
+| `0x30` | ✅ ↑↙exit | **Exit LEFT (sharper)** (same idea as 0x2E but steeper, more angled break-off; user-confirmed) | ![0x30](glyphs/0x30.png) |
 | `0x31` | ✅ ⟳0 | **Roundabout CW — exit 0** (large style; entry indicator) | ![0x31](glyphs/0x31.png) |
 | `0x32` | 🟡 ⟳1 | **Roundabout CW — take exit 1** (large style) | ![0x32](glyphs/0x32.png) |
 | `0x33` | 🟡 ⟳2 | **Roundabout CW — take exit 2** (large style) | ![0x33](glyphs/0x33.png) |
@@ -191,7 +192,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x3A` | ✅ ⟳9 | **Roundabout CW — take exit 9** (large style) | ![0x3A](glyphs/0x3A.png) |
 | `0x3B` | ✅ ↑ | **Continue straight (long-distance)** (tall straight arrow) | ![0x3B](glyphs/0x3B.png) |
 | `0x3C` | 🟡 📍 | **Arrival pin (destination marker only)** — no arrow | ![0x3C](glyphs/0x3C.png) |
-| `0x3D` | 🟡 ⤺ | **U-turn at the next junction** (curved 180° arrow) | ![0x3D](glyphs/0x3D.png) |
+| `0x3D` | ✅ ↺ | **U-turn LEFT** (180° via left side; user-confirmed — pairs with 0x1A=RIGHT) | ![0x3D](glyphs/0x3D.png) |
 | `0x3E` | ✅ ⛴ | **Ferry crossing** — board ferry / waterway | ![0x3E](glyphs/0x3E.png) |
 | `0x3F` | ✅ 🚆 | **Train / level crossing** — railway | ![0x3F](glyphs/0x3F.png) |
 | `0x40` | ✅ 📍… | **Arrival approaching** (pin with dotted trail — destination near) | ![0x40](glyphs/0x40.png) |
@@ -250,21 +251,27 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## Open questions / pending work
 
-- [ ] **Re-verify roundabout-exit numbering**: catalog assigns CW
+- [ ] **Re-verify roundabout-exit numbering**: ~~catalog assigns CW
       exits 0..9 to `0x0A..0x13` (small style) and `0x31..0x3A`
       (large style), CW exits 10..19 to `0x46..0x4F`, CCW exits 10..19
-      to `0x50..0x59`. Field-test by sending each byte while a
-      multi-exit roundabout is active and confirm the rendered number.
-- [ ] **Verify CCW exits 0..9**: the catalog has no obvious slot for
-      `⟲0..⟲9` — they may be missing from `0x00..0x59` entirely, or
-      reusing the CW glyphs. Check before assuming left-hand-traffic
-      coverage.
-- [ ] **Confirm `0x3E` (ferry) and `0x3F` (train)**: by sending each
-      byte during a route — both are visually distinct from the
-      turn/roundabout family but unconfirmed by field use.
+      to `0x50..0x59`.~~ **User-confirmed in field 6/2026** — all
+      roundabout ranges render the correct exit number.
+- [ ] **CCW exits 0..9** are not present in `0x00..0x59` (only CCW
+      10..19 at `0x50..0x59`). The dash likely re-uses CW glyphs
+      for low-numbered CCW exits, but this is unconfirmed.
+- [ ] **Confirm `0x3E` (ferry) and `0x3F` (train)**: visually distinct
+      from the turn/roundabout family but unconfirmed by field use.
 - [ ] **Identify `0x42`**: looks like a signal-strength / Wi-Fi icon,
       not a navigation maneuver — may be a status indicator that
       leaked into the maneuver enum, or a "no GPS" warning glyph.
+- [ ] **Distinguish 0x21/0x22 vs 0x03/0x04**: catalog lists them as
+      Y-merge variants but they may differ functionally (sharper merge
+      angle? different lane assignment?). Both pairs are visually
+      Y-merge — field-test to see if dash treats them differently.
+- [ ] **Verify exit-ramp family `0x27..0x30`**: user confirmed the
+      core LEFT/RIGHT exit semantics — but the exact distinction
+      between 0x27/0x28 and the 0x29/0x2A siblings (visual-only?
+      lane-specific?) is still inferred, not field-verified.
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
