@@ -389,6 +389,13 @@ final class RouteTileCache {
             return aa.lateralRow < bb.lateralRow
         }
         tiles = sortedIdxs.map { bakedTileByIndex[$0]! }
+        // Reorder invalidates the (idx → UIImage) memo. Without this
+        // the renderer's `image(for:atIndex:)` would return a *stale*
+        // image for a freshly-shuffled index — i.e. the picture for
+        // some other anchor entirely — which paints the right pixels
+        // at the wrong geographic position. Visible symptom: composite
+        // looks like a different place than where the rider is.
+        imageCache.removeAllObjects()
         log.info("Baked batch: \(completed, privacy: .public) anchors, total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public)")
     }
 
