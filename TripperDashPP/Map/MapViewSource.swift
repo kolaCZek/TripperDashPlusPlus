@@ -92,6 +92,13 @@ final class MapViewSource: NSObject, FrameSource {
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
+    /// Route that needs a fresh tile bake but couldn't run yet (app
+    /// in BG/lock). Drained on `didBecomeActiveNotification`. Most
+    /// recent value wins — if a second reroute arrives before the
+    /// first bakes, the older route is discarded.
+    private var pendingRebakeRoute: MKRoute?
+    private var pendingRebakeInFlight: Bool = false
+    private var appStateObserver: NSObjectProtocol?
     /// Speed-adaptive zoom factor applied to the rendered tile composite
     /// and polyline. 1.0 = native scale (~0.85 m/px at 1024 px tile).
     /// Lerped each frame toward `targetZoom(forSpeed:)` so the view
@@ -118,9 +125,14 @@ final class MapViewSource: NSObject, FrameSource {
         self.activeNavigator = activeNavigator
         super.init()
         configureMapView()
+        installAppStateObserver()
     }
 
-    deinit {}
+    deinit {
+        if let obs = appStateObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
 
     var hostView: MKMapView { mapView }
 
@@ -174,6 +186,78 @@ final class MapViewSource: NSObject, FrameSource {
         routeTileCache = cache
         lastTileHintIndex = 0
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
+    }
+
+    /// Request a fresh tile cache for `route`. If the app is `.active`
+    /// (foreground, screen on), the bake runs immediately and replaces
+    /// the current cache when done. Otherwise the route is parked in
+    /// `pendingRebakeRoute` and the bake fires on the next
+    /// `didBecomeActiveNotification` — preserving the OLD cache in the
+    /// meantime so the rider keeps seeing real map tiles (just stale
+    /// ones) instead of a vector-only black-on-grey fallback while
+    /// the lock screen is on.
+    ///
+    /// Calling twice quickly (e.g. two reroutes in 30 s) coalesces:
+    /// only the latest `route` is baked when the app wakes.
+    func scheduleTileCacheRebuild(for route: MKRoute) {
+        pendingRebakeRoute = route
+        let state = UIApplication.shared.applicationState
+        if state == .active {
+            log.info("Tile re-bake triggered immediately (app .active)")
+            Task { @MainActor in await performPendingRebake() }
+        } else {
+            log.info("Tile re-bake deferred — app state=\(state.rawValue, privacy: .public); will run on next didBecomeActive")
+            // Keep the existing cache intact. The polyline already
+            // got updated by setRoutePolyline; the vector fallback
+            // and the stale (but still partially valid) tile cache
+            // overlap to keep the dash usable.
+        }
+    }
+
+    /// Bake `pendingRebakeRoute` (if any) and atomically swap the
+    /// cache. MUST run on main and only when app is `.active`.
+    private func performPendingRebake() async {
+        guard let route = pendingRebakeRoute else { return }
+        // Re-check state — between schedule time and now the app may
+        // have re-backgrounded (user tapped lock during bake start).
+        guard UIApplication.shared.applicationState == .active else {
+            log.warning("performPendingRebake aborted — app no longer .active")
+            return
+        }
+        // Take a local snapshot of the route id we're baking so we can
+        // tell whether a newer route landed mid-bake.
+        let bakingFor = ObjectIdentifier(route)
+        pendingRebakeInFlight = true
+        let fresh = RouteTileCache()
+        await fresh.prerender(route: route) { _ in }
+        pendingRebakeInFlight = false
+        // If a newer route was scheduled while we were baking, throw
+        // this one away and recurse — fresh data wins.
+        if let latest = pendingRebakeRoute, ObjectIdentifier(latest) != bakingFor {
+            log.info("Newer reroute landed during bake — re-baking with latest")
+            await performPendingRebake()
+            return
+        }
+        pendingRebakeRoute = nil
+        setTileCache(fresh)
+    }
+
+    /// Wire up the `didBecomeActiveNotification` observer that fires
+    /// any deferred bake when the user unlocks / returns to fg.
+    /// Called once from init.
+    private func installAppStateObserver() {
+        let center = NotificationCenter.default
+        appStateObserver = center.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            // No-op when there's nothing pending (almost always).
+            guard self.pendingRebakeRoute != nil, !self.pendingRebakeInFlight else { return }
+            self.log.info("App became active — draining pending tile re-bake")
+            Task { @MainActor in await self.performPendingRebake() }
+        }
     }
 }
 

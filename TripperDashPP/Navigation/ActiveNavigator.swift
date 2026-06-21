@@ -110,9 +110,19 @@ final class ActiveNavigator {
     /// RoutingService without owning a reference to it.
     var onRerouteRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> MKRoute?))?
 
+    /// Caller hook fired whenever the active route is replaced —
+    /// fresh `start()` AND every successful reroute. Callers wire
+    /// this to: (1) push the new polyline into `MapViewSource` so
+    /// the dash + Map UI render the right line, (2) tear down the
+    /// stale `RouteTileCache` and pre-render a new one. Without
+    /// this, a reroute updates the navigator's internal state but
+    /// the rider keeps seeing the old blue line until they restart
+    /// navigation from scratch.
+    var onActiveRouteChanged: (@MainActor (MKRoute) async -> Void)?
+
     // MARK: - API
 
-    func start(route: MKRoute, destination: Destination) {
+    func start(route: MKRoute, destination: Destination) async {
         self.activeRoute = route
         self.destination = destination
         self.lastSegmentIndex = 0
@@ -132,6 +142,10 @@ final class ActiveNavigator {
         self.secondNextStep = route.steps.dropFirst().first
         self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
             + (route.steps.dropFirst().first?.distance ?? 0)
+        // Notify observers (Map UI, tile cache) of the new route.
+        // Fire after seeding internal state so any observer that
+        // reads back from us sees a consistent snapshot.
+        await onActiveRouteChanged?(route)
     }
 
     func stop() {
@@ -263,6 +277,12 @@ final class ActiveNavigator {
             self.secondNextStep = newRoute.steps.dropFirst().first
             self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
                 + (newRoute.steps.dropFirst().first?.distance ?? 0)
+            // Fire the route-changed hook so Map UI repaints the new
+            // blue line and the tile cache re-bakes around the new
+            // polyline. Without this the rider sees the OLD line
+            // floating on the dash even though we're internally
+            // navigating the new route — confusing and dangerous.
+            await onActiveRouteChanged?(newRoute)
         } else {
             log.warning("Reroute failed — keeping existing route, will retry after cooldown")
         }

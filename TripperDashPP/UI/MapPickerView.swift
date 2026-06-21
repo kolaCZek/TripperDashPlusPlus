@@ -307,27 +307,56 @@ struct MapPickerView: View {
 
     // MARK: - Navigation transitions
 
+    /// Push the route geometry into the renderer + bake fresh tiles.
+    /// Called both at navigation start AND on every reroute (via the
+    /// `onActiveRouteChanged` callback we wire up below). Without
+    /// re-running this on reroute, the dash keeps drawing the OLD
+    /// blue line over the new route — the field-test pain point that
+    /// motivated this refactor.
+    private func installRouteGeometry(_ route: MKRoute) async {
+        status.mapViewSource.setRoutePolyline(route.polyline)
+        let cache = RouteTileCache()
+        prerenderProgress = 0
+        prerenderActive = true
+        await cache.prerender(route: route) { p in
+            prerenderProgress = p
+        }
+        status.mapViewSource.setTileCache(cache)
+        prerenderActive = false
+    }
+
     private func startNavigation(route: MKRoute, destination: Destination) {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
 
-            // Phase 8d: pre-render every map tile we'll need along the
-            // route while we still have the GPU available. In BG /
-            // lock screen the snapshotter is suspended; we have to
-            // bake everything up front. Show a progress sheet during
-            // the bake (~10-20 s for a typical 35 km route).
-            status.mapViewSource.setRoutePolyline(route.polyline)
-            let cache = RouteTileCache()
-            prerenderProgress = 0
-            prerenderActive = true
-            await cache.prerender(route: route) { p in
-                prerenderProgress = p
+            // Wire the route-changed hook BEFORE start(). The hook
+            // fires once from inside start() (covering initial bake)
+            // and again on each successful reroute. Polyline updates
+            // are always safe; tile re-bake has to wait for fg/active.
+            status.activeNavigator.onActiveRouteChanged = { [weak status] newRoute in
+                guard let status else { return }
+                // (1) Polyline first — pure CPU CGContext path, works
+                //     in BG/lock. Rider immediately sees the new line
+                //     even while the lock screen is on.
+                status.mapViewSource.setRoutePolyline(newRoute.polyline)
+                // (2) Tile re-bake. MKMapSnapshotter is GPU-bound and
+                //     iOS 16+ refuses to render it in .background, so
+                //     bake-and-replace would just nuke our valid cache
+                //     and leave a black screen. Schedule the bake
+                //     instead — MapViewSource runs it the next time
+                //     the app is .active (and runs it immediately if
+                //     we already are).
+                status.mapViewSource.scheduleTileCacheRebuild(for: newRoute)
             }
-            status.mapViewSource.setTileCache(cache)
-            prerenderActive = false
 
-            status.activeNavigator.start(route: route, destination: destination)
+            // Initial bake — uses installRouteGeometry directly because
+            // we want the progress sheet to show. The reroute hook
+            // above bakes silently (rider is already moving, no point
+            // showing a modal).
+            await installRouteGeometry(route)
+
+            await status.activeNavigator.start(route: route, destination: destination)
             // Stream only if dash is connected. Pre-flight mode (no
             // dash) just runs NavigationHUD on the phone.
             if status.bikeLink.state == .connected, !status.isStreaming {
@@ -339,6 +368,7 @@ struct MapPickerView: View {
 
     private func stopNavigation() {
         status.activeNavigator.stop()
+        status.activeNavigator.onActiveRouteChanged = nil
         if status.isStreaming {
             status.stopStreaming()
         }
