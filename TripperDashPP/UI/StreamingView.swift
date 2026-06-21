@@ -10,9 +10,13 @@
 
 import CoreLocation
 import SwiftUI
+import UIKit
 
 struct StreamingView: View {
     @Environment(AppStatus.self) private var status
+
+    /// Toggles the share sheet for the most recent scan CSV log.
+    @State private var scanShareURL: URL?
 
     /// Allow editing the SSID/IP only when we're not actively connected
     /// or mid-handshake. Idle and error states are both safe entry
@@ -57,12 +61,16 @@ struct StreamingView: View {
                     get: { status.sourceKind },
                     set: { status.sourceKind = $0 }
                 )) {
-                    ForEach(AppStatus.SourceKind.allCases) { kind in
+                    // Hide the maneuver-scan kind — it's selected
+                    // implicitly via the toggle below, not from the
+                    // picker (avoids the "I picked scan but forgot to
+                    // arm it" footgun).
+                    ForEach(AppStatus.SourceKind.allCases.filter { $0 != .maneuverScan }) { kind in
                         Text(kind.rawValue).tag(kind)
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(status.isStreaming)
+                .disabled(status.isStreaming || status.dashNavSettings.maneuverScanEnabled)
 
                 switch status.sourceKind {
                 case .liveMap:
@@ -87,6 +95,10 @@ struct StreamingView: View {
                     Text("Synthetic 526×300 test pattern (clock, frame counter, colour bars). Useful for validating the encoder/RTP path without touching Mapbox.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                case .maneuverScan:
+                    // Never visible (filtered out above), but the
+                    // switch must be exhaustive.
+                    EmptyView()
                 }
             }
 
@@ -153,6 +165,114 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // MARK: - Maneuver scanner
+            //
+            // Empirical sweep that pushes every byte through the primary
+            // maneuver TLV (`05 02 00 01 XX`) one at a time while the
+            // RTP stream burns the same byte large into the H.264 frame.
+            // The rider points a camera at the dash + iPhone, then walks
+            // through the captured video offline to map bytes → glyphs.
+            // Resulting CSV is shared from this section.
+            Section {
+                Toggle("Enable maneuver scanner", isOn: Binding(
+                    get: { status.dashNavSettings.maneuverScanEnabled },
+                    set: { status.dashNavSettings.maneuverScanEnabled = $0 }
+                ))
+                .disabled(status.isStreaming)
+
+                if status.dashNavSettings.maneuverScanEnabled {
+                    HStack {
+                        Text("Start byte")
+                        Spacer()
+                        Text(String(format: "0x%02X", status.dashNavSettings.scanStartByte))
+                            .font(.body.monospaced())
+                    }
+                    Stepper(value: Binding(
+                        get: { Int(status.dashNavSettings.scanStartByte) },
+                        set: { status.dashNavSettings.scanStartByte = UInt8(clamping: $0) }
+                    ), in: 0...255) {
+                        Text("Start byte stepper").hidden()
+                    }
+                    .labelsHidden()
+
+                    HStack {
+                        Text("End byte")
+                        Spacer()
+                        Text(String(format: "0x%02X", status.dashNavSettings.scanEndByte))
+                            .font(.body.monospaced())
+                    }
+                    Stepper(value: Binding(
+                        get: { Int(status.dashNavSettings.scanEndByte) },
+                        set: { status.dashNavSettings.scanEndByte = UInt8(clamping: $0) }
+                    ), in: 0...255) {
+                        Text("End byte stepper").hidden()
+                    }
+                    .labelsHidden()
+
+                    HStack {
+                        Text("Hold per byte")
+                        Spacer()
+                        Text("\(status.dashNavSettings.scanHoldMs) ms")
+                            .font(.body.monospaced())
+                    }
+                    Stepper(value: Binding(
+                        get: { status.dashNavSettings.scanHoldMs },
+                        set: { status.dashNavSettings.scanHoldMs = $0 }
+                    ), in: 1000...30000, step: 500) {
+                        Text("Hold stepper").hidden()
+                    }
+                    .labelsHidden()
+
+                    HStack {
+                        Text("Pause between")
+                        Spacer()
+                        Text("\(status.dashNavSettings.scanPauseMs) ms")
+                            .font(.body.monospaced())
+                    }
+                    Stepper(value: Binding(
+                        get: { status.dashNavSettings.scanPauseMs },
+                        set: { status.dashNavSettings.scanPauseMs = $0 }
+                    ), in: 0...5000, step: 250) {
+                        Text("Pause stepper").hidden()
+                    }
+                    .labelsHidden()
+
+                    // Live banner with current byte + progress when
+                    // the scan is actually running.
+                    if let loop = status.maneuverScannerLoop, loop.isRunning {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Sending")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(String(format: "0x%02X  (dec %d)",
+                                            loop.currentByte, loop.currentByte))
+                                    .font(.headline.monospaced())
+                                    .foregroundStyle(.orange)
+                            }
+                            ProgressView(value: loop.progress)
+                        }
+                    }
+
+                    // CSV share — appears as soon as the scanner has
+                    // written its header (first byte sent).
+                    if let url = status.maneuverScannerLoop?.csvLogURL {
+                        Button {
+                            scanShareURL = url
+                        } label: {
+                            Label("Share scan CSV", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+            } header: {
+                Text("Maneuver scanner")
+            } footer: {
+                Text("Empirical sweep through every primary-maneuver byte (TLV 05 02 00 01 XX). The RTP frame shows the same hex burned-in large; pair the camera-captured dash glyph with the CSV log to map byte → maneuver. Each byte holds for `Hold`, then a black `Pause` frame, then advances. Stand still on the bike — dash will display whatever glyph it knows for the byte.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Stream") {
                 LabeledContent("Encoded fps",     value: String(format: "%.1f", status.metrics.encodedFps))
                 LabeledContent("Bitrate (kbps)",  value: String(format: "%.0f", status.metrics.kbpsOut))
@@ -204,13 +324,22 @@ struct StreamingView: View {
                     Button(role: .destructive) {
                         status.stopStreaming()
                     } label: {
-                        Label("Stop streaming", systemImage: "stop.circle.fill")
+                        Label(
+                            status.dashNavSettings.maneuverScanEnabled
+                                ? "Stop maneuver scan"
+                                : "Stop streaming",
+                            systemImage: "stop.circle.fill"
+                        )
                     }
                 } else {
                     Button {
                         status.startStreaming()
                     } label: {
-                        Label("Start \(status.sourceKind.rawValue.lowercased()) → dash", systemImage: "play.circle.fill")
+                        if status.dashNavSettings.maneuverScanEnabled {
+                            Label("Start maneuver scan → dash", systemImage: "scope")
+                        } else {
+                            Label("Start \(status.sourceKind.rawValue.lowercased()) → dash", systemImage: "play.circle.fill")
+                        }
                     }
                     .disabled(status.bikeLink.dashHost == nil)
                 }
@@ -241,7 +370,30 @@ struct StreamingView: View {
         }
         .navigationTitle("Streaming")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: Binding(
+            get: { scanShareURL != nil },
+            set: { newValue in if !newValue { scanShareURL = nil } }
+        )) {
+            if let url = scanShareURL {
+                ActivityShareSheet(items: [url])
+            }
+        }
     }
+}
+
+/// UIKit `UIActivityViewController` wrapped for SwiftUI. `ShareLink`
+/// works fine for URL/Text/Image, but the scan CSV is a real on-disk
+/// file the user needs to airdrop / mail off the device — this gives
+/// the user the standard "Save to Files" / "Mail" / "AirDrop" sheet
+/// without any extra preview rendering.
+private struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 #Preview {

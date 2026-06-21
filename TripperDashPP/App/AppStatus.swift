@@ -75,11 +75,14 @@ final class AppStatus {
     /// Which frame source to use when starting a stream. Phase 5 ships
     /// `liveMap` (Mapbox snapshotter) as the default; `testPattern` is
     /// kept as a debug option so we can validate the encoder/RTP path
-    /// without touching the map subsystem.
+    /// without touching the map subsystem. `maneuverScan` is the
+    /// empirical maneuver-enum scanner (selected automatically when
+    /// `dashNavSettings.maneuverScanEnabled` is on).
     enum SourceKind: String, CaseIterable, Identifiable, Sendable {
         case liveMap = "Live map"
         case mapView = "Live MKMapView"
         case testPattern = "Test pattern"
+        case maneuverScan = "Maneuver scan"
         var id: String { rawValue }
     }
     var sourceKind: SourceKind = .mapView
@@ -164,8 +167,16 @@ final class AppStatus {
     /// No-op if the link isn't connected yet.
     func startStreaming() {
         guard streamer == nil, let host = bikeLink.dashHost else { return }
+
+        // If the rider enabled the maneuver scanner, that wins over
+        // whatever sourceKind is set to — the scanner needs its own
+        // frame source AND its own 1 Hz pump.
+        let effectiveKind: SourceKind = dashNavSettings.maneuverScanEnabled
+            ? .maneuverScan
+            : sourceKind
+
         let source: FrameSource
-        switch sourceKind {
+        switch effectiveKind {
         case .liveMap:
             source = MapSnapshotSource(locationService: locationService,
                                         activeNavigator: activeNavigator)
@@ -173,6 +184,10 @@ final class AppStatus {
             source = mapViewSource   // shared instance, lazily created
         case .testPattern:
             source = TestPatternSource()
+        case .maneuverScan:
+            let s = ManeuverScanSource()
+            _scanSource = s
+            source = s
         }
         let s = RtpStreamer(bikeHost: host, source: source)
         s.bikeLink = bikeLink
@@ -203,12 +218,23 @@ final class AppStatus {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()
         }
-        // Start the 1 Hz active-nav pump. Only meaningful when
-        // sourceKind == .mapView (live map share state with the
-        // navigator). For other sources we still spin the loop so the
-        // dash bubble gets a heartbeat; the overlay just sits at
-        // "straight, 0 m" until a route exists.
-        if sourceKind == .mapView {
+
+        // Pump selection.
+        if effectiveKind == .maneuverScan, let scanSrc = _scanSource {
+            // Empirical scanner — replaces the regular nav loop.
+            let scan = ManeuverScannerLoop(
+                bikeLink: bikeLink,
+                mapSource: scanSrc,
+                settings: dashNavSettings
+            )
+            scan.start()
+            maneuverScannerLoop = scan
+        } else if effectiveKind == .mapView {
+            // Regular 1 Hz active-nav pump. Only meaningful when
+            // sourceKind == .mapView (live map shares state with the
+            // navigator). For other sources we still spin the loop so
+            // the dash bubble gets a heartbeat; the overlay just sits
+            // at "straight, 0 m" until a route exists.
             let loop = ActiveNavLoop(
                 bikeLink: bikeLink,
                 navigator: activeNavigator,
@@ -226,13 +252,19 @@ final class AppStatus {
         // encoder — it expects (h, x) before the frames stop, otherwise
         // it sometimes wedges on the last bitmap until the next reboot.
         let link = bikeLink
-        // Stop the 1 Hz nav pump first so it can't send a stale packet
-        // after the (h, x) teardown lands.
+        // Stop both pumps so neither can send a stale packet after
+        // the (h, x) teardown lands.
         activeNavLoop?.stop()
         activeNavLoop = nil
+        maneuverScannerLoop?.stop()
+        // NOTE: we deliberately KEEP `maneuverScannerLoop` around after
+        // stop so the StreamingView can still hand the user a Share
+        // button for the just-finished CSV log. The next startStreaming
+        // overwrites it.
         Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
+        _scanSource = nil
         // mapViewSource is intentionally NOT released — its tile cache
         // + location subscription should survive stop/start cycles so
         // the next ride doesn't have to re-bake.
@@ -287,6 +319,16 @@ final class AppStatus {
     /// (we need a live `mapSource` and `bikeLink.connected` first). Held
     /// here so we can stop it from `stopStreaming()`.
     @ObservationIgnored private var activeNavLoop: ActiveNavLoop?
+
+    /// Maneuver scanner pump — only constructed when
+    /// `dashNavSettings.maneuverScanEnabled` is on at startStreaming
+    /// time. Observable (not @ObservationIgnored) so the UI can bind
+    /// the banner / progress / Share button against its state.
+    private(set) var maneuverScannerLoop: ManeuverScannerLoop?
+
+    /// Strong reference to the live ManeuverScanSource so the loop
+    /// can poke it without the streamer relinquishing it.
+    @ObservationIgnored private var _scanSource: ManeuverScanSource?
 
     /// One-shot route calculator used by the route preview sheet and
     /// by the navigator's reroute callback.
