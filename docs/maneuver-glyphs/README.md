@@ -27,9 +27,8 @@ turn-by-turn is active).
   burned label is the authoritative ground truth.**
 - **Coverage**: `0x00..0xFF` (full 8-bit range). Bytes `0x00..0x59` produce
   visible bubble glyphs (90 distinct entries captured). Bytes
-  `0x5A..0x81` render the bubble background but **no symbol** (empty
-  bubble, field-verified byte-by-byte). Bytes `0x82..0xFF` are
-  **hidden bubble** — overlay fully suppressed.
+  `0x5A..0xFF` are **hidden bubble** — overlay fully suppressed for
+  every byte in range, field-verified byte-by-byte.
 - **Extraction**: each glyph crop is **self-labeled** — the SCAN text under the
   bubble appears in every PNG so you can verify the byte → glyph mapping
   by eye without trusting any external mapping.
@@ -45,8 +44,7 @@ the burned SCAN label directly:
 | ✅ **anchor** | ~55 | OCR of the SCAN label parsed cleanly — image and label match |
 | 🟡 **interpolated** | ~32 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
 | 📸 **user photo** | 3 | `0x00`, `0x01`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
-| ⚪ **empty bubble** | 40 | `0x5A..0x81` — dash draws the bubble shell but renders no symbol inside, field-verified byte-by-byte |
-| ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), field-verified byte-by-byte |
+| ⚫ **hidden bubble** | 166 | `0x5A..0xFF` — dash renders nothing (overlay fully suppressed), field-verified byte-by-byte |
 
 A glyph marked **interpolated** is still a real bubble frame from the
 video — the OCR just couldn't read the label cleanly in that specific
@@ -63,8 +61,7 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
 | `0x04` | T+📍 | **Arrival at T-junction — destination ahead-LEFT** (T-shape with red pin top-left, user-photo) |
 | `0x05`..`0x59` | various | Captured but **not yet labelled** — see catalog below |
-| `0x5A`..`0x81` | ⚪ empty | **Empty bubble** — bubble drawn but no symbol inside (field-verified) |
-| `0x82`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
+| `0x5A`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
 
 > **Important**: the earlier text descriptions for `0x05..0x81` were
 > derived from a misaligned mapping and have been removed. Re-labeling
@@ -91,12 +88,9 @@ await link.sendActiveNav(
 )
 ```
 
-Bytes in `0x5A..0x81` draw the bubble shell but leave it empty (no
-arrow/pin/symbol inside). Bytes in `0x82..0xFF` suppress the overlay
-completely. For a true "no maneuver" signal pick any byte from the
-hidden range (`0xFF` is the canonical choice); for "maneuver active
-but symbol unknown" the empty-bubble range may be useful as a
-placeholder that still keeps the active-nav layout visible.
+Bytes in `0x5A..0xFF` suppress the active-nav overlay completely.
+Use `0xFF` (or any byte in that range) as the canonical "no maneuver"
+signal that hides the bubble without tearing down the route.
 
 ## Catalog (byte → glyph)
 
@@ -200,8 +194,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x57` | 🟡 | TBD | ![0x57](glyphs/0x57.png) |
 | `0x58` | ✅ | TBD | ![0x58](glyphs/0x58.png) |
 | `0x59` | ✅ | TBD | ![0x59](glyphs/0x59.png) |
-| `0x5A`..`0x81` | ⚪ empty bubble | **Empty bubble — no glyph rendered** (bubble background drawn, no arrow/pin/symbol inside; SCAN label confirms byte) — field-verified for every byte in range | — |
-| `0x82`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
+| `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
 
 ## How to regenerate
 
@@ -241,11 +234,9 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
-- [ ] **Non-visual side effects in `0x5A..0x81` and `0x82..0xFF`**:
-      empty-bubble and hidden-bubble ranges suppress the symbol /
-      overlay respectively, but does any byte in those ranges still
-      trigger non-visual effects (beep, text bar, vibration)? — needs
-      separate test
+- [ ] **Non-visual side effects in `0x5A..0xFF`**: bubble is suppressed,
+      but does any byte in that range still trigger non-visual effects
+      (beep, text bar, vibration)? — needs separate test
 
 ## See also
 
