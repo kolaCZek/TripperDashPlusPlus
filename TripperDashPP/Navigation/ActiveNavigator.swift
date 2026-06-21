@@ -36,9 +36,33 @@ final class ActiveNavigator {
     /// Meters remaining to the destination along the current route.
     private(set) var remainingDistance: CLLocationDistance = 0
 
-    /// Estimated arrival time, derived from remaining distance and the
-    /// route's average speed.
+    /// Live ETA in seconds. F4: derived from `remainingDistance /
+    /// smoothedSpeed`, with the route's `expectedTravelTime`-derived
+    /// ratio as the cold-start fallback. Reacts to actual rider speed
+    /// instead of assuming the original Apple Maps average.
     private(set) var etaSeconds: TimeInterval = 0
+
+    /// EWMA-smoothed ground speed in m/s. Updated on every `ingest`
+    /// when the GPS reports a valid (>=0) speed. Initial 0 means
+    /// "not yet known" — caller falls back to the ratio estimator.
+    private var smoothedSpeedMps: Double = 0
+    /// Number of valid speed samples folded into `smoothedSpeedMps`.
+    /// We require at least 3 before trusting the live estimate so a
+    /// single noisy first fix doesn't dominate.
+    private var validSpeedSamples: Int = 0
+    /// Smoothing factor for the EWMA. ~30 s effective window at 1 Hz
+    /// fix rate (`alpha=0.1` → time constant ≈ 1/alpha = 10 samples).
+    /// Smooths out red-lights and gear changes without lagging real
+    /// speed changes (highway entry / village exit) by more than ~10 s.
+    private let speedEwmaAlpha: Double = 0.1
+    /// Minimum speed (m/s) we feed into the ETA divider so a stop at
+    /// a light doesn't blow ETA up to "arrive in 12 hours". 2 m/s ≈
+    /// 7 km/h, slow-roll pace.
+    private let etaMinSpeedMps: Double = 2.0
+    /// Sanity cap: ETA never grows beyond 4× the original Apple Maps
+    /// expected travel time. Prevents a stretch of stop-and-go from
+    /// projecting an absurd arrival time.
+    private let etaMaxRatio: Double = 4.0
 
     /// The next maneuver step the rider should anticipate.
     private(set) var nextStep: MKRoute.Step?
@@ -93,10 +117,14 @@ final class ActiveNavigator {
         self.isNavigating = false
         self.activeRoute = nil
         self.destination = nil
-        self.nextStep = nil
         self.remainingDistance = 0
         self.etaSeconds = 0
+        self.nextStep = nil
         self.distanceToNextStep = 0
+        // F4: drop the smoothed-speed history so the next route
+        // starts cold and doesn't inherit yesterday's average.
+        self.smoothedSpeedMps = 0
+        self.validSpeedSamples = 0
         self.isOffRoute = false
         self.offRouteSince = nil
     }
@@ -122,11 +150,21 @@ final class ActiveNavigator {
         )
         self.remainingDistance = remaining
 
-        // ETA: scale original travel time by remaining/total ratio. Not
-        // perfect (doesn't react to live speed) but matches what Apple
-        // Maps does in pre-CarPlay mode.
-        let ratio = route.distance > 0 ? remaining / route.distance : 0
-        self.etaSeconds = route.expectedTravelTime * ratio
+        // F4: live ETA. Fold the GPS-reported speed into an EWMA; once
+        // we have a few valid samples and the smoothed speed is above
+        // the floor, divide remaining distance by it. Otherwise fall
+        // back to the route-ratio estimator (matches what Apple Maps
+        // does pre-CarPlay).
+        if fix.speed >= 0 {
+            if validSpeedSamples == 0 {
+                smoothedSpeedMps = fix.speed
+            } else {
+                smoothedSpeedMps = (1 - speedEwmaAlpha) * smoothedSpeedMps
+                    + speedEwmaAlpha * fix.speed
+            }
+            validSpeedSamples += 1
+        }
+        self.etaSeconds = computeEta(remaining: remaining, route: route)
 
         // Next maneuver lookup.
         if let stepIdx = PolylineMath.nextStepIndex(in: route, afterPolylineIndex: segIdx),
@@ -171,12 +209,45 @@ final class ActiveNavigator {
             self.offRouteSince = nil
             self.isOffRoute = false
             self.remainingDistance = newRoute.distance
-            self.etaSeconds = newRoute.expectedTravelTime
+            // F4: reroute keeps the smoothed-speed history so ETA
+            // reflects how the rider was actually moving, not the
+            // route's untouched expected average. Falls back to the
+            // route's expectedTravelTime when we haven't gathered
+            // enough samples yet.
+            self.etaSeconds = computeEta(remaining: newRoute.distance, route: newRoute)
             self.nextStep = newRoute.steps.first
             self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
         } else {
             log.warning("Reroute failed — keeping existing route, will retry after cooldown")
         }
+    }
+
+    // MARK: - ETA helper
+
+    /// F4: live ETA estimator. Prefers `remaining / smoothedSpeed`
+    /// once we've collected at least 3 valid samples and the smoothed
+    /// speed is above the slow-roll floor. Otherwise falls back to
+    /// the original ratio estimator. Clamps the result so a long
+    /// stop-and-go burst can't project a comical arrival time.
+    private func computeEta(remaining: CLLocationDistance, route: MKRoute) -> TimeInterval {
+        // Cold start / stopped: fall back to the route-ratio estimator
+        // (same behaviour as before F4).
+        let ratio = route.distance > 0 ? remaining / route.distance : 0
+        let ratioEta = route.expectedTravelTime * ratio
+
+        guard validSpeedSamples >= 3, smoothedSpeedMps > etaMinSpeedMps else {
+            return ratioEta
+        }
+
+        let liveEta = remaining / smoothedSpeedMps
+        // Sanity cap: never project more than `etaMaxRatio` × the
+        // original expected travel time. Protects against pathological
+        // bursts (jam, mechanical stop) blowing the ETA into the next
+        // day. The ratio estimator already self-limits to
+        // `expectedTravelTime`, so the cap only ever bites the live
+        // branch.
+        let cap = route.expectedTravelTime * etaMaxRatio
+        return min(liveEta, cap)
     }
 
     // MARK: - Formatting helpers
