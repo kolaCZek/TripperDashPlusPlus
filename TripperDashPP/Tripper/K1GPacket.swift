@@ -668,14 +668,27 @@ enum InitialBurst {
         // we leave alone — the dash treats these as a fixed greeting.
         //
         // Packet 3 carries the **wall-clock set-time TLV** (06/06, 3 B):
-        //   - byte 0: hour as binary 0..23  (e.g. 14 → 0x0E)
-        //   - byte 1: minute tens as ASCII  (e.g. '5' = 0x35)
-        //   - byte 2: minute ones as ASCII  (e.g. '2' = 0x32)
+        //   - byte 0: hour   (binary, 0..23)
+        //   - byte 1: minute (binary, 0..59)
+        //   - byte 2: second (binary, 0..59)
+        //
+        // Decoding history (the captured byte triplet was misinterpreted
+        // **twice**, leading to two failed fixes before this one):
+        //   1. better-dash captured `0E 33 34` from the stock Android app
+        //      and inlined it verbatim. We replayed it on every connect.
+        //   2. First fix (commit b22a17d, 2026-06-21) assumed ASCII for
+        //      the minute bytes (`HH '5' '2'`) and parsed `0E 33 34` as
+        //      "14:34". Field test at 20:08 sent `14 30 38` ('0','8')
+        //      and the dash latched onto **20:48** — proving the byte
+        //      isn't ASCII but raw binary (0x30 == 48 dec).
+        //   3. This fix: write minutes/seconds as plain binary. Re-reading
+        //      the original capture under that decoder yields 14:51:52,
+        //      which matches the field observation of 14:51 / 14:52.
+        //
         // The dash unconditionally adopts this value as its own RTC and
         // then free-runs forward — that's why the stock RE app keeps the
-        // clock right (it sends the real HH:MM here) and a verbatim
-        // replay of better-dash's captured `0e 33 34` fixed our clock at
-        // 14:34 + drift (≈14:5x after a few minutes). Bug 3 root cause.
+        // clock right (it sends the real HH:MM:SS here) and any captured
+        // replay freezes our clock at the capture moment plus drift.
         let p3 = Self.makePacket3SetClock(now: Date())
         let p4 = Self.hexToData("0016000200000000020100054b314720030557000155")
         let p5 = Self.hexToData("0016000200000000020100054b3147200405560001aa")
@@ -735,27 +748,29 @@ enum InitialBurst {
     /// `now` (interpreted in the user's current calendar/time-zone):
     ///
     ///   24 B total:  00 18  00 02  00 00 00 00  02 01 00 05
-    ///                4B 31 47 20  02  06 06 00 03  HH 'm' 'm'
+    ///                4B 31 47 20  02  06 06 00 03  HH MM SS
     ///
-    /// where:
-    ///   - HH = `Calendar.current.component(.hour, from: now)` as raw byte
-    ///   - The two minute bytes are ASCII digits ('0'…'9'), tens then ones.
+    /// All three payload bytes are **plain binary** in the range 0…59
+    /// (hour 0…23). Field-verified by sending `14 30 38` (hour=20, min
+    /// as ASCII '0','8') and watching the dash latch on to 20:48 instead
+    /// of 20:08 — `0x30 = 48 dec`, proving the dash treats the byte as
+    /// raw binary, not ASCII.
     ///
     /// The dash adopts this value as its RTC the moment it receives the
-    /// pairing burst; sending stale captured bytes (`0E 33 34` = 14:34)
-    /// is exactly what caused Bug 3 — the wrong "fixed time after pair".
+    /// pairing burst; sending stale captured bytes (`0E 33 34` decodes
+    /// to 14:51:52 under the corrected reader) is exactly what caused
+    /// Bug 3 — the "fixed wrong time after pair" symptom.
     static func makePacket3SetClock(now: Date) -> Data {
         let calendar = Calendar.current
         let hour = UInt8(calendar.component(.hour, from: now) & 0xFF)
-        let minute = calendar.component(.minute, from: now)
-        let tens = UInt8(0x30 &+ UInt8((minute / 10) % 10))
-        let ones = UInt8(0x30 &+ UInt8(minute % 10))
-        return makePacket3SetClock(hour: hour, minuteTens: tens, minuteOnes: ones)
+        let minute = UInt8(calendar.component(.minute, from: now) & 0xFF)
+        let second = UInt8(calendar.component(.second, from: now) & 0xFF)
+        return makePacket3SetClock(hour: hour, minute: minute, second: second)
     }
 
     /// Test seam — same as `makePacket3SetClock(now:)` but lets fake_dash
     /// unit tests inject deterministic clock bytes without stubbing Date.
-    static func makePacket3SetClock(hour: UInt8, minuteTens: UInt8, minuteOnes: UInt8) -> Data {
+    static func makePacket3SetClock(hour: UInt8, minute: UInt8, second: UInt8) -> Data {
         var p = Data(capacity: 24)
         // Header + K1G magic + seq 0x02 (matches the captured greeting).
         p.append(contentsOf: [
@@ -766,11 +781,11 @@ enum InitialBurst {
             0x4B, 0x31, 0x47, 0x20,       // "K1G "
             0x02                          // seq byte (greeting slot 3)
         ])
-        // 06/06 set-clock TLV — 3 byte payload (hour-binary + minute ASCII).
+        // 06/06 set-clock TLV — 3 byte payload (hour, minute, second all binary).
         p.append(contentsOf: [0x06, 0x06, 0x00, 0x03])
         p.append(hour)
-        p.append(minuteTens)
-        p.append(minuteOnes)
+        p.append(minute)
+        p.append(second)
         return p
     }
 }
