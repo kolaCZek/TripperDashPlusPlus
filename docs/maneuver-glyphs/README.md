@@ -84,8 +84,8 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x3F` | 🚆 | **Train / level crossing** (user-confirmed) |
 | `0x40` | 📍… | **Arrival approaching** (pin with dotted trail) |
 | `0x42` | 📵 | **GPS / internet signal lost** (connectivity warning; user-confirmed, not a maneuver) |
-| `0x46`..`0x4F` | ⟲10..⟲19 | **Roundabout CCW** — exit numbers 10..19 (small style, inferred from 0x0A-0x13) |
-| `0x50`..`0x59` | ⟳10..⟳19 | **Roundabout CW** — exit numbers 10..19 (large style, inferred from 0x31-0x3A) |
+| `0x46`..`0x4F` | ⟳10..⟳19 | **Roundabout CW** — exit numbers 10..19 (user-confirmed) |
+| `0x50`..`0x59` | ⟲10..⟲19 | **Roundabout CCW** — exit numbers 10..19 (user-confirmed) |
 | `0x2B`, `0x2C`, `0x41`, `0x43`..`0x45` | ⚪ | **Empty bubble** — no glyph rendered (placeholders inside visible range) |
 | `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (useful as "no maneuver" signal) |
 
@@ -201,26 +201,26 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x43` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x43](glyphs/0x43.png) |
 | `0x44` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x44](glyphs/0x44.png) |
 | `0x45` | ✅ ⚪ | **Empty bubble (no glyph rendered)** — likely placeholder/unused code | ![0x45](glyphs/0x45.png) |
-| `0x46` | 🟡 ⟲10 | **Roundabout CCW — take exit 10** (small style; inferred from 0x0A-0x13 swap) | ![0x46](glyphs/0x46.png) |
-| `0x47` | 🟡 ⟲11 | **Roundabout CCW — take exit 11** (small style; inferred from 0x0A-0x13 swap) | ![0x47](glyphs/0x47.png) |
-| `0x48` | 🟡 ⟲12 | **Roundabout CCW — take exit 12** (small style; inferred from 0x0A-0x13 swap) | ![0x48](glyphs/0x48.png) |
-| `0x49` | 🟡 ⟲13 | **Roundabout CCW — take exit 13** (small style; inferred from 0x0A-0x13 swap) | ![0x49](glyphs/0x49.png) |
-| `0x4A` | 🟡 ⟲14 | **Roundabout CCW — take exit 14** (small style; inferred from 0x0A-0x13 swap) | ![0x4A](glyphs/0x4A.png) |
-| `0x4B` | 🟡 ⟲15 | **Roundabout CCW — take exit 15** (small style; inferred from 0x0A-0x13 swap) | ![0x4B](glyphs/0x4B.png) |
-| `0x4C` | 🟡 ⟲16 | **Roundabout CCW — take exit 16** (small style; inferred from 0x0A-0x13 swap) | ![0x4C](glyphs/0x4C.png) |
-| `0x4D` | 🟡 ⟲17 | **Roundabout CCW — take exit 17** (small style; inferred from 0x0A-0x13 swap) | ![0x4D](glyphs/0x4D.png) |
-| `0x4E` | 🟡 ⟲18 | **Roundabout CCW — take exit 18** (small style; inferred from 0x0A-0x13 swap) | ![0x4E](glyphs/0x4E.png) |
-| `0x4F` | 🟡 ⟲19 | **Roundabout CCW — take exit 19** (small style; inferred from 0x0A-0x13 swap) | ![0x4F](glyphs/0x4F.png) |
-| `0x50` | 🟡 ⟳10 | **Roundabout CW — take exit 10** (large style; inferred from 0x31-0x3A swap) | ![0x50](glyphs/0x50.png) |
-| `0x51` | 🟡 ⟳11 | **Roundabout CW — take exit 11** (large style; inferred from 0x31-0x3A swap) | ![0x51](glyphs/0x51.png) |
-| `0x52` | 🟡 ⟳12 | **Roundabout CW — take exit 12** (large style; inferred from 0x31-0x3A swap) | ![0x52](glyphs/0x52.png) |
-| `0x53` | 🟡 ⟳13 | **Roundabout CW — take exit 13** (large style; inferred from 0x31-0x3A swap) | ![0x53](glyphs/0x53.png) |
-| `0x54` | 🟡 ⟳14 | **Roundabout CW — take exit 14** (large style; inferred from 0x31-0x3A swap) | ![0x54](glyphs/0x54.png) |
-| `0x55` | 🟡 ⟳15 | **Roundabout CW — take exit 15** (large style; inferred from 0x31-0x3A swap) | ![0x55](glyphs/0x55.png) |
-| `0x56` | 🟡 ⟳16 | **Roundabout CW — take exit 16** (large style; inferred from 0x31-0x3A swap) | ![0x56](glyphs/0x56.png) |
-| `0x57` | 🟡 ⟳17 | **Roundabout CW — take exit 17** (large style; inferred from 0x31-0x3A swap) | ![0x57](glyphs/0x57.png) |
-| `0x58` | 🟡 ⟳18 | **Roundabout CW — take exit 18** (large style; inferred from 0x31-0x3A swap) | ![0x58](glyphs/0x58.png) |
-| `0x59` | 🟡 ⟳19 | **Roundabout CW — take exit 19** (large style; inferred from 0x31-0x3A swap) | ![0x59](glyphs/0x59.png) |
+| `0x46` | ✅ ⟳10 | **Roundabout CW — take exit 10** (user-confirmed) | ![0x46](glyphs/0x46.png) |
+| `0x47` | ✅ ⟳11 | **Roundabout CW — take exit 11** (user-confirmed) | ![0x47](glyphs/0x47.png) |
+| `0x48` | ✅ ⟳12 | **Roundabout CW — take exit 12** (user-confirmed) | ![0x48](glyphs/0x48.png) |
+| `0x49` | ✅ ⟳13 | **Roundabout CW — take exit 13** (user-confirmed) | ![0x49](glyphs/0x49.png) |
+| `0x4A` | ✅ ⟳14 | **Roundabout CW — take exit 14** (user-confirmed) | ![0x4A](glyphs/0x4A.png) |
+| `0x4B` | ✅ ⟳15 | **Roundabout CW — take exit 15** (user-confirmed) | ![0x4B](glyphs/0x4B.png) |
+| `0x4C` | ✅ ⟳16 | **Roundabout CW — take exit 16** (user-confirmed) | ![0x4C](glyphs/0x4C.png) |
+| `0x4D` | ✅ ⟳17 | **Roundabout CW — take exit 17** (user-confirmed) | ![0x4D](glyphs/0x4D.png) |
+| `0x4E` | ✅ ⟳18 | **Roundabout CW — take exit 18** (user-confirmed) | ![0x4E](glyphs/0x4E.png) |
+| `0x4F` | ✅ ⟳19 | **Roundabout CW — take exit 19** (user-confirmed) | ![0x4F](glyphs/0x4F.png) |
+| `0x50` | ✅ ⟲10 | **Roundabout CCW — take exit 10** (user-confirmed) | ![0x50](glyphs/0x50.png) |
+| `0x51` | ✅ ⟲11 | **Roundabout CCW — take exit 11** (user-confirmed) | ![0x51](glyphs/0x51.png) |
+| `0x52` | ✅ ⟲12 | **Roundabout CCW — take exit 12** (user-confirmed) | ![0x52](glyphs/0x52.png) |
+| `0x53` | ✅ ⟲13 | **Roundabout CCW — take exit 13** (user-confirmed) | ![0x53](glyphs/0x53.png) |
+| `0x54` | ✅ ⟲14 | **Roundabout CCW — take exit 14** (user-confirmed) | ![0x54](glyphs/0x54.png) |
+| `0x55` | ✅ ⟲15 | **Roundabout CCW — take exit 15** (user-confirmed) | ![0x55](glyphs/0x55.png) |
+| `0x56` | ✅ ⟲16 | **Roundabout CCW — take exit 16** (user-confirmed) | ![0x56](glyphs/0x56.png) |
+| `0x57` | ✅ ⟲17 | **Roundabout CCW — take exit 17** (user-confirmed) | ![0x57](glyphs/0x57.png) |
+| `0x58` | ✅ ⟲18 | **Roundabout CCW — take exit 18** (user-confirmed) | ![0x58](glyphs/0x58.png) |
+| `0x59` | ✅ ⟲19 | **Roundabout CCW — take exit 19** (user-confirmed) | ![0x59](glyphs/0x59.png) |
 | `0x5A`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
 
 ## How to regenerate
@@ -254,14 +254,10 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Re-verify roundabout-exit numbering**: ~~catalog assigns CW
       exits 0..9 to `0x0A..0x13` (small style) and `0x31..0x3A`
       (large style), CW exits 10..19 to `0x46..0x4F`, CCW exits 10..19
-      to `0x50..0x59`.~~ **User-corrected 6/2026**: 0x0A-0x13 are
-      actually **CCW**, 0x31-0x3A are CW (small/large style hypothesis
-      stands). 0x46-0x4F/0x50-0x59 are inferred to be 10..19 of the
-      same families but not field-verified.
-- [ ] **Verify CCW/CW assignment for `0x46..0x59`**: 0x46-0x4F is
-      inferred CCW (sibling of small-style 0x0A-0x13), 0x50-0x59 is
-      inferred CW (sibling of large-style 0x31-0x3A). Field-test
-      before relying on the exit number for these ranges.
+      to `0x50..0x59`.~~ **User-corrected and field-verified 6/2026**:
+      0x0A-0x13 = CCW 0..9, 0x31-0x3A = CW 0..9, 0x46-0x4F = CW 10..19,
+      0x50-0x59 = CCW 10..19. Note: small/large-style hypothesis does
+      NOT match — 0x46-0x4F is the CW continuation of 0x0A-0x13's CCW.
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
