@@ -25,11 +25,11 @@ turn-by-turn is active).
   **same** byte — see [`ManeuverScannerLoop.swift#sendNavPacket`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift#L183). The dash renders both: the active-nav bubble on
   the left, and the burned "SCAN 0xNN" label at the bottom. **The
   burned label is the authoritative ground truth.**
-- **Coverage**: `0x00..0xFF` (full 8-bit range). Bytes `0x00..0x81` produce
-  visible bubble glyphs (130 distinct entries captured). Bytes
-  `0x82..0xFF` are **hidden bubble** — dashboard suppresses the overlay
-  entirely for every value in that range (manually verified
-  byte-by-byte on the bike).
+- **Coverage**: `0x00..0xFF` (full 8-bit range). Bytes `0x00..0x59` produce
+  visible bubble glyphs (90 distinct entries captured). Bytes
+  `0x5A..0x81` render the bubble background but **no symbol** (empty
+  bubble, field-verified byte-by-byte). Bytes `0x82..0xFF` are
+  **hidden bubble** — overlay fully suppressed.
 - **Extraction**: each glyph crop is **self-labeled** — the SCAN text under the
   bubble appears in every PNG so you can verify the byte → glyph mapping
   by eye without trusting any external mapping.
@@ -42,10 +42,11 @@ the burned SCAN label directly:
 
 | Status | Count | Meaning |
 |--------|-------|---------|
-| ✅ **anchor** | 85 | OCR of the SCAN label parsed cleanly — image and label match |
-| 🟡 **interpolated** | 43 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
-| 📸 **user photo** | 4 | `0x00`, `0x01`, `0x04`, `0x5F` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
-| ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), confirmed by manual byte-by-byte field-check |
+| ✅ **anchor** | ~55 | OCR of the SCAN label parsed cleanly — image and label match |
+| 🟡 **interpolated** | ~32 | OCR missed in that frame, image picked by linear interp between neighbouring anchors — verify against the SCAN label visible inside the PNG |
+| 📸 **user photo** | 3 | `0x00`, `0x01`, `0x04` captured directly from dash via phone photo (user-supplied, SCAN label visible) |
+| ⚪ **empty bubble** | 40 | `0x5A..0x81` — dash draws the bubble shell but renders no symbol inside, field-verified byte-by-byte |
+| ⚫ **hidden bubble** | 126 | `0x82..0xFF` — dash renders nothing (overlay fully suppressed), field-verified byte-by-byte |
 
 A glyph marked **interpolated** is still a real bubble frame from the
 video — the OCR just couldn't read the label cleanly in that specific
@@ -61,7 +62,8 @@ match the row's byte, the row is misaligned and needs re-extraction.
 | `0x02` | 📍AHEAD-variant | (similar to 0x01, pin position differs) — **pending re-classify** |
 | `0x03` | ⤵ | **Y-fork up — stay LEFT** (thicker left leg, user-confirmed in earlier scan) — re-verify against scan2 |
 | `0x04` | T+📍 | **Arrival at T-junction — destination ahead-LEFT** (T-shape with red pin top-left, user-photo) |
-| `0x05`..`0x81` | various | Captured but **not yet labelled** — see catalog below |
+| `0x05`..`0x59` | various | Captured but **not yet labelled** — see catalog below |
+| `0x5A`..`0x81` | ⚪ empty | **Empty bubble** — bubble drawn but no symbol inside (field-verified) |
 | `0x82`..`0xFF` | ⚫ hidden | **No bubble rendered** — overlay fully suppressed (useful as "no maneuver" signal) |
 
 > **Important**: the earlier text descriptions for `0x05..0x81` were
@@ -89,10 +91,12 @@ await link.sendActiveNav(
 )
 ```
 
-Bytes in `0x82..0xFF` fall in the **hidden bubble** range — sending any
-of them suppresses the active-nav overlay completely. Use `0xFF` (or
-any byte in that range) as the canonical "no maneuver" signal that
-hides the bubble without tearing down the route.
+Bytes in `0x5A..0x81` draw the bubble shell but leave it empty (no
+arrow/pin/symbol inside). Bytes in `0x82..0xFF` suppress the overlay
+completely. For a true "no maneuver" signal pick any byte from the
+hidden range (`0xFF` is the canonical choice); for "maneuver active
+but symbol unknown" the empty-bubble range may be useful as a
+placeholder that still keeps the active-nav layout visible.
 
 ## Catalog (byte → glyph)
 
@@ -196,46 +200,7 @@ Legend: ✅ = anchor (OCR-confirmed), 🟡 = interpolated, 🔄 = legacy.
 | `0x57` | 🟡 | TBD | ![0x57](glyphs/0x57.png) |
 | `0x58` | ✅ | TBD | ![0x58](glyphs/0x58.png) |
 | `0x59` | ✅ | TBD | ![0x59](glyphs/0x59.png) |
-| `0x5A` | ✅ | TBD | ![0x5A](glyphs/0x5A.png) |
-| `0x5B` | ✅ | TBD | ![0x5B](glyphs/0x5B.png) |
-| `0x5C` | ✅ | TBD | ![0x5C](glyphs/0x5C.png) |
-| `0x5D` | ✅ | TBD | ![0x5D](glyphs/0x5D.png) |
-| `0x5E` | ✅ | TBD | ![0x5E](glyphs/0x5E.png) |
-| `0x5F` | 📸 user photo | **Empty bubble — no glyph rendered** (bubble background drawn, but no arrow/pin/symbol inside; SCAN 0x5F label confirms byte) — second known "no-symbol" byte alongside the `0x82..0xFF` hidden-bubble range | ![0x5F](glyphs/0x5F.png) |
-| `0x60` | 🟡 | TBD | ![0x60](glyphs/0x60.png) |
-| `0x61` | 🟡 | TBD | ![0x61](glyphs/0x61.png) |
-| `0x62` | ✅ | TBD | ![0x62](glyphs/0x62.png) |
-| `0x63` | ✅ | TBD | ![0x63](glyphs/0x63.png) |
-| `0x64` | ✅ | TBD | ![0x64](glyphs/0x64.png) |
-| `0x65` | ✅ | TBD | ![0x65](glyphs/0x65.png) |
-| `0x66` | ✅ | TBD | ![0x66](glyphs/0x66.png) |
-| `0x67` | ✅ | TBD | ![0x67](glyphs/0x67.png) |
-| `0x68` | 🟡 | TBD | ![0x68](glyphs/0x68.png) |
-| `0x69` | ✅ | TBD | ![0x69](glyphs/0x69.png) |
-| `0x6A` | ✅ | TBD | ![0x6A](glyphs/0x6A.png) |
-| `0x6B` | ✅ | TBD | ![0x6B](glyphs/0x6B.png) |
-| `0x6C` | ✅ | TBD | ![0x6C](glyphs/0x6C.png) |
-| `0x6D` | ✅ | TBD | ![0x6D](glyphs/0x6D.png) |
-| `0x6E` | ✅ | TBD | ![0x6E](glyphs/0x6E.png) |
-| `0x6F` | ✅ | TBD | ![0x6F](glyphs/0x6F.png) |
-| `0x70` | ✅ | TBD | ![0x70](glyphs/0x70.png) |
-| `0x71` | 🟡 | TBD | ![0x71](glyphs/0x71.png) |
-| `0x72` | ✅ | TBD | ![0x72](glyphs/0x72.png) |
-| `0x73` | ✅ | TBD | ![0x73](glyphs/0x73.png) |
-| `0x74` | 🟡 | TBD | ![0x74](glyphs/0x74.png) |
-| `0x75` | 🟡 | TBD | ![0x75](glyphs/0x75.png) |
-| `0x76` | 🟡 | TBD | ![0x76](glyphs/0x76.png) |
-| `0x77` | 🟡 | TBD | ![0x77](glyphs/0x77.png) |
-| `0x78` | 🟡 | TBD | ![0x78](glyphs/0x78.png) |
-| `0x79` | 🟡 | TBD | ![0x79](glyphs/0x79.png) |
-| `0x7A` | ✅ | TBD | ![0x7A](glyphs/0x7A.png) |
-| `0x7B` | ✅ | TBD | ![0x7B](glyphs/0x7B.png) |
-| `0x7C` | ✅ | TBD | ![0x7C](glyphs/0x7C.png) |
-| `0x7D` | 🟡 | TBD | ![0x7D](glyphs/0x7D.png) |
-| `0x7E` | 🟡 | TBD | ![0x7E](glyphs/0x7E.png) |
-| `0x7F` | 🟡 | TBD | ![0x7F](glyphs/0x7F.png) |
-| `0x80` | ✅ | TBD | ![0x80](glyphs/0x80.png) |
-| `0x81` | ✅ | TBD | ![0x81](glyphs/0x81.png) |
+| `0x5A`..`0x81` | ⚪ empty bubble | **Empty bubble — no glyph rendered** (bubble background drawn, no arrow/pin/symbol inside; SCAN label confirms byte) — field-verified for every byte in range | — |
 | `0x82`..`0xFF` | ⚫ hidden | **Hidden bubble** — overlay fully suppressed (every byte in range, field-verified) | — |
 
 ## How to regenerate
@@ -266,7 +231,7 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## Open questions / pending work
 
-- [ ] **Re-classify `0x02..0x81`**: row-by-row labelling based on the
+- [ ] **Re-classify `0x02..0x59`**: row-by-row labelling based on the
       self-labeled glyph image; the earlier text descriptions were
       derived from misaligned timing-based mapping and have been removed
 - [ ] **Re-verify `0x03`**: legacy "Y-fork stay-left" label was derived
@@ -276,13 +241,15 @@ ffmpeg -i SCAN_VIDEO.mov \
 - [ ] **Direction-bit hypothesis** (was raised under earlier mapping):
       whether bits 7..4 control rotation direction for roundabouts —
       drop and re-derive after re-classification
-- [ ] **Non-visual side effects in `0x82..0xFF`**: bubble is suppressed,
-      but does any byte in that range still trigger non-visual effects
-      (beep, text bar, vibration)? — needs separate test
+- [ ] **Non-visual side effects in `0x5A..0x81` and `0x82..0xFF`**:
+      empty-bubble and hidden-bubble ranges suppress the symbol /
+      overlay respectively, but does any byte in those ranges still
+      trigger non-visual effects (beep, text bar, vibration)? — needs
+      separate test
 
 ## See also
 
 - [`ManeuverScannerLoop.swift`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) — Scanner implementation (walks `0x00..0xFF`, burns `SCAN 0xNN` label into the video stream)
 - [`ManeuverScanSource.swift`](../../TripperDashPP/Stream/ManeuverScanSource.swift) — Video overlay that burns the ground-truth label
 - [`ManeuverIcon.swift`](../../TripperDashPP/Navigation/Models/ManeuverIcon.swift) — Asset-free glyph renderer for the phone-side burned arrow (used when the dash enum is untrusted)
-- [Overview grid (all 130 captured)](all-glyphs-overview.jpg)
+- [Overview grid (90 visible glyphs captured)](all-glyphs-overview.jpg)
