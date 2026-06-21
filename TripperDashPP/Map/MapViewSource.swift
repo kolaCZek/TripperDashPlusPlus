@@ -53,7 +53,28 @@ final class MapViewSource: NSObject, FrameSource {
     private var fixSubscription: LocationSubscription?
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
+
+    /// Effective heading used to rotate the rendered frame (degrees,
+    /// CW from north). Lerped per-tick toward `targetHeading`.
+    ///
+    /// Field-test 2026-06-21 confirmed: on a motorcycle the magnetic
+    /// compass is unusable — frame vibrations, the steel skeleton, the
+    /// ignition coil and bar-end LEDs all skew `CLHeading.trueHeading`
+    /// by tens of degrees, and the dash sometimes rotates backwards
+    /// when the rider is moving forward. The robust signal is
+    /// `CLLocation.course` (true GPS course over ground) — but that's
+    /// `-1` when stationary, so we fall back to the compass at low
+    /// speed.
     private var lastHeading: CLLocationDirection = 0
+
+    /// Smoothed target for `lastHeading`. Computed in `recomputeHeading()`
+    /// from the latest fix + compass; the render tick lerps toward it.
+    private var targetHeading: CLLocationDirection = 0
+
+    /// Last raw compass reading (kept around so we can fall back to it
+    /// when the bike stops at a light).
+    private var lastCompassHeading: CLLocationDirection = 0
+    private var lastCompassValid: Bool = false
 
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
     private var renderTask: Task<Void, Never>?
@@ -172,6 +193,7 @@ extension MapViewSource {
 
     private func handleFix(_ fix: Fix) {
         lastFix = fix
+        recomputeHeading()
         let region = MKCoordinateRegion(
             center: fix.coordinate,
             latitudinalMeters: 400,
@@ -181,10 +203,47 @@ extension MapViewSource {
     }
 
     private func handleHeading(_ heading: Heading) {
-        lastHeading = heading.trueHeading
-        let cam = mapView.camera.copy() as! MKMapCamera
-        cam.heading = heading.trueHeading
-        mapView.setCamera(cam, animated: false)
+        // Stash the raw compass value — we'll use it as a fallback when
+        // the bike is stationary. We DON'T blindly drive the camera off
+        // it any more; see `recomputeHeading()` for the policy.
+        if heading.trueHeading >= 0 {
+            lastCompassHeading = heading.trueHeading
+            lastCompassValid = true
+        }
+        recomputeHeading()
+    }
+
+    /// Decide which heading to point the rendered frame at.
+    ///
+    /// Policy (field-test 2026-06-21):
+    ///   - `speed > 3 m/s` (~11 km/h) AND `course >= 0` → trust GPS course
+    ///   - otherwise → fall back to the compass (last valid value)
+    ///   - lerp `lastHeading → targetHeading` in `tickRender()` so the
+    ///     view doesn't snap when the source flips between course and
+    ///     compass.
+    ///
+    /// Why 3 m/s: below that the GPS course-over-ground is dominated by
+    /// fix jitter and swings wildly. Above it, the bike is definitely
+    /// moving and the course is the true direction of travel — robust
+    /// against any electromagnetic noise around the chassis.
+    private func recomputeHeading() {
+        let speedThresholdMPS: Double = 3.0  // ~11 km/h
+        var newTarget: CLLocationDirection = targetHeading
+
+        if let fix = lastFix,
+           fix.speed >= speedThresholdMPS,
+           fix.course >= 0 {
+            newTarget = fix.course
+        } else if lastCompassValid {
+            newTarget = lastCompassHeading
+        }
+
+        targetHeading = newTarget
+        // Seed `lastHeading` on the very first sample so the map doesn't
+        // do a 180° spin on startup.
+        if lastHeading == 0 && !lastCompassValid {
+            lastHeading = newTarget
+        }
     }
 }
 
@@ -287,6 +346,7 @@ extension MapViewSource {
             return
         }
         lastTileHintIndex = idx
+        updateHeading()
         updateZoom()
 
         // Pick the centre tile + 2 neighbours either side. After
@@ -483,10 +543,31 @@ extension MapViewSource {
         currentZoom += (target - currentZoom) * factor
     }
 
+    /// Lerp `lastHeading` toward `targetHeading` by 15%/frame, taking
+    /// the short way around the compass circle (handles the 359°→1°
+    /// wrap without the map spinning the long way).
+    ///
+    /// At 6 fps, 15%/frame ≈ 95% completion in ~2.6 s — fast enough
+    /// that the rider feels the map track the turn, slow enough that
+    /// a single noisy fix doesn't yank the view.
+    private func updateHeading() {
+        let factor: Double = 0.15
+        var delta = targetHeading - lastHeading
+        // Wrap delta into [-180, +180] so we turn the short way.
+        while delta > 180 { delta -= 360 }
+        while delta < -180 { delta += 360 }
+        var next = lastHeading + delta * factor
+        // Normalise the result into [0, 360).
+        while next < 0 { next += 360 }
+        while next >= 360 { next -= 360 }
+        lastHeading = next
+    }
+
     /// Vector-only fallback: dark background + polyline + dot.
     /// Used when the tile cache is unavailable or the user has gone
     /// off the cached corridor.
     private func drawVectorOnlyFrame(into ctx: CGContext) {
+        updateHeading()
         updateZoom()
         // Dark slate background
         ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1))
