@@ -28,6 +28,7 @@
 
 import CoreLocation
 import CoreMedia
+import CoreText
 import CoreVideo
 import MapKit
 import OSLog
@@ -62,6 +63,10 @@ final class MapViewSource: NSObject, FrameSource {
     private var pixelBufferPool: CVPixelBufferPool?
     private var routePolyline: MKPolyline?
     private var routePolylineCoords: [CLLocationCoordinate2D] = []
+
+    /// Latest active-nav overlay state pushed in by ActiveNavLoop.
+    /// `nil` while not navigating → drawNavOverlay short-circuits.
+    fileprivate var navOverlayState: MapViewSource.NavOverlayState?
 
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
@@ -258,6 +263,11 @@ extension MapViewSource {
             // Pre-navigation / no cache — vector-only on dark slate.
             drawVectorOnlyFrame(into: ctx)
         }
+
+        // Top-left maneuver overlay — burned into the video so the dash
+        // shows the right arrow regardless of how it interprets the
+        // primary-maneuver TLV (whose enum is largely undocumented).
+        drawNavOverlay(into: ctx)
 
         return buffer
     }
@@ -563,6 +573,137 @@ extension MapViewSource {
         } else {
             routePolylineCoords = []
         }
+    }
+}
+
+// MARK: - Active-nav overlay (Phase 9e)
+//
+// Top-left maneuver glyph + "distance to next turn" text, burned into
+// the same pixel buffer that gets H.264-encoded. The dash sees these
+// as part of the projected map and can't tell them apart from the
+// underlying tiles.
+//
+// State is pushed in from ActiveNavLoop on every nav tick. We snapshot
+// just the values we need (kind + distance + road name) so we don't
+// have to keep a strong ref to the navigator.
+
+extension MapViewSource {
+    struct NavOverlayState {
+        var kind: ManeuverKind
+        var distanceMeters: Double  // distance to next maneuver
+        var roadName: String?       // current road, optional
+        var unitsImperial: Bool     // for distance string formatting
+    }
+
+    /// Caller (typically ActiveNavLoop) pushes the latest nav state.
+    /// Pass `nil` to clear the overlay (stops drawing).
+    func setNavOverlay(_ state: NavOverlayState?) {
+        self.navOverlayState = state
+    }
+
+    fileprivate func drawNavOverlay(into ctx: CGContext) {
+        guard let s = navOverlayState else { return }
+
+        // 1. Glyph in a 70×70 box at top-left, 12 px margin.
+        // Add a soft dark backdrop so the white arrow + text reads
+        // over bright map backgrounds.
+        let pad: CGFloat = 12
+        let backdrop = CGRect(x: pad - 6, y: pad - 6, width: 70 + 12, height: 70 + 12)
+        ctx.saveGState()
+        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.55)
+        let path = CGPath(
+            roundedRect: backdrop,
+            cornerWidth: 10,
+            cornerHeight: 10,
+            transform: nil
+        )
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.translateBy(x: pad, y: pad)
+        ManeuverIcon.draw(s.kind, in: ctx)
+        ctx.restoreGState()
+
+        // 2. Distance label centred under the glyph backdrop.
+        let distText = Self.formatDistance(meters: s.distanceMeters, imperial: s.unitsImperial)
+        Self.drawText(
+            distText,
+            in: ctx,
+            at: CGPoint(x: pad - 6, y: backdrop.maxY + 4),
+            width: backdrop.width,
+            fontSize: 18,
+            bold: true
+        )
+
+        // 3. Road name to the right of the glyph, vertically centred.
+        if let road = s.roadName, !road.isEmpty {
+            let roadOriginX = backdrop.maxX + 10
+            let roadWidth = frameSize.width - roadOriginX - pad
+            Self.drawText(
+                road,
+                in: ctx,
+                at: CGPoint(x: roadOriginX, y: pad + 20),
+                width: roadWidth,
+                fontSize: 22,
+                bold: false
+            )
+        }
+    }
+
+    private static func formatDistance(meters m: Double, imperial: Bool) -> String {
+        if imperial {
+            let mi = m / 1609.344
+            if m < 160 { // < ~0.1 mi → feet
+                let ft = Int((m * 3.280839895).rounded())
+                return "\(ft) ft"
+            } else if mi < 10 {
+                return String(format: "%.1f mi", mi)
+            } else {
+                return String(format: "%.0f mi", mi)
+            }
+        } else {
+            if m < 1000 {
+                return "\(Int(m.rounded())) m"
+            } else if m < 10_000 {
+                return String(format: "%.1f km", m / 1000.0)
+            } else {
+                return String(format: "%.0f km", m / 1000.0)
+            }
+        }
+    }
+
+    private static func drawText(
+        _ text: String,
+        in ctx: CGContext,
+        at origin: CGPoint,
+        width: CGFloat,
+        fontSize: CGFloat,
+        bold: Bool
+    ) {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: bold
+                ? UIFont.systemFont(ofSize: fontSize, weight: .bold)
+                : UIFont.systemFont(ofSize: fontSize, weight: .regular),
+            .foregroundColor: UIColor.white,
+            .strokeColor: UIColor.black,
+            .strokeWidth: -3.0  // negative = stroke + fill
+        ]
+        let attributed = NSAttributedString(string: text, attributes: attrs)
+        let line = CTLineCreateWithAttributedString(attributed)
+
+        // Core Text draws Y-up; our outer ctx is Y-down post-flip.
+        // We flip locally so the text isn't upside-down.
+        ctx.saveGState()
+        ctx.translateBy(x: origin.x, y: origin.y + fontSize)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.textPosition = .zero
+        // Truncate via clip — CT line will draw what fits and clip the
+        // rest, which is good enough for road names.
+        ctx.clip(to: CGRect(x: 0, y: -fontSize, width: width, height: fontSize * 1.6))
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
     }
 }
 

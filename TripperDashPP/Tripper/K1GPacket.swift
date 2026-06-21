@@ -326,6 +326,181 @@ extension K1GPacket {
         )
         return encode(segments: [seg], seq: seq)
     }
+
+    // MARK: - Active navigation TLVs (1 Hz during nav)
+    //
+    // Authority: `better-dash/tripper_app_like_nav.py` `_nav_tlv_*` builders
+    // + skill `references/k1g-wire-protocol.md` "Active navigation" table.
+    // All TLVs are nav-info (type 0x05) except the two trailing flags which
+    // are status (type 0x06).
+    //
+    // Each helper here returns a SEGMENT, not a full envelope; combine them
+    // through `makeActiveNav(...)` which prefixes the K1G header and computes
+    // outer_len / seg_count.
+
+    /// `05 02 0001 <code>` — t3c.g(): primary maneuver glyph code.
+    /// Known values: `0x0B` = continue/straight, `0x3C` = bear-right.
+    /// Full enum is undocumented; send `0x0B` as a safe placeholder when
+    /// the real code isn't known — the dash will still show the rest of
+    /// the active-nav bubble (distance, ETA, …) and we render the actual
+    /// arrow in the video stream.
+    static func tlvPrimaryManeuver(_ code: UInt8) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x02, payload: Data([code]))
+    }
+
+    /// `05 04 0002 <meters_BE>` — t3c.h(): distance to the next turn.
+    static func tlvPrimaryDistance(meters: UInt16) -> K1GSegment {
+        var be = meters.bigEndian
+        return K1GSegment(
+            type: .navInfo, sub: 0x04,
+            payload: Data(bytes: &be, count: 2)
+        )
+    }
+
+    /// `05 06 0001 <unit>` — t3c.j(): unit byte for primary distance.
+    /// Encoded as decimal-ASCII-digit: `10`=km/10ths, `20`=mi/10ths,
+    /// `30`=metres, `50`=feet. Pass the wire byte directly (not the
+    /// integer 10/20/30/50 — that would be a different value).
+    static func tlvPrimaryUnit(_ wireByte: UInt8) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x06, payload: Data([wireByte]))
+    }
+
+    /// `05 09 0002 <meters_BE>` — t3c.q(): total distance remaining.
+    static func tlvTotalDistance(meters: UInt16) -> K1GSegment {
+        var be = meters.bigEndian
+        return K1GSegment(
+            type: .navInfo, sub: 0x09,
+            payload: Data(bytes: &be, count: 2)
+        )
+    }
+
+    /// `05 46 0001 <unit>` — t3c.r(): unit byte for total distance.
+    static func tlvTotalDistanceUnit(_ wireByte: UInt8) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x46, payload: Data([wireByte]))
+    }
+
+    /// `05 0A 0001 <55|AA>` — t3c.d() with q3c.A/B: decimal separator.
+    /// `useComma=true` → `0xAA` (","), `false` → `0x55` (".").
+    static func tlvDecimalSeparator(useComma: Bool) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x0A,
+                   payload: Data([useComma ? 0xAA : 0x55]))
+    }
+
+    /// `05 08 0004 <ascii_HHMM>` — t3c.e(): ETA as 4 ASCII bytes, e.g.
+    /// "18:32" → `31 38 33 32`. Caller passes a Date; we format in the
+    /// device's local timezone, 24-hour, zero-padded.
+    static func tlvEta(date: Date, calendar: Calendar = .current) -> K1GSegment {
+        let comps = calendar.dateComponents([.hour, .minute], from: date)
+        let h = comps.hour ?? 0
+        let m = comps.minute ?? 0
+        let s = String(format: "%02d%02d", h, m)
+        return K1GSegment(type: .navInfo, sub: 0x08,
+                          payload: Data(s.utf8))
+    }
+
+    /// `05 54 0001 <byte>` — t3c.f(): ETA format flag.
+    /// `is24Hour=true` → `0x55` (TENTATIVE — confirm with pcap when
+    /// dash is set to 12h in settings). The hour-of-day value in the
+    /// ETA TLV itself is independent of this flag.
+    static func tlvEtaFormat(is24Hour: Bool) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x54,
+                   payload: Data([is24Hour ? 0x55 : 0xAA]))
+    }
+
+    /// `05 0B 0006 <ascii_DDHHMM>` — q3c.S2: remaining travel time, 6 ASCII
+    /// bytes, e.g. 1 day 23 h 45 m → "012345".
+    static func tlvRemainingTime(seconds: TimeInterval) -> K1GSegment {
+        let total = max(0, Int(seconds.rounded()))
+        let days = (total / 86_400) % 100
+        let hours = (total % 86_400) / 3_600
+        let minutes = (total % 3_600) / 60
+        let s = String(format: "%02d%02d%02d", days, hours, minutes)
+        return K1GSegment(type: .navInfo, sub: 0x0B,
+                          payload: Data(s.utf8))
+    }
+
+    /// `05 55 0001 20` — q3c.T2: remaining-time unit byte. Always 0x20
+    /// per the skill, but the dash also accepts the absence of this TLV.
+    static func tlvRemainingUnit() -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x55, payload: Data([0x20]))
+    }
+
+    /// `05 01 <len> <ascii+0x00>` — t3c.m(): current road name. Truncated
+    /// to 60 bytes UTF-8 + null terminator to match the Python authority.
+    static func tlvRoadName(_ name: String) -> K1GSegment {
+        var bytes = Array(name.utf8.prefix(60))
+        bytes.append(0)
+        return K1GSegment(type: .navInfo, sub: 0x01,
+                          payload: Data(bytes))
+    }
+
+    /// `06 05 0001 <55|AA>` — t3c.s(): projection ON flag (mirror of
+    /// the standalone `q3c.w` / `q3c.x` latches).
+    static func tlvProjectionFlag(on: Bool) -> K1GSegment {
+        K1GSegment(type: .status, sub: 0x05,
+                   payload: Data([on ? 0x55 : 0xAA]))
+    }
+
+    /// `06 0D 0001 <55|AA>` — t3c.t(): decimal-notation flag.
+    /// `on=true` (`0x55`) tells the dash to format distances with the
+    /// decimal separator. The Python authority defaults to OFF so that
+    /// whole-metre values like "500 m" render as integers.
+    static func tlvDecimalFlag(on: Bool) -> K1GSegment {
+        K1GSegment(type: .status, sub: 0x0D,
+                   payload: Data([on ? 0x55 : 0xAA]))
+    }
+
+    /// Phone → bike: active-navigation status packet, sent at ~1 Hz while
+    /// the rider is following a route. Mirrors
+    /// `better-dash` `build_active_nav_packet` but exposes more optional
+    /// TLVs (ETA + remaining time + road name + ETA format) so the dash
+    /// can render its full nav bubble.
+    ///
+    /// Caller passes any subset of optional fields. `primaryManeuver`,
+    /// `primaryDistanceMeters`, `primaryUnit`, `totalDistanceMeters`,
+    /// `totalDistanceUnit`, `useCommaDecimal`, `projectionOn` and
+    /// `decimalFmtOn` are required — they form the minimum viable
+    /// 8-TLV packet. Order of TLVs is fixed and matches the Python
+    /// authority byte-for-byte.
+    static func makeActiveNav(
+        seq: UInt8,
+        primaryManeuver: UInt8 = 0x0B,
+        primaryDistanceMeters: UInt16,
+        primaryUnit: UInt8,
+        totalDistanceMeters: UInt16,
+        totalDistanceUnit: UInt8,
+        useCommaDecimal: Bool,
+        projectionOn: Bool = true,
+        decimalFmtOn: Bool = false,
+        roadName: String? = nil,
+        eta: Date? = nil,
+        is24Hour: Bool = true,
+        remainingSeconds: TimeInterval? = nil
+    ) -> Data {
+        var segs: [K1GSegment] = []
+        if let rn = roadName, !rn.isEmpty {
+            segs.append(tlvRoadName(rn))
+        }
+        segs.append(tlvPrimaryManeuver(primaryManeuver))
+        segs.append(tlvPrimaryDistance(meters: primaryDistanceMeters))
+        segs.append(tlvPrimaryUnit(primaryUnit))
+        if let eta = eta {
+            segs.append(tlvEta(date: eta))
+        }
+        segs.append(tlvTotalDistance(meters: totalDistanceMeters))
+        segs.append(tlvDecimalSeparator(useComma: useCommaDecimal))
+        if let secs = remainingSeconds {
+            segs.append(tlvRemainingTime(seconds: secs))
+            segs.append(tlvRemainingUnit())
+        }
+        segs.append(tlvTotalDistanceUnit(totalDistanceUnit))
+        if eta != nil {
+            segs.append(tlvEtaFormat(is24Hour: is24Hour))
+        }
+        segs.append(tlvProjectionFlag(on: projectionOn))
+        segs.append(tlvDecimalFlag(on: decimalFmtOn))
+        return encode(segments: segs, seq: seq)
+    }
 }
 
 // MARK: - Status / heartbeat / metadata builders (raw bytes)

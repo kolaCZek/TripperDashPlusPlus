@@ -202,6 +202,45 @@ final class BikeLink {
         }
     }
 
+    /// Push one active-navigation packet to the dash. Called ~1 Hz from
+    /// `ActiveNavLoop` while the rider is following a route. Bundles
+    /// maneuver code + distance + ETA + remaining time + road name into
+    /// a single K1G envelope so the dash bubble updates atomically.
+    ///
+    /// All args are pre-encoded wire values (let the loop do the
+    /// unit-system / decimal-separator math). No-op if not connected.
+    func sendActiveNav(
+        primaryManeuver: UInt8,
+        primaryDistanceMeters: UInt16,
+        primaryUnit: UInt8,
+        totalDistanceMeters: UInt16,
+        totalDistanceUnit: UInt8,
+        useCommaDecimal: Bool,
+        decimalFmtOn: Bool,
+        roadName: String?,
+        eta: Date?,
+        is24Hour: Bool,
+        remainingSeconds: TimeInterval?
+    ) async {
+        guard state == .connected, let s = socket else { return }
+        let pkt = K1GPacket.makeActiveNav(
+            seq: seq.consume(),
+            primaryManeuver: primaryManeuver,
+            primaryDistanceMeters: primaryDistanceMeters,
+            primaryUnit: primaryUnit,
+            totalDistanceMeters: totalDistanceMeters,
+            totalDistanceUnit: totalDistanceUnit,
+            useCommaDecimal: useCommaDecimal,
+            projectionOn: true,
+            decimalFmtOn: decimalFmtOn,
+            roadName: roadName,
+            eta: eta,
+            is24Hour: is24Hour,
+            remainingSeconds: remainingSeconds
+        )
+        try? await s.send(pkt)
+    }
+
     // MARK: - Flow
 
     private func runConnectFlow() async {

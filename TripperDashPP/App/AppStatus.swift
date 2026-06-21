@@ -197,6 +197,21 @@ final class AppStatus {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()
         }
+        // Start the 1 Hz active-nav pump. Only meaningful when
+        // sourceKind == .mapView (live map share state with the
+        // navigator). For other sources we still spin the loop so the
+        // dash bubble gets a heartbeat; the overlay just sits at
+        // "straight, 0 m" until a route exists.
+        if sourceKind == .mapView {
+            let loop = ActiveNavLoop(
+                bikeLink: bikeLink,
+                navigator: activeNavigator,
+                mapSource: mapViewSource,
+                settings: dashNavSettings
+            )
+            loop.start()
+            activeNavLoop = loop
+        }
         applyKeepAwake()
     }
 
@@ -205,6 +220,10 @@ final class AppStatus {
         // encoder — it expects (h, x) before the frames stop, otherwise
         // it sometimes wedges on the last bitmap until the next reboot.
         let link = bikeLink
+        // Stop the 1 Hz nav pump first so it can't send a stale packet
+        // after the (h, x) teardown lands.
+        activeNavLoop?.stop()
+        activeNavLoop = nil
         Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
@@ -253,6 +272,15 @@ final class AppStatus {
     /// `isNavigating` true; stop() resets. Reroute requests are wired
     /// through `onRerouteRequested` in init below.
     let activeNavigator = ActiveNavigator()
+
+    /// User-facing dash display preferences (units, decimal separator,
+    /// clock format, ETA-vs-distance bottom row). Persisted, observable.
+    let dashNavSettings = DashNavSettings()
+
+    /// Active-nav 1 Hz pump. Created on demand when streaming starts
+    /// (we need a live `mapSource` and `bikeLink.connected` first). Held
+    /// here so we can stop it from `stopStreaming()`.
+    @ObservationIgnored private var activeNavLoop: ActiveNavLoop?
 
     /// One-shot route calculator used by the route preview sheet and
     /// by the navigator's reroute callback.

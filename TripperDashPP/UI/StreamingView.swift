@@ -90,6 +90,44 @@ struct StreamingView: View {
                 }
             }
 
+            Section("Dash display") {
+                Picker("Units", selection: Binding(
+                    get: { status.dashNavSettings.units },
+                    set: { status.dashNavSettings.units = $0 }
+                )) {
+                    ForEach(DashNavSettings.UnitSystem.allCases) { u in
+                        Text(u.label).tag(u)
+                    }
+                }
+                Picker("Decimal separator", selection: Binding(
+                    get: { status.dashNavSettings.decimalSeparator },
+                    set: { status.dashNavSettings.decimalSeparator = $0 }
+                )) {
+                    ForEach(DashNavSettings.DecimalSeparator.allCases) { d in
+                        Text(d.label).tag(d)
+                    }
+                }
+                Picker("Clock", selection: Binding(
+                    get: { status.dashNavSettings.clockFormat },
+                    set: { status.dashNavSettings.clockFormat = $0 }
+                )) {
+                    ForEach(DashNavSettings.ClockFormat.allCases) { c in
+                        Text(c.label).tag(c)
+                    }
+                }
+                Picker("Bubble bottom row", selection: Binding(
+                    get: { status.dashNavSettings.bottomLine },
+                    set: { status.dashNavSettings.bottomLine = $0 }
+                )) {
+                    ForEach(DashNavSettings.BottomLineMode.allCases) { b in
+                        Text(b.label).tag(b)
+                    }
+                }
+                Text("Active-nav bubble can show either ETA or remaining distance — pick which one the dash should render.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Stream") {
                 LabeledContent("Encoded fps",     value: String(format: "%.1f", status.metrics.encodedFps))
                 LabeledContent("Bitrate (kbps)",  value: String(format: "%.0f", status.metrics.kbpsOut))
