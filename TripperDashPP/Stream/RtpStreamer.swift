@@ -51,6 +51,11 @@ final class RtpStreamer {
     private let encoder: H264Encoder
     private let packetizer = RtpPacketizer()
 
+    /// Hook into the BikeLink so the streamer can announce per-frame
+    /// `q3c.g` (projection-frame) TLVs over UDP/2002. Weak to avoid a
+    /// retain cycle — the link outlives any single streamer instance.
+    weak var bikeLink: BikeLink?
+
     // MARK: - Networking
 
     private var connection: NWConnection?
@@ -186,9 +191,14 @@ final class RtpStreamer {
         // Mark the last fragment of an access unit (the IDR / non-IDR
         // frame itself) with the marker bit, per RFC 3550.
         let markerOnLast: Bool
+        let isFrame: Bool
         switch nal.kind {
-        case .idr, .nonIDR: markerOnLast = true
-        default:            markerOnLast = false
+        case .idr, .nonIDR:
+            markerOnLast = true
+            isFrame = true
+        default:
+            markerOnLast = false
+            isFrame = false
         }
 
         let datagrams = packetizer.packetize(
@@ -201,6 +211,14 @@ final class RtpStreamer {
 
         for datagram in datagrams {
             send(datagram)
+        }
+
+        // Tell the dash a new map bitmap was rendered (q3c.g). Once per
+        // frame, not once per NAL — parameter sets don't count. Without
+        // this the dash never refreshes the projection surface even
+        // though the RTP packets are arriving.
+        if isFrame, let link = bikeLink {
+            Task { await link.sendProjectionFrame() }
         }
     }
 

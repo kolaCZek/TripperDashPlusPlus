@@ -169,6 +169,7 @@ final class AppStatus {
             source = TestPatternSource()
         }
         let s = RtpStreamer(bikeHost: host, source: source)
+        s.bikeLink = bikeLink
         s.onMetrics = { [weak self] m in
             guard let self else { return }
             self.metrics = StreamMetrics(
@@ -182,11 +183,29 @@ final class AppStatus {
             )
         }
         streamer = s
+        // Kick the dash into nav projection BEFORE starting the RTP
+        // stream — without q3c.z2 + q3c.q the dash never switches off
+        // the home widgets and treats UDP/5000 as noise.
+        let link = bikeLink
+        Task { await link.sendNavStart() }
         s.start()
+        // Latch the "projection on" flag shortly after start so the
+        // dash has the q3c.w hint while the first frames are landing.
+        // 250 ms gives the encoder time to emit its first NAL and the
+        // RTP UDP connection to reach .ready.
+        Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await link.sendProjectionOn()
+        }
         applyKeepAwake()
     }
 
     func stopStreaming() {
+        // Tell the dash to leave nav projection BEFORE we yank the
+        // encoder — it expects (h, x) before the frames stop, otherwise
+        // it sometimes wedges on the last bitmap until the next reboot.
+        let link = bikeLink
+        Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
         // mapViewSource is intentionally NOT released — its tile cache

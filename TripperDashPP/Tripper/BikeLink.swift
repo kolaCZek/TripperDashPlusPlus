@@ -137,6 +137,71 @@ final class BikeLink {
         log.info("BikeLink disconnected")
     }
 
+    // MARK: - Nav projection lifecycle
+    //
+    // Public hooks for the streamer. Fire-and-forget on the link's seq
+    // counter — failures just log; the streamer will start anyway and
+    // the worst case is the dash stays on the home screen, which is
+    // recoverable by toggling streaming off+on.
+
+    /// Kick the dash into nav projection mode. Call BEFORE starting the
+    /// RTP stream. No-op if not connected.
+    ///
+    /// Sequence mirrors better-dash `send_nav_mode_kick`:
+    /// `q3c.z2` (open nav screen) → `q3c.q` (enter nav context).
+    func sendNavStart() async {
+        guard state == .connected, let s = socket else { return }
+        let z2 = K1GPacket.makeStartNav(seq: seq.consume())
+        let q  = K1GPacket.makeNavContext(seq: seq.consume())
+        do {
+            try await s.send(z2)
+            try await s.send(q)
+            log.info("Sent nav-mode kick (q3c.z2 + q3c.q)")
+        } catch {
+            log.error("Nav-mode kick failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Latch the "projection video is live" flag. Call right after the
+    /// RTP UDP connection is .ready and the first H.264 frame is on the
+    /// way. No-op if not connected.
+    func sendProjectionOn() async {
+        guard state == .connected, let s = socket else { return }
+        let w = K1GPacket.makeProjectionOn(seq: seq.consume())
+        do {
+            try await s.send(w)
+            log.info("Sent projection-on latch (q3c.w)")
+        } catch {
+            log.error("Projection-on send failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Announce that a new H.264 frame was just pushed to UDP/5000. Call
+    /// from the RTP streamer's per-frame callback. No-op if not connected.
+    func sendProjectionFrame() async {
+        guard state == .connected, let s = socket else { return }
+        let g = K1GPacket.makeProjectionFrame(seq: seq.consume())
+        try? await s.send(g)
+    }
+
+    /// Tear down the nav projection. Call BEFORE stopping the RTP stream.
+    /// No-op if not connected.
+    ///
+    /// Sequence mirrors NavigationFragment.Y7:
+    /// `q3c.h` (stop-frames) → `q3c.x` (projection off).
+    func sendNavStop() async {
+        guard state == .connected, let s = socket else { return }
+        let h = K1GPacket.makeProjectionStop(seq: seq.consume())
+        let x = K1GPacket.makeProjectionOff(seq: seq.consume())
+        do {
+            try await s.send(h)
+            try await s.send(x)
+            log.info("Sent nav-stop (q3c.h + q3c.x)")
+        } catch {
+            log.error("Nav-stop send failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Flow
 
     private func runConnectFlow() async {

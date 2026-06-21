@@ -239,6 +239,93 @@ extension K1GPacket {
         )
         return encode(segments: [seg], seq: seq)
     }
+
+    // MARK: - Navigation projection lifecycle
+    //
+    // Authority: better-dash `tripper_app_like_nav.py:107-130` and the
+    // `references/k1g-wire-protocol.md` "Navigation lifecycle" table.
+    //
+    // The dash gates the nav-video surface on these TLVs regardless of
+    // whether RTP packets are arriving on UDP/5000 — without `q3c.q +
+    // q3c.z2` it never switches to the projection screen, and without
+    // `q3c.w` latched + `q3c.g` per frame it treats the incoming UDP
+    // stream as noise and keeps the home widgets visible.
+    //
+    // Recommended start sequence (mirrors better-dash `send_nav_mode_kick`):
+    //   1. `q3c.z2` (START_NAV)        — open the nav projection screen
+    //   2. `q3c.q`  (NAV_CTX)          — enter nav context
+    //   3. start the RTP/H.264 stream
+    //   4. `q3c.w`  (PROJ_ON)          — latch projection-live flag
+    //   5. then per frame, send `q3c.g` (PROJ_FRAME) right after each
+    //      H.264 frame goes out so the dash knows a new bitmap landed
+    //
+    // Recommended stop sequence (mirrors NavigationFragment.Y7):
+    //   1. `q3c.h`  (PROJ_STOP)        — "no more bitmaps coming"
+    //   2. `q3c.x`  (PROJ_OFF)         — "projection video stopped"
+    //   3. tear down the RTP stream
+
+    /// Phone → bike: q3c.q "enter nav context". TLV `05 2E 00 01 1E`.
+    static func makeNavContext(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .navInfo,
+            sub: 0x2E,
+            payload: Data([0x1E])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: q3c.z2 "begin nav projection". TLV `06 80 00 01 0B`.
+    static func makeStartNav(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .status,
+            sub: 0x80,
+            payload: Data([0x0B])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: q3c.w "projection video is live". TLV `06 05 00 01 55`.
+    /// Latched once when the RTP stream starts producing frames.
+    static func makeProjectionOn(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .status,
+            sub: 0x05,
+            payload: Data([0x55])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: q3c.g "new map bitmap was rendered this tick".
+    /// TLV `05 56 00 01 55`. Send this once per encoded H.264 frame.
+    static func makeProjectionFrame(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .navInfo,
+            sub: 0x56,
+            payload: Data([0x55])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: q3c.h "no more bitmaps coming" (stop-frames).
+    /// TLV `05 56 00 01 AA`.
+    static func makeProjectionStop(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .navInfo,
+            sub: 0x56,
+            payload: Data([0xAA])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: q3c.x "projection video stopped". TLV `06 05 00 01 AA`.
+    static func makeProjectionOff(seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .status,
+            sub: 0x05,
+            payload: Data([0xAA])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
 }
 
 // MARK: - Status / heartbeat / metadata builders (raw bytes)

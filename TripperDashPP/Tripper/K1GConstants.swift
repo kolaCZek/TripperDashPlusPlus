@@ -74,6 +74,8 @@ enum K1G {
     /// `… 00 07 04 …`). Sending 0x07 outbound to the real Tripper dash
     /// causes a silent drop and the handshake times out.
     enum SegType: UInt8 {
+        case navInfo = 0x05  // phone → bike, nav-info TLVs (q3c.q, q3c.g, q3c.h, active_nav)
+        case status  = 0x06  // phone → bike, status TLVs (q3c.w, q3c.x, q3c.z2, button ACKs)
         case auth   = 0x07   // bike → phone, auth replies (sub-types below)
         case session = 0x08  // phone → bike, auth + session payloads (q3c.e, q3c.d)
         case button = 0x09   // bike → phone, joystick / button events
