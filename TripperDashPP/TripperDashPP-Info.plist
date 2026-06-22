@@ -56,17 +56,6 @@
 	</dict>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
-	<!-- Documents visibility (debug-only — exposes Documents/ to    -->
-	<!-- the Files app so we can grab compose_debug_*.png dumps).    -->
-	<!-- Remove or set to <false/> for production.                   -->
-	<!-- ───────────────────────────────────────────────────────────── -->
-
-	<key>UIFileSharingEnabled</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
-
-	<!-- ───────────────────────────────────────────────────────────── -->
 	<!-- Device requirements                                           -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
