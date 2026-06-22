@@ -95,6 +95,7 @@ final class RouteTileCache {
     /// each dump. Set to 0 to disable.
     #if DEBUG
     static var debugDumpsRemaining = 3
+    static var debugDumpIndex = 0
     #endif
 
     // MARK: - Tunables
@@ -830,6 +831,8 @@ final class RouteTileCache {
         #if DEBUG
         if RouteTileCache.debugDumpsRemaining > 0 {
             RouteTileCache.debugDumpsRemaining -= 1
+            RouteTileCache.debugDumpIndex += 1
+            let dumpIdx = RouteTileCache.debugDumpIndex
             let debugCtx = CGContext(
                 data: nil,
                 width: bitmapSize,
@@ -862,7 +865,7 @@ final class RouteTileCache {
                         let docs = FileManager.default.urls(
                             for: .documentDirectory, in: .userDomainMask)[0]
                         let url = docs.appendingPathComponent(
-                            "compose_debug_\(Int(Date().timeIntervalSince1970)).png")
+                            "compose_debug_\(dumpIdx).png")
                         try? debugPng.write(to: url)
                         NSLog("[compose-debug] wrote \(url.path)")
                     }
