@@ -23,27 +23,98 @@ final class RoutingService {
     /// Calculate up to 3 alternative routes from origin → destination.
     /// `origin == nil` uses .forCurrentLocation() (CoreLocation must
     /// already be authorised + a fix should be available).
+    ///
+    /// Retained as the single-leg convenience used by reroute and the
+    /// legacy single-destination flow. Internally a one-leg call.
     func calculate(from origin: CLLocationCoordinate2D?,
                    to destination: Destination,
                    preferences: RoutePreferences) async throws -> [RouteOption] {
+        let fromWp = origin.map { Waypoint(name: "Origin", coordinate: $0) }
+        let toWp = Waypoint.from(destination: destination)
+        return try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+    }
+
+    /// Compute ≤3 alternatives for a single leg `from → to`. A nil
+    /// `from`, or a `from` flagged `isCurrentLocation`, resolves to
+    /// `.forCurrentLocation()` (used for the origin leg).
+    func calculateLeg(from: Waypoint?,
+                      to: Waypoint,
+                      preferences: RoutePreferences) async throws -> [RouteOption] {
         let req = MKDirections.Request()
-        if let origin {
-            req.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
+        if let from, !from.isCurrentLocation {
+            req.source = MKMapItem(placemark: MKPlacemark(coordinate: from.coordinate))
         } else {
             req.source = .forCurrentLocation()
         }
-        req.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+        req.destination = MKMapItem(placemark: MKPlacemark(coordinate: to.coordinate))
         req.transportType = .automobile
         req.requestsAlternateRoutes = true
         req.highwayPreference = preferences.avoidHighways ? .avoid : .any
         req.tollPreference = preferences.avoidTolls ? .avoid : .any
 
-        log.info("Calculating routes to \(destination.name, privacy: .public) (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
+        log.info("Calculating leg to \(to.name, privacy: .public) (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
         let response = try await MKDirections(request: req).calculate()
         let routes = Array(response.routes.prefix(3))
-        log.info("Got \(routes.count) route(s)")
+        log.info("Got \(routes.count) leg route(s)")
         return routes.enumerated().map { (idx, route) in
             RouteOption(index: idx, route: route)
+        }
+    }
+
+    /// Recompute only the legs flagged in `dirtyLegIndices`, mutating
+    /// `plan` in place. Runs sequentially on the main actor — for the
+    /// common case (a mutation dirties 1–2 legs) that's as fast as
+    /// concurrent, and it sidesteps Swift 6 strict-concurrency issues
+    /// with `MKRoute` (non-Sendable) crossing task boundaries. MapKit
+    /// throttles concurrent `MKDirections` calls anyway, so little is
+    /// lost. Selected-option indices on untouched legs are preserved by
+    /// `PlannedRoute.setOptions`.
+    ///
+    /// Legs that DO compute are written back even if a sibling fails,
+    /// so a partial network blip doesn't wipe a half-good plan; the
+    /// failure is reported after all legs are attempted.
+    func recompute(_ plan: PlannedRoute,
+                   dirtyLegIndices: Set<Int>,
+                   preferences: RoutePreferences) async throws {
+        let dirty = dirtyLegIndices.filter { plan.legs.indices.contains($0) }.sorted()
+        guard !dirty.isEmpty else { return }
+
+        var failed: [Int] = []
+        for i in dirty {
+            let leg = plan.legs[i]
+            guard let fromWp = plan.waypoint(id: leg.fromWaypointId),
+                  let toWp = plan.waypoint(id: leg.toWaypointId) else {
+                failed.append(i)
+                continue
+            }
+            do {
+                let opts = try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+                if opts.isEmpty {
+                    failed.append(i)
+                } else {
+                    plan.setOptions(opts, forLegIndex: i)
+                }
+            } catch {
+                log.error("Leg \(i) recompute failed: \(error.localizedDescription, privacy: .public)")
+                failed.append(i)
+            }
+        }
+
+        if !failed.isEmpty {
+            throw RoutingError.legComputationFailed(legIndices: failed.sorted())
+        }
+    }
+}
+
+/// Errors surfaced by multi-leg recomputation.
+enum RoutingError: LocalizedError {
+    case legComputationFailed(legIndices: [Int])
+
+    var errorDescription: String? {
+        switch self {
+        case .legComputationFailed(let idx):
+            let list = idx.map { "\($0 + 1)" }.joined(separator: ", ")
+            return "Couldn't calculate route segment(s) \(list). Check your connection and try again."
         }
     }
 }
