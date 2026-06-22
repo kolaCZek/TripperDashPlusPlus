@@ -577,20 +577,17 @@ extension MapViewSource {
         // user (lat > centerLat) should land at NEGATIVE user y
         // (= upward on screen). So screen_y = -(lat-centerLat)*pxPerDegLat.
         // East of user (lon > centerLon) still maps to positive x.
-        //
-        // CGContext.draw(image, in: rect) has its own Y semantics that
-        // do NOT respect the current Y-DOWN CTM uniformly: Quartz treats
-        // the image's "lower-left corner" as origin and places it at
-        // rect.origin in user space. In a Y-DOWN ctx the image ends up
-        // visually upside-down. To get the OSM tile drawn right-side-up
-        // (north on top) we re-flip Y just for the bitmap draw using a
-        // local saveGState/restoreGState, then draw the image into a
-        // rect whose y has been mirrored into the local Y-UP space.
         for (t, cg) in tilesToDraw {
             let dx =  (t.center.longitude - centerLon) * pxPerDegLon
             let dy = -(t.center.latitude  - centerLat) * pxPerDegLat
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
+            // OSM tile bitmap row 0 = north edge. In a Y-DOWN ctx,
+            // ctx.draw(in: rect) places row 0 at rect.minY (the
+            // smaller y = visually higher on screen). So drawing the
+            // tile with rect.minY = -th/2 (top edge above the centre)
+            // and rect.maxY = +th/2 (bottom edge below the centre)
+            // places the OSM north edge at the top of the rect ✓.
             // centerPixel compensation for clamped MKMapSnapshotter
             // regions: shift the rect so the bitmap's actual
             // geographic centre pixel lands at (dx, dy). In Y-DOWN,
@@ -598,17 +595,9 @@ extension MapViewSource {
             // shift is the negation of the Y-UP version.
             let mpX = tw / 2 - t.centerPixel.x                // shift in X (unchanged)
             let mpY = th / 2 - t.centerPixel.y                // shift in Y (Y-down)
-            let rectX = CGFloat(dx) - tw / 2 + mpX
-            let rectYDown = CGFloat(dy) - th / 2 + mpY        // top edge in Y-DOWN
-            ctx.saveGState()
-            // Local Y-flip just for this bitmap draw. After the flip,
-            // the rect's top edge in Y-DOWN (rectYDown) maps to the
-            // bottom edge in the flipped (Y-UP) local frame, which is
-            // where CGContext.draw expects the image's origin.
-            ctx.translateBy(x: 0, y: rectYDown + th)
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(cg, in: CGRect(x: rectX, y: 0, width: tw, height: th))
-            ctx.restoreGState()
+            ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2 + mpX,
+                                    y: CGFloat(dy) - th / 2 + mpY,
+                                    width: tw, height: th))
         }
 
         // Polyline — same Y-DOWN convention as tiles. Negate dy so
