@@ -89,6 +89,14 @@ struct RouteTile: Sendable {
 @MainActor
 final class RouteTileCache {
 
+    // MARK: - Debug
+    /// Dump first N composites to Documents/ for visual orientation
+    /// check (see DEBUG block in bake-composite path). Decrements
+    /// each dump. Set to 0 to disable.
+    #if DEBUG
+    static var debugDumpsRemaining = 3
+    #endif
+
     // MARK: - Tunables
 
     /// Distance between successive composite anchors along the
@@ -812,6 +820,57 @@ final class RouteTileCache {
         drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize))
 
         guard let outImage = ctx.makeImage() else { return nil }
+
+        // ── DEBUG: dump first composite to disk for orientation check ──
+        // Marks bitmap centre (= tile.center geographically), 64 px N
+        // (should be NORTH geographically), and 64 px S (should be SOUTH).
+        // If compose is upside-down, N marker will appear at bottom of
+        // saved PNG and S marker at top.
+        // Open the file from the Files app under "On My iPhone > TripperDashPP".
+        #if DEBUG
+        if RouteTileCache.debugDumpsRemaining > 0 {
+            RouteTileCache.debugDumpsRemaining -= 1
+            let debugCtx = CGContext(
+                data: nil,
+                width: bitmapSize,
+                height: bitmapSize,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+            if let debugCtx {
+                debugCtx.draw(outImage, in: CGRect(x: 0, y: 0,
+                    width: bitmapSize, height: bitmapSize))
+                // Bitmap coords are Y-down (default CGContext post-draw).
+                let mid = CGFloat(bitmapSize) / 2.0
+                // Centre marker (green): tile.center
+                debugCtx.setFillColor(red: 0, green: 1, blue: 0, alpha: 1)
+                debugCtx.fillEllipse(in: CGRect(x: mid - 6, y: mid - 6,
+                    width: 12, height: 12))
+                // North marker (red): 64 px above centre in Y-down = lower y
+                debugCtx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+                debugCtx.fillEllipse(in: CGRect(x: mid - 6, y: mid - 64 - 6,
+                    width: 12, height: 12))
+                // South marker (blue): 64 px below centre = higher y
+                debugCtx.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
+                debugCtx.fillEllipse(in: CGRect(x: mid - 6, y: mid + 64 - 6,
+                    width: 12, height: 12))
+                if let debugImg = debugCtx.makeImage() {
+                    let debugUI = UIImage(cgImage: debugImg, scale: 1, orientation: .up)
+                    if let debugPng = debugUI.pngData() {
+                        let docs = FileManager.default.urls(
+                            for: .documentDirectory, in: .userDomainMask)[0]
+                        let url = docs.appendingPathComponent(
+                            "compose_debug_\(Int(Date().timeIntervalSince1970)).png")
+                        try? debugPng.write(to: url)
+                        NSLog("[compose-debug] wrote \(url.path)")
+                    }
+                }
+            }
+        }
+        #endif
+
         // PNG encode (preserves transparency for missing-tile fallbacks;
         // OSM Carto's palette compresses well — typical composite is
         // 200-500 KB).
