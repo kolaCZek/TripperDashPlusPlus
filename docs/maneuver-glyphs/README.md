@@ -19,12 +19,12 @@ turn-by-turn is active).
 
 - **Date**: 2026-06-21
 - **Source video**: `IMG_4587_2.mov` (1080p HEVC, 30 fps, 400 s, rotated +22° CW)
-- **Capture method**: [`ManeuverScannerLoop`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift)
-  walks `0x00..0xFF` with `holdSeconds=5`. The phone sends
-  `primaryManeuver: byte` together with `roadName: "SCAN 0xNN"` for the
-  **same** byte — see [`ManeuverScannerLoop.swift#sendNavPacket`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift#L183). The dash renders both: the active-nav bubble on
-  the left, and the burned "SCAN 0xNN" label at the bottom. **The
-  burned label is the authoritative ground truth.**
+- **Capture method**: a throwaway scanner mode (`ManeuverScannerLoop`,
+  since removed — see "See also" below) walked `0x00..0xFF` with
+  `holdSeconds=5`. The phone sent `primaryManeuver: byte` together with
+  `roadName: "SCAN 0xNN"` for the **same** byte. The dash renders both:
+  the active-nav bubble on the left, and the burned "SCAN 0xNN" label at
+  the bottom. **The burned label is the authoritative ground truth.**
 - **Coverage**: `0x00..0xFF` (full 8-bit range). Bytes `0x00..0x59` produce
   visible bubble glyphs (90 distinct entries captured). Bytes
   `0x5A..0xFF` are **hidden bubble** — overlay fully suppressed for
@@ -268,7 +268,13 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## See also
 
-- [`ManeuverScannerLoop.swift`](../../TripperDashPP/Navigation/ManeuverScannerLoop.swift) — Scanner implementation (walks `0x00..0xFF`, burns `SCAN 0xNN` label into the video stream)
-- [`ManeuverScanSource.swift`](../../TripperDashPP/Stream/ManeuverScanSource.swift) — Video overlay that burns the ground-truth label
 - [`ManeuverIcon.swift`](../../TripperDashPP/Navigation/Models/ManeuverIcon.swift) — Asset-free glyph renderer for the phone-side burned arrow (used when the dash enum is untrusted)
+- [`ActiveNavLoop.swift`](../../TripperDashPP/Navigation/ActiveNavLoop.swift) — 1 Hz active-nav TLV loop that ships the maneuver byte to the dash
 - [Overview grid (90 visible glyphs captured)](all-glyphs-overview.jpg)
+
+> **Capture tooling note:** the original catalog was built with a
+> dedicated scanner mode (`ManeuverScannerLoop` / `ManeuverScanSource`)
+> that walked `0x00..0xFF` and burned a `SCAN 0xNN` label into the
+> stream. Those throwaway scanner sources were removed once the catalog
+> was complete and field-verified — see "How to regenerate" above to
+> rebuild the scanner if you ever need to re-capture.

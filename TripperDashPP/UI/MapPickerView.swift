@@ -9,12 +9,13 @@
 //    • .picking     — live MKMapView + sticky search bar + quick access
 //                      tiles, "Navigate" CTA, no stream running.
 //    • .navigating  — NavigationHUD on phone (ETA/turn/distance),
-//                      MapSnapshotSource pushing frames to dash.
+//                      MapViewSource pushing frames to dash.
 //    • .transitioning — brief blank state (~500 ms) between the above
 //                      so Apple Maps' shared GPU pool drains before we
-//                      swap MKMapView <-> MKMapSnapshotter.
+//                      swap the live MKMapView <-> the BG tile renderer.
 //
-//  See `docs/PHASE_7_NAVIGATION_PLAN.md` for the full spec.
+//  See CLAUDE.md → "Architecture summary" and the `royal-enfield-tripper-dash`
+//  skill's `references/ios-map-renderer.md` for the GPU-pool rationale.
 //
 
 import CoreLocation

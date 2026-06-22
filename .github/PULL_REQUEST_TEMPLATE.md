@@ -6,9 +6,6 @@
 
 Closes #
 
-## Phase
-
-<!-- Which build phase does this touch? (0–8 in CLAUDE.md / README status table) -->
 ## Verification
 
 <!-- How did you test this? Required:

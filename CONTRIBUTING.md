@@ -26,15 +26,15 @@ This is the **most valuable** contribution right now. Until we know which bikes 
 
 ### 💡 I have a feature idea
 
-[Open an issue](../../issues/new?template=feature-request.md) — but please check the [Phase 9 / Future ideas](docs/PLAN.md#phase-9--future-ideas-not-in-mvp) section first. If it's listed there, give the issue a 👍 instead of opening a duplicate.
+[Open an issue](../../issues/new?template=feature-request.md). Please skim the open issues first so you can 👍 an existing one instead of opening a duplicate.
 
 ### 🔧 I want to write code
 
 Awesome. Please:
 1. **Open an issue first** before starting work on anything non-trivial — there might be design decisions worth discussing, or it might already be in progress.
 2. Fork, branch from `main`, do the work, open a PR.
-3. PR title format: `[Phase N] short description` (e.g. `[Phase 3] Implement RSA session-key exchange`).
-4. CI must pass (when we have CI).
+3. PR title format: imperative present, short and specific (e.g. `Add RSA session-key exchange`, `Fix initial-burst seg_count`).
+4. CI must pass — the `fake_dash` pytest suite + Docker image build run on every PR. But remember: **fake_dash is a permissive plumbing harness, not a protocol authority.** Anything touching the K1G wire format must also be byte-verified against [better-dash](https://github.com/kolaCZek/better-dash).
 5. New Swift code should follow Apple's [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/).
 
 ## Development setup
@@ -42,8 +42,9 @@ Awesome. Please:
 See [README.md → Building](README.md#building). TL;DR:
 - macOS 15+, Xcode 26+
 - Free Apple ID is enough for sideload
-- Mapbox account (free tier)
+- No API keys, no map SDK account — OSM tiles and MapKit need none
 - Real iPhone — the Simulator can't open Wi-Fi to the bike
+- Optional: Docker, to run the `fake_dash` harness (`make fake-dash-up`)
 
 ## Project conventions
 

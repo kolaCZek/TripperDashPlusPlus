@@ -23,7 +23,7 @@ fake-dash-up:  ## Start fake_dash in the background
 	$(COMPOSE) up -d
 	@echo ""
 	@echo "fake_dash is up:"
-	@echo "  - K1G  control plane: udp://0.0.0.0:2002"
+	@echo "  - K1G  control plane: udp://0.0.0.0:2000"
 	@echo "  - RTP  H.264 sink:    udp://0.0.0.0:5000"
 	@echo "  - Captures:           $(FAKE_DASH_DIR)/captures/"
 	@echo "  - Logs:               make fake-dash-logs"

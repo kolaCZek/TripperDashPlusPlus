@@ -27,7 +27,6 @@ assignees: ''
 - **TripperDash++ version / commit SHA**:
 - **Bike model + year**:
 - **Tripper firmware** (visible in official RE app → About):
-- **Mapbox SDK version** (from `Package.resolved`):
 
 ## Logs
 

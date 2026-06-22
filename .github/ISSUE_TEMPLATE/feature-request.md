@@ -20,7 +20,7 @@ assignees: ''
 
 ## Scope check
 
-- [ ] I understand MVP scope is intentionally minimal — many "obvious" features (turn-by-turn voice, Apple Watch app, App Store distribution, auto-reroute) are planned for after MVP
+- [ ] I understand MVP scope is intentionally minimal — some features (turn-by-turn voice, Apple Watch app, App Store distribution) are out of scope for now
 - [ ] This feature does not require paid-only Apple Dev entitlements (e.g. `NEHotspotConfiguration`, push notifications)
 
 ## Additional context

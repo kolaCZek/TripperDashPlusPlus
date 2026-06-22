@@ -81,5 +81,13 @@ Reference implementation (the phone side): https://github.com/kolaCZek/better-da
 
 ## Status
 
-Phase 2 deliverable for the TripperDash++ project. See the parent repo's
-`README.md` and `CLAUDE.md` for the broader context.
+Plumbing test harness for the TripperDash++ project — runs in CI on every
+PR (pytest suite + Docker image build). See the parent repo's `README.md`
+and `CLAUDE.md` for the broader context.
+
+> ⚠️ **This harness is intentionally permissive — it is not the protocol
+> authority.** It will accept packets the real Tripper dash silently drops
+> (looser `seg_count`, source-port, and type-byte validation). Use it for
+> plumbing / regression tests, but byte-verify any wire-format change
+> against [better-dash](https://github.com/kolaCZek/better-dash), which is
+> the byte-level source of truth.

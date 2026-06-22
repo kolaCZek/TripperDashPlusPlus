@@ -1,9 +1,9 @@
 # TripperDash++
 
-> Stream live, full-color navigation from your iPhone to the **Royal Enfield Tripper Dash** TFT (Himalayan 450 / Guerrilla 450) — even with your phone's screen off.
+> Stream live, full-color turn-by-turn navigation from your iPhone to the **Royal Enfield Tripper Dash** TFT (Himalayan 450 / Guerrilla 450) — even with your phone's screen off.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status: Planning](https://img.shields.io/badge/status-planning-orange.svg)]()
+[![Status: Working beta](https://img.shields.io/badge/status-working%20beta-green.svg)]()
 [![Platform: iOS 18+](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)]()
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
 [![fake_dash CI](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml/badge.svg)](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml)
@@ -12,46 +12,47 @@
 
 ## What is this?
 
-The factory **Royal Enfield Tripper Dash** — the 4" rectangular TFT fitted to the **Himalayan 450** and **Guerrilla 450** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy Google-Maps-via-RTP to it, and the moment you lock your phone the stream dies.
+The factory **Royal Enfield Tripper Dash** — the rectangular TFT fitted to the **Himalayan 450** and **Guerrilla 450** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy map-via-RTP to it, and the moment you lock your phone the stream dies.
 
-This project replaces that pipeline with a proper one. We render a real, smooth navigation map on the iPhone, encode it as H.264 baseline @ **12 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Tile data and route calculation flow over cellular in parallel, so the dash gets a buttery, full-color map without the bike ever touching the internet.
+This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **6 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
 
-**Goal of MVP:** open app → search destination → start nav → put phone in your pocket → ride.
+**What it does today:** open app → search a destination (or pick a favorite) → preview alternative routes → start nav → put the phone in your pocket → ride. The dash shows the moving map, the route polyline, the next-maneuver glyph, and distance/ETA. Native turn-by-turn (TLV maneuver stream + burned-in glyph) is implemented and **validated on a Guerrilla 450 (June 2026).**
 
-> Not to be confused with the smaller round **Tripper Navigation Pod** on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650 — that one's a tiny arrow-only display with a different protocol. This project targets the *big* Tripper Dash.
+> Not to be confused with the smaller round **Tripper Navigation Pod** on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650 — that one's a tiny arrow-only display with a different protocol. This project targets the *big* rectangular Tripper Dash.
 
 ## Why?
 
-Because the Tripper Dash has a hardware H.264 decoder doing 526×300 at hardware-supported frame rates, and Royal Enfield ships it 4 fps of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
+Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it 4 fps of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
 
-Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[kolaCZek/better-dash](https://github.com/kolaCZek/better-dash)**
+Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[kolaCZek/better-dash](https://github.com/kolaCZek/better-dash)** — the byte-level source of truth for the K1G protocol.
 
 ## Status
 
-🚧 **Planning / early development.** The build is staged across 8 phases (~6–8 weeks of part-time work).
+🟢 **Working beta.** The full pipeline — pairing, handshake, background streaming, route preview, active turn-by-turn — runs end-to-end and has been validated on the bike.
 
-| Phase | Status |
-|-------|--------|
-| 0 — Prerequisites (Apple Dev, test rig) | ✅ done |
-| 1 — Xcode bootstrap | ✅ app builds & runs on iPhone |
-| 2 — Fake-dash test harness (Python, Docker) | ✅ MVP done — [`tools/fake_dash/`](tools/fake_dash/) |
-| 3 — K1G control plane (Swift) | 🟡 sources ready, awaiting on-device test — [`docs/PHASE_3_TESTING.md`](docs/PHASE_3_TESTING.md) |
-| 4 — H.264 encoder + RTP packetizer | 🟡 sources ready (526×300 @ 12 fps, ~350 kbps), awaiting on-device validation |
-| 5 — Live map rendering (Apple MapKit) | 🟡 `LocationService` + `MapSnapshotSource` wired on MKMapSnapshotter, awaiting screen-off field test — [`docs/PHASE_5_TESTING.md`](docs/PHASE_5_TESTING.md) |
-| 6 — Background mode | 🟡 background keep-alive (CLLocation Always + silent audio + VT session auto-rebuild) wired in, awaiting screen-off field test |
-| 7 — Wi-Fi orchestration | ⬜ |
-| 8 — Polish + testing | ⬜ |
+| Area | Status |
+|------|--------|
+| K1G control plane (RSA handshake, heartbeats, initial burst) | ✅ validated on bike — UDP tx :2000 / rx :2002, BSD socket |
+| H.264 encoder + RTP packetizer (526×300 @ 6 fps, ~450 kbps) | ✅ validated on bike |
+| Background streaming (screen-off, phone in pocket) | ✅ pre-rendered OSM tiles + CPU CGContext composition, BG-safe |
+| Map rendering | ✅ OpenStreetMap raster tiles, disk-cached, rolling-window prefetch |
+| Destination search + favorites + route preview | ✅ MapKit (`MKLocalSearch` / `MKDirections`) |
+| Active turn-by-turn nav (maneuver TLV + burned-in glyph) | ✅ validated on bike (Phase 9e) |
+| Nav-mode projection lifecycle (q3c kick sequence) | ✅ validated on bike |
+
+Field-tested on a **Royal Enfield Guerrilla 450** with SSID `RE_9G5L_…`. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full field-verified maneuver glyph catalog.
 
 ## Tech stack
 
 - **Swift 6 / SwiftUI**, **iOS 18+**, **Xcode 26**
-- **Apple MapKit** (`MKMapSnapshotter` for off-screen rendering — no third-party map SDK, no tile quota, no API key)
-- Apple frameworks: `Network`, `VideoToolbox`, `CryptoKit`, `CoreLocation`, `AVFoundation`
-- Python 3.11+ for the test harness (decode RTP, simulate the dash on macOS)
+- **OpenStreetMap raster tiles** for the map (self-hostable; no SDK, no API key, no tile quota) + **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
+- Apple frameworks: `Network`, `VideoToolbox`, `CryptoKit`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit`
+- **Zero** third-party SPM dependencies
+- Python 3.12+ for the `fake_dash` test harness (decode RTP, simulate the dash on a laptop)
 
 ## Architecture (one paragraph)
 
-iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for map tiles and routing). The app renders an Apple Maps view via `MKMapSnapshotter` off-screen, grabs frames as `CVPixelBuffer`s @ 12 fps, encodes them via VideoToolbox H.264 baseline @ ~350 kbps, packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + button events) runs on UDP `:2002`. Background execution is kept alive via `CoreLocation` Always + a silent audio loop, so the stream survives the lockscreen and lives happily with the phone in a tank bag or jacket pocket.
+The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for OSM map tiles and MapKit routing). During foreground the app pre-renders the OSM tiles it will need along the route and JPEG-caches them in memory; in the background it does CPU-only CGContext composition (crop the tile around the current GPS fix, rotate heading-up, draw the route polyline, draw the maneuver glyph and rider chevron) into a 526×300 pixel buffer at 6 fps, encodes it via VideoToolbox H.264 baseline @ ~450 kbps, packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + nav kicks + button events) runs over UDP: the phone **sends to :2000** and **binds locally to :2002** for the dash's replies, over a single BSD POSIX socket. Background execution is kept alive via `CoreLocation` Always + a silent audio loop + an AVKit PiP anchor, so the stream survives the lock screen with the phone in a tank bag or jacket pocket.
 
 ## Building
 
@@ -66,16 +67,29 @@ open TripperDashPP/TripperDashPP.xcodeproj
 
 The free Apple Developer account works fine — the app uses no paid-only capabilities. You'll need to re-install every 7 days (Xcode → Run takes ~30 s).
 
-No API keys, no service accounts, no SDK token plumbing — Apple Maps is built into iOS.
+**No API keys, no service accounts, no SDK token plumbing.** OSM tiles are fetched anonymously and MapKit is built into iOS. Set the bike's SSID and IP in the in-app diagnostics screen (they're persisted) — the defaults match a stock dash AP.
+
+## Testing without the bike
+
+`tools/fake_dash/` is a Dockerized Python emulator of the dash. It speaks the K1G control plane on UDP/2000 and accepts the RTP H.264 stream on UDP/5000, so you can iterate on a laptop instead of parking the phone in front of the motorcycle.
+
+```sh
+make fake-dash-up      # start the emulator
+make fake-dash-logs    # watch the handshake / heartbeats
+make fake-dash-test    # run the pytest suite
+make fake-dash-down    # stop
+```
+
+⚠️ **fake_dash is a plumbing harness, not a protocol authority.** It is deliberately permissive and will accept packets the real dash rejects. Byte-level protocol correctness is verified against [better-dash](https://github.com/kolaCZek/better-dash). A green fake_dash run does **not** mean the bike will accept your changes.
 
 ## Compatibility
 
 The Tripper Dash (big rectangular TFT) ships on:
 
-- ✅ **Royal Enfield Guerrilla 450** (2024+) — primary dev bike (@kolaCZek)
+- ✅ **Royal Enfield Guerrilla 450** (2024+) — primary dev bike (@kolaCZek), field-validated
 - ❓ **Royal Enfield Himalayan 450** (2023+) — same dash hardware in theory, untested
 
-If you have a Himalayan 450 and want to help validate, please [open an issue](../../issues/new) — we'll add a "tested bikes" section as data comes in.
+If you have a Himalayan 450 and want to help validate, please [open an issue](../../issues/new?template=tested-bike.md) — we'll add a "tested bikes" section as data comes in.
 
 **Not compatible:** the small round Tripper Navigation Pod on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650. Different display, different protocol — this app won't talk to it.
 
@@ -98,7 +112,7 @@ The most useful things you can do right now:
 
 If this saves your sanity on a long ride, you can throw a coffee my way:
 
-- ☕ [GitHub Sponsors](https://github.com/sponsors/kolaCZek) (set up after first working release)
+- ☕ [GitHub Sponsors](https://github.com/sponsors/kolaCZek)
 - 🇨🇿 Czech bank account / Revolut — see Sponsors page
 
 This is and will remain MIT-licensed. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.

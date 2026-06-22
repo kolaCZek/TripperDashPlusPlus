@@ -1,25 +1,30 @@
 # TripperDashPP/
 
-iOS app source. Created in Phase 1; built up over Phases 3–8.
+iOS app source (Swift 6 / SwiftUI, iOS 18+).
 
 ## Layout
 
 ```
-App/         @main + AppStatus (shared observable state) + LocationService
-UI/          SwiftUI views (RootView, MapPickerView, StreamingView, …)
-Tripper/     K1G control plane (BikeLink, DashSocket, packet builders)   — Phase 3
-Stream/      VideoToolbox encoder + RTP packetizer                       — Phase 4
-Map/         Apple MapKit off-screen renderer + frame capture            — Phase 5
-Network/     NWPathMonitor, dual-interface routing, WiFiMonitor          — Phase 7
-Nav/         Route state machine, GPS handling, search                   — Phase 6+
-Background/  Location + audio keep-alive coordinator                     — Phase 6
-Diagnostics/ os.Logger, log export, telemetry overlay                    — Phase 8
-Resources/   Assets, silence.m4a (audio keep-alive), .strings            — Phase 6+
+App/         @main + AppStatus (shared observable state) + LocationService + SilentAudioKeeper
+UI/          SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, InteractiveMapView)
+  Navigation/  destination search / route preview / favorite-editor sheets, NavigationHUD, QuickAccessTiles
+Tripper/     K1G control plane — BikeLink, DashSocket (BSD UDP), K1GPacket, RsaHandshake, HeartbeatLoop
+Stream/      VideoToolbox H.264 encoder + RTP packetizer — FrameSource, H264Encoder, RtpStreamer, RtpPacketizer
+Map/         OSM raster tile pipeline + BG-safe CGContext frame source
+             (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark)
+Navigation/  routing + search + active-nav loop + on-route geometry (ActiveNavigator, ActiveNavLoop,
+             RoutingService, LocalSearchService, NavigationStore, PolylineMath)
+  Models/    Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser
 Info.plist
 ```
 
+Background keep-alive (CoreLocation Always + silent audio + AVKit PiP anchor) and the
+H.264 session auto-rebuild live in `App/` (`AppStatus`, `SilentAudioKeeper`) and
+`Stream/H264Encoder.swift` respectively — there is no separate `Background/` group.
+
 ## Build prerequisites
 
-None beyond Xcode 26 + a free Apple Developer account. The map renderer
-uses Apple MapKit (`MKMapSnapshotter`) — no third-party SDK, no API
-token, no Secrets file. Just open the project and Run on a real device.
+None beyond Xcode 26 + a free Apple Developer account. The map uses
+OpenStreetMap raster tiles (no third-party SDK, no API token, no Secrets
+file); routing and search use Apple MapKit, which is built into iOS. Just
+open the project and Run on a real device.
