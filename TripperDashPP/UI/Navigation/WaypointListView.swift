@@ -131,16 +131,24 @@ struct WaypointListView: View {
                 Text("Recalculating…").font(.caption2).foregroundStyle(.secondary)
             }
         } else if let opt = plan.legs[i].selected {
-            HStack(spacing: 8) {
-                if !opt.summary.isEmpty {
-                    Text(opt.summary)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    if !opt.summary.isEmpty {
+                        Text(opt.summary)
+                    }
+                    Text(opt.travelTimeDisplay)
+                    Text("·")
+                    Text(opt.distanceDisplay)
                 }
-                Text(opt.travelTimeDisplay)
-                Text("·")
-                Text(opt.distanceDisplay)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                if opt.violatesFilter {
+                    Label(opt.violatesHighwayFilter ? "No non-highway route — using highway" : "No toll-free route — using toll road",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         } else {
             Text("No route yet")
                 .font(.caption2)
