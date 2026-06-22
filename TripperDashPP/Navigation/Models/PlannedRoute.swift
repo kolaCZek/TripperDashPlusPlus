@@ -288,6 +288,15 @@ final class PlannedRoute {
         waypoints.first { $0.id == id }
     }
 
+    /// Update a waypoint's display name / address (e.g. after an async
+    /// reverse-geocode of a long-pressed pin). Coordinate and id are
+    /// unchanged, so no leg needs recomputing.
+    func renameWaypoint(id: UUID, name: String, addressLine: String?) {
+        guard let idx = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        waypoints[idx].name = name
+        waypoints[idx].addressLine = addressLine
+    }
+
     // MARK: - Pair key
 
     private struct Pair: Hashable {

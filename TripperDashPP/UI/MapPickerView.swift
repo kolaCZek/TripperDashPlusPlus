@@ -8,6 +8,12 @@
 //
 //    • .picking     — live MKMapView + sticky search bar + quick access
 //                      tiles, "Navigate" CTA, no stream running.
+//                      feat/route-waypoints: when a plan is being built
+//                      (status.plannedRoute != nil) the picking phase
+//                      shows the PLANNING UI instead (PlanningMapView +
+//                      WaypointListView). Both live in .picking with the
+//                      stream OFF, so the GPU-pool mutual-exclusion rule
+//                      is preserved.
 //    • .navigating  — NavigationHUD on phone (ETA/turn/distance),
 //                      MapViewSource pushing frames to dash.
 //    • .transitioning — brief blank state (~500 ms) between the above
@@ -40,7 +46,6 @@ struct MapPickerView: View {
     @State private var showFavoriteEditor = false
     @State private var favoriteEditorSeed: Destination?
     @State private var previewDestination: Destination?
-    @State private var showRoutePreview = false
     /// When set, the next destination picked in DestinationSearchSheet
     /// is committed straight into this quick-access slot instead of
     /// going through the preview/route flow.
@@ -50,11 +55,23 @@ struct MapPickerView: View {
     /// to either save it or calculate a route.
     @State private var droppedPin: CLLocationCoordinate2D?
 
+    // feat/route-waypoints planning state
+    /// True when the search sheet result should be ADDED to the active
+    /// plan as a via-stop, rather than starting a fresh plan.
+    @State private var addingStopToPlan = false
+    /// Coordinate from a long-press, pending the add/destination dialog.
+    @State private var longPressCoord: CLLocationCoordinate2D?
+    @State private var showLongPressDialog = false
+    @State private var showRoutePreferences = false
+
     private enum DisplayMode { case picking, navigating, transitioning }
     private var mode: DisplayMode {
         if transitioning { return .transitioning }
         return status.activeNavigator.isNavigating ? .navigating : .picking
     }
+
+    /// Whether the picking phase should show the multi-stop planning UI.
+    private var isPlanning: Bool { status.plannedRoute != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,10 +83,6 @@ struct MapPickerView: View {
                 case .navigating:    navigatingBody
                 case .transitioning: transitioningBody
                 }
-
-                // Phase 8d: live MKMapView thumb removed.
-                // PiP is gone; the tile cache doesn't need MKMapView in the view hierarchy.
-                // The thumb in the top-right was leftover from the PiP/keep-alive era.
 
                 if case .error = status.bikeLink.state, let err = status.lastError {
                     VStack {
@@ -106,15 +119,7 @@ struct MapPickerView: View {
         }
         .sheet(isPresented: $showSearch) {
             DestinationSearchSheet { dest in
-                if let slot = slotToFill {
-                    // Empty-tile path: drop the result straight into
-                    // the pinned slot, no preview, no editor.
-                    status.navigationStore.setQuickAccess(slot, from: dest)
-                    slotToFill = nil
-                } else {
-                    droppedPin = dest.coordinate
-                    previewDestination = dest
-                }
+                handlePickedDestination(dest)
             }
             .environment(status)
             .environment(status.navigationStore)
@@ -125,19 +130,29 @@ struct MapPickerView: View {
         }
         .sheet(item: $previewDestination) { dest in
             DestinationPreviewSheet(destination: dest) { d in
-                status.stagedDestination = d
-                showRoutePreview = true
+                // Begin multi-stop planning with this as the destination
+                // (origin = current location). n=2 == the old preview
+                // flow, just rendered by the planning components.
+                status.beginPlanning(to: d)
             }
             .environment(status.navigationStore)
         }
-        .sheet(isPresented: $showRoutePreview) {
-            if let dest = status.stagedDestination {
-                RoutePreviewSheet(destination: dest) { route, finalDest in
-                    startNavigation(route: route, destination: finalDest)
-                }
-                .environment(status)
-                .environment(status.navigationStore)
+        .sheet(isPresented: $showRoutePreferences, onDismiss: {
+            // Preferences (avoid highways/tolls) changed → every leg
+            // must be recomputed against the new constraints.
+            if let plan = status.plannedRoute {
+                Task { await status.recomputeDirtyLegs(plan.allLegIndices, in: plan) }
             }
+        }) {
+            NavigationStack {
+                RoutePreferencesView()
+                    .environment(status.navigationStore)
+            }
+        }
+        .confirmationDialog("Add to route", isPresented: $showLongPressDialog, titleVisibility: .visible) {
+            Button("Add as stop") { commitLongPress(asDestination: false) }
+            Button("Set as destination") { commitLongPress(asDestination: true) }
+            Button("Cancel", role: .cancel) { longPressCoord = nil }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -160,6 +175,16 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var pickingBody: some View {
+        if isPlanning, let plan = status.plannedRoute {
+            planningBody(plan: plan)
+        } else {
+            browsingBody
+        }
+    }
+
+    /// The pre-plan map: live interactive map + search + quick access.
+    @ViewBuilder
+    private var browsingBody: some View {
         ZStack(alignment: .top) {
             InteractiveMapView(
                 coordinate: status.locationService.lastFix?.coordinate,
@@ -211,6 +236,78 @@ struct MapPickerView: View {
         }
     }
 
+    /// The multi-stop planning UI: PlanningMapView (top) + waypoint list
+    /// (bottom). Lives in .picking with the stream off.
+    @ViewBuilder
+    private func planningBody(plan: PlannedRoute) -> some View {
+        VStack(spacing: 0) {
+            PlanningMapView(
+                plan: plan,
+                onPickAlternative: { legIndex, optionIndex in
+                    plan.setSelectedOption(legIndex: legIndex, optionIndex: optionIndex)
+                },
+                onAddWaypoint: { coord in
+                    longPressCoord = coord
+                    showLongPressDialog = true
+                },
+                onTapWaypoint: { _ in
+                    // Tapping a pin currently just surfaces the list;
+                    // remove/reorder happen there. Hook reserved for a
+                    // future per-pin context menu.
+                }
+            )
+            .frame(maxHeight: .infinity)
+            .overlay(alignment: .top) { planningBanner }
+
+            Divider()
+
+            WaypointListView(
+                plan: plan,
+                onRecompute: { dirty in
+                    Task { await status.recomputeDirtyLegs(dirty, in: plan) }
+                },
+                onAddStop: {
+                    addingStopToPlan = true
+                    showSearch = true
+                },
+                recomputingLegs: status.recomputingLegs
+            )
+            .frame(maxHeight: 260)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Cancel") { status.cancelPlanning() }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showRoutePreferences = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var planningBanner: some View {
+        if !status.recomputingLegs.isEmpty {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Calculating routes…").font(.footnote)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.top, 8)
+        } else if let err = status.planError {
+            Label(err, systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 8)
+        }
+    }
+
     private var searchPill: some View {
         Button { showSearch = true } label: {
             HStack(spacing: 10) {
@@ -231,8 +328,6 @@ struct MapPickerView: View {
         NavigationHUD(onStop: stopNavigation)
             .environment(status.activeNavigator)
             .onAppear {
-                // Pipe GPS into the navigator while it's active.
-                // LocationService is observable; subscribe lazily.
                 forwardFixesToNavigator()
             }
     }
@@ -265,6 +360,11 @@ struct MapPickerView: View {
                     .background(Color.red.opacity(0.15))
             }
             .buttonStyle(.plain)
+
+        case (.picking, _) where isPlanning:
+            // Planning mode: the primary CTA is "Start navigation",
+            // enabled once every leg is computed.
+            startPlanButton
 
         case (.picking, .idle), (.picking, .error):
             Button { status.bikeLink.connect() } label: {
@@ -306,14 +406,84 @@ struct MapPickerView: View {
         }
     }
 
+    @ViewBuilder
+    private var startPlanButton: some View {
+        let plan = status.plannedRoute
+        let ready = plan?.isComputed ?? false
+        Button {
+            if let plan, ready { startNavigation(plan: plan) }
+        } label: {
+            Label(ready ? "Start navigation" : "Calculating route…",
+                  systemImage: ready ? "play.circle.fill" : "hourglass")
+                .frame(maxWidth: .infinity).padding()
+                .background((ready ? Color.red : Color.gray).opacity(0.15))
+        }
+        .buttonStyle(.plain)
+        .disabled(!ready)
+    }
+
+    // MARK: - Destination pick routing
+
+    /// Route a destination picked in the search sheet to the right
+    /// place: a quick-access slot, an add-to-plan, or a fresh preview.
+    private func handlePickedDestination(_ dest: Destination) {
+        if let slot = slotToFill {
+            status.navigationStore.setQuickAccess(slot, from: dest)
+            slotToFill = nil
+            return
+        }
+        if addingStopToPlan, let plan = status.plannedRoute {
+            addingStopToPlan = false
+            let wp = Waypoint.from(destination: dest)
+            let dirty = plan.insertBeforeDestination(wp)
+            Task { await status.recomputeDirtyLegs(dirty, in: plan) }
+            return
+        }
+        // Default: open the preview, which begins planning on confirm.
+        droppedPin = dest.coordinate
+        previewDestination = dest
+    }
+
+    /// Commit a long-pressed coordinate as either a via-stop or the new
+    /// destination of the active plan.
+    private func commitLongPress(asDestination: Bool) {
+        guard let coord = longPressCoord, let plan = status.plannedRoute else {
+            longPressCoord = nil
+            return
+        }
+        longPressCoord = nil
+        let wp = Waypoint(name: String(format: "Pin %.4f, %.4f", coord.latitude, coord.longitude),
+                          addressLine: nil,
+                          coordinate: coord)
+        let dirty: Set<Int>
+        if asDestination {
+            dirty = plan.appendWaypoint(wp)
+        } else {
+            dirty = plan.insertBeforeDestination(wp)
+        }
+        Task {
+            await reverseGeocodeAndName(wp.id, coord, in: plan)
+            await status.recomputeDirtyLegs(dirty, in: plan)
+        }
+    }
+
+    /// Best-effort reverse geocode to give a long-pressed pin a real
+    /// name. Failure is silent — the "Pin lat, lon" fallback stays.
+    private func reverseGeocodeAndName(_ id: UUID, _ coord: CLLocationCoordinate2D, in plan: PlannedRoute) async {
+        let geocoder = CLGeocoder()
+        let loc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        if let placemark = try? await geocoder.reverseGeocodeLocation(loc).first {
+            let name = placemark.name ?? placemark.thoroughfare ?? "Stop"
+            let addr = [placemark.thoroughfare, placemark.locality].compactMap { $0 }.joined(separator: ", ")
+            plan.renameWaypoint(id: id, name: name, addressLine: addr.isEmpty ? nil : addr)
+        }
+    }
+
     // MARK: - Navigation transitions
 
     /// Push the route geometry into the renderer + bake fresh tiles.
-    /// Called both at navigation start AND on every reroute (via the
-    /// `onActiveRouteChanged` callback we wire up below). Without
-    /// re-running this on reroute, the dash keeps drawing the OLD
-    /// blue line over the new route — the field-test pain point that
-    /// motivated this refactor.
+    /// Called both at navigation start AND on every reroute / leg
+    /// advance (via the `onActiveRouteChanged` callback).
     private func installRouteGeometry(_ route: MKRoute) async {
         status.mapViewSource.setRoutePolyline(route.polyline)
         let cache = RouteTileCache()
@@ -326,46 +496,43 @@ struct MapPickerView: View {
         prerenderActive = false
     }
 
-    private func startNavigation(route: MKRoute, destination: Destination) {
+    /// Wire the shared route-changed hook (covers initial bake, reroute,
+    /// AND multi-stop leg advance — all funnel through here).
+    private func installRouteChangedHook() {
+        status.activeNavigator.onActiveRouteChanged = { [weak status] newRoute in
+            guard let status else { return }
+            // (1) Polyline first — pure CPU CGContext path, BG/lock safe.
+            status.mapViewSource.setRoutePolyline(newRoute.polyline)
+            // (2) Tile re-bake — scheduled so it runs on the next
+            //     foreground tick (MKMapSnapshotter is GPU-bound).
+            status.mapViewSource.scheduleTileCacheRebuild(for: newRoute)
+        }
+    }
+
+    /// Start navigation from a multi-stop plan. Bakes the first leg's
+    /// selected option; subsequent legs re-bake via the changed hook.
+    private func startNavigation(plan: PlannedRoute) {
+        guard plan.isComputed, let firstLeg = plan.legs.first?.selected?.route else { return }
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
-
-            // Wire the route-changed hook BEFORE start(). The hook
-            // fires once from inside start() (covering initial bake)
-            // and again on each successful reroute. Polyline updates
-            // are always safe; tile re-bake has to wait for fg/active.
-            status.activeNavigator.onActiveRouteChanged = { [weak status] newRoute in
-                guard let status else { return }
-                // (1) Polyline first — pure CPU CGContext path, works
-                //     in BG/lock. Rider immediately sees the new line
-                //     even while the lock screen is on.
-                status.mapViewSource.setRoutePolyline(newRoute.polyline)
-                // (2) Tile re-bake. MKMapSnapshotter is GPU-bound and
-                //     iOS 16+ refuses to render it in .background, so
-                //     bake-and-replace would just nuke our valid cache
-                //     and leave a black screen. Schedule the bake
-                //     instead — MapViewSource runs it the next time
-                //     the app is .active (and runs it immediately if
-                //     we already are).
-                status.mapViewSource.scheduleTileCacheRebuild(for: newRoute)
-            }
-
-            // Initial bake — uses installRouteGeometry directly because
-            // we want the progress sheet to show. The reroute hook
-            // above bakes silently (rider is already moving, no point
-            // showing a modal).
-            await installRouteGeometry(route)
-
-            await status.activeNavigator.start(route: route, destination: destination)
-            // Stream only if dash is connected. Pre-flight mode (no
-            // dash) just runs NavigationHUD on the phone.
+            installRouteChangedHook()
+            await installRouteGeometry(firstLeg)
+            await status.activeNavigator.start(plan: plan)
+            // Planning UI is consumed — drop it so picking returns to
+            // browsing after navigation ends.
+            status.plannedRoute = nil
             if status.bikeLink.state == .connected, !status.isStreaming {
                 status.startStreaming()
             }
             transitioning = false
         }
     }
+
+    /// Legacy single-route entry point removed: navigation now always
+    /// starts from a PlannedRoute (the n=2 case covers a single
+    /// destination). Reroute does not go through here — it's wired via
+    /// `AppStatus.activeNavigator.onRerouteRequested`.
 
     private func stopNavigation() {
         status.activeNavigator.stop()
@@ -377,6 +544,7 @@ struct MapPickerView: View {
         status.mapViewSource.setTileCache(nil)
         status.mapViewSource.setRoutePolyline(nil)
         status.stagedDestination = nil
+        status.plannedRoute = nil
         droppedPin = nil
         transitioning = true
         Task { @MainActor in
@@ -386,13 +554,9 @@ struct MapPickerView: View {
     }
 
     /// Forward LocationService updates into ActiveNavigator while
-    /// navigation is active. The navigator does on-route detection,
-    /// step advance, and reroute triggering.
+    /// navigation is active.
     private func forwardFixesToNavigator() {
         Task { @MainActor in
-            // Observation tracking pattern: register, wait for change,
-            // re-register. Loop terminates when nav stops because the
-            // navigating phase unmounts this view body.
             withObservationTracking {
                 _ = status.locationService.lastFix
             } onChange: {

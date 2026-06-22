@@ -36,7 +36,8 @@ struct WaypointListView: View {
     var body: some View {
         List {
             Section {
-                ForEach(Array(plan.waypoints.enumerated()), id: \.element.id) { index, wp in
+                ForEach(plan.waypoints) { wp in
+                    let index = plan.waypoints.firstIndex(of: wp) ?? 0
                     waypointRow(index: index, waypoint: wp)
                 }
                 .onMove(perform: moveRows)

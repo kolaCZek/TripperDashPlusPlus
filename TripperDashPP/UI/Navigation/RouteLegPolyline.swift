@@ -30,11 +30,14 @@ final class RouteLegPolyline: MKPolyline {
     /// Drives renderer styling (thick blue vs thin gray).
     var isSelected: Bool = false
 
-    /// Build a tagged polyline from a route option's geometry.
+    /// Build a tagged polyline from a route option's geometry. Returns
+    /// nil for an empty coordinate list (MKPolyline requires ≥1 point;
+    /// an empty buffer would crash on `baseAddress!`).
     static func make(coordinates: [CLLocationCoordinate2D],
                      legIndex: Int,
                      optionIndex: Int,
-                     isSelected: Bool) -> RouteLegPolyline {
+                     isSelected: Bool) -> RouteLegPolyline? {
+        guard !coordinates.isEmpty else { return nil }
         let poly = coordinates.withUnsafeBufferPointer { buf in
             RouteLegPolyline(coordinates: buf.baseAddress!, count: buf.count)
         }
