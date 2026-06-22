@@ -536,29 +536,37 @@ extension MapViewSource {
         let centerLon = fix.coordinate.longitude
         let centerLat = fix.coordinate.latitude
 
+        // ─────────────────────────────────────────────────────────────
+        // COORDINATE SYSTEM (Y-DOWN, UIKit convention):
+        //   (0,0) = top-left   (W,0) = top-right
+        //   (0,H) = bottom-left  y increases DOWNWARD
+        //
+        // Outer ctx was Y-flipped in renderMapViewToPixelBuffer to give
+        // us this top-left origin (matches UIKit drawing). We DO NOT
+        // flip again here. The whole drawing path is Y-DOWN.
+        //
+        // Math conventions in this Y-DOWN frame:
+        //   dy = -(lat - centerLat) * pxPerDegLat   (north = -y)
+        //   biasPx is ADDED to anchor y                (down = +y)
+        //   rotation by -heading puts heading at top   (CW rotation)
+        //   ctx.draw(image, in:) renders images upside-down in Y-DOWN;
+        //   we use `drawImageUIKit` helper to flip per-call.
+        // ─────────────────────────────────────────────────────────────
+
         ctx.saveGState()
-        // Re-flip Y for the duration of this draw. The outer ctx has a
-        // global Y-flip into math-convention coords (Y up), but tile
-        // bitmaps and `ctx.draw(image, in:)` expect Y-down (UIKit).
-        // Without this second flip the bitmaps render upside-down.
-        ctx.translateBy(x: 0, y: frameSize.height)
-        ctx.scaleBy(x: 1, y: -1)
-        // Forward bias: instead of anchoring the user puck at the
-        // geometric centre (y = height/2 in Y-UP), drop the anchor
-        // toward the bottom of the screen so more map is visible
-        // ahead of the rider. Subtracting `bias` from the Y origin in
-        // the Y-UP context = moving the puck DOWN in screen space.
+        // Forward bias: anchor the user puck below the geometric centre
+        // so more of the road ahead is visible. In Y-DOWN, "lower on
+        // screen" = larger y, so ADD biasPx.
         let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
-        // Heading-up: after the inner Y-flip ctx is Y-UP (math
-        // convention, north = +y). CGContext rotates counter-clockwise
-        // in radians; heading is degrees CW from north. To bring the
-        // heading direction to +y (= top of frame), rotate by -heading.
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
+        // Heading-up rotation. In Y-DOWN ctx, CGContext.rotate(by:)
+        // rotates clockwise for positive angles (the Y-flip inverts the
+        // usual math CCW-positive convention). To bring the heading
+        // direction to the TOP of the frame we rotate the map CCW by
+        // `heading` degrees → pass -heading.
         ctx.rotate(by: -lastHeading * .pi / 180)
-        // Speed-adaptive zoom (slow lerp toward target, no thresholds
-        // — see targetZoom/updateZoom). Applied AFTER rotation so the
-        // origin sits at the user puck and zoom scales toward/away
-        // from the rider.
+        // Speed-adaptive zoom (slow lerp; see targetZoom/updateZoom).
+        // Applied AFTER rotation so the origin sits at the puck.
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         // Draw every overlapping tile shifted by the delta from its
@@ -566,39 +574,26 @@ extension MapViewSource {
         // requested centre — and the geographic centre of the
         // rendered image), not `t.region.center`. MKMapSnapshotter
         // can adjust the region span but the centre stays put.
-        //
-        // After the second flip the inner ctx is Y-UP (math convention,
-        // confirmed empirically: yellow tile.center probe at dy<0 landed
-        // SOUTH of the user dot — Y-UP semantics). So north = +y. A tile
-        // whose centre is north of the user (t.lat > user.lat) lands at
-        // POSITIVE dy = upper part of the frame. CGImage drawn via
-        // ctx.draw(in:) in a Y-UP context renders upright (the inner
-        // flip cancels the bitmap's own Y-down pixel layout).
         for (t, cg) in tilesToDraw {
-            // Where would `tile.center` land in ctx coordinates if the
-            // bitmap centre WERE the geographic centre?
-            let dx = (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = (t.center.latitude - centerLat) * pxPerDegLat
+            let dx =  (t.center.longitude - centerLon) * pxPerDegLon
+            let dy = -(t.center.latitude  - centerLat) * pxPerDegLat   // Y-DOWN: north = -y
             let tw = t.pixelSize.width
             let th = t.pixelSize.height
             // MKMapSnapshotter clamps the region, so the actual pixel
             // location of `t.center` is `t.centerPixel` — NOT (tw/2, th/2).
             // Compensate by shifting the tile rect so the centerPixel
             // lands at (dx, dy) instead of the bitmap midpoint.
-            //
-            // In Y-UP, ctx.draw maps bitmap row R to ctx_y = rect.y + (th - R).
-            // We want bitmap row `centerPixel.y` to land at `dy`, so
-            //   rect.y = dy + centerPixel.y - th = dy - (th - centerPixel.y).
-            // For centered tile (centerPixel.y = th/2) this collapses to
-            //   rect.y = dy - th/2  — same as the X axis. ✓
-            let mpX = tw / 2 - t.centerPixel.x                // px to shift in X
-            let mpY = t.centerPixel.y - th / 2                // px to shift in Y (Y-up)
-            ctx.draw(cg, in: CGRect(x: CGFloat(dx) - tw / 2 + mpX,
-                                    y: CGFloat(dy) - th / 2 + mpY,
-                                    width: tw, height: th))
+            // In Y-DOWN, centerPixel.y is row count from TOP, so the
+            // shift sign matches the X axis.
+            let mpX = tw / 2 - t.centerPixel.x
+            let mpY = th / 2 - t.centerPixel.y
+            let rect = CGRect(x: CGFloat(dx) - tw / 2 + mpX,
+                              y: CGFloat(dy) - th / 2 + mpY,
+                              width: tw, height: th)
+            drawImageUIKit(cg, in: rect, ctx: ctx)
         }
 
-        // Draw the route polyline in the same Y-UP coordinate space.
+        // Draw the route polyline in the same Y-DOWN coordinate space.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
             ctx.setLineWidth(8)
@@ -607,8 +602,8 @@ extension MapViewSource {
             ctx.beginPath()
             var first = true
             for c in routePolylineCoords {
-                let dx = (c.longitude - centerLon) * pxPerDegLon
-                let dy = (c.latitude - centerLat) * pxPerDegLat
+                let dx =  (c.longitude - centerLon) * pxPerDegLon
+                let dy = -(c.latitude  - centerLat) * pxPerDegLat       // Y-DOWN: north = -y
                 let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
                 if first {
                     ctx.move(to: pt)
@@ -639,18 +634,18 @@ extension MapViewSource {
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
         // Match the forward-bias anchor used in drawTileCacheFrame /
-        // drawVectorOnlyFrame. The outer ctx here is the OUTER (already
-        // global-Y-flipped) one — those drawing routines saveGState +
-        // do their own inner Y-flip, but we draw the puck OUTSIDE that
-        // inner flip so the geometry below mirrors theirs in outer
-        // Y-DOWN convention. In outer-Y-DOWN, "lower on screen" =
-        // "higher y" → ADD biasPx instead of subtract.
+        // drawVectorOnlyFrame so the puck stays put when we fall back
+        // to vector-only. Coord system here is Y-DOWN (outer ctx); ADD
+        // biasPx to push the puck visually down.
         let biasPx = frameSize.height * forwardBiasFraction
         let cy = frameSize.height / 2 + biasPx
 
         ctx.saveGState()
         ctx.translateBy(x: cx, y: cy)
-        ctx.scaleBy(x: 1, y: -1)   // local Y-flip: +y = up on screen
+        // Local Y-flip so the chevron coords below read naturally
+        // (tip at +y = pointing UP on screen). Keeps the original
+        // geometry numbers intact even though the outer ctx is Y-DOWN.
+        ctx.scaleBy(x: 1, y: -1)
 
         // ── White outer ring (acts as a 2 px border around the puck) ──
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
@@ -744,13 +739,10 @@ extension MapViewSource {
         let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
 
         ctx.saveGState()
-        ctx.translateBy(x: 0, y: frameSize.height)
-        ctx.scaleBy(x: 1, y: -1)
-        // Forward bias (same logic as drawTileCacheFrame — keep them
-        // in lock-step so switching to vector fallback doesn't visibly
-        // jump the puck).
+        // Y-DOWN convention throughout — same coord system as
+        // drawTileCacheFrame (see big comment block there).
         let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 - biasPx)
+        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
         ctx.rotate(by: -lastHeading * .pi / 180)
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
@@ -761,8 +753,8 @@ extension MapViewSource {
         ctx.beginPath()
         var first = true
         for c in routePolylineCoords {
-            let dxM = (c.longitude - centerLon) * mPerDegLon
-            let dyM = (c.latitude - centerLat) * mPerDegLat
+            let dxM =  (c.longitude - centerLon) * mPerDegLon
+            let dyM = -(c.latitude  - centerLat) * mPerDegLat       // Y-DOWN: north = -y
             let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
             if first {
                 ctx.move(to: pt)
@@ -789,6 +781,29 @@ extension MapViewSource {
         var pool: CVPixelBufferPool?
         CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &pool)
         pixelBufferPool = pool
+    }
+
+    /// Draw a CGImage right-side-up in a Y-DOWN context.
+    ///
+    /// `ctx.draw(image, in: rect)` is documented to render images
+    /// upside-down when the CTM has a Y-flip (Apple's CGContext.draw
+    /// reference, "Discussion" section). Our render pipeline is Y-DOWN
+    /// throughout — outer flip in `renderMapViewToPixelBuffer` aligns
+    /// CVPixelBuffer row 0 with visual top for VideoToolbox — so every
+    /// raw bitmap blit hits this case.
+    ///
+    /// This helper wraps the draw in a local saveGState + per-call
+    /// Y-flip so the image renders right-side-up without contaminating
+    /// the outer CTM (which still drives vector math in Y-DOWN). The
+    /// flip is anchored on `rect.midY` so adjacent rects stay
+    /// pixel-aligned (no seams between adjacent tiles).
+    fileprivate func drawImageUIKit(_ image: CGImage, in rect: CGRect, ctx: CGContext) {
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: rect.midY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.translateBy(x: 0, y: -rect.midY)
+        ctx.draw(image, in: rect)
+        ctx.restoreGState()
     }
 }
 
