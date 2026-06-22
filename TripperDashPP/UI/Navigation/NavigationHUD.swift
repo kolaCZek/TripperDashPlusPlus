@@ -25,6 +25,9 @@ struct NavigationHUD: View {
     var body: some View {
         VStack(spacing: 16) {
             maneuverCard
+            if nav.plan != nil, let plan = nav.plan, plan.legs.count > 1 {
+                stopProgressPill(plan: plan)
+            }
             etaCard
             Spacer()
             stopButton
@@ -35,6 +38,31 @@ struct NavigationHUD: View {
     }
 
     // MARK: - Subviews
+
+    /// Multi-stop progress: "Stop 2 of 3 · next Slaný". Only shown when
+    /// the active session is plan-navigating more than one leg.
+    private func stopProgressPill(plan: PlannedRoute) -> some View {
+        let total = plan.legs.count
+        let current = min(nav.currentLegIndex + 1, total)
+        let nextWaypointName: String = {
+            let leg = plan.legs.indices.contains(nav.currentLegIndex) ? plan.legs[nav.currentLegIndex] : nil
+            if let leg, let wp = plan.waypoint(id: leg.toWaypointId) { return wp.name }
+            return "—"
+        }()
+        return HStack(spacing: 8) {
+            Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                .foregroundStyle(.blue)
+            Text("Stop \(current) of \(total)")
+                .font(.subheadline.weight(.semibold))
+            Text("· next \(nextWaypointName)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+    }
 
     private var maneuverCard: some View {
         HStack(alignment: .center, spacing: 14) {

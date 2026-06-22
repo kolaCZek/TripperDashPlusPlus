@@ -273,6 +273,61 @@ final class AppStatus {
     /// the preview.
     var stagedDestination: Destination? = nil
 
+    // MARK: - Multi-stop planning (feat/route-waypoints)
+
+    /// The live multi-stop plan being built in the picker's planning
+    /// mode. nil when not planning. The PlanningMapView + WaypointList
+    /// both bind to this same instance; mutating it redraws both.
+    var plannedRoute: PlannedRoute? = nil
+
+    /// Leg indices currently being recomputed — surfaced to the
+    /// waypoint list so it can show per-row spinners.
+    var recomputingLegs: Set<Int> = []
+
+    /// Begin planning from a single destination (the n=2 case): origin
+    /// = current location, destination = `dest`. Builds the plan and
+    /// kicks off the initial leg computation. Returns immediately; the
+    /// plan fills in asynchronously.
+    func beginPlanning(to dest: Destination) {
+        let originCoord = locationService.lastFix?.coordinate
+            ?? CLLocationCoordinate2D(latitude: dest.coordinate.latitude,
+                                      longitude: dest.coordinate.longitude)
+        let origin = Waypoint.currentLocation(originCoord)
+        let destination = Waypoint.from(destination: dest)
+        let plan = PlannedRoute(origin: origin, destination: destination)
+        plannedRoute = plan
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
+    /// Recompute the given dirty legs of `plan` (defaults to the live
+    /// `plannedRoute`). Tracks `recomputingLegs` for the UI spinner and
+    /// surfaces failures into `planError`.
+    func recomputeDirtyLegs(_ dirty: Set<Int>, in plan: PlannedRoute? = nil) async {
+        guard let plan = plan ?? plannedRoute, !dirty.isEmpty else { return }
+        recomputingLegs.formUnion(dirty)
+        defer { recomputingLegs.subtract(dirty) }
+        do {
+            try await routingService.recompute(
+                plan,
+                dirtyLegIndices: dirty,
+                preferences: navigationStore.routePreferences
+            )
+            planError = nil
+        } catch {
+            planError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// Last planning/recompute error, surfaced in the planning UI.
+    var planError: String? = nil
+
+    /// Exit planning mode and drop the staged plan.
+    func cancelPlanning() {
+        plannedRoute = nil
+        recomputingLegs = []
+        planError = nil
+    }
+
     /// Wire ActiveNavigator's reroute callback to our RoutingService
     /// and NavigationStore preferences. Done lazily after init.
     private func wireNavigation() {

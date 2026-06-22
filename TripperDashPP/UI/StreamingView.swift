@@ -125,19 +125,9 @@ struct StreamingView: View {
                 }
             }
 
-            Section("Route preferences") {
-                Toggle("Avoid highways", isOn: Binding(
-                    get: { status.navigationStore.routePreferences.avoidHighways },
-                    set: { status.navigationStore.setAvoidHighways($0) }
-                ))
-                Toggle("Avoid tolls", isOn: Binding(
-                    get: { status.navigationStore.routePreferences.avoidTolls },
-                    set: { status.navigationStore.setAvoidTolls($0) }
-                ))
-                Text("Applied to new route calculations and reroutes.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            // Route preferences live ONLY in the planning panel's
+            // sliders button now (feat/route-waypoints). Removed from
+            // here so there's a single source of truth the user edits.
 
             MapCacheSection()
 

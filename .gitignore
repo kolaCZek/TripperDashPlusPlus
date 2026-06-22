@@ -89,6 +89,9 @@ dist/
 .cursorrules
 .aider*
 
+# ----- Hermes agent (local plans / notes — never push) -----
+.hermes/
+
 # ----- Logs / temp -----
 *.log
 tmp/

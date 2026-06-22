@@ -23,27 +23,128 @@ final class RoutingService {
     /// Calculate up to 3 alternative routes from origin → destination.
     /// `origin == nil` uses .forCurrentLocation() (CoreLocation must
     /// already be authorised + a fix should be available).
+    ///
+    /// Retained as the single-leg convenience used by reroute and the
+    /// legacy single-destination flow. Internally a one-leg call.
     func calculate(from origin: CLLocationCoordinate2D?,
                    to destination: Destination,
                    preferences: RoutePreferences) async throws -> [RouteOption] {
+        let fromWp = origin.map { Waypoint(name: "Origin", coordinate: $0) }
+        let toWp = Waypoint.from(destination: destination)
+        return try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+    }
+
+    /// Compute ≤3 alternatives for a single leg `from → to`. A nil
+    /// `from`, or a `from` flagged `isCurrentLocation`, resolves to
+    /// `.forCurrentLocation()` (used for the origin leg).
+    func calculateLeg(from: Waypoint?,
+                      to: Waypoint,
+                      preferences: RoutePreferences) async throws -> [RouteOption] {
         let req = MKDirections.Request()
-        if let origin {
-            req.source = MKMapItem(placemark: MKPlacemark(coordinate: origin))
+        if let from, !from.isCurrentLocation {
+            req.source = MKMapItem(placemark: MKPlacemark(coordinate: from.coordinate))
         } else {
             req.source = .forCurrentLocation()
         }
-        req.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+        req.destination = MKMapItem(placemark: MKPlacemark(coordinate: to.coordinate))
         req.transportType = .automobile
         req.requestsAlternateRoutes = true
         req.highwayPreference = preferences.avoidHighways ? .avoid : .any
         req.tollPreference = preferences.avoidTolls ? .avoid : .any
 
-        log.info("Calculating routes to \(destination.name, privacy: .public) (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
+        log.info("Calculating leg to \(to.name, privacy: .public) (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
         let response = try await MKDirections(request: req).calculate()
-        let routes = Array(response.routes.prefix(3))
-        log.info("Got \(routes.count) route(s)")
+
+        // MKDirections treats `.avoid` as a SOFT preference — it will
+        // still hand back highway/toll routes when it thinks they're
+        // best. We promised the rider a HARD filter, so drop any route
+        // that violates an active constraint, using MKRoute's own
+        // `hasHighways` / `hasTolls` flags (authoritative, not the
+        // localized instruction text).
+        let allRoutes = response.routes
+        let filtered = allRoutes.filter { route in
+            if preferences.avoidHighways && route.hasHighways { return false }
+            if preferences.avoidTolls && route.hasTolls { return false }
+            return true
+        }
+
+        // Fallback: if the constraint eliminates EVERYTHING (e.g. the
+        // only way out of where the rider is genuinely uses a highway),
+        // don't strand them with zero routes — keep the single best
+        // original so navigation still works. The UI surfaces that the
+        // filter couldn't be honoured (see RouteOption.violatesFilter).
+        let chosen: [MKRoute]
+        if filtered.isEmpty && !allRoutes.isEmpty {
+            log.warning("All \(allRoutes.count) route(s) to \(to.name, privacy: .public) violate the active filter — keeping best original as fallback")
+            chosen = [allRoutes[0]]
+        } else {
+            chosen = filtered
+        }
+
+        let routes = Array(chosen.prefix(3))
+        log.info("Got \(allRoutes.count) leg route(s), \(routes.count) after filter (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
         return routes.enumerated().map { (idx, route) in
-            RouteOption(index: idx, route: route)
+            RouteOption(index: idx,
+                        route: route,
+                        violatesHighwayFilter: preferences.avoidHighways && route.hasHighways,
+                        violatesTollFilter: preferences.avoidTolls && route.hasTolls)
+        }
+    }
+
+    /// Recompute only the legs flagged in `dirtyLegIndices`, mutating
+    /// `plan` in place. Runs sequentially on the main actor — for the
+    /// common case (a mutation dirties 1–2 legs) that's as fast as
+    /// concurrent, and it sidesteps Swift 6 strict-concurrency issues
+    /// with `MKRoute` (non-Sendable) crossing task boundaries. MapKit
+    /// throttles concurrent `MKDirections` calls anyway, so little is
+    /// lost. Selected-option indices on untouched legs are preserved by
+    /// `PlannedRoute.setOptions`.
+    ///
+    /// Legs that DO compute are written back even if a sibling fails,
+    /// so a partial network blip doesn't wipe a half-good plan; the
+    /// failure is reported after all legs are attempted.
+    func recompute(_ plan: PlannedRoute,
+                   dirtyLegIndices: Set<Int>,
+                   preferences: RoutePreferences) async throws {
+        let dirty = dirtyLegIndices.filter { plan.legs.indices.contains($0) }.sorted()
+        guard !dirty.isEmpty else { return }
+
+        var failed: [Int] = []
+        for i in dirty {
+            let leg = plan.legs[i]
+            guard let fromWp = plan.waypoint(id: leg.fromWaypointId),
+                  let toWp = plan.waypoint(id: leg.toWaypointId) else {
+                failed.append(i)
+                continue
+            }
+            do {
+                let opts = try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+                if opts.isEmpty {
+                    failed.append(i)
+                } else {
+                    plan.setOptions(opts, forLegIndex: i)
+                }
+            } catch {
+                log.error("Leg \(i) recompute failed: \(error.localizedDescription, privacy: .public)")
+                failed.append(i)
+            }
+        }
+
+        if !failed.isEmpty {
+            throw RoutingError.legComputationFailed(legIndices: failed.sorted())
+        }
+    }
+}
+
+/// Errors surfaced by multi-leg recomputation.
+enum RoutingError: LocalizedError {
+    case legComputationFailed(legIndices: [Int])
+
+    var errorDescription: String? {
+        switch self {
+        case .legComputationFailed(let idx):
+            let list = idx.map { "\($0 + 1)" }.joined(separator: ", ")
+            return "Couldn't calculate route segment(s) \(list). Check your connection and try again."
         }
     }
 }
@@ -55,6 +156,17 @@ struct RouteOption: Identifiable, Equatable {
     let id: UUID = UUID()
     let index: Int
     let route: MKRoute
+
+    /// True when this route still uses a highway despite an active
+    /// "avoid highways" filter — only ever true on the fallback route
+    /// kept when EVERY alternative violated the filter (so the rider
+    /// isn't stranded). The UI badges it so the compromise is visible.
+    var violatesHighwayFilter: Bool = false
+    /// Same, for the "avoid tolls" filter.
+    var violatesTollFilter: Bool = false
+
+    /// True if this option breaks any active filter (fallback route).
+    var violatesFilter: Bool { violatesHighwayFilter || violatesTollFilter }
 
     var label: String { "Route \(index + 1)" }
 

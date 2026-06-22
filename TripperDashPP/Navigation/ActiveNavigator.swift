@@ -92,6 +92,29 @@ final class ActiveNavigator {
     /// Whether a reroute is currently in flight.
     private(set) var isRerouting: Bool = false
 
+    // MARK: - Multi-stop plan state (feat/route-waypoints)
+
+    /// The multi-stop plan being navigated, when started via
+    /// `start(plan:)`. nil for the classic single-destination path
+    /// (`start(route:destination:)`), which behaves exactly as before.
+    private(set) var plan: PlannedRoute?
+
+    /// Index into `plan.legs` of the leg currently being navigated.
+    /// `activeRoute` is always the selected MKRoute of this leg (or a
+    /// reroute thereof).
+    private(set) var currentLegIndex: Int = 0
+
+    /// Number of legs still to drive, INCLUDING the current one. 1 on
+    /// the final leg. 0 when not plan-navigating. Drives the HUD's
+    /// "stop N of M" pill.
+    private(set) var remainingWaypoints: Int = 0
+
+    /// Distance (m) to the current leg's end waypoint at which we
+    /// switch to the next leg. Same order of magnitude as a
+    /// destination arrival. Kept below the off-route threshold (60 m)
+    /// so leg-advance wins over a reroute near the waypoint.
+    private let legArrivalThreshold: CLLocationDistance = 30
+
     // MARK: - Reroute hysteresis state (7h)
 
     private var offRouteSince: Date?
@@ -122,30 +145,63 @@ final class ActiveNavigator {
 
     // MARK: - API
 
+    /// Classic single-destination entry point. Unchanged behaviour —
+    /// used by reroute and as the n=2 fallback. Internally seeds with
+    /// no plan, so leg-advance never triggers.
     func start(route: MKRoute, destination: Destination) async {
+        self.plan = nil
+        self.currentLegIndex = 0
+        self.remainingWaypoints = 0
+        seed(route: route, destination: destination)
+        self.isNavigating = true
+        log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
+        await onActiveRouteChanged?(route)
+    }
+
+    /// Multi-stop entry point (feat/route-waypoints). Drives the legs of
+    /// `plan` one at a time starting at `fromLegIndex`. `activeRoute` is
+    /// the selected MKRoute of the current leg; everything downstream
+    /// (PolylineMath, tile cache, ActiveNavLoop, maneuver TLVs) sees a
+    /// single MKRoute exactly as in the single-destination case.
+    func start(plan: PlannedRoute, fromLegIndex: Int = 0) async {
+        guard plan.isComputed, !plan.legs.isEmpty else {
+            log.error("start(plan:) called with an uncomputed plan — ignoring")
+            return
+        }
+        self.plan = plan
+        self.currentLegIndex = max(0, min(fromLegIndex, plan.legs.count - 1))
+        self.remainingWaypoints = plan.legs.count - self.currentLegIndex
+
+        let leg = plan.legs[self.currentLegIndex]
+        guard let route = leg.selected?.route,
+              let destWp = plan.waypoint(id: leg.toWaypointId) else {
+            log.error("start(plan:) — current leg has no selected route — ignoring")
+            return
+        }
+        seed(route: route, destination: destWp.asDestination)
+        self.isNavigating = true
+        log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
+        await onActiveRouteChanged?(route)
+    }
+
+    /// Seed all per-leg display + geometry state from a single route.
+    /// Shared by both entry points and by leg-advance. Does NOT flip
+    /// `isNavigating` or fire `onActiveRouteChanged` — the caller owns
+    /// those so it can order them correctly.
+    private func seed(route: MKRoute, destination: Destination) {
         self.activeRoute = route
         self.destination = destination
         self.lastSegmentIndex = 0
         self.offRouteSince = nil
         self.isOffRoute = false
-        self.isNavigating = true
-        log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
         // Seed initial display values from the route itself.
         self.remainingDistance = route.distance
         self.etaSeconds = route.expectedTravelTime
         self.nextStep = route.steps.first
         self.distanceToNextStep = route.steps.first?.distance ?? 0
-        // F2c: dropIndex 1 gets us the step *after* `nextStep`. Nil if
-        // the route is a single-step trip (rare — usually `[origin,
-        // dest, arrive]`). distanceToSecondNextStep is the sum of the
-        // two leg lengths at start.
         self.secondNextStep = route.steps.dropFirst().first
         self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
             + (route.steps.dropFirst().first?.distance ?? 0)
-        // Notify observers (Map UI, tile cache) of the new route.
-        // Fire after seeding internal state so any observer that
-        // reads back from us sees a consistent snapshot.
-        await onActiveRouteChanged?(route)
     }
 
     func stop() {
@@ -165,6 +221,10 @@ final class ActiveNavigator {
         self.validSpeedSamples = 0
         self.isOffRoute = false
         self.offRouteSince = nil
+        // Multi-stop: drop the plan so the next session starts fresh.
+        self.plan = nil
+        self.currentLegIndex = 0
+        self.remainingWaypoints = 0
     }
 
     /// Push a fresh GPS fix into the navigator. Call from a location
@@ -187,6 +247,19 @@ final class ActiveNavigator {
             currentCoord: coord
         )
         self.remainingDistance = remaining
+
+        // Multi-stop leg advance: if we're plan-navigating and within
+        // the arrival radius of the CURRENT leg's end waypoint, and
+        // there's another leg after this one, switch to it. This runs
+        // BEFORE off-route/reroute so arriving at an intermediate
+        // waypoint advances the leg instead of triggering a reroute to
+        // the same waypoint. Returns early — the next tick ingests
+        // against the new leg's route.
+        if let plan, currentLegIndex < plan.legs.count - 1,
+           remaining <= legArrivalThreshold {
+            await advanceToNextLeg(in: plan)
+            return
+        }
 
         // F4: live ETA. Fold the GPS-reported speed into an EWMA; once
         // we have a few valid samples and the smoothed speed is above
@@ -286,6 +359,32 @@ final class ActiveNavigator {
         } else {
             log.warning("Reroute failed — keeping existing route, will retry after cooldown")
         }
+    }
+
+    // MARK: - Leg advance (multi-stop)
+
+    /// Switch from the current leg to the next one. Reuses `seed(...)`
+    /// to reset all display/geometry state, then fires the same
+    /// `onActiveRouteChanged` hook reroute uses — so the polyline swap
+    /// and tile re-bake are already wired for free. Called from
+    /// `ingest(fix:)` when the rider reaches an intermediate waypoint.
+    private func advanceToNextLeg(in plan: PlannedRoute) async {
+        let next = currentLegIndex + 1
+        guard plan.legs.indices.contains(next) else { return }
+        let leg = plan.legs[next]
+        guard let route = leg.selected?.route,
+              let destWp = plan.waypoint(id: leg.toWaypointId) else {
+            log.error("Leg advance \(self.currentLegIndex)→\(next): next leg has no selected route — staying put")
+            return
+        }
+        log.info("Leg advance \(self.currentLegIndex + 1)→\(next + 1) of \(plan.legs.count) — now to \(destWp.name, privacy: .public)")
+        currentLegIndex = next
+        remainingWaypoints = plan.legs.count - next
+        // Keep the smoothed-speed history across legs — the rider's
+        // pace doesn't reset at a waypoint, so ETA on the new leg
+        // should start from how they were actually moving.
+        seed(route: route, destination: destWp.asDestination)
+        await onActiveRouteChanged?(route)
     }
 
     // MARK: - ETA helper
