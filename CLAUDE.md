@@ -85,7 +85,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 - **README, CONTRIBUTING, issue templates, PR descriptions** are in English.
 - **Internal author notes / Czech-specific docs** stay out of the repo.
 - **Commit messages**: imperative present (`Add K1G handshake`, not `Added` / `Adds`). Reference issue numbers when relevant. Conventional Commits are nice-to-have, not enforced.
-- **Branch from `main`**.
+- **Branch-first workflow.** `main` is a working, on-bike-validated build and must stay always-shippable. Do **not** develop features or non-trivial fixes directly on `main` — cut a dedicated branch (`feat/…`, `fix/…`, `chore/…`, `docs/…`), do the work and field-test there, and only merge back into `main` once it's debugged. Prefer a PR (the `fake_dash` CI runs on it); `--no-ff` or `--squash` the merge so a feature is one revertable unit. Trivial one-liners may still go straight on `main`. Don't force-push `main`.
 
 ## Folder layout
 
