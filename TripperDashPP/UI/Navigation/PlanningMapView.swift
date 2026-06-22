@@ -101,6 +101,7 @@ struct PlanningMapView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var parent: PlanningMapView
         weak var mapView: MKMapView?
