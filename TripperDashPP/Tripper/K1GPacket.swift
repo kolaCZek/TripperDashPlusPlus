@@ -733,7 +733,7 @@ enum InitialBurst {
         // **twice**, leading to two failed fixes before this one):
         //   1. better-dash captured `0E 33 34` from the stock Android app
         //      and inlined it verbatim. We replayed it on every connect.
-        //   2. First fix (commit b22a17d, 2026-06-21) assumed ASCII for
+        //   2. First fix (commit a632150, 2026-06-21) assumed ASCII for
         //      the minute bytes (`HH '5' '2'`) and parsed `0E 33 34` as
         //      "14:34". Field test at 20:08 sent `14 30 38` ('0','8')
         //      and the dash latched onto **20:48** — proving the byte

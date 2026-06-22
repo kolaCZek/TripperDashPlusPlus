@@ -21,7 +21,7 @@
 //  Persisted in UserDefaults under "dashNavSettings.v3". v2 carried four
 //  diagnostic toggles for the Bug 3 clock-shift A/B test; once the root
 //  cause was found (initial-burst packet 3 carried a stale set-clock
-//  TLV — fixed in 36d926c) the toggles were retired and the key bumped
+//  TLV — fixed in 807081a) the toggles were retired and the key bumped
 //  to v3. Old v2/v1 blobs are ignored on read; we just rewrite to v3.
 //
 

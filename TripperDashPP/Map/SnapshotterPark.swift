@@ -3,7 +3,7 @@
 //  TripperDashPP
 //
 //  Extracted from the now-deleted MapSnapshotSource on the catalog-complete
-//  refactor (commit db89d51). MapPreviewView still relies on it to drain
+//  refactor (commit e761d52). MapPreviewView still relies on it to drain
 //  MKMapSnapshotter Metal command buffers without freezing the app, so the
 //  helper survives even though its original owner doesn't.
 //
