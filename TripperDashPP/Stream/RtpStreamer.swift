@@ -52,8 +52,9 @@ final class RtpStreamer {
     private let packetizer = RtpPacketizer()
 
     /// Hook into the BikeLink so the streamer can announce per-frame
-    /// `q3c.g` (projection-frame) TLVs over UDP/2002. Weak to avoid a
-    /// retain cycle — the link outlives any single streamer instance.
+    /// `q3c.g` (projection-frame) TLVs over the K1G control plane (UDP
+    /// TX :2000). Weak to avoid a retain cycle — the link outlives any
+    /// single streamer instance.
     weak var bikeLink: BikeLink?
 
     // MARK: - Networking

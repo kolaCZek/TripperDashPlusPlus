@@ -10,11 +10,11 @@
 //       on an active subscription keeps the app from being suspended
 //       while the screen is locked (this is the only reason Phase 6
 //       worked at all).
-//    2. Live position feed for the Phase 5 Mapbox snapshotter — the
-//       map source subscribes to `lastLocation` / `lastHeading` and
-//       re-centres the camera on every update.
-//    3. Future Phase 7 turn-by-turn nav — the route engine will also
-//       consume `lastLocation` updates to advance maneuver state.
+//    2. Live position feed for the map frame source — `MapViewSource`
+//       subscribes to `lastLocation` / `lastHeading` and re-centres the
+//       composited tile on every update.
+//    3. Turn-by-turn nav — the active-nav route engine consumes
+//       `lastLocation` updates to advance maneuver state.
 //
 //  Owning a single CLLocationManager (instead of one per consumer)
 //  matters because:

@@ -4,17 +4,17 @@
 //
 //  Phase 6 — fallback wakelock via the `audio` UIBackgroundMode.
 //
-//  CoreLocation `Always` is the primary screen-off wakelock (see
-//  `BackgroundLocationKeeper`). This file adds a belt-and-braces
-//  fallback: an `AVAudioEngine` that loops a silent PCM buffer through
-//  the system mixer. As long as something is actively playing audio
-//  with the `audio` background mode declared in Info.plist, iOS will
-//  not suspend the app — even if GPS drops out (tunnel, garage).
+//  CoreLocation `Always` is the primary screen-off wakelock (owned by
+//  `LocationService`). This file adds a belt-and-braces fallback: an
+//  `AVAudioEngine` that loops a silent PCM buffer through the system
+//  mixer. As long as something is actively playing audio with the
+//  `audio` background mode declared in Info.plist, iOS will not suspend
+//  the app — even if GPS drops out (tunnel, garage).
 //
 //  We're explicitly mixing with others (`.mixWithOthers`) and ducking
-//  nothing, so the user's music / podcast / Mapbox spoken nav keeps
-//  playing untouched. The buffer is generated programmatically so
-//  there is no .caf / .wav asset to ship.
+//  nothing, so the user's music / podcast / spoken nav keeps playing
+//  untouched. The buffer is generated programmatically so there is no
+//  .caf / .wav asset to ship.
 //
 //  Required Info.plist keys (already present in TripperDashPP-Info.plist):
 //    - UIBackgroundModes contains "audio"
@@ -80,7 +80,7 @@ final class SilentAudioKeeper {
         // .playback: required for background audio (matches the
         // UIBackgroundModes "audio" entry).
         // .mixWithOthers: let the user keep listening to music, podcasts,
-        // or Mapbox spoken nav while we hold the wakelock silently.
+        // or spoken nav while we hold the wakelock silently.
         try session.setCategory(
             .playback,
             mode: .default,
