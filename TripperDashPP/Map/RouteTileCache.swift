@@ -798,19 +798,26 @@ final class RouteTileCache {
             }
             let x = paintOffsetX + Double(entry.tx * WebMercator.tilePixels)
             let y = paintOffsetY + Double(entry.ty * WebMercator.tilePixels)
-            // Y-up coordinate system inside the saveGState — but we
-            // flipped, so the visual top of the bitmap is now y=0
-            // from CGContext's perspective. Draw the tile so its
-            // top-left is at (x, y) in flipped coords.
-            ctx.draw(
-                cgImg,
-                in: CGRect(
-                    x: x,
-                    y: y,
-                    width: CGFloat(WebMercator.tilePixels),
-                    height: CGFloat(WebMercator.tilePixels)
-                )
+            let tileRect = CGRect(
+                x: x,
+                y: y,
+                width: CGFloat(WebMercator.tilePixels),
+                height: CGFloat(WebMercator.tilePixels)
             )
+            // The outer saveGState flipped the whole canvas to Y-down so
+            // OUR vector math (paintOffsets, tile rect coords) is natural.
+            // But CGContext.draw(image:in:) anchors the image's
+            // BOTTOM-LEFT at rect.origin in user-space — which in this
+            // flipped frame is the visual TOP-LEFT — so the image lands
+            // upside-down. Add a per-call local flip around the tile
+            // rect to render it right-side-up (mirror of MapViewSource's
+            // `drawImageUIKit` helper).
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: tileRect.midY)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.translateBy(x: 0, y: -tileRect.midY)
+            ctx.draw(cgImg, in: tileRect)
+            ctx.restoreGState()
         }
         ctx.restoreGState()
 
