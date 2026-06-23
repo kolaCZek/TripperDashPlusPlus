@@ -523,7 +523,10 @@ extension MapViewSource {
             bitmapInfo: bitmapInfo
         ) else { return nil }
 
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        // Frame clear colour comes from the active style so the corners
+        // outside the rotated tile composite don't glare (near-black on
+        // both palettes; dark style is a touch cooler/darker).
+        ctx.setFillColor(currentStyle.voidColor)
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
         // CGContext for CVPixelBuffer has origin at bottom-left;
@@ -855,8 +858,10 @@ extension MapViewSource {
     private func drawVectorOnlyFrame(into ctx: CGContext) {
         updateHeading()
         updateZoom()
-        // Dark slate background
-        ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1))
+        // Style-aware background (light stone for Light, dark slate for
+        // Dark) so the pre-nav / off-corridor fallback matches the map
+        // palette instead of always being dark.
+        ctx.setFillColor(currentStyle.vectorBackground)
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
         guard let fix = lastFix, !routePolylineCoords.isEmpty else {
