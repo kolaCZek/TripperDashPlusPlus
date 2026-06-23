@@ -27,6 +27,11 @@ final class ActiveNavigator {
     /// True once start(route:) was called and we haven't stopped.
     private(set) var isNavigating: Bool = false
 
+    /// True once we've reached the final destination. The HUD shows an
+    /// "arrived" confirmation; MapPickerView auto-dismisses after a few
+    /// seconds and AppStatus tears down the stream the moment this flips.
+    private(set) var hasArrived: Bool = false
+
     /// The route currently being followed (may be replaced on reroute).
     private(set) var activeRoute: MKRoute?
 
@@ -123,6 +128,15 @@ final class ActiveNavigator {
     /// so leg-advance wins over a reroute near the waypoint.
     private let legArrivalThreshold: CLLocationDistance = 30
 
+    /// Arrival radius for the FINAL destination. Same order as the leg
+    /// threshold; the rider has stopped, so a few metres is plenty.
+    private let destinationArrivalThreshold: CLLocationDistance = 25
+
+    /// Set true once we've been at least 2× the arrival radius away from
+    /// the destination. Guards against firing arrival on the very first
+    /// fix of a short route (where remaining can start below the radius).
+    private var hasBeenUnderway: Bool = false
+
     // MARK: - Reroute hysteresis state (7h)
 
     private var offRouteSince: Date?
@@ -151,6 +165,12 @@ final class ActiveNavigator {
     /// navigation from scratch.
     var onActiveRouteChanged: (@MainActor (MKRoute) async -> Void)?
 
+    /// Fired once when the rider reaches the FINAL destination (single
+    /// route, or the last leg of a plan). AppStatus wires this to tear
+    /// down the stream + route artefacts. Distinct from a leg-advance,
+    /// which is internal and silent.
+    var onArrived: (@MainActor () -> Void)?
+
     // MARK: - API
 
     /// Classic single-destination entry point. Unchanged behaviour —
@@ -160,6 +180,8 @@ final class ActiveNavigator {
         self.plan = nil
         self.currentLegIndex = 0
         self.remainingWaypoints = 0
+        self.hasArrived = false
+        self.hasBeenUnderway = false
         seed(route: route, destination: destination)
         self.isNavigating = true
         log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
@@ -179,6 +201,8 @@ final class ActiveNavigator {
         self.plan = plan
         self.currentLegIndex = max(0, min(fromLegIndex, plan.legs.count - 1))
         self.remainingWaypoints = plan.legs.count - self.currentLegIndex
+        self.hasArrived = false
+        self.hasBeenUnderway = false
 
         let leg = plan.legs[self.currentLegIndex]
         guard let route = leg.selected?.route,
@@ -235,6 +259,26 @@ final class ActiveNavigator {
         self.plan = nil
         self.currentLegIndex = 0
         self.remainingWaypoints = 0
+        // Arrival state — reset so the next route starts clean.
+        self.hasArrived = false
+        self.hasBeenUnderway = false
+    }
+
+    /// Reached the final destination. Flip into the `hasArrived` display
+    /// state (HUD shows the "You've arrived" card) and fire `onArrived`
+    /// so AppStatus tears down the stream promptly. We DON'T call stop()
+    /// here — the HUD needs `hasArrived == true` for the dismiss beat;
+    /// MapPickerView calls stop() after the auto-dismiss delay.
+    private func handleArrival() {
+        log.info("Arrived at destination \(self.destination?.name ?? "?", privacy: .public)")
+        self.hasArrived = true
+        // NOTE: deliberately do NOT touch `isNavigating` here. MapPickerView's
+        // `mode` is derived from `isNavigating`, so flipping it now would
+        // unmount the HUD in the same beat `hasArrived` goes true — the
+        // "You've arrived" card would never render. The HUD stays up showing
+        // the arrival card; MapPickerView calls `stop()` (which clears
+        // `isNavigating`) after the 4 s auto-dismiss.
+        onArrived?()
     }
 
     /// Push a fresh GPS fix into the navigator. Call from a location
@@ -258,6 +302,10 @@ final class ActiveNavigator {
         )
         self.remainingDistance = remaining
 
+        // Arm the "been under way" guard so a short route can't fire
+        // arrival on its very first fix (where remaining may start small).
+        if remaining > destinationArrivalThreshold * 2 { hasBeenUnderway = true }
+
         // Multi-stop leg advance: if we're plan-navigating and within
         // the arrival radius of the CURRENT leg's end waypoint, and
         // there's another leg after this one, switch to it. This runs
@@ -268,6 +316,17 @@ final class ActiveNavigator {
         if let plan, currentLegIndex < plan.legs.count - 1,
            remaining <= legArrivalThreshold {
             await advanceToNextLeg(in: plan)
+            return
+        }
+
+        // Final-destination arrival. True for a single-destination route
+        // (plan == nil) and for the last leg of a multi-stop plan. Runs
+        // AFTER leg-advance so intermediate waypoints advance instead of
+        // "arriving". The `hasBeenUnderway` guard blocks a t=0 false-fire.
+        let isFinalLeg = (plan == nil) || (currentLegIndex >= (plan?.legs.count ?? 1) - 1)
+        if isFinalLeg, hasBeenUnderway, !hasArrived,
+           remaining <= destinationArrivalThreshold {
+            handleArrival()
             return
         }
 

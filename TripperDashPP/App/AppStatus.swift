@@ -20,6 +20,7 @@ enum BikeConnectionState: String, Sendable {
     case disconnected
     case wifiJoining       // Waiting for the user to join the Tripper AP
     case handshaking       // RSA exchange in flight
+    case reconnecting      // Link dropped after being connected; retrying
     case connected         // Heartbeats flowing, no video yet
     case streaming         // RTP video in flight
     case error             // See AppStatus.lastError
@@ -58,6 +59,7 @@ final class AppStatus {
         case .idle:         return .disconnected
         case .connecting:   return .wifiJoining
         case .handshaking:  return .handshaking
+        case .reconnecting: return .reconnecting
         case .connected:    return .connected
         case .error:        return .error
         }
@@ -124,11 +126,22 @@ final class AppStatus {
         } onChange: {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                // If the link dropped while we were streaming, kill the
-                // RTP pipeline — RtpStreamer doesn't watch the link
-                // itself and would happily keep encoding into the void.
-                if self.isStreaming && self.bikeLink.state != .connected {
+                let state = self.bikeLink.state
+                if self.isStreaming && state != .connected {
+                    // Link left .connected (dropped → reconnecting) while
+                    // streaming — kill the RTP pipeline; RtpStreamer doesn't
+                    // watch the link itself and would keep encoding into the
+                    // void. The stream re-arms below once we're back.
                     self.stopStreaming()
+                } else if state == .connected
+                            && self.activeNavigator.isNavigating
+                            && !self.isStreaming {
+                    // Reconnected mid-ride → bring the dash projection back
+                    // automatically so navigation reappears without the
+                    // rider touching the phone (e.g. walked back from the
+                    // petrol-station till). The tile cache survived the drop
+                    // (never released on stop), so there's no re-bake.
+                    self.startStreaming()
                 } else {
                     self.applyKeepAwake()
                 }
@@ -362,6 +375,21 @@ final class AppStatus {
             } catch {
                 return nil
             }
+        }
+
+        // Final-destination arrival: tear the stream + route artefacts
+        // down the instant we arrive (so the dash leaves projection
+        // promptly), but DON'T call activeNavigator.stop() here — the HUD
+        // needs `hasArrived == true` for the dismiss beat. MapPickerView
+        // calls stop() after its auto-dismiss delay.
+        activeNavigator.onArrived = { [weak self] in
+            guard let self else { return }
+            if self.isStreaming { self.stopStreaming() }
+            self.mapViewSource.setTileCache(nil)
+            self.mapViewSource.setRoutePolyline(nil)
+            self.activeNavigator.onActiveRouteChanged = nil
+            self.stagedDestination = nil
+            self.plannedRoute = nil
         }
     }
 

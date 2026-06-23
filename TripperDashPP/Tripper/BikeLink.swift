@@ -20,6 +20,7 @@
 //
 
 import Foundation
+import Network
 import os
 import SwiftUI
 #if canImport(UIKit)
@@ -36,6 +37,7 @@ final class BikeLink {
         case idle
         case connecting
         case handshaking
+        case reconnecting     // dropped after being connected; auto-retrying
         case connected
         case error(String)
     }
@@ -82,6 +84,30 @@ final class BikeLink {
     private let seq = RollingSeq()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "BikeLink")
 
+    // MARK: - Reconnect
+
+    /// The running auto-reconnect retry loop, if any.
+    private var reconnectTask: Task<Void, Never>?
+
+    /// True while we should auto-reconnect on an unexpected drop. Armed
+    /// when a connect succeeds; cleared by a user-initiated disconnect()
+    /// so we never fight the user's explicit "stop".
+    private var shouldAutoReconnect = false
+
+    /// Absolute deadline for the CURRENT reconnect episode. Set once in
+    /// `handleLinkDropped` and deliberately NOT reset by `wakeReconnect`,
+    /// so toggling Wi-Fi can't extend the 10-min budget past the moment
+    /// the link first dropped.
+    private var reconnectDeadline: Date?
+
+    /// Wi-Fi presence monitor. A dropped Wi-Fi path is a faster, cleaner
+    /// drop signal than waiting for a heartbeat `sendto` to error, and
+    /// its return lets us retry the instant the rider walks back in range
+    /// instead of waiting out the retry interval.
+    private let pathMonitor = NWPathMonitor(requiredInterfaceType: .wifi)
+    private var pathMonitorStarted = false
+    private var lastWifiSatisfied = true
+
     // MARK: - Init
 
     /// Optional reference to the user's dash-display settings.
@@ -110,6 +136,7 @@ final class BikeLink {
     /// retry is clean. Rejected from any in-progress or connected state
     /// because that's almost always a UI double-tap.
     func connect() {
+        startPathMonitorIfNeeded()
         switch state {
         case .idle:
             break
@@ -117,6 +144,7 @@ final class BikeLink {
             // Clean slate before retrying — same cleanup as disconnect(),
             // minus the user-facing "disconnected" log line.
             connectTask?.cancel(); connectTask = nil
+            reconnectTask?.cancel(); reconnectTask = nil
             inboundTask?.cancel(); inboundTask = nil
             heartbeatTask?.cancel(); heartbeatTask = nil
             Task { [socket] in await socket?.cancel() }
@@ -124,6 +152,11 @@ final class BikeLink {
             aesKey = nil
             lastError = nil
             state = .idle
+        case .reconnecting:
+            // User tapped Connect while we're already auto-retrying —
+            // honour it as "retry now" instead of rejecting it.
+            wakeReconnect()
+            return
         case .connecting, .handshaking, .connected:
             log.warning("connect() called while in state \(String(describing: self.state))")
             return
@@ -136,6 +169,11 @@ final class BikeLink {
     /// in-flight connect Task so the user isn't stuck staring at a
     /// "Connecting…" pill until the K1G timeout fires.
     func disconnect() {
+        // User-initiated stop: clear the auto-reconnect intent FIRST so a
+        // drop signal racing in right now can't re-arm the retry loop.
+        shouldAutoReconnect = false
+        reconnectDeadline = nil
+        reconnectTask?.cancel(); reconnectTask = nil
         connectTask?.cancel(); connectTask = nil
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
@@ -144,7 +182,7 @@ final class BikeLink {
         aesKey = nil
         lastError = nil
         state = .idle
-        log.info("BikeLink disconnected")
+        log.info("BikeLink disconnected (auto-reconnect cleared)")
     }
 
     // MARK: - Nav projection lifecycle
@@ -259,27 +297,39 @@ final class BikeLink {
 
     // MARK: - Flow
 
-    private func runConnectFlow() async {
+    @discardableResult
+    private func runConnectFlow(isReconnect: Bool = false) async -> Bool {
         let t0 = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
         do {
-            state = .connecting
-            log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi")
+            // On a fresh connect we own the `.connecting` → `.handshaking`
+            // progression. During a reconnect the retry loop has already
+            // set `.reconnecting` and we keep it until we either reach
+            // `.connected` or give up — so the UI shows one steady
+            // "Reconnecting…" instead of flickering through the sub-states.
+            if !isReconnect { state = .connecting }
+            log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
             try await s.start(timeout: 5.0)
             try Task.checkCancellation()
             self.socket = s
             log.info("[\(ms(), privacy: .public)ms] DashSocket ready, entering handshake")
 
-            state = .handshaking
+            if !isReconnect { state = .handshaking }
             let outcome = try await runHandshake(socket: s, startedAt: t0)
             try Task.checkCancellation()
             self.aesKey = outcome.aesKey
 
             state = .connected
+            // Arm auto-reconnect for any FUTURE unexpected drop now that we
+            // have a real established link.
+            shouldAutoReconnect = true
+            reconnectDeadline = nil
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
+            self.connectTask = nil
+            return true
 
         } catch is CancellationError {
             // disconnect() yanked us. State + cleanup already handled
@@ -287,15 +337,118 @@ final class BikeLink {
             log.info("Connect flow cancelled by user")
             await self.socket?.cancel()
             self.socket = nil
+            self.connectTask = nil
+            return false
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             log.error("Connect flow failed: \(msg, privacy: .public)")
-            self.lastError = msg
-            self.state = .error(msg)
             await self.socket?.cancel()
             self.socket = nil
+            self.lastError = msg
+            if isReconnect {
+                // Stay in `.reconnecting`; the retry loop sleeps + tries
+                // again (until it hits the 10-min deadline).
+            } else {
+                self.state = .error(msg)
+            }
+            self.connectTask = nil
+            return false
         }
-        self.connectTask = nil
+    }
+
+    // MARK: - Reconnect machinery
+
+    /// An established link went away unexpectedly (heartbeat send failed,
+    /// or the Wi-Fi path dropped). Tear down the dead socket + loops but
+    /// NOT the reconnect intent, then start the retry loop. Idempotent:
+    /// a second drop signal while already `.reconnecting` is ignored.
+    private func handleLinkDropped(reason: String) {
+        guard shouldAutoReconnect else { return }
+        guard state == .connected else {
+            // Already reconnecting (or not in a droppable state) — ignore.
+            return
+        }
+        log.warning("Link dropped (\(reason, privacy: .public)) — starting auto-reconnect")
+        inboundTask?.cancel(); inboundTask = nil
+        heartbeatTask?.cancel(); heartbeatTask = nil
+        Task { [socket] in await socket?.cancel() }
+        socket = nil
+        aesKey = nil
+        state = .reconnecting
+        // Absolute 10-min budget from the moment we dropped — survives
+        // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
+        reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
+        startReconnectLoop()
+    }
+
+    /// Retry `runConnectFlow(isReconnect:)` every `reconnectInterval`
+    /// until it succeeds, the user cancels, or the 10-min deadline passes.
+    private func startReconnectLoop() {
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            var attempt = 0
+            while !Task.isCancelled, self.shouldAutoReconnect {
+                // 10-min hard cap (rider-confirmed). Give up → `.error`
+                // so the bottom bar offers Connect again instead of
+                // spinning forever and draining the battery.
+                if let deadline = self.reconnectDeadline, Date() >= deadline {
+                    self.log.warning("Reconnect gave up after \(K1G.reconnectMaxDuration, privacy: .public)s")
+                    self.shouldAutoReconnect = false
+                    self.reconnectDeadline = nil
+                    self.lastError = "Reconnect timed out after 10 min"
+                    self.state = .error("Reconnect timed out after 10 min")
+                    return
+                }
+                attempt += 1
+                self.log.info("Reconnect attempt #\(attempt)")
+                let ok = await self.runConnectFlow(isReconnect: true)
+                if ok {
+                    self.log.info("Reconnected after \(attempt) attempt(s)")
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(K1G.reconnectInterval * 1_000_000_000))
+            }
+        }
+    }
+
+    /// Short-circuit the retry interval — restart the loop immediately so
+    /// we attempt a connection right now (e.g. the rider walked back into
+    /// Wi-Fi range, or tapped Connect). Preserves the existing
+    /// `reconnectDeadline`, so the 10-min budget is not extended.
+    func wakeReconnect() {
+        guard state == .reconnecting, shouldAutoReconnect else { return }
+        log.info("Reconnect woken (retry now)")
+        startReconnectLoop()
+    }
+
+    /// Start the Wi-Fi path monitor once. A `.unsatisfied` Wi-Fi path on
+    /// an established link is treated as a drop; a `.satisfied` transition
+    /// while reconnecting wakes the retry immediately.
+    private func startPathMonitorIfNeeded() {
+        guard !pathMonitorStarted else { return }
+        pathMonitorStarted = true
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self else { return }
+                let satisfied = path.status == .satisfied
+                defer { self.lastWifiSatisfied = satisfied }
+                if !satisfied, self.state == .connected {
+                    self.handleLinkDropped(reason: "wifi-path-down")
+                } else if satisfied, !self.lastWifiSatisfied, self.state == .reconnecting {
+                    // Wi-Fi came back — try right now instead of waiting
+                    // out the interval. NOTE: a `.satisfied` Wi-Fi path
+                    // only means "associated to *a* Wi-Fi", not necessarily
+                    // the bike's AP (it has no internet). The handshake is
+                    // the real test; a wrong-network attempt just fails and
+                    // the loop keeps retrying. This is a latency win, not a
+                    // correctness gate.
+                    self.wakeReconnect()
+                }
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "BikeLink.pathMonitor"))
+        log.info("Wi-Fi path monitor started")
     }
 
     private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {
@@ -439,8 +592,17 @@ final class BikeLink {
 
     private func startHeartbeat(socket: DashSocket) {
         heartbeatTask?.cancel()
-        heartbeatTask = Task { [seq] in
+        heartbeatTask = Task { [weak self, seq] in
             await HeartbeatLoop(socket: socket, seq: seq).run()
+            // `run()` returns on cancellation (clean — disconnect or a
+            // drop we already handled) OR on a send error (the link is
+            // gone and nobody told us yet). Distinguish via the task's
+            // own cancellation flag: only an UNcancelled return is a real
+            // unexpected drop worth reconnecting on.
+            guard let self else { return }
+            if !Task.isCancelled {
+                await MainActor.run { self.handleLinkDropped(reason: "heartbeat") }
+            }
         }
     }
 }

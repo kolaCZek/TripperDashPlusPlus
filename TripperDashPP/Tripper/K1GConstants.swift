@@ -113,4 +113,13 @@ enum K1G {
 
     /// Total time we'll keep retrying the handshake before giving up.
     static let handshakeOverallTimeout: TimeInterval = 10.0
+
+    /// Delay between auto-reconnect attempts after an established link
+    /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
+    static let reconnectInterval: TimeInterval = 5.0
+
+    /// Hard cap on how long we keep auto-reconnecting before giving up
+    /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
+    /// enough to walk into a petrol station, pay, and walk back.
+    static let reconnectMaxDuration: TimeInterval = 600.0
 }
