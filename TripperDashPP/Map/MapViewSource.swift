@@ -110,6 +110,21 @@ final class MapViewSource: NSObject, FrameSource {
     private var pendingRebakeRoute: MKRoute?
     private var pendingRebakeInFlight: Bool = false
     private var appStateObserver: NSObjectProtocol?
+
+    /// The map palette the renderer is currently painting. Tile caches,
+    /// the void/vector fallback colours, and every fresh `RouteTileCache`
+    /// are bound to this. Changed only via `setMapStyle(_:)`.
+    private(set) var currentStyle: MapStyle = .light
+
+    /// The active route, remembered so a mid-ride style switch can re-bake
+    /// the new palette around the rider without the caller re-supplying it.
+    /// Set by `setRoutePolyline`/`prerender` wiring; cleared on stop.
+    private var currentRoute: MKRoute?
+
+    /// A style re-bake that couldn't run yet (app backgrounded / locked).
+    /// Drained on `didBecomeActive`, same pattern as `pendingRebakeRoute`.
+    /// Most recent value wins.
+    private var pendingStyleRebake: (route: MKRoute, style: MapStyle)?
     /// Speed-adaptive zoom factor applied to the rendered tile composite
     /// and polyline. 1.0 = native scale (~0.85 m/px at 1024 px tile).
     /// Lerped each frame toward `targetZoom(forSpeed:)` so the view
@@ -217,6 +232,57 @@ final class MapViewSource: NSObject, FrameSource {
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
     }
 
+    /// Remember the active route so a mid-ride style switch can re-bake
+    /// the new palette around the rider. Called by the picker right after
+    /// it builds the initial tile cache for `route`, and by the reroute
+    /// path. Pass nil when navigation stops.
+    func setCurrentRoute(_ route: MKRoute?) {
+        currentRoute = route
+    }
+
+    /// Switch the map palette (manual Light/Dark toggle, or Auto at
+    /// dusk/dawn). Builds a FRESH style-bound `RouteTileCache`, bakes the
+    /// fast-start window around the rider's current position, then swaps
+    /// it in — holding the OLD cache installed and visible until the new
+    /// bake's first batch lands, so the dash never flashes to the vector
+    /// fallback mid-switch. Deferred to `didBecomeActive` when the app is
+    /// backgrounded (the rider can't see the map on the lock screen, and
+    /// Auto flips are purely cosmetic, so there's nothing to lose).
+    func setMapStyle(_ style: MapStyle) {
+        guard style != currentStyle else { return }
+        currentStyle = style
+        log.info("Map style → \(style.cacheNamespace, privacy: .public)")
+
+        // Not navigating yet: nothing to re-bake. The next prerender (when
+        // navigation starts) will pick up `currentStyle`. We still flip
+        // the vector-fallback colours immediately via currentStyle.
+        guard let route = currentRoute, let fix = lastFix else { return }
+
+        guard UIApplication.shared.applicationState == .active else {
+            pendingStyleRebake = (route, style)
+            log.info("Style re-bake deferred — app not active; will run on didBecomeActive")
+            return
+        }
+        Task { @MainActor in await performStyleRebake(route: route, style: style, around: fix.coordinate) }
+    }
+
+    /// Bake `route` in `style` around `coord` and atomically swap the
+    /// cache. The previous cache stays installed (and visible) right up
+    /// until the reassignment, so there's no dark gap.
+    private func performStyleRebake(route: MKRoute, style: MapStyle, around coord: CLLocationCoordinate2D) async {
+        // The style may have changed again while we were waiting; bake the
+        // most recent requested style only.
+        guard style == currentStyle else { return }
+        let fresh = RouteTileCache(style: style)
+        await fresh.prerender(route: route, around: coord) { _ in }
+        // Re-check: a newer style switch may have landed during the bake.
+        guard style == currentStyle else { return }
+        routeTileCache = fresh   // atomic swap; old cache was visible until now
+        lastTileHintIndex = 0
+        lastTileExtendAt = nil
+        log.info("Style re-bake installed: \(style.cacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
+    }
+
     /// Extend the rolling tile-bake window around `coord`. Called from
     /// `AppStatus.navigatorIngest` for every GPS fix. Throttled here
     /// so the underlying URLSession isn't asked to re-evaluate the
@@ -284,7 +350,8 @@ final class MapViewSource: NSObject, FrameSource {
         // tell whether a newer route landed mid-bake.
         let bakingFor = ObjectIdentifier(route)
         pendingRebakeInFlight = true
-        let fresh = RouteTileCache()
+        currentRoute = route
+        let fresh = RouteTileCache(style: currentStyle)
         await fresh.prerender(route: route) { _ in }
         pendingRebakeInFlight = false
         // If a newer route was scheduled while we were baking, throw
@@ -309,7 +376,20 @@ final class MapViewSource: NSObject, FrameSource {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            // No-op when there's nothing pending (almost always).
+            // Drain a deferred style re-bake first (most recent style
+            // wins). Independent of the reroute re-bake below.
+            if let pending = self.pendingStyleRebake {
+                self.pendingStyleRebake = nil
+                if let fix = self.lastFix {
+                    self.log.info("App became active — draining pending style re-bake")
+                    Task { @MainActor in
+                        await self.performStyleRebake(route: pending.route,
+                                                      style: pending.style,
+                                                      around: fix.coordinate)
+                    }
+                }
+            }
+            // Then any deferred reroute tile re-bake.
             guard self.pendingRebakeRoute != nil, !self.pendingRebakeInFlight else { return }
             self.log.info("App became active — draining pending tile re-bake")
             Task { @MainActor in await self.performPendingRebake() }

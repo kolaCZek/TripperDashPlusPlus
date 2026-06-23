@@ -486,7 +486,11 @@ struct MapPickerView: View {
     /// advance (via the `onActiveRouteChanged` callback).
     private func installRouteGeometry(_ route: MKRoute) async {
         status.mapViewSource.setRoutePolyline(route.polyline)
-        let cache = RouteTileCache()
+        // Bake in the renderer's current palette. `currentStyle` is set by
+        // the Auto resolver / manual picker before navigation starts (see
+        // AppStatus), so the ride opens in the right Light/Dark style.
+        status.mapViewSource.setCurrentRoute(route)
+        let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         prerenderProgress = 0
         prerenderActive = true
         await cache.prerender(route: route) { p in

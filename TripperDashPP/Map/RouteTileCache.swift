@@ -296,6 +296,43 @@ final class RouteTileCache {
         progress(1)
     }
 
+    /// Pre-fetch the fast-start window centred on `coord` (the rider's
+    /// CURRENT position) rather than the route start. Used when a style
+    /// switch (manual toggle or Auto at dusk/dawn) happens mid-ride: we
+    /// need a fresh full bake of the new palette around where the rider
+    /// actually is, not back at the origin they left an hour ago.
+    ///
+    /// Mirrors `prerender(route:progress:)` but picks the initial window
+    /// by route-offset proximity to `coord`: `[snap - trail,
+    /// snap + initialBakeAhead]`. The rolling `extend(near:)` then keeps
+    /// the buffer ahead exactly as in the start-of-ride case.
+    func prerender(
+        route: MKRoute,
+        around coord: CLLocationCoordinate2D,
+        progress: @MainActor @escaping (Double) -> Void
+    ) async {
+        // Reset all rolling state for the new route + style.
+        tiles.removeAll(keepingCapacity: true)
+        tileRowKind.removeAll(keepingCapacity: true)
+        bakedTileByIndex.removeAll(keepingCapacity: true)
+        inFlight.removeAll(keepingCapacity: true)
+        allAnchors = computeAllAnchors(for: route)
+        progress(0)
+
+        // Snap the rider to the nearest main anchor to get a route offset;
+        // fall back to the route start if they're somehow off every main
+        // anchor (shouldn't happen mid-ride, but keeps us safe).
+        let snapped = snapToMainAnchor(coord: coord) ?? 0
+        lastRiderRouteOffset = snapped
+        let backEdge = max(0, snapped - Self.rollingTrailMeters)
+        let frontEdge = snapped + Self.initialBakeAheadMeters
+        log.info("Style re-bake: \(self.style.cacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
+
+        let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
+        await bakeAnchors(at: initialIndices, progress: progress)
+        progress(1)
+    }
+
     /// Top up the cache to cover `near` + `lookaheadMeters` along the
     /// route. Idempotent — anchors already baked or in flight are
     /// skipped. Safe to call from every GPS fix (the caller should
