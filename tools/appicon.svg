@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="field" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#282B30"/>
+      <stop offset="100%" stop-color="#0D0E10"/>
+    </radialGradient>
+    <radialGradient id="disc" cx="50%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#E8593A"/>
+      <stop offset="100%" stop-color="#D43620"/>
+    </radialGradient>
+    <linearGradient id="ringg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFD75E"/>
+      <stop offset="100%" stop-color="#C68C0E"/>
+    </linearGradient>
+    <path id="arcTop" d="M 153.0 512.0 A 359 359 0 0 1 871.0 512.0" fill="none"/>
+    <path id="arcBot" d="M 101.0 512.0 A 411 411 0 0 0 923.0 512.0" fill="none"/>
+  </defs>
+
+  <!-- field -->
+  <rect width="1024" height="1024" fill="url(#field)"/>
+
+  <!-- rings -->
+  <circle cx="512.0" cy="512.0" r="498" fill="none" stroke="#16171A" stroke-width="10"/>
+  <circle cx="512.0" cy="512.0" r="486" fill="none" stroke="url(#ringg)" stroke-width="30"/>
+  <circle cx="512.0" cy="512.0" r="452" fill="none" stroke="#16171A" stroke-width="6"/>
+  <circle cx="512.0" cy="512.0" r="320" fill="none" stroke="#C68C0E" stroke-width="5"/>
+
+  <!-- arc lettering (centred in the wide ring band, between r=452 and r=320) -->
+  <text font-family="DejaVu Sans" font-weight="bold" font-size="74"
+        fill="#F5B820" letter-spacing="4" text-anchor="middle">
+    <textPath href="#arcTop" startOffset="50%">TRIPPERDASH</textPath>
+  </text>
+  <text font-family="DejaVu Sans" font-weight="bold" font-size="68"
+        fill="#F8F3E2" letter-spacing="6" text-anchor="middle">
+    <textPath href="#arcBot" startOffset="50%">NAVIGATION</textPath>
+  </text>
+
+  <polygon points="126.0,494.0 130.1,506.3 143.1,506.4 132.7,514.2 136.6,526.6 126.0,519.0 115.4,526.6 119.3,514.2 108.9,506.4 121.9,506.3" fill="#FFD75E"/>
+  <polygon points="898.0,494.0 902.1,506.3 915.1,506.4 904.7,514.2 908.6,526.6 898.0,519.0 887.4,526.6 891.3,514.2 880.9,506.4 893.9,506.3" fill="#FFD75E"/>
+
+  <!-- wings (behind disc) -->
+  <path d="M 542.0 444.0 Q 598.0 438.0 608.0 490.0 L 608.0 538.0 Q 598.0 586.0 542.0 578.0 Z" fill="#F5B820"/>
+<path d="M 596.0 450.0 C 624.5 390.0 712.0 444.0 762.0 468.0 C 707.0 500.0 612.0 507.6 596.0 485.2 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+<path d="M 596.0 502.0 C 618.2 462.0 700.8 494.0 748.0 510.0 C 696.1 545.0 606.4 565.0 596.0 540.5 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+<path d="M 596.0 552.0 C 600.2 532.0 668.8 544.0 708.0 552.0 C 664.9 582.0 590.4 606.0 596.0 585.0 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+  <path d="M 482.0 444.0 Q 426.0 438.0 416.0 490.0 L 416.0 538.0 Q 426.0 586.0 482.0 578.0 Z" fill="#F5B820"/>
+<path d="M 428.0 450.0 C 399.5 390.0 312.0 444.0 262.0 468.0 C 317.0 500.0 412.0 507.6 428.0 485.2 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+<path d="M 428.0 502.0 C 405.8 462.0 323.2 494.0 276.0 510.0 C 327.9 545.0 417.6 565.0 428.0 540.5 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+<path d="M 428.0 552.0 C 423.8 532.0 355.2 544.0 316.0 552.0 C 359.1 582.0 433.6 606.0 428.0 585.0 Z" fill="#F5B820" stroke="#C68C0E" stroke-width="4"/>
+
+  <!-- red emblem disc -->
+  <circle cx="512.0" cy="508.0" r="150" fill="url(#disc)" stroke="#F5B820" stroke-width="9"/>
+  <ellipse cx="512.0" cy="450.0" rx="120" ry="58" fill="#FFFFFF" opacity="0.10"/>
+
+  <!-- nav cursor -->
+  <path d="M 512.0 384.1 L 591.8 606.7 L 512.0 562.6 L 432.2 606.7 Z" fill="#16171A"/>
+  <path d="M 512.0 399.4 L 581.9 594.5 L 512.0 555.8 L 442.1 594.5 Z" fill="#F5B820"/>
+  <path d="M 512.0 404.0 L 450.0 586.0" stroke="#FFD75E" stroke-width="7" fill="none"/>
+</svg>
