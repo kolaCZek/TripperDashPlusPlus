@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
+		A55E7000000000000A55E702 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E701 /* Assets.xcassets */; };
 		A4F000000000000000000001 /* NavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000000 /* NavigationStore.swift */; };
 		A4F000000000000000000011 /* LocalSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000010 /* LocalSearchService.swift */; };
 		A4F000000000000000000021 /* RoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000020 /* RoutingService.swift */; };
@@ -100,6 +101,7 @@
 		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
+		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
@@ -145,6 +147,7 @@
 				A4F0FFFF000000000000A001 /* Navigation */,
 				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
+				A55E7000000000000A55E701 /* Assets.xcassets */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				A41A9C4E2FE20258009BF005 /* Products */,
@@ -336,6 +339,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A55E7000000000000A55E702 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,7 +465,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -519,7 +523,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;

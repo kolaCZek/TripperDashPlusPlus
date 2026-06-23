@@ -61,7 +61,7 @@ git clone https://github.com/kolaCZek/TripperDashPlusPlus.git
 cd TripperDashPlusPlus
 open TripperDashPP/TripperDashPP.xcodeproj
 # 1. Sign in with your Apple ID (Xcode Settings → Accounts)
-# 2. Set Bundle ID to something unique (e.g. eu.YOURNAME.tripperdashpp)
+# 2. Set Bundle ID to something unique (e.g. eu.YOURNAME.TripperDashPP)
 # 3. Build & Run on a real device (Simulator can't do Wi-Fi to the bike)
 ```
 
