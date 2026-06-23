@@ -601,17 +601,19 @@ extension MapViewSource {
         updateHeading()
         updateZoom()
 
-        // Each baked tile is already a 4×4 OSM grid stitch — a
-        // 1024×1024 px composite covering ~5 km on a side at z=15
-        // (mpp ≈ 4.9 m/px × 1024 ≈ 5000 m). That single bitmap is
-        // wider than the dash frame at every zoom level we use, so
-        // drawing the centre tile alone fully covers the visible area.
+        // Each baked tile is already a 5×5 OSM grid stitch — a
+        // 1280×1280 px composite covering ~3.9 km on a side at z=15
+        // (mpp ≈ 3.07 m/px at 50°N × 1280 ≈ 3930 m). That single bitmap
+        // is wider than the dash frame at every zoom level we use, AND
+        // gridSide is odd so the painted area is symmetric about the
+        // centre — so drawing the centre tile alone fully covers the
+        // visible area with no black wedge at the frame edge.
         //
         // The old "draw nearest ±2" was inherited from the
         // MKMapSnapshotter era where each tile was a small clamp
         // and the renderer had to mosaic neighbours. With OSM stitches
         // those neighbours OVERLAP each other (anchor stride = 700 m,
-        // tile span = 5 km → 85 % overlap) and stack on top with
+        // tile span = ~3.9 km → ~82 % overlap) and stack on top with
         // slightly different lat-dependent pxPerDeg → visible seams
         // and a smeared composite. Single-tile draw is correct here.
         var tilesToDraw: [(RouteTile, CGImage)] = []
