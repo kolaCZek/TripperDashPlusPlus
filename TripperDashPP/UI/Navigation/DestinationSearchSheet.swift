@@ -54,6 +54,13 @@ struct DestinationSearchSheet: View {
                             }
                         }
                     }
+                    // .plain stops the List/Form from tinting the whole row
+                    // label with the accent colour — otherwise the result
+                    // titles render blue (accent) and are hard to read.
+                    // Setting .foregroundStyle(.primary) on the Text alone
+                    // does NOT override the button tint inside a List.
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                     .disabled(resolving)
                 }
             }

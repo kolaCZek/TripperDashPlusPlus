@@ -46,9 +46,10 @@ struct DestinationPreviewSheet: View {
                         Label {
                             Text("Add to favorites").foregroundStyle(.primary)
                         } icon: {
-                            Image(systemName: "star.circle")
+                            Image(systemName: "star.circle").foregroundStyle(Color.accentColor)
                         }
                     }
+                    .buttonStyle(.plain)
                 }
                 Section {
                     Button {
@@ -58,9 +59,10 @@ struct DestinationPreviewSheet: View {
                         Label {
                             Text("Calculate routes").foregroundStyle(.primary)
                         } icon: {
-                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill").foregroundStyle(Color.accentColor)
                         }
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .navigationTitle("Destination")

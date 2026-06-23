@@ -62,9 +62,10 @@ struct WaypointListView: View {
                     Label {
                         Text("Add stop").foregroundStyle(.primary)
                     } icon: {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "plus.circle.fill").foregroundStyle(Color.accentColor)
                     }
                 }
+                .buttonStyle(.plain)
             }
         }
         .environment(\.editMode, .constant(.active))  // always reorder-enabled
