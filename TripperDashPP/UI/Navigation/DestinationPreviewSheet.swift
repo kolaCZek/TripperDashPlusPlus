@@ -43,17 +43,26 @@ struct DestinationPreviewSheet: View {
                     Button {
                         showFavoriteEditor = true
                     } label: {
-                        Label("Add to favorites", systemImage: "star.circle")
+                        Label {
+                            Text("Add to favorites").foregroundStyle(.primary)
+                        } icon: {
+                            Image(systemName: "star.circle").foregroundStyle(Color.accentColor)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
                 Section {
                     Button {
                         onCalculateRoutes(destination)
                         dismiss()
                     } label: {
-                        Label("Calculate routes", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        Label {
+                            Text("Calculate routes").foregroundStyle(.primary)
+                        } icon: {
+                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill").foregroundStyle(Color.accentColor)
+                        }
                     }
-                    .tint(.accentColor)
+                    .buttonStyle(.plain)
                 }
             }
             .navigationTitle("Destination")

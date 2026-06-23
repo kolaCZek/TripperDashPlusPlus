@@ -41,6 +41,9 @@ struct PlanningMapView: UIViewRepresentable {
         let map = MKMapView(frame: .zero)
         map.delegate = context.coordinator
         map.showsUserLocation = true
+        // Keep the user-location puck the default Apple blue regardless of
+        // the app accent colour (explicit product requirement).
+        map.tintColor = .systemBlue
         map.showsCompass = true
         map.isRotateEnabled = false   // planning is north-up
         map.isPitchEnabled = false

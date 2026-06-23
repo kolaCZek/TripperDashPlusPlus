@@ -26,6 +26,7 @@ CHAR_B = "#0D0E10"
 CREAM  = "#F8F3E2"
 
 EMX, EMY = C, C - 4  # emblem centre
+EMS = 0.76           # inner-emblem scale-down — frees ring space for bigger arc text
 
 
 def wing(side):
@@ -101,8 +102,8 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewB
       <stop offset="0%" stop-color="{YEL_HI}"/>
       <stop offset="100%" stop-color="{YEL_LO}"/>
     </linearGradient>
-    <path id="arcTop" d="M {C-359} {C} A 359 359 0 0 1 {C+359} {C}" fill="none"/>
-    <path id="arcBot" d="M {C-411} {C} A 411 411 0 0 0 {C+411} {C}" fill="none"/>
+    <path id="arcTop" d="M {C-340} {C} A 340 340 0 0 1 {C+340} {C}" fill="none"/>
+    <path id="arcBot" d="M {C-426} {C} A 426 426 0 0 0 {C+426} {C}" fill="none"/>
   </defs>
 
   <!-- field -->
@@ -112,33 +113,37 @@ svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewB
   <circle cx="{C}" cy="{C}" r="498" fill="none" stroke="{INK}" stroke-width="10"/>
   <circle cx="{C}" cy="{C}" r="486" fill="none" stroke="url(#ringg)" stroke-width="30"/>
   <circle cx="{C}" cy="{C}" r="452" fill="none" stroke="{INK}" stroke-width="6"/>
-  <circle cx="{C}" cy="{C}" r="320" fill="none" stroke="{YEL_LO}" stroke-width="5"/>
+  <circle cx="{C}" cy="{C}" r="248" fill="none" stroke="{YEL_LO}" stroke-width="5"/>
 
-  <!-- arc lettering (centred in the wide ring band, between r=452 and r=320) -->
-  <text font-family="DejaVu Sans" font-weight="bold" font-size="74"
-        fill="{YEL}" letter-spacing="4" text-anchor="middle">
+  <!-- arc lettering (centred in the wide ring band, between r=452 and r=248) -->
+  <text font-family="DejaVu Sans" font-weight="bold" font-size="94"
+        fill="{YEL}" letter-spacing="2" text-anchor="middle">
     <textPath href="#arcTop" startOffset="50%">TRIPPERDASH</textPath>
   </text>
-  <text font-family="DejaVu Sans" font-weight="bold" font-size="68"
-        fill="{CREAM}" letter-spacing="6" text-anchor="middle">
+  <text font-family="DejaVu Sans" font-weight="bold" font-size="88"
+        fill="{CREAM}" letter-spacing="3" text-anchor="middle">
     <textPath href="#arcBot" startOffset="50%">NAVIGATION</textPath>
   </text>
 
   {star(C-386, C, 18, 7, YEL_HI)}
   {star(C+386, C, 18, 7, YEL_HI)}
 
-  <!-- wings (behind disc) -->
-  {wing(+1)}
-  {wing(-1)}
+  <!-- inner emblem (wings + disc + cursor), scaled down around its own
+       centre so the arc lettering can grow without colliding with it -->
+  <g transform="translate({EMX} {EMY}) scale({EMS}) translate({-EMX} {-EMY})">
+    <!-- wings (behind disc) -->
+    {wing(+1)}
+    {wing(-1)}
 
-  <!-- red emblem disc -->
-  <circle cx="{EMX}" cy="{EMY}" r="150" fill="url(#disc)" stroke="{YEL}" stroke-width="9"/>
-  <ellipse cx="{EMX}" cy="{EMY-58}" rx="120" ry="58" fill="#FFFFFF" opacity="0.10"/>
+    <!-- red emblem disc -->
+    <circle cx="{EMX}" cy="{EMY}" r="150" fill="url(#disc)" stroke="{YEL}" stroke-width="9"/>
+    <ellipse cx="{EMX}" cy="{EMY-58}" rx="120" ry="58" fill="#FFFFFF" opacity="0.10"/>
 
-  <!-- nav cursor -->
-  {cursor(1.05, INK)}
-  {cursor(0.92, YEL)}
-  <path d="M {EMX} {EMY-104} L {EMX-62} {EMY+78}" stroke="{YEL_HI}" stroke-width="7" fill="none"/>
+    <!-- nav cursor -->
+    {cursor(1.05, INK)}
+    {cursor(0.92, YEL)}
+    <path d="M {EMX} {EMY-104} L {EMX-62} {EMY+78}" stroke="{YEL_HI}" stroke-width="7" fill="none"/>
+  </g>
 </svg>'''
 
 with open("/tmp/appicon.svg", "w") as f:
@@ -150,7 +155,14 @@ cairosvg.svg2png(bytestring=svg.encode(), write_to="/tmp/appicon_raw.png",
 
 # flatten to guaranteed-opaque RGB
 from PIL import Image
+import os
 im = Image.open("/tmp/appicon_raw.png").convert("RGB")
-out = "/root/TripperDashPlusPlus/TripperDashPP/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+# Resolve the output path relative to THIS script so the generator works
+# from any git worktree / checkout location (previously hard-coded to one
+# absolute clone, which broke when run from a second worktree).
+_here = os.path.dirname(os.path.abspath(__file__))
+out = os.path.normpath(os.path.join(
+    _here, "..", "TripperDashPP", "Assets.xcassets",
+    "AppIcon.appiconset", "AppIcon-1024.png"))
 im.save(out, "PNG")
 print("wrote", out, im.size, im.mode)
