@@ -543,16 +543,26 @@ extension K1GPacket {
         }
         if let eta = eta {
             segs.append(tlvEta(date: eta))
+            // ETA format flag MUST immediately follow the ETA value —
+            // the dash reads the 0x54 flag to interpret the 0x08 HH:MM
+            // payload, and drops a "dangling" ETA whose format flag
+            // arrives later in the chain. Matches the better-dash
+            // `t3c.w` field order (08 → 54), NOT a trailing flag block.
+            segs.append(tlvEtaFormat(is24Hour: is24Hour))
         }
         segs.append(tlvTotalDistance(meters: totalDistanceMeters))
+        // Total-distance unit MUST immediately follow the total-distance
+        // value, for the same reason: the dash pairs 0x09 (value) with
+        // 0x46 (unit) positionally and hides the remaining-distance field
+        // when the unit doesn't arrive right after. The old order pushed
+        // 0x46 to the end of the chain (after the decimal separator and
+        // remaining-time block), so the dash never rendered total
+        // distance OR ETA. Authority: better-dash `t3c.w` (09 → 46).
+        segs.append(tlvTotalDistanceUnit(totalDistanceUnit))
         segs.append(tlvDecimalSeparator(useComma: useCommaDecimal))
         if let secs = remainingSeconds {
             segs.append(tlvRemainingTime(seconds: secs))
             segs.append(tlvRemainingUnit())
-        }
-        segs.append(tlvTotalDistanceUnit(totalDistanceUnit))
-        if eta != nil {
-            segs.append(tlvEtaFormat(is24Hour: is24Hour))
         }
         segs.append(tlvProjectionFlag(on: projectionOn))
         segs.append(tlvDecimalFlag(on: decimalFmtOn))
