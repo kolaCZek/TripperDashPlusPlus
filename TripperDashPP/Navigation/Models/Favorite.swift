@@ -48,10 +48,17 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
         Destination(id: id, name: name, addressLine: addressLine, coordinate: coordinate)
     }
 
-    /// Picks a sensible SF Symbol when none is explicitly set. Order
-    /// matters — most specific match wins.
+    /// Picks a sensible SF Symbol when none is explicitly set.
     var resolvedIconSymbol: String {
         if let explicit = iconSymbol, !explicit.isEmpty { return explicit }
+        return Favorite.autoIconSymbol(forName: name)
+    }
+
+    /// Heuristic SF Symbol derived from a free-text name. Shared by the
+    /// model (`resolvedIconSymbol`) and the editor's live preview so the
+    /// "leave blank = automatic" behaviour looks identical everywhere.
+    /// Order matters — most specific match wins.
+    static func autoIconSymbol(forName name: String) -> String {
         let n = name.lowercased()
         if n.contains("home") || n.contains("dom") { return "house.fill" }
         if n.contains("work") || n.contains("prác") || n.contains("kancel") || n.contains("office") {
