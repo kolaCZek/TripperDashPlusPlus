@@ -12,13 +12,15 @@
 //  (sunrise/sunset). `MapStyleResolver` turns a mode + GPS + time into
 //  one of these concrete styles.
 //
-//  Why dark tiles come from a different provider:
-//  tile.openstreetmap.org (OSM Carto) is light-only — OSM.org publishes
-//  no dark raster. Dark uses CARTO `dark_all` (keyless raster XYZ, free
-//  for fair use), which keeps the project's "no map SDK, no API key, no
-//  quota" rule intact. The per-style provider URL lives here in one
-//  table so swapping a provider later (self-host, a matched light/dark
-//  CARTO pair, …) is a one-line change with no ripple.
+//  Why tiles come from CARTO:
+//  both palettes use CARTO's keyless raster basemaps (Positron `light_all`
+//  + Darkmatter `dark_all`) so Light and Dark are the SAME cartography,
+//  just recoloured — Auto dusk/dawn transitions read as a smooth fade
+//  rather than a jump between two different-looking maps. Both are free
+//  for fair use and need no API key, keeping the project's "no map SDK,
+//  no key, no quota" rule intact. The per-style provider URL lives here
+//  in one table so swapping a provider later (self-host, back to OSM
+//  Carto, …) is a one-line change with no ripple.
 //
 //  Attribution: CARTO basemaps require "© OpenStreetMap contributors
 //  © CARTO". `RouteTileCache.drawAttribution` bakes `style.attribution`
@@ -53,32 +55,34 @@ enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable {
     var tileURLTemplate: String {
         switch self {
         case .light:
-            // OSM Carto Standard — rock-solid availability, clear road
-            // hierarchy, the palette riders already know.
-            return "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            // CARTO Positron (light_all) — keyless raster XYZ, the light
+            // half of the matched Positron/Darkmatter pair. Clean, muted
+            // cartography optimised for data overlays (our route line).
+            return "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
         case .dark:
-            // CARTO dark_all — keyless raster XYZ, OSM-derived dark
-            // cartography. Free for reasonable use; attribution required.
+            // CARTO Darkmatter (dark_all) — keyless raster XYZ, the dark
+            // half of the pair. Same road/label geometry as Positron, just
+            // recoloured, so Auto transitions are a smooth fade.
             return "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
         }
     }
 
-    /// Subdomain shards for the `{s}` placeholder. Empty = the template
-    /// has no `{s}` (OSM Carto serves from a single host). CARTO shards
-    /// across a/b/c/d; the fetcher picks one deterministically per tile
-    /// so the same (x, y) always maps to the same host (URLCache-friendly).
+    /// Subdomain shards for the `{s}` placeholder. Both CARTO basemaps
+    /// shard across a/b/c/d; the fetcher picks one deterministically per
+    /// tile so the same (x, y) always maps to the same host
+    /// (URLCache-friendly).
     var subdomains: [String] {
         switch self {
-        case .light: return []
+        case .light: return ["a", "b", "c", "d"]
         case .dark:  return ["a", "b", "c", "d"]
         }
     }
 
-    /// Attribution string baked into the composite corner. Both providers
-    /// are OSM-derived; CARTO additionally requires crediting CARTO.
+    /// Attribution string baked into the composite corner. Both CARTO
+    /// basemaps are OSM-derived and require crediting CARTO.
     var attribution: String {
         switch self {
-        case .light: return "© OpenStreetMap"
+        case .light: return "© OpenStreetMap © CARTO"
         case .dark:  return "© OpenStreetMap © CARTO"
         }
     }
@@ -93,11 +97,11 @@ enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable {
     // sites.
 
     /// Land fill painted behind missing tiles inside a composite bitmap.
-    /// Light = OSM Carto land colour (#F2EFE9) so gaps blend with real
-    /// tiles. Dark = CARTO dark_all land colour (~#26282B).
+    /// Light = CARTO Positron land colour (~#FAFAF8) so gaps blend with
+    /// real tiles. Dark = CARTO Darkmatter land colour (~#26282B).
     var landFill: CGColor {
         switch self {
-        case .light: return CGColor(red: 242.0/255, green: 239.0/255, blue: 233.0/255, alpha: 1.0)
+        case .light: return CGColor(red: 250.0/255, green: 250.0/255, blue: 248.0/255, alpha: 1.0)
         case .dark:  return CGColor(red:  38.0/255, green:  40.0/255, blue:  43.0/255, alpha: 1.0)
         }
     }
@@ -113,11 +117,11 @@ enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 
     /// Background for the pre-navigation / off-corridor vector-only frame
-    /// (`drawVectorOnlyFrame`). Light = pale stone (matches Carto land),
-    /// dark = the existing dark slate.
+    /// (`drawVectorOnlyFrame`). Light = pale Positron stone (matches the
+    /// land fill), dark = Darkmatter slate.
     var vectorBackground: CGColor {
         switch self {
-        case .light: return CGColor(red: 0.85, green: 0.85, blue: 0.83, alpha: 1.0)
+        case .light: return CGColor(red: 0.90, green: 0.90, blue: 0.89, alpha: 1.0)
         case .dark:  return CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1.0)
         }
     }
