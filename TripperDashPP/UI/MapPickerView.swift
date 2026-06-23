@@ -370,64 +370,93 @@ struct MapPickerView: View {
             }
             .buttonStyle(.plain)
 
-        case (.picking, _) where isPlanning:
-            // Planning mode: the primary CTA is "Start navigation",
-            // enabled once every leg is computed.
-            startPlanButton
-
-        case (.picking, .idle), (.picking, .error):
-            Button { status.bikeLink.connect() } label: {
-                Label("Connect to dash", systemImage: "antenna.radiowaves.left.and.right")
-                    .frame(maxWidth: .infinity).padding()
-                    .background(Color.accentColor.opacity(0.15))
-            }
-            .buttonStyle(.plain)
-
+        // Connection-in-progress takes precedence over the planning UI:
+        // a rider who tapped "Connect to dash" from the plan screen must
+        // still see progress + Cancel.
         case (.picking, .connecting), (.picking, .handshaking):
-            VStack(spacing: 8) {
-                HStack {
-                    ProgressView()
-                    Text(status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…")
-                }
-                .frame(maxWidth: .infinity).padding()
-                .background(Color.orange.opacity(0.15))
-
-                Button(role: .destructive) { status.bikeLink.disconnect() } label: {
-                    Text("Cancel")
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-            }
+            connectingControl
 
         case (.picking, .reconnecting):
-            // Link dropped while idle (not navigating) → auto-reconnecting.
-            // Cancel clears the auto-reconnect intent and returns to idle.
-            VStack(spacing: 8) {
-                HStack {
-                    ProgressView()
-                    Text("Reconnecting to dash…")
-                }
-                .frame(maxWidth: .infinity).padding()
-                .background(Color.yellow.opacity(0.15))
+            reconnectingControl
 
-                Button(role: .destructive) { status.bikeLink.disconnect() } label: {
-                    Text("Cancel")
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
-            }
+        // Connect-first: the real "Start navigation" CTA only appears once
+        // the dash is connected. Planning without a link falls through to
+        // `connectControl` below — you must connect before you can start.
+        case (.picking, .connected) where isPlanning:
+            startPlanButton
 
         case (.picking, .connected):
-            VStack(spacing: 6) {
-                Text("Dash connected — pick a destination above")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.green.opacity(0.12))
+            connectedIdleControl
 
-                Button(role: .destructive) { status.bikeLink.disconnect() } label: {
-                    Text("Disconnect")
-                        .frame(maxWidth: .infinity).padding(.vertical, 8)
-                }
+        case (.picking, .idle), (.picking, .error):
+            connectControl
+        }
+    }
+
+    /// "Connect to dash" CTA — shown while idle/errored. When a plan is
+    /// already laid out, the label spells out that connecting is the step
+    /// standing between the rider and "Start navigation" (connect-first).
+    @ViewBuilder
+    private var connectControl: some View {
+        Button { status.bikeLink.connect() } label: {
+            Label(isPlanning ? "Connect to dash to start" : "Connect to dash",
+                  systemImage: "antenna.radiowaves.left.and.right")
+                .frame(maxWidth: .infinity).padding()
+                .background(Color.accentColor.opacity(0.15))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Connecting / handshaking progress + Cancel.
+    @ViewBuilder
+    private var connectingControl: some View {
+        VStack(spacing: 8) {
+            HStack {
+                ProgressView()
+                Text(status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…")
+            }
+            .frame(maxWidth: .infinity).padding()
+            .background(Color.orange.opacity(0.15))
+
+            Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+                Text("Cancel")
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+        }
+    }
+
+    /// Auto-reconnect progress + Cancel (idle drop, not mid-navigation).
+    @ViewBuilder
+    private var reconnectingControl: some View {
+        VStack(spacing: 8) {
+            HStack {
+                ProgressView()
+                Text("Reconnecting to dash…")
+            }
+            .frame(maxWidth: .infinity).padding()
+            .background(Color.yellow.opacity(0.15))
+
+            Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+                Text("Cancel")
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }
+        }
+    }
+
+    /// Connected but idle (no plan yet) — prompt to pick + Disconnect.
+    @ViewBuilder
+    private var connectedIdleControl: some View {
+        VStack(spacing: 6) {
+            Text("Dash connected — pick a destination above")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(Color.green.opacity(0.12))
+
+            Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+                Text("Disconnect")
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
             }
         }
     }
@@ -543,6 +572,14 @@ struct MapPickerView: View {
     /// selected option; subsequent legs re-bake via the changed hook.
     private func startNavigation(plan: PlannedRoute) {
         guard plan.isComputed, let firstLeg = plan.legs.first?.selected?.route else { return }
+        // Connect-first invariant: navigation is projection onto the dash,
+        // so starting it with no link is meaningless. The UI only shows
+        // "Start navigation" while `.connected`, but guard here too in case
+        // the link dropped in the gap between render and tap.
+        guard status.bikeLink.state == .connected else {
+            status.bikeLink.connect()
+            return
+        }
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -555,7 +592,7 @@ struct MapPickerView: View {
             // Planning UI is consumed — drop it so picking returns to
             // browsing after navigation ends.
             status.plannedRoute = nil
-            if status.bikeLink.state == .connected, !status.isStreaming {
+            if !status.isStreaming {
                 status.startStreaming()
             }
             transitioning = false
