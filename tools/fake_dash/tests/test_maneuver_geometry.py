@@ -34,7 +34,9 @@ from pathlib import Path
 import pytest
 
 from tests.maneuver_geometry_mirror import (
+    ANCHOR_DISAGREEMENT_DEG,
     ANCHOR_DISTANCE_M,
+    SHORT_ANCHOR_DISTANCE_M,
     bearing,
     offset,
     signed_delta,
@@ -188,3 +190,72 @@ def test_swift_angle_thresholds_match_mirror():
             f"Threshold {needed} missing from Swift `turn(forSignedAngle:)` "
             f"switch — found bounds {sorted(bounds)}."
         )
+
+
+# ----------------------------------------------------------------------
+# Adaptive short/long anchor scheme (6/2026 Zvoleneves field bug).
+# ----------------------------------------------------------------------
+
+def test_swift_short_anchor_matches_mirror():
+    src = _swift_geometry_source()
+    m = re.search(r"shortAnchorDistanceMeters:\s*CLLocationDistance\s*=\s*([\d.]+)", src)
+    assert m, "Could not find shortAnchorDistanceMeters in Swift source."
+    assert float(m.group(1)) == SHORT_ANCHOR_DISTANCE_M, (
+        f"Short anchor drift: Swift {m.group(1)} vs mirror {SHORT_ANCHOR_DISTANCE_M}"
+    )
+
+
+def test_swift_disagreement_threshold_matches_mirror():
+    src = _swift_geometry_source()
+    m = re.search(r"anchorDisagreementDeg:\s*Double\s*=\s*([\d.]+)", src)
+    assert m, "Could not find anchorDisagreementDeg in Swift source."
+    assert float(m.group(1)) == ANCHOR_DISAGREEMENT_DEG, (
+        f"Disagreement threshold drift: Swift {m.group(1)} vs mirror "
+        f"{ANCHOR_DISAGREEMENT_DEG}"
+    )
+
+
+def test_adaptive_anchor_reads_sharp_turnin_over_flattened_long():
+    """The Zvoleneves field bug: a right turn at a stop sign whose road
+    bends left ~60 m past the corner. The 18 m long anchor reaches into
+    that following bend and flattens the angle to ~+28° (slightRight); the
+    8 m short anchor sits inside the corner and reads the true ~+61°
+    (right). With disagreement > 15° the adaptive scheme must pick the
+    short read so the rider sees a proper right arrow, not a slight one.
+    """
+    # Approach: 60 m from due south up to NODE (heading north).
+    prev = [offset(*NODE, 180, 60), NODE]
+    # Outgoing: a 10 m sharp turn-in at +61°, then 100 m bending back
+    # toward +25° (the road curving left past the corner).
+    b1 = offset(*NODE, 61, 10)
+    b2 = offset(*b1, 25, 100)
+    cur = [NODE, b1, b2]
+    assert turn(prev, cur) == "right", (
+        "Adaptive anchor failed to recover the sharp turn-in — the long "
+        "anchor's flattened angle won, which is the original field bug."
+    )
+
+
+def test_adaptive_anchor_keeps_long_read_when_anchors_agree():
+    """On a clean turn (straight approach, straight departure) the short
+    and long anchors agree, so the jitter-robust long read is kept. This
+    pins the 'strict superset, no regression' property."""
+    # Both legs single-segment and straight: 90° right, no following bend.
+    prev = [offset(*NODE, 180, 60), NODE]      # heading north
+    cur = [NODE, offset(*NODE, 90, 60)]        # heading east
+    assert turn(prev, cur) == "right"
+
+
+def test_jitter_robustness_survives_adaptive_scheme():
+    """Belt-and-braces: the adaptive scheme must NOT reintroduce the
+    jitter sensitivity the long anchor was added to kill. A sub-meter blip
+    at the node still classifies as a clean right turn (the short anchor
+    is 8 m — well past the 0.4 m jitter — and agrees with the long read).
+    """
+    p_start = offset(*NODE, 180, 80)
+    p_jitter = offset(*NODE, 250, 0.4)
+    prev = [p_start, p_jitter, NODE]
+    c_jit = offset(*NODE, 20, 0.3)
+    c_end = offset(*NODE, 90, 60)
+    cur = [NODE, c_jit, c_end]
+    assert turn(prev, cur) == "right"

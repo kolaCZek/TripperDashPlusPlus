@@ -60,7 +60,34 @@ enum ManeuverGeometry {
     /// sampling a bearing. ~18 m smooths out vertex jitter and short
     /// curb-radius arcs while staying local enough to capture the actual
     /// turn (not the road's general curvature 100 m away).
+    ///
+    /// This is the LONG anchor — the jitter-robust default. See
+    /// `signedTurnAngle` for the adaptive short/long scheme that keeps
+    /// this robustness while still reading tight turns correctly.
     static let anchorDistanceMeters: CLLocationDistance = 18.0
+
+    /// SHORT anchor — captures the true turn-in angle on maneuvers where
+    /// the road curves back within the long-anchor span (a right turn
+    /// onto a road that immediately bends left would otherwise read as a
+    /// "slight" turn because the 18 m anchor reaches past the corner into
+    /// the following curvature). 8 m is short enough to sit inside the
+    /// corner yet long enough that sub-meter GPS/encoding jitter near the
+    /// node can't dominate the bearing.
+    ///
+    /// Field case (6/2026, Zvoleneves): a right turn at a stop sign read
+    /// +32° (slightRight) at 18 m but +61° (right) at 8 m, because the
+    /// road bends left ~60 m past the corner. The adaptive scheme below
+    /// picks the 8 m read for exactly this shape.
+    static let shortAnchorDistanceMeters: CLLocationDistance = 8.0
+
+    /// If the short- and long-anchor signed angles disagree by more than
+    /// this many degrees, the long anchor is reaching past the actual
+    /// turn into the following road's curvature — trust the sharper short
+    /// read instead. When they agree (the common case: straight roads,
+    /// single-segment legs, gentle bends) we keep the jitter-robust long
+    /// read, so this is a pure superset of the old behaviour with no
+    /// regression on clean maneuvers.
+    static let anchorDisagreementDeg: Double = 15.0
 
     /// A lateral turn direction + sharpness derived purely from the
     /// signed turn angle. Maps 1:1 onto the lateral `ManeuverKind` cases.
@@ -90,9 +117,41 @@ enum ManeuverGeometry {
         let curPts = coordinates(of: currentStepPolyline)
         guard prevPts.count >= 2, curPts.count >= 2 else { return nil }
 
-        guard let incoming = incomingBearing(prevPts),
-              let outgoing = outgoingBearing(curPts) else { return nil }
+        // Adaptive anchor: sample at both the long (jitter-robust) and
+        // short (turn-in) distances. When they agree, the long read is
+        // trustworthy and we keep it for its jitter immunity. When they
+        // DISAGREE by more than `anchorDisagreementDeg`, the long anchor
+        // has reached past the corner into the next road's curvature and
+        // flattened the angle — trust the sharper short read instead.
+        //
+        // On the common case (straight approach, single-segment legs,
+        // gentle bends) both anchors land on the same vertices and the
+        // two reads are identical, so this is a strict superset of the
+        // old fixed-18 m behaviour with zero regression.
+        let long = signedAngle(prevPts: prevPts, curPts: curPts,
+                               anchor: anchorDistanceMeters)
+        let short = signedAngle(prevPts: prevPts, curPts: curPts,
+                                anchor: shortAnchorDistanceMeters)
 
+        switch (long, short) {
+        case let (l?, s?):
+            return abs(signedDelta(from: l, to: s)) > anchorDisagreementDeg ? s : l
+        case let (l?, nil):
+            return l
+        case let (nil, s?):
+            return s
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    /// Signed turn angle for ONE anchor distance. Returns `nil` when
+    /// either side lacks enough geometry to get a trustworthy bearing.
+    private static func signedAngle(prevPts: [CLLocationCoordinate2D],
+                                    curPts: [CLLocationCoordinate2D],
+                                    anchor: CLLocationDistance) -> Double? {
+        guard let incoming = incomingBearing(prevPts, anchor: anchor),
+              let outgoing = outgoingBearing(curPts, anchor: anchor) else { return nil }
         return signedDelta(from: incoming, to: outgoing)
     }
 
@@ -122,9 +181,10 @@ enum ManeuverGeometry {
     // MARK: - Bearing sampling
 
     /// Bearing of the rider's approach to the node: walk BACKWARD from the
-    /// node (= last vertex) until `anchorDistanceMeters` is covered, then
+    /// node (= last vertex) until `anchor` meters is covered, then
     /// take the bearing from that anchor TO the node.
-    private static func incomingBearing(_ prevPts: [CLLocationCoordinate2D]) -> Double? {
+    private static func incomingBearing(_ prevPts: [CLLocationCoordinate2D],
+                                        anchor anchorDist: CLLocationDistance) -> Double? {
         let node = prevPts[prevPts.count - 1]
         var acc: CLLocationDistance = 0
         var anchor = prevPts[0]
@@ -132,7 +192,7 @@ enum ManeuverGeometry {
         while i > 0 {
             acc += haversine(prevPts[i], prevPts[i - 1])
             anchor = prevPts[i - 1]
-            if acc >= anchorDistanceMeters { break }
+            if acc >= anchorDist { break }
             i -= 1
         }
         guard haversine(anchor, node) >= 1.0 else { return nil }
@@ -140,9 +200,10 @@ enum ManeuverGeometry {
     }
 
     /// Bearing of the rider's departure from the node: walk FORWARD from
-    /// the node (= first vertex) until `anchorDistanceMeters` is covered,
+    /// the node (= first vertex) until `anchor` meters is covered,
     /// then take the bearing from the node TO that anchor.
-    private static func outgoingBearing(_ curPts: [CLLocationCoordinate2D]) -> Double? {
+    private static func outgoingBearing(_ curPts: [CLLocationCoordinate2D],
+                                        anchor anchorDist: CLLocationDistance) -> Double? {
         let node = curPts[0]
         var acc: CLLocationDistance = 0
         var anchor = curPts[curPts.count - 1]
@@ -150,7 +211,7 @@ enum ManeuverGeometry {
         while i < curPts.count - 1 {
             acc += haversine(curPts[i], curPts[i + 1])
             anchor = curPts[i + 1]
-            if acc >= anchorDistanceMeters { break }
+            if acc >= anchorDist { break }
             i += 1
         }
         guard haversine(node, anchor) >= 1.0 else { return nil }
