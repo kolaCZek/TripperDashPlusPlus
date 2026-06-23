@@ -19,8 +19,14 @@ from __future__ import annotations
 
 import math
 
-# Must match `ManeuverGeometry.anchorDistanceMeters` in Swift.
+# Must match `ManeuverGeometry.anchorDistanceMeters` in Swift (LONG anchor).
 ANCHOR_DISTANCE_M = 18.0
+
+# Must match `ManeuverGeometry.shortAnchorDistanceMeters` in Swift.
+SHORT_ANCHOR_DISTANCE_M = 8.0
+
+# Must match `ManeuverGeometry.anchorDisagreementDeg` in Swift.
+ANCHOR_DISAGREEMENT_DEG = 15.0
 
 
 def bearing(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -82,15 +88,37 @@ def outgoing_bearing(cur_pts: list[tuple[float, float]],
     return bearing(node, anchor)
 
 
-def signed_turn_angle(prev_pts: list[tuple[float, float]] | None,
-                      cur_pts: list[tuple[float, float]]) -> float | None:
-    if not prev_pts or len(prev_pts) < 2 or len(cur_pts) < 2:
-        return None
-    ib = incoming_bearing(prev_pts)
-    ob = outgoing_bearing(cur_pts)
+def _signed_angle_at(prev_pts: list[tuple[float, float]],
+                     cur_pts: list[tuple[float, float]],
+                     anchor: float) -> float | None:
+    """Signed turn angle for ONE anchor distance, or None if either side
+    lacks enough geometry. Mirrors `ManeuverGeometry.signedAngle`."""
+    ib = incoming_bearing(prev_pts, anchor)
+    ob = outgoing_bearing(cur_pts, anchor)
     if ib is None or ob is None:
         return None
     return signed_delta(ib, ob)
+
+
+def signed_turn_angle(prev_pts: list[tuple[float, float]] | None,
+                      cur_pts: list[tuple[float, float]]) -> float | None:
+    """Adaptive short/long anchor scheme — mirrors
+    `ManeuverGeometry.signedTurnAngle`.
+
+    Sample at both the long (jitter-robust) and short (turn-in) anchors.
+    Keep the long read when they agree; fall back to the sharper short
+    read when the long anchor has reached past the corner into the next
+    road's curvature (disagreement > ANCHOR_DISAGREEMENT_DEG). On clean
+    maneuvers both reads are identical, so this is a strict superset of
+    the old fixed-18 m behaviour.
+    """
+    if not prev_pts or len(prev_pts) < 2 or len(cur_pts) < 2:
+        return None
+    long = _signed_angle_at(prev_pts, cur_pts, ANCHOR_DISTANCE_M)
+    short = _signed_angle_at(prev_pts, cur_pts, SHORT_ANCHOR_DISTANCE_M)
+    if long is not None and short is not None:
+        return short if abs(signed_delta(long, short)) > ANCHOR_DISAGREEMENT_DEG else long
+    return long if long is not None else short
 
 
 # Turn buckets — must match `ManeuverGeometry.turn(forSignedAngle:)`.
