@@ -2,9 +2,11 @@
 //  RouteTileCache.swift
 //  TripperDashPP
 //
-//  Pre-fetched OSM map tiles along an MKRoute, stitched into 1024×1024
+//  Pre-fetched OSM map tiles along an MKRoute, stitched into 1280×1280
 //  composite bitmaps so the BG render path never has to ask MapKit to
-//  draw anything.
+//  draw anything. (Bitmap side = gridSide × 256; gridSide is 5, ODD on
+//  purpose — see the `gridSide` doc comment for why even sizes leave a
+//  black wedge at the frame edge.)
 //
 //  Design (post-OSM-migration, late June 2026):
 //
@@ -25,21 +27,22 @@
 //  Tile geometry:
 //
 //    * Anchor stride: ~700 m along the polyline.
-//    * Per-anchor composite: 4×4 OSM tiles (each 256×256 native) →
-//      1024×1024 px bitmap centered on the anchor. Span at z=15 is
-//      ~1.2 km × 1.2 km at 50°N — same coverage as the old MapKit
-//      bake.
+//    * Per-anchor composite: 5×5 OSM tiles (each 256×256 native) →
+//      1280×1280 px bitmap centered on the anchor. Span at z=15 is
+//      ~2.0 km × 2.0 km at 50°N — comfortably wider than the dash
+//      frame at the widest (highway) zoom, with symmetric margin on
+//      every side so the frame is always fully covered.
 //    * Lateral buffer: ±1500 m (left + right wings), unchanged.
 //
 //  Pre-fetch budget:
 //
 //    * 35 km route → ~50 main anchors + ~100 lateral = ~150 anchors.
-//    * Each anchor fetches up to 16 OSM tiles, deduped against neighbouring
+//    * Each anchor fetches up to 25 OSM tiles, deduped against neighbouring
 //      anchors and the disk cache → in practice ~300-500 unique tiles
 //      for a brand-new region, ~0 for a re-bake of familiar territory.
 //    * Wall-clock: ~5-15 s on 4G cold, ~1-2 s warm-cache.
-//    * Memory: 150 × 1024² × 4 B ≈ 600 MB raw — same NSCache(8) trick
-//      as before keeps working set under 40 MB; full bitmaps live as
+//    * Memory: 150 × 1280² × 4 B ≈ 940 MB raw — same NSCache(8) trick
+//      as before keeps working set under 55 MB; full bitmaps live as
 //      PNG bytes in `RouteTile.jpeg` (misnomer kept for compat).
 //
 
@@ -97,15 +100,31 @@ final class RouteTileCache {
     /// leaves the user position well inside a single composite.
     static let stride: CLLocationDistance = 700
 
-    /// Composite bitmap size in pixels. Equals
-    /// `gridSide * WebMercator.tilePixels` so the math stays clean.
-    static let tilePixels: CGFloat = 1024
+    /// Composite bitmap size in pixels. DERIVED from `gridSide` so the
+    /// two can never drift apart — a mismatch silently shrinks the
+    /// painted area and reintroduces the edge-gap bug below.
+    static let tilePixels: CGFloat = CGFloat(gridSide * WebMercator.tilePixels)
 
-    /// How many OSM tiles per side of each composite. 4 × 256 = 1024 px,
-    /// covers ~1.4-1.6 km at z=15 (latitude-dependent) which neatly
-    /// contains the 1.2 km nominal span with margin for the request
-    /// center landing anywhere inside the central tile.
-    static let gridSide: Int = 4
+    /// How many OSM tiles per side of each composite. 5 × 256 = 1280 px,
+    /// covers ~2.0 km at z=15 (latitude-dependent).
+    ///
+    /// MUST BE ODD. The block is centred on the anchor's tile via
+    /// `floor(fx) - gridSide/2 … floor(fx) + gridSide/2`. With an EVEN
+    /// gridSide the integer division `gridSide/2` makes that bracket
+    /// ASYMMETRIC — e.g. gridSide=4 → `floor(fx)-2 … floor(fx)+1`, two
+    /// tiles of margin on the left/top but only one on the right/bottom.
+    /// When the anchor's fractional position lands near the right/bottom
+    /// edge of its central tile, the composite then runs out of painted
+    /// data up to a full tile (~785 m at z=15) short of the bitmap edge
+    /// on those two sides. At the wide (highway 0.8×) zoom the dash frame
+    /// reaches past the painted region and the rider sees a BLACK wedge
+    /// at the edge of the screen — most visible at the end of a route
+    /// where the last anchor often sits offset from the centre. An ODD
+    /// gridSide makes the bracket symmetric (`±gridSide/2`), so every
+    /// side carries equal margin and the frame is always fully covered.
+    /// Field-reported 2026-06; reproduced + fixed via the PIL coverage
+    /// simulation (see `osm-tile-cache-rendering-pitfalls.md` Pitfall 11).
+    static let gridSide: Int = 5
 
     /// OSM zoom level for the composites. Re-exposed here so callers
     /// (and tests) can find the source of truth in one place even
@@ -118,7 +137,7 @@ final class RouteTileCache {
     static let tileSpanMeters: CLLocationDistance = 1200
 
     /// Max parallel composites being assembled. Each composite waits
-    /// on up to 16 OSM tile fetches; capping the OUTER loop at 3
+    /// on up to 25 OSM tile fetches; capping the OUTER loop at 3
     /// composites in flight gives the fetcher's 4-way HTTP gate
     /// some breathing room and prevents progress from going
     /// "0% … 0% … 0% … 100%" in chunks.
@@ -144,8 +163,8 @@ final class RouteTileCache {
     /// How far ahead of the route start the initial `prerender` call
     /// bakes tiles. Picked so `prerender` finishes in ~3-5 s on 4G
     /// from cold (no disk hits): 8 km / 700 m stride = ~12 main +
-    /// 24 wings = ~36 composites × 16 tiles = ~500 max tile fetches
-    /// (heavily dedup'd by overlap → typically ~200 unique tiles).
+    /// 24 wings = ~36 composites × 25 tiles = ~900 max tile fetches
+    /// (heavily dedup'd by overlap → typically ~250 unique tiles).
     static let initialBakeAheadMeters: CLLocationDistance = 8000
 
     /// How far ahead of the current rider position the rolling
@@ -721,8 +740,11 @@ final class RouteTileCache {
     /// Algorithm:
     ///   1. Project `center` to fractional tile coords (z, fx, fy).
     ///   2. Pick the gridSide × gridSide block of integer tiles that
-    ///      brackets the center pixel-aligned (anchor block top-left
-    ///      = round(fx) - gridSide/2 etc.).
+    ///      brackets the center, centred on the anchor's tile
+    ///      (block top-left = floor(fx) - gridSide/2 etc.). gridSide is
+    ///      ODD so this bracket is symmetric — `floor(fx) - 2 …
+    ///      floor(fx) + 2` at gridSide=5 — and the painted region
+    ///      reaches the same distance on every side of the centre.
     ///   3. Fetch every tile (disk cache first → HTTP fallback via
     ///      OSMTileFetcher). Missing tiles become transparent — better
     ///      than a black hole over network drop.
@@ -763,7 +785,7 @@ final class RouteTileCache {
         let paintOffsetX = Double(bitmapSize) / 2.0 - centerPxInBlockX
         let paintOffsetY = Double(bitmapSize) / 2.0 - centerPxInBlockY
 
-        // Fetch all 16 (or gridSide²) tiles in parallel. Each call
+        // Fetch all gridSide² (25 at gridSide=5) tiles in parallel. Each call
         // hits TileDiskCache first then OSMTileFetcher; misses are
         // rare on a re-bake of familiar territory.
         let tilesData: [(tx: Int, ty: Int, data: Data?)] = await withTaskGroup(
