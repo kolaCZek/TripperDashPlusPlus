@@ -23,7 +23,7 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 - **Language**: Swift 6 (strict concurrency on), SwiftUI for UI
 - **Target**: iOS 18.0 minimum, iPhone 13 and newer (HW H.264 encoder + dual-band Wi-Fi required). iOS 18 covers ~92% of devices in service as of mid-2026; Swift 6 strict concurrency works without backwards-compat shims.
 - **Toolchain**: **Xcode 26.5+, macOS 15+** (lower may build but is untested; CI pins to the latest stable Xcode on macOS 15 runners)
-- **Bundle ID**: `eu.kolaczek.tripperdashpp`
+- **Bundle ID**: `eu.kolaczek.TripperDashPP`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
 - **Maps**: **OSM Carto raster basemap** (keyless XYZ, `tile.openstreetmap.org/{z}/{x}/{y}.png` — note: no `{s}` subdomain shard, so `subdomains` is empty and URL-building must not substitute `{s}`), fetched over cellular and cached on disk. One basemap, two palettes via a user **Light / Dark / Auto** setting: **Light** is the raw OSM raster; **Dark** is the *same* tile recoloured at composite time — a CPU-side `invert ∘ hue-rotate(180°)` colour matrix (`TileColorTransform.swift`, vImage/Accelerate so it survives the screen locking), which keeps OSM's semantics (water blue, parks green) instead of the orange/magenta a plain invert gives. Attribution is `© OpenStreetMap contributors`. Auto follows local sunrise/sunset from the GPS fix (see `SolarClock` / `MapStyleResolver`). Because dark is a recolour of the light raster, both palettes share **one** disk cache namespace (`RouteTiles/osm/…`) — one fetch, one cached PNG serves both (half the traffic, half the disk; the raw tile is kept so the filter can be retuned without re-fetching). The provider is a one-line table swap in `MapStyle.swift`; **no third-party map SDK, no API key.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
 - **Apple frameworks in use**: `Network`, `VideoToolbox`, `CryptoKit`, `Security`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit` (PiP keep-alive), `BackgroundTasks`, `UIKit` (CGContext frame composition), `SwiftUI`
@@ -142,7 +142,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 git clone https://github.com/kolaCZek/TripperDashPlusPlus.git
 cd TripperDashPlusPlus
 open TripperDashPP/TripperDashPP.xcodeproj
-# 1. Signing & Capabilities → Team = your Apple ID, Bundle ID = unique (e.g. eu.YOURNAME.tripperdashpp)
+# 1. Signing & Capabilities → Team = your Apple ID, Bundle ID = unique (e.g. eu.YOURNAME.TripperDashPP)
 # 2. Plug in iPhone, hit Run
 ```
 

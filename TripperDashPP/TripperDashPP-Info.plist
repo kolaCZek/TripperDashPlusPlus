@@ -45,6 +45,17 @@
 	<array/>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Export compliance                                            -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- The only crypto we use is the RSA/PKCS1 handshake to the bike's
+	     dash (CryptoKit / Security), which is standard, exempt encryption.
+	     Declaring `false` lets every TestFlight / App Store upload skip
+	     the manual export-compliance question and process automatically. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
 	<!-- App Transport Security                                       -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
