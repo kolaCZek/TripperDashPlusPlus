@@ -21,7 +21,7 @@ struct StreamingView: View {
     private var isEditableState: Bool {
         switch status.bikeLink.state {
         case .idle, .error: return true
-        case .connecting, .handshaking, .connected: return false
+        case .connecting, .handshaking, .reconnecting, .connected: return false
         }
     }
 

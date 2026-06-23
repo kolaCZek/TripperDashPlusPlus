@@ -325,10 +325,19 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
-        NavigationHUD(onStop: stopNavigation)
+        NavigationHUD(isReconnecting: status.bikeLink.state == .reconnecting)
             .environment(status.activeNavigator)
             .onAppear {
                 forwardFixesToNavigator()
+            }
+            .onChange(of: status.activeNavigator.hasArrived) { _, arrived in
+                guard arrived else { return }
+                // Rider confirmed: auto-dismiss the arrival card after a
+                // few seconds (both hands busy on the bike).
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4))
+                    finishArrival()
+                }
             }
     }
 
@@ -382,6 +391,23 @@ struct MapPickerView: View {
                 }
                 .frame(maxWidth: .infinity).padding()
                 .background(Color.orange.opacity(0.15))
+
+                Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+                    Text("Cancel")
+                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                }
+            }
+
+        case (.picking, .reconnecting):
+            // Link dropped while idle (not navigating) → auto-reconnecting.
+            // Cancel clears the auto-reconnect intent and returns to idle.
+            VStack(spacing: 8) {
+                HStack {
+                    ProgressView()
+                    Text("Reconnecting to dash…")
+                }
+                .frame(maxWidth: .infinity).padding()
+                .background(Color.yellow.opacity(0.15))
 
                 Button(role: .destructive) { status.bikeLink.disconnect() } label: {
                     Text("Cancel")
@@ -560,6 +586,21 @@ struct MapPickerView: View {
         }
     }
 
+    /// Finalize an arrival. `AppStatus.onArrived` already tore down the
+    /// stream + route artefacts the moment we arrived (so the dash left
+    /// projection promptly); here we only flip the navigator out of its
+    /// `hasArrived` display state and slide back to the picker. Calling
+    /// `stop()` sets `isNavigating = false`, so `mode` returns `.picking`.
+    private func finishArrival() {
+        status.activeNavigator.stop()
+        droppedPin = nil
+        transitioning = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            transitioning = false
+        }
+    }
+
     /// Forward LocationService updates into ActiveNavigator while
     /// navigation is active.
     private func forwardFixesToNavigator() {
@@ -605,6 +646,7 @@ private struct StatusBanner: View {
         case .disconnected: .gray
         case .wifiJoining:  .yellow
         case .handshaking:  .orange
+        case .reconnecting: .yellow
         case .connected:    .blue
         case .streaming:    .green
         case .error:        .red
@@ -616,6 +658,7 @@ private struct StatusBanner: View {
         case .disconnected: "Not connected"
         case .wifiJoining:  "Join the Tripper Wi-Fi…"
         case .handshaking:  "Handshaking with dash…"
+        case .reconnecting: "Reconnecting to dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
         case .error:        "Error — see settings"

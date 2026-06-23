@@ -10,7 +10,11 @@
 //    - Next maneuver card (icon + instruction + distance)
 //    - ETA strip (arrival time, time remaining, distance remaining)
 //    - Rerouting indicator when active
-//    - Stop button (red CTA)
+//    - Reconnecting banner when the dash link dropped mid-ride
+//    - "You've arrived" card on final-destination arrival
+//
+//  The Stop button lives in MapPickerView's bottom control bar (single
+//  source of truth), NOT here — this HUD is purely informational.
 //
 
 import MapKit
@@ -20,17 +24,24 @@ struct NavigationHUD: View {
 
     @Environment(ActiveNavigator.self) private var nav
 
-    let onStop: () -> Void
+    /// True while the dash link dropped and BikeLink is auto-reconnecting.
+    /// Fed from MapPickerView (which can see `bikeLink.state`); the HUD
+    /// only has the navigator in its environment.
+    var isReconnecting: Bool = false
 
     var body: some View {
         VStack(spacing: 16) {
-            maneuverCard
-            if nav.plan != nil, let plan = nav.plan, plan.legs.count > 1 {
-                stopProgressPill(plan: plan)
+            if isReconnecting { reconnectBanner }
+            if nav.hasArrived {
+                arrivedCard
+            } else {
+                maneuverCard
+                if let plan = nav.plan, plan.legs.count > 1 {
+                    stopProgressPill(plan: plan)
+                }
+                etaCard
             }
-            etaCard
             Spacer()
-            stopButton
         }
         .padding()
         .background(.regularMaterial)
@@ -38,6 +49,41 @@ struct NavigationHUD: View {
     }
 
     // MARK: - Subviews
+
+    /// Shown when BikeLink is auto-reconnecting after a mid-ride drop.
+    /// The dash is dark during the drop, so this is the rider's only
+    /// signal that the app is working to bring nav back.
+    private var reconnectBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Reconnecting to dash…")
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.yellow.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Final-destination arrival confirmation. Shown for a few seconds
+    /// before MapPickerView auto-dismisses back to the picker.
+    private var arrivedCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "flag.checkered.circle.fill")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(.green)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("You've arrived")
+                    .font(.title2.weight(.semibold))
+                Text(nav.destination?.name ?? "Destination")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+    }
 
     /// Multi-stop progress: "Stop 2 of 3 · next Slaný". Only shown when
     /// the active session is plan-navigating more than one leg.
@@ -116,19 +162,6 @@ struct NavigationHUD: View {
             Text(title).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var stopButton: some View {
-        Button(role: .destructive) {
-            onStop()
-        } label: {
-            Label("Stop navigation", systemImage: "stop.circle.fill")
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(.red)
-        .font(.headline)
     }
 
     // MARK: - Display helpers
