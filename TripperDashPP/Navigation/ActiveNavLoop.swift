@@ -87,6 +87,7 @@ final class ActiveNavLoop {
         // Snapshot — keep this synchronous so the values are consistent
         // across the wire packet and the overlay.
         let step: MKRoute.Step? = nav.nextStep
+        let prevStep: MKRoute.Step? = nav.stepBeforeNext
         let distNext: Double = nav.distanceToNextStep
         let distTotal: Double = nav.remainingDistance
         let etaSec: TimeInterval = nav.etaSeconds
@@ -94,11 +95,22 @@ final class ActiveNavLoop {
         // happens below.
         let secondStep: MKRoute.Step? = nav.secondNextStep
         let distSecond: Double = nav.distanceToSecondNextStep
+        let isRerouting: Bool = nav.isRerouting
 
-        // Classify maneuver for the burned-in glyph. If there's no
-        // active step we fall back to "straight" so the rider sees a
-        // benign placeholder rather than a blank.
-        let kind: ManeuverKind = step.map(ManeuverKind.classify(_:)) ?? .straight
+        // Classify maneuver for the dash bubble (and burned-in glyph, if
+        // re-enabled). Direction comes from route geometry via the
+        // incoming `prevStep` leg; if there's no active step we fall back
+        // to "straight" so the rider sees a benign placeholder.
+        //
+        // While a reroute is in flight the upcoming step belongs to the
+        // STALE route (we're off it, waiting for MKDirections), so showing
+        // its arrow would point the rider the wrong way. Override the glyph
+        // with the dash's spinning-compass "recalculating" icon (0x1C)
+        // until the new route lands and isRerouting clears.
+        let kind: ManeuverKind = {
+            if isRerouting { return .recalculating }
+            return step.map { ManeuverKind.classify($0, previousStep: prevStep) } ?? .straight
+        }()
 
         // Pre-compute wire values.
         let primaryUnit = settings.primaryUnitWireByte(forMeters: distNext)
@@ -114,13 +126,16 @@ final class ActiveNavLoop {
         // Distance/unit follow the same magnitude-based logic as the
         // primary block so units stay consistent across both chips.
         let emitSecondary = settings.lookaheadEnabled
+            && !isRerouting   // stale route during reroute → no look-ahead
             && secondStep != nil
             && distNext <= settings.lookaheadThresholdMeters
         let secondaryManeuverByte: UInt8?
         let secondaryDistanceMeters: UInt16?
         let secondaryUnitByte: UInt8?
         if emitSecondary, let s2 = secondStep {
-            let kind2 = ManeuverKind.classify(s2)
+            // The secondary maneuver's incoming leg is the PRIMARY step
+            // (the rider reaches s2 right after completing `step`).
+            let kind2 = ManeuverKind.classify(s2, previousStep: step)
             let unit2 = settings.primaryUnitWireByte(forMeters: distSecond)
             secondaryManeuverByte = kind2.wireByte
             secondaryDistanceMeters = settings.distanceWireValue(meters: distSecond, unitByte: unit2)

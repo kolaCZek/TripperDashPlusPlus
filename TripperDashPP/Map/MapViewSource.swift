@@ -120,11 +120,28 @@ final class MapViewSource: NSObject, FrameSource {
     /// the frame, expressed as a fraction of the frame height. Positive
     /// values push the puck *down* on the dash screen, which exposes
     /// more map ahead of the rider. 0.0 = dead-center (legacy behaviour);
-    /// 0.20 ≈ puck at 70% from the top, 30% above the bottom edge.
+    /// 0.28 ≈ puck at 78% from the top, 22% above the bottom edge.
     ///
-    /// Authority: rider feedback from real-bike run 2026-06-21 ("shift
-    /// the current position a bit lower toward the bottom edge").
-    private let forwardBiasFraction: CGFloat = 0.20
+    /// Authority: rider feedback from real-bike runs 2026-06 ("shift the
+    /// current position a bit lower toward the bottom edge", then "still
+    /// too high, push it further down so we see more ahead"). Capped at
+    /// ~0.30 — beyond that the puck feels like it's falling off the
+    /// bottom and the rider loses the sense of where they are.
+    private let forwardBiasFraction: CGFloat = 0.28
+
+    /// Scale factor for the user puck (blue dot + chevron). 1.0 = the
+    /// original 28 px ring. Bumped to make the rider's position pop more
+    /// against a busier, more-zoomed-in city map (2026-06 rider feedback:
+    /// "make the chevron a touch bigger so it's easier to spot").
+    private let puckScale: CGFloat = 1.35
+
+    /// On-screen thickness (px) of the drawn route polyline, held CONSTANT
+    /// across zoom levels. The line is stroked inside the `currentZoom`
+    /// scale, so each draw path divides this by `currentZoom` to cancel
+    /// the scale out. 5 px reads as a clear route without the "as thick as
+    /// the road" look the old fixed width 8 produced at city zoom
+    /// (rider feedback 6/2026: "the route line is needlessly thick").
+    private let routeLineScreenPx: CGFloat = 5.0
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
@@ -596,7 +613,12 @@ extension MapViewSource {
         // Draw the route polyline in the same Y-DOWN coordinate space.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
-            ctx.setLineWidth(8)
+            // The line is stroked INSIDE the currentZoom scale, so a fixed
+            // lineWidth would grow with zoom (a city-zoom 2.9× made it as
+            // thick as a road — rider feedback 6/2026). Divide by zoom so
+            // the route reads at a constant ~5 px on screen regardless of
+            // zoom level.
+            ctx.setLineWidth(routeLineScreenPx / currentZoom)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
             ctx.beginPath()
@@ -646,6 +668,9 @@ extension MapViewSource {
         // (tip at +y = pointing UP on screen). Keeps the original
         // geometry numbers intact even though the outer ctx is Y-DOWN.
         ctx.scaleBy(x: 1, y: -1)
+        // Uniform puck enlargement — scales the ring, disc and chevron
+        // together so proportions stay identical, just bigger.
+        ctx.scaleBy(x: puckScale, y: puckScale)
 
         // ── White outer ring (acts as a 2 px border around the puck) ──
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
@@ -673,26 +698,54 @@ extension MapViewSource {
     /// Speed → zoom mapping. Linear ramp from "close" at standstill to
     /// "wide" at highway speeds, so the rider sees more road ahead the
     /// faster they go.
-    ///   0 km/h → 1.5×   (city, lots of detail)
-    ///  60 km/h → 1.1×   (rural / regional)
-    /// 130+ km/h → 0.6×  (highway, ~2 km field of view)
-    /// Returned value is clamped to [0.6, 1.5]; if speed is invalid
+    ///   0 km/h → 2.0×   (city — tight, street-level detail)
+    ///  60 km/h → 1.4×   (rural / regional)
+    /// 130+ km/h → 0.8×  (highway, wide field of view)
+    /// Returned value is clamped to [0.8, 2.0]; if speed is invalid
     /// (CoreLocation reports < 0 when unknown) we keep the current zoom.
+    ///
+    /// Tuned up from the original 0.6–1.5 range on rider feedback
+    /// (2026-06: "city map is too zoomed out, hard to see where to go").
     private func targetZoom(forSpeedMPS speed: Double) -> CGFloat {
         guard speed >= 0 else { return currentZoom }
         let kmh = speed * 3.6
-        // slope: (0.6 - 1.5) / 130 = -0.00692 per km/h
-        let raw = 1.5 - CGFloat(kmh) * 0.00692
-        return min(max(raw, 0.6), 1.5)
+        // slope: (0.8 - 2.0) / 130 = -0.00923 per km/h
+        let raw = 2.0 - CGFloat(kmh) * 0.00923
+        let speedZoom = min(max(raw, 0.8), 2.0)
+        return speedZoom * maneuverZoomBoost()
+    }
+
+    /// Extra zoom-in as a maneuver approaches, so the rider can see
+    /// exactly which way the turn goes. Ramps from 1.0× (no boost) at
+    /// `boostStartMeters` out, up to `maxManeuverBoost` right at the turn.
+    /// Returns 1.0 when not navigating or the next step is far away.
+    private func maneuverZoomBoost() -> CGFloat {
+        guard let nav = activeNavigator, nav.isNavigating else { return 1.0 }
+        let d = nav.distanceToNextStep
+        guard d > 0 else { return 1.0 }
+        let boostStartMeters: CGFloat = 200
+        let boostFullMeters: CGFloat = 40     // fully boosted by 40 m out
+        let maxManeuverBoost: CGFloat = 1.45
+        if d >= boostStartMeters { return 1.0 }
+        if d <= boostFullMeters { return maxManeuverBoost }
+        // Linear interp: 1.0 at boostStart → maxBoost at boostFull.
+        let t = (boostStartMeters - CGFloat(d)) / (boostStartMeters - boostFullMeters)
+        return 1.0 + (maxManeuverBoost - 1.0) * t
     }
 
     /// Lerp `currentZoom` toward the target by 5%/frame. At 6 fps this
     /// gives roughly 10 seconds for a full city→highway transition
     /// (95% completion in ~58 frames). Slow enough that the rider
     /// doesn't see the map "breathing" on small speed wobbles.
+    ///
+    /// Exception: the maneuver-approach boost needs to land BEFORE the
+    /// turn, not 10 s later, so when we're zooming IN (target > current)
+    /// we lerp ~3× faster. Zooming back out after the turn stays slow so
+    /// the map doesn't lurch.
     private func updateZoom() {
         let target = targetZoom(forSpeedMPS: lastFix?.speed ?? -1)
-        let factor: CGFloat = 0.05
+        let zoomingIn = target > currentZoom
+        let factor: CGFloat = zoomingIn ? 0.15 : 0.05
         currentZoom += (target - currentZoom) * factor
     }
 
@@ -747,7 +800,10 @@ extension MapViewSource {
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
-        ctx.setLineWidth(6)
+        // Constant on-screen thickness regardless of zoom (see the tile
+        // path's note). Divide by currentZoom since we stroke inside the
+        // zoom scale.
+        ctx.setLineWidth(routeLineScreenPx / currentZoom)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
         ctx.beginPath()

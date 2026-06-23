@@ -67,6 +67,14 @@ final class ActiveNavigator {
     /// The next maneuver step the rider should anticipate.
     private(set) var nextStep: MKRoute.Step?
 
+    /// The step the rider is currently COMPLETING — the one whose polyline
+    /// ends at `nextStep`'s maneuver node. Supplies the incoming heading
+    /// for the geometric turn-direction classifier (`ManeuverKind.classify`
+    /// → `ManeuverGeometry`). `nil` when `nextStep` is the route's first
+    /// step (no incoming leg yet), in which case classification falls back
+    /// to text for direction.
+    private(set) var stepBeforeNext: MKRoute.Step?
+
     /// Distance from current position to the next maneuver.
     private(set) var distanceToNextStep: CLLocationDistance = 0
 
@@ -198,6 +206,7 @@ final class ActiveNavigator {
         self.remainingDistance = route.distance
         self.etaSeconds = route.expectedTravelTime
         self.nextStep = route.steps.first
+        self.stepBeforeNext = nil   // first step has no incoming leg
         self.distanceToNextStep = route.steps.first?.distance ?? 0
         self.secondNextStep = route.steps.dropFirst().first
         self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
@@ -212,6 +221,7 @@ final class ActiveNavigator {
         self.remainingDistance = 0
         self.etaSeconds = 0
         self.nextStep = nil
+        self.stepBeforeNext = nil
         self.distanceToNextStep = 0
         self.secondNextStep = nil
         self.distanceToSecondNextStep = 0
@@ -282,6 +292,10 @@ final class ActiveNavigator {
            stepIdx < route.steps.count {
             let step = route.steps[stepIdx]
             self.nextStep = step
+            // The step the rider is completing = the one BEFORE the next
+            // maneuver. Supplies the incoming heading for the geometric
+            // turn classifier. nil when nextStep is the route's first step.
+            self.stepBeforeNext = stepIdx > 0 ? route.steps[stepIdx - 1] : nil
             self.distanceToNextStep = PolylineMath.haversine(
                 coord,
                 step.polyline.points()[0].coordinate
@@ -343,6 +357,7 @@ final class ActiveNavigator {
             // enough samples yet.
             self.etaSeconds = computeEta(remaining: newRoute.distance, route: newRoute)
             self.nextStep = newRoute.steps.first
+            self.stepBeforeNext = nil   // fresh route → next is first step
             self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
             // F2c: rebuild secondary too. Reroute usually keeps the
             // first step short (Apple Maps fences the next maneuver),
@@ -428,46 +443,10 @@ final class ActiveNavigator {
     }
 }
 
-/// SF Symbol picker for an MKRoute.Step maneuver. Apple doesn't expose
-/// a typed maneuver enum on MKRoute.Step — we have to NLP the
-/// instructions string. Best-effort, falls back to a generic arrow
-/// so we always have something to draw.
-enum ManeuverGlyph {
-    static func symbol(for step: MKRoute.Step) -> String {
-        let s = step.instructions.lowercased()
-        // Czech + English heuristics — Apple Maps returns localized
-        // instructions in the system language, which on this user's
-        // device is Czech.
-        if s.contains("u-turn") || s.contains("otočte") || s.contains("otočit") {
-            return "arrow.uturn.left"
-        }
-        if s.contains("sharp left") || s.contains("ostře vlevo") || s.contains("ostře doleva") {
-            return "arrow.turn.up.left"
-        }
-        if s.contains("sharp right") || s.contains("ostře vpravo") || s.contains("ostře doprava") {
-            return "arrow.turn.up.right"
-        }
-        if s.contains("slight left") || s.contains("mírně vlevo") || s.contains("mírně doleva") {
-            return "arrow.up.left"
-        }
-        if s.contains("slight right") || s.contains("mírně vpravo") || s.contains("mírně doprava") {
-            return "arrow.up.right"
-        }
-        if s.contains("left") || s.contains("vlevo") || s.contains("doleva") {
-            return "arrow.turn.up.left"
-        }
-        if s.contains("right") || s.contains("vpravo") || s.contains("doprava") {
-            return "arrow.turn.up.right"
-        }
-        if s.contains("arrive") || s.contains("destination") || s.contains("cíl") {
-            return "mappin.and.ellipse"
-        }
-        if s.contains("merge") || s.contains("zařaďte") {
-            return "arrow.merge"
-        }
-        if s.contains("exit") || s.contains("sjeďte") || s.contains("sjezd") {
-            return "arrow.up.right.square"
-        }
-        return "arrow.up"
-    }
-}
+// NOTE: The legacy `ManeuverGlyph.symbol(for:)` SF-symbol picker was
+// removed here. It NLP-classified the instruction string with the same
+// substring approach (and the same left-before-right / road-name bug)
+// that this change replaced. The single source of truth is now
+// `ManeuverKind.classify(_:previousStep:)` → `ManeuverKind.sfSymbol`
+// (geometry for direction, text for family), used by both the dash
+// bubble and the SwiftUI HUD.
