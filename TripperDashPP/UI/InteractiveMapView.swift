@@ -53,6 +53,10 @@ struct InteractiveMapView: UIViewRepresentable {
         let mv = MKMapView(frame: .zero)
         mv.delegate = context.coordinator
         mv.showsUserLocation = true
+        // Keep the user-location puck the default Apple blue regardless of
+        // the app accent colour (explicit product requirement: the map dot
+        // must always read as the system blue, even if the accent changes).
+        mv.tintColor = .systemBlue
         mv.showsCompass = true
         mv.showsScale = false
         mv.isRotateEnabled = true

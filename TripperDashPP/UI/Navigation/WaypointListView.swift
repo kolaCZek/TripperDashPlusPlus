@@ -59,7 +59,11 @@ struct WaypointListView: View {
                 Button {
                     onAddStop()
                 } label: {
-                    Label("Add stop", systemImage: "plus.circle.fill")
+                    Label {
+                        Text("Add stop").foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "plus.circle.fill")
+                    }
                 }
             }
         }
