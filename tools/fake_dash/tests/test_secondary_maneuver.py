@@ -149,6 +149,7 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
 # Mirrors the F2c gating in `ActiveNavLoop.swift`:
 #
 #   emitSecondary = settings.lookaheadEnabled
+#                   && !isRerouting
 #                   && secondStep != nil
 #                   && distNext <= settings.lookaheadThresholdMeters
 #
@@ -162,10 +163,12 @@ def _swift_lookahead_decision(
     second_step_exists: bool,
     dist_next_meters: float,
     threshold_meters: float,
+    is_rerouting: bool = False,
 ) -> bool:
-    """Mirror of the conditional in ActiveNavLoop.swift line ~115."""
+    """Mirror of the conditional in ActiveNavLoop.swift line ~120."""
     return (
         lookahead_enabled
+        and not is_rerouting
         and second_step_exists
         and dist_next_meters <= threshold_meters
     )
@@ -210,3 +213,63 @@ def test_lookahead_default_threshold_is_300m() -> None:
     # At 299 m we emit, at 301 m we don't.
     assert _swift_lookahead_decision(True, True, 299.0, DEFAULT_THRESHOLD_M) is True
     assert _swift_lookahead_decision(True, True, 301.0, DEFAULT_THRESHOLD_M) is False
+
+
+# --- Recalculating glyph during reroute ---------------------------------------
+#
+# Mirrors the primary-glyph override in `ActiveNavLoop.tick()`:
+#
+#   let kind = isRerouting ? .recalculating
+#                          : (step.map(classify) ?? .straight)
+#
+# While a reroute is in flight the upcoming step is from the STALE route,
+# so we show the dash's spinning-compass icon (0x1C) instead of an arrow
+# that would point the rider the wrong way.
+
+NAV_MANEUVER_RECALCULATING = 0x1C
+
+
+def _swift_primary_glyph(is_rerouting: bool, classified_byte: int) -> int:
+    """Mirror of the kind selection in ActiveNavLoop.tick()."""
+    return NAV_MANEUVER_RECALCULATING if is_rerouting else classified_byte
+
+
+def test_reroute_overrides_primary_glyph_with_recalculating():
+    # Not rerouting: whatever the classifier produced goes through.
+    assert _swift_primary_glyph(False, 0x15) == 0x15      # right turn
+    assert _swift_primary_glyph(False, 0x0B) == 0x0B      # roundabout exit 1
+    # Rerouting: always the spinning compass, regardless of stale step.
+    assert _swift_primary_glyph(True, 0x15) == 0x1C
+    assert _swift_primary_glyph(True, 0x0B) == 0x1C
+
+
+def test_recalculating_byte_exists_in_catalog():
+    """0x1C must be a real catalog entry (the spinning compass)."""
+    from fake_dash.maneuver_catalog import load_catalog
+    catalog = load_catalog()
+    assert NAV_MANEUVER_RECALCULATING in catalog
+    assert "recalc" in catalog[NAV_MANEUVER_RECALCULATING].description.lower()
+
+
+def test_reroute_suppresses_secondary_lookahead():
+    """During a reroute the look-ahead chevron is suppressed too — the
+    second step is also from the stale route."""
+    # Close enough + has a second step, but rerouting → no secondary.
+    assert _swift_lookahead_decision(
+        True, True, 100.0, 300.0, is_rerouting=True
+    ) is False
+    # Same inputs, not rerouting → emit.
+    assert _swift_lookahead_decision(
+        True, True, 100.0, 300.0, is_rerouting=False
+    ) is True
+
+
+def test_swift_tick_has_recalculating_override():
+    """Pin that ActiveNavLoop.swift actually contains the override — guards
+    against a refactor silently dropping it."""
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
+    assert "isRerouting" in src, "reroute flag not read in ActiveNavLoop"
+    assert ".recalculating" in src, "recalculating glyph override missing"
+

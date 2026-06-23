@@ -313,7 +313,8 @@ enum ManeuverIcon {
                                       drawMerge(ctx) // visually similar
         case .exitLeft, .exitRight:   drawExit(ctx)
         case .roundabout:             drawRoundabout(ctx)
-        case .arrive, .arriveLeft, .arriveRight, .recalculating:
+        case .recalculating:          drawRecalculating(ctx)
+        case .arrive, .arriveLeft, .arriveRight:
                                       drawArrive(ctx)
         case .ferry, .railroad:       drawStraight(ctx) // no specific glyph yet
         }
@@ -448,5 +449,28 @@ enum ManeuverIcon {
         // Inner dot
         ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
         ctx.fillEllipse(in: CGRect(x: 31, y: 22, width: 8, height: 8))
+    }
+
+    /// Spinning-compass "recalculating" glyph: a near-closed circular
+    /// arrow. Matches the dash's 0x1C bubble icon so the burned-in
+    /// fallback (if re-enabled) reads the same as the native bubble while
+    /// a reroute is in flight.
+    private static func drawRecalculating(_ ctx: CGContext) {
+        ctx.beginPath()
+        // Open circular arc (gap at the top-right where the arrowhead is).
+        ctx.addArc(center: CGPoint(x: 35, y: 35),
+                   radius: 17,
+                   startAngle: -.pi / 4,      // start just past 1 o'clock
+                   endAngle: 3 * .pi / 2,     // sweep almost all the way round
+                   clockwise: false)
+        ctx.strokePath()
+        // Arrowhead at the open end (top-right), pointing clockwise.
+        ctx.beginPath()
+        let tip = CGPoint(x: 35 + 17 * cos(-.pi / 4), y: 35 + 17 * sin(-.pi / 4))
+        ctx.move(to: tip)
+        ctx.addLine(to: CGPoint(x: tip.x - 10, y: tip.y - 2))
+        ctx.move(to: tip)
+        ctx.addLine(to: CGPoint(x: tip.x + 1, y: tip.y + 11))
+        ctx.strokePath()
     }
 }
