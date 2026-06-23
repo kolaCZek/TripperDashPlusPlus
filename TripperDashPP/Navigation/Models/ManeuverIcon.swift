@@ -109,7 +109,23 @@ enum ManeuverKind: Equatable {
         // this must precede the exit/ramp branch below.
         if Keywords.isRoundabout(s) {
             // Exit number is text-only (geometry can't see untaken arms).
-            let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions) ?? 0
+            //
+            // MapKit often splits a roundabout into an ENTRY step that
+            // carries the ordinal ("At the roundabout, take the 1st exit")
+            // and a follow-on EXIT step ("Exit the roundabout onto …")
+            // that keeps the roundabout keyword but DROPS the ordinal.
+            // Parsing the exit step alone yields nil → exit 0 → a generic
+            // numberless circle glyph appears mid-maneuver and the bubble
+            // looks like it "lost" the exit count partway through (field
+            // ride 6/2026). Carry the ordinal forward from the previous
+            // roundabout step so the whole maneuver shows one stable,
+            // correct exit number from entry through exit.
+            let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions)
+                ?? previousStep.flatMap { prev -> Int? in
+                    guard Keywords.isRoundabout(prev.instructions.lowercased()) else { return nil }
+                    return RoundaboutInstructionParser.parseExitNumber(from: prev.instructions)
+                }
+                ?? 0
             // Rotation: CCW for right-hand-traffic (Continental Europe),
             // which is where this bike rides. A future enhancement can
             // derive CW/CCW from the in-circle polyline winding.
