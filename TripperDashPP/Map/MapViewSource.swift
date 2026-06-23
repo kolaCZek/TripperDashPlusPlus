@@ -135,6 +135,14 @@ final class MapViewSource: NSObject, FrameSource {
     /// "make the chevron a touch bigger so it's easier to spot").
     private let puckScale: CGFloat = 1.35
 
+    /// On-screen thickness (px) of the drawn route polyline, held CONSTANT
+    /// across zoom levels. The line is stroked inside the `currentZoom`
+    /// scale, so each draw path divides this by `currentZoom` to cancel
+    /// the scale out. 5 px reads as a clear route without the "as thick as
+    /// the road" look the old fixed width 8 produced at city zoom
+    /// (rider feedback 6/2026: "the route line is needlessly thick").
+    private let routeLineScreenPx: CGFloat = 5.0
+
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
     /// without PiP. AVAudioSession (SilentAudioKeeper) keeps the
@@ -605,7 +613,12 @@ extension MapViewSource {
         // Draw the route polyline in the same Y-DOWN coordinate space.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
-            ctx.setLineWidth(8)
+            // The line is stroked INSIDE the currentZoom scale, so a fixed
+            // lineWidth would grow with zoom (a city-zoom 2.9× made it as
+            // thick as a road — rider feedback 6/2026). Divide by zoom so
+            // the route reads at a constant ~5 px on screen regardless of
+            // zoom level.
+            ctx.setLineWidth(routeLineScreenPx / currentZoom)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
             ctx.beginPath()
@@ -787,7 +800,10 @@ extension MapViewSource {
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
         ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
-        ctx.setLineWidth(6)
+        // Constant on-screen thickness regardless of zoom (see the tile
+        // path's note). Divide by currentZoom since we stroke inside the
+        // zoom scale.
+        ctx.setLineWidth(routeLineScreenPx / currentZoom)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
         ctx.beginPath()

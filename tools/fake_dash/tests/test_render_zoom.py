@@ -141,3 +141,37 @@ def test_swift_zoom_in_lerps_faster_than_out():
     bigger lerp factor than zooming out."""
     src = _map_source_src()
     assert "zoomingIn ? 0.15 : 0.05" in src, "asymmetric zoom lerp drifted"
+
+
+# ----------------------------------------------------------------------
+# Route line thickness — constant on-screen px regardless of zoom.
+# ----------------------------------------------------------------------
+
+def route_line_width(screen_px: float, zoom: float) -> float:
+    """Mirror of `setLineWidth(routeLineScreenPx / currentZoom)`."""
+    return screen_px / zoom
+
+
+@pytest.mark.parametrize("zoom", [0.8, 1.0, 1.4, 2.0, 2.9])
+def test_route_line_constant_on_screen(zoom):
+    """Stroked inside the zoom scale, so width/zoom * zoom == constant px."""
+    screen_px = 5.0
+    on_screen = route_line_width(screen_px, zoom) * zoom
+    assert on_screen == pytest.approx(screen_px)
+
+
+def test_route_line_thinner_than_old_fixed_width():
+    """At city zoom the old fixed width 8 rendered ~16 px (as thick as a
+    road). The new constant 5 px is well under that."""
+    assert 5.0 < 8 * 2.0     # new on-screen vs old at 2.0x
+
+
+def test_swift_route_line_constant_and_divides_by_zoom():
+    src = _map_source_src()
+    m = re.search(r"routeLineScreenPx:\s*CGFloat\s*=\s*([\d.]+)", src)
+    assert m and float(m.group(1)) == pytest.approx(5.0), "route line px must be 5.0"
+    # Both dash render paths must divide by zoom (constant on-screen width).
+    assert src.count("routeLineScreenPx / currentZoom") == 2, (
+        "both tile-cache and vector-only paths must stroke "
+        "routeLineScreenPx / currentZoom"
+    )
