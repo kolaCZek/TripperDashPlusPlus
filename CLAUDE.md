@@ -25,13 +25,13 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 - **Toolchain**: **Xcode 26.5+, macOS 15+** (lower may build but is untested; CI pins to the latest stable Xcode on macOS 15 runners)
 - **Bundle ID**: `eu.kolaczek.tripperdashpp`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
-- **Maps**: **OpenStreetMap raster tiles** (`tile.openstreetmap.org` by default, self-hostable) fetched over cellular and cached on disk. **No third-party map SDK, no API key, no tile quota.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
+- **Maps**: **OSM Carto raster basemap** (keyless XYZ, `tile.openstreetmap.org/{z}/{x}/{y}.png` — note: no `{s}` subdomain shard, so `subdomains` is empty and URL-building must not substitute `{s}`), fetched over cellular and cached on disk. One basemap, two palettes via a user **Light / Dark / Auto** setting: **Light** is the raw OSM raster; **Dark** is the *same* tile recoloured at composite time — a CPU-side `invert ∘ hue-rotate(180°)` colour matrix (`TileColorTransform.swift`, vImage/Accelerate so it survives the screen locking), which keeps OSM's semantics (water blue, parks green) instead of the orange/magenta a plain invert gives. Attribution is `© OpenStreetMap contributors`. Auto follows local sunrise/sunset from the GPS fix (see `SolarClock` / `MapStyleResolver`). Because dark is a recolour of the light raster, both palettes share **one** disk cache namespace (`RouteTiles/osm/…`) — one fetch, one cached PNG serves both (half the traffic, half the disk; the raw tile is kept so the filter can be retuned without re-fetching). The provider is a one-line table swap in `MapStyle.swift`; **no third-party map SDK, no API key.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
 - **Apple frameworks in use**: `Network`, `VideoToolbox`, `CryptoKit`, `Security`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit` (PiP keep-alive), `BackgroundTasks`, `UIKit` (CGContext frame composition), `SwiftUI`
 
 ## Architecture summary (one screen)
 
 ```
-iPhone ──(Cellular)──► tile.openstreetmap.org   OSM raster tiles (disk-cached)
+iPhone ──(Cellular)──► tile.openstreetmap.org   OSM Carto raster tiles (one cache; dark = runtime recolour)
 iPhone ──(Cellular)──► Apple MapKit             MKDirections routes + MKLocalSearch
 iPhone ──(Wi-Fi)─────► 192.168.1.1:2000         K1G control TX (RSA, heartbeat, nav kicks)
 iPhone ◄─(Wi-Fi)────── 192.168.1.1 → :2002      K1G control RX (auth, acks, button events)
@@ -122,7 +122,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 3. **No paid-only capabilities.** If you find yourself reaching for `NEHotspotConfiguration`, Apple Watch targets, push notifications, App Groups across devices, associated domains, or TestFlight — stop. We're on a free Developer account. Use the manual Wi-Fi switch flow + `NWPathMonitor` monitoring instead.
 
-4. **No third-party map SDK.** Mapbox and Google Maps iOS SDKs are both pure-Metal renderers that fail instantly in the background (`IOGPUMetalError` on the lock screen) — the whole "phone in pocket" use case rules them out. We render OSM raster tiles ourselves via CPU CGContext composition, which is background-safe. Don't reintroduce a map SDK.
+4. **No third-party map SDK.** Mapbox and Google Maps iOS SDKs are both pure-Metal renderers that fail instantly in the background (`IOGPUMetalError` on the lock screen) — the whole "phone in pocket" use case rules them out. We render OSM Carto raster tiles ourselves via CPU CGContext composition, and the dark palette is likewise a CPU (vImage) recolour of that composite — all background-safe, no GPU. Don't reintroduce a map SDK, and don't move the dark recolour to CoreImage/Metal (it dies on the lock screen).
 
 5. **No internet on the Wi-Fi interface.** The Tripper AP has no internet. Always verify that `URLSession` tile/route traffic goes via cellular. If a tile request goes via Wi-Fi it will time out, the user gets blank tiles, and they'll think the app is broken.
 

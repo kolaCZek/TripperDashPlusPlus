@@ -245,7 +245,20 @@ final class RouteTileCache {
     private let imageCache = NSCache<NSNumber, UIImage>()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RouteTileCache")
 
-    init() {
+    /// The map palette this cache instance is bound to. One instance ==
+    /// one style, for the whole life of the instance. Switching palette
+    /// (manual toggle or Auto at dusk/dawn) creates a FRESH instance and
+    /// discards this one — never reuse an instance across styles. Reasons:
+    ///   * `composite()` fetches + disk-caches tiles for exactly this
+    ///     style, so a mixed-style instance could stitch a half-light /
+    ///     half-dark composite;
+    ///   * `imageCache` and `tiles[]` are keyed by array index, so a
+    ///     style swap inside one instance would serve wrong-palette
+    ///     bitmaps (same failure shape as the reorder bug in Pitfall #2).
+    let style: MapStyle
+
+    init(style: MapStyle) {
+        self.style = style
         imageCache.countLimit = 8
     }
 
@@ -279,6 +292,43 @@ final class RouteTileCache {
         let initialIndices = anchorIndices(
             withinOffsetRange: 0...Self.initialBakeAheadMeters
         )
+        await bakeAnchors(at: initialIndices, progress: progress)
+        progress(1)
+    }
+
+    /// Pre-fetch the fast-start window centred on `coord` (the rider's
+    /// CURRENT position) rather than the route start. Used when a style
+    /// switch (manual toggle or Auto at dusk/dawn) happens mid-ride: we
+    /// need a fresh full bake of the new palette around where the rider
+    /// actually is, not back at the origin they left an hour ago.
+    ///
+    /// Mirrors `prerender(route:progress:)` but picks the initial window
+    /// by route-offset proximity to `coord`: `[snap - trail,
+    /// snap + initialBakeAhead]`. The rolling `extend(near:)` then keeps
+    /// the buffer ahead exactly as in the start-of-ride case.
+    func prerender(
+        route: MKRoute,
+        around coord: CLLocationCoordinate2D,
+        progress: @MainActor @escaping (Double) -> Void
+    ) async {
+        // Reset all rolling state for the new route + style.
+        tiles.removeAll(keepingCapacity: true)
+        tileRowKind.removeAll(keepingCapacity: true)
+        bakedTileByIndex.removeAll(keepingCapacity: true)
+        inFlight.removeAll(keepingCapacity: true)
+        allAnchors = computeAllAnchors(for: route)
+        progress(0)
+
+        // Snap the rider to the nearest main anchor to get a route offset;
+        // fall back to the route start if they're somehow off every main
+        // anchor (shouldn't happen mid-ride, but keeps us safe).
+        let snapped = snapToMainAnchor(coord: coord) ?? 0
+        lastRiderRouteOffset = snapped
+        let backEdge = max(0, snapped - Self.rollingTrailMeters)
+        let frontEdge = snapped + Self.initialBakeAheadMeters
+        log.info("Style re-bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
+
+        let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
         await bakeAnchors(at: initialIndices, progress: progress)
         progress(1)
     }
@@ -345,8 +395,9 @@ final class RouteTileCache {
                 let i = indices[nextSlot]
                 nextSlot += 1
                 let center = allAnchors[i].coord
+                let style = self.style
                 group.addTask { @MainActor in
-                    let tile = await Self.composite(center: center)
+                    let tile = await Self.composite(center: center, style: style)
                     return (i, tile)
                 }
             }
@@ -361,8 +412,9 @@ final class RouteTileCache {
                     let i = indices[nextSlot]
                     nextSlot += 1
                     let center = allAnchors[i].coord
+                    let style = self.style
                     group.addTask { @MainActor in
-                        let tile = await Self.composite(center: center)
+                        let tile = await Self.composite(center: center, style: style)
                         return (i, tile)
                     }
                 }
@@ -681,7 +733,7 @@ final class RouteTileCache {
     /// Geometry is fully deterministic — no probe, no measure. The
     /// renderer in `MapViewSource` reads `pxPerDeg` and `centerPixel`
     /// from the returned tile and gets pixel-exact results.
-    private static func composite(center: CLLocationCoordinate2D) async -> RouteTile? {
+    private static func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
         let z = zoom
         let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
         let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
@@ -723,7 +775,7 @@ final class RouteTileCache {
                     let absY = tly + ty
                     group.addTask {
                         // Disk cache first — synchronous-ish via actor.
-                        if let cached = await TileDiskCache.shared.read(z: z, x: absX, y: absY) {
+                        if let cached = await TileDiskCache.shared.read(style: style, z: z, x: absX, y: absY) {
                             return (tx, ty, cached)
                         }
                         // HTTP fallback. On error (network, 429) we
@@ -731,8 +783,8 @@ final class RouteTileCache {
                         // the missing tile area transparent — degraded
                         // UX is better than a black screen.
                         do {
-                            let data = try await OSMTileFetcher.shared.fetch(z: z, x: absX, y: absY)
-                            await TileDiskCache.shared.write(z: z, x: absX, y: absY, pngData: data)
+                            let data = try await OSMTileFetcher.shared.fetch(style: style, z: z, x: absX, y: absY)
+                            await TileDiskCache.shared.write(style: style, z: z, x: absX, y: absY, pngData: data)
                             return (tx, ty, data)
                         } catch {
                             return (tx, ty, nil)
@@ -769,9 +821,13 @@ final class RouteTileCache {
         ) else {
             return nil
         }
-        // OSM Carto "land" base color (#F2EFE9). Renders nicely under
-        // missing-tile gaps and matches the visible tiles' background.
-        ctx.setFillColor(red: 242.0 / 255, green: 239.0 / 255, blue: 233.0 / 255, alpha: 1.0)
+        // Land base colour painted under missing-tile gaps so network
+        // drop-outs blend with the visible tiles instead of glaring. This
+        // is the OSM Carto land colour (#F2EFE9) for BOTH palettes because
+        // it is a PRE-transform colour: for `.dark` the composite recolour
+        // below inverts it along with the tiles, keeping the gaps matched
+        // to the (inverted) tiles automatically.
+        ctx.setFillColor(style.landFill)
         ctx.fill(CGRect(x: 0, y: 0, width: bitmapSize, height: bitmapSize))
 
         // CGContext default coordinate system is Y-up. We want bitmap-
@@ -812,11 +868,24 @@ final class RouteTileCache {
         }
         ctx.restoreGState()
 
-        // Optional: stamp OSM attribution in the bottom-right corner.
-        // Small, semi-transparent, doesn't compete with the route line.
-        // Drawn AFTER the saveGState restore so it uses Y-up coords
-        // (matches CoreText drawing convention).
-        drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize))
+        // Recolour the assembled composite for the dark palette. The tiles
+        // and the land fill behind missing-tile gaps were both drawn in
+        // OSM Carto's LIGHT colours; for `.dark` we now run the whole
+        // bitmap through one CPU colour matrix (invert + 180° hue-rotate)
+        // so the map reads as a legible dark palette while keeping OSM's
+        // semantics (water blue, parks green). `.light` has no transform
+        // and skips this entirely. Done HERE — after the tiles + land
+        // fill, BEFORE attribution — so the attribution ink is drawn in
+        // the FINAL palette and is NOT itself inverted. CPU-only (vImage)
+        // so it runs while the phone is locked. See `TileColorTransform`.
+        style.colorTransform?.applyInPlace(to: ctx)
+
+        // Optional: stamp OSM/provider attribution in the bottom-right
+        // corner. Small, style-aware ink so it stays legible over both
+        // light and dark terrain. Drawn AFTER the saveGState restore so
+        // it uses Y-up coords (matches CoreText drawing convention), and
+        // AFTER the colour transform so its ink is in the final palette.
+        drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
 
         guard let outImage = ctx.makeImage() else { return nil }
 
@@ -844,22 +913,24 @@ final class RouteTileCache {
         )
     }
 
-    /// Draw "© OpenStreetMap" in the bottom-right of the composite.
-    /// Required by OSM Tile Usage Policy: every map view must show
-    /// attribution. Small, white-with-shadow so it stays legible
-    /// over both light and dark terrain.
+    /// Draw the style's attribution string in the bottom-right of the
+    /// composite. Required by the OSM Tile Usage Policy: every map view
+    /// must show "© OpenStreetMap contributors". Ink + backing pill come
+    /// from the style so the text stays legible over both the light map
+    /// and the recoloured dark one (this runs AFTER the dark colour
+    /// transform, so the ink is in the final palette and not inverted).
     ///
     /// We bake it into the composite (rather than overlay at render
     /// time) so it survives heading-up rotation — the rider always
     /// sees attribution somewhere on screen, just not always in the
     /// same corner. That's fine per OSM policy as long as it IS
     /// visible.
-    private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat) {
-        let text = "© OpenStreetMap"
+    private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat, style: MapStyle) {
+        let text = style.attribution
         let font = UIFont.systemFont(ofSize: 11, weight: .regular)
         let textAttrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: UIColor(white: 0.0, alpha: 0.75)
+            .foregroundColor: UIColor(cgColor: style.attributionInk)
         ]
         let attr = NSAttributedString(string: text, attributes: textAttrs)
         let line = CTLineCreateWithAttributedString(attr)
@@ -867,10 +938,11 @@ final class RouteTileCache {
         let pad: CGFloat = 6
         let x = bitmapSize - bounds.width - pad - 4
         let y = pad + 2
-        // White semi-transparent pill behind the text for legibility
-        // against busy map content.
+        // Style-aware semi-transparent pill behind the text for
+        // legibility against busy map content (light pill on dark ink,
+        // dark pill on light ink).
         ctx.saveGState()
-        ctx.setFillColor(red: 1, green: 1, blue: 1, alpha: 0.7)
+        ctx.setFillColor(style.attributionPill)
         let pill = CGRect(
             x: x - 4, y: y - 2,
             width: bounds.width + 8, height: bounds.height + 4

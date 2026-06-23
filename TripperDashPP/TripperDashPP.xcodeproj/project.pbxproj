@@ -58,6 +58,11 @@
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
 		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
 		A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */; };
+		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
+		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
+		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
+		F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */; };
+		F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -114,6 +119,11 @@
 		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -206,6 +216,10 @@
 				CAFEFEED00000000DEADBEF8 /* WebMercator.swift */,
 				CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */,
 				CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */,
+				CAFEFEED00000000DEADBF01 /* MapStyle.swift */,
+				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
+				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
+				CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -237,6 +251,7 @@
 				A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */,
 				A4F000000000000000000F00 /* Waypoint.swift */,
 				A4F000000000000000000F10 /* PlannedRoute.swift */,
+				A4F000000000000000000E60 /* MapStyleSettings.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -382,6 +397,11 @@
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
 				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
+				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
+				F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */,
+				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,
+				F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */,
+				F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

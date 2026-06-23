@@ -71,22 +71,26 @@ actor TileDiskCache {
         return dir
     }()
 
-    /// Build the on-disk URL for tile (z, x, y). One directory per
-    /// zoom level + per x column keeps the per-directory file count
-    /// sane (worst case: ~30 y values per x at z=15 over a country-
-    /// sized cache).
-    private nonisolated func url(z: Int, x: Int, y: Int, in baseDir: URL) -> URL {
+    /// Build the on-disk URL for tile (z, x, y) in `style`. The style's
+    /// `tileCacheNamespace` is the FIRST path component. Both palettes
+    /// return the SAME namespace (`"osm"`) because they fetch the identical
+    /// raw OSM tile — the dark palette is a composite-time recolour, not a
+    /// different download — so light and dark deliberately SHARE one cached
+    /// PNG per (z, x, y). Per-zoom + per-x subdirectories keep the
+    /// per-directory file count sane.
+    private nonisolated func url(style: MapStyle, z: Int, x: Int, y: Int, in baseDir: URL) -> URL {
         return baseDir
+            .appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
             .appendingPathComponent("\(z)", isDirectory: true)
             .appendingPathComponent("\(x)", isDirectory: true)
             .appendingPathComponent("\(y).png", isDirectory: false)
     }
 
-    /// Look up a cached tile. Returns the raw PNG data if found and
-    /// the file is readable, else nil. Touches the file's mtime so
+    /// Look up a cached tile in `style`. Returns the raw PNG data if found
+    /// and the file is readable, else nil. Touches the file's mtime so
     /// LRU eviction prefers truly stale entries.
-    func read(z: Int, x: Int, y: Int) -> Data? {
-        let url = url(z: z, x: x, y: y, in: baseDir)
+    func read(style: MapStyle, z: Int, x: Int, y: Int) -> Data? {
+        let url = url(style: style, z: z, x: x, y: y, in: baseDir)
         guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
               !data.isEmpty else {
             return nil
@@ -99,26 +103,37 @@ actor TileDiskCache {
         return data
     }
 
-    /// Persist `pngData` for tile (z, x, y). Creates intermediate
-    /// directories on demand. Atomic write so a crash mid-write
-    /// can't leave a partial file the next launch tries to decode.
-    func write(z: Int, x: Int, y: Int, pngData: Data) {
-        let url = url(z: z, x: x, y: y, in: baseDir)
+    /// Persist `pngData` for tile (z, x, y) in `style`. Creates
+    /// intermediate directories on demand. Atomic write so a crash
+    /// mid-write can't leave a partial file the next launch tries to
+    /// decode.
+    func write(style: MapStyle, z: Int, x: Int, y: Int, pngData: Data) {
+        let url = url(style: style, z: z, x: x, y: y, in: baseDir)
         // Ensure parent directory exists. Cheap if it already does.
         let parent = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         do {
             try pngData.write(to: url, options: .atomic)
         } catch {
-            log.warning("Disk cache write failed for \(z, privacy: .public)/\(x, privacy: .public)/\(y, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.warning("Disk cache write failed for \(style.tileCacheNamespace, privacy: .public)/\(z, privacy: .public)/\(x, privacy: .public)/\(y, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
-    /// Returns (count, bytes) — used by the Settings cell so we can
-    /// show "84 tiles • 7.2 MB" without two separate walks.
-    func stats() -> (count: Int, bytes: Int) {
+    /// Returns (count, bytes) for ONE style's namespace — used by the
+    /// Settings UI so we can show "Light tiles • 84 • 7.2 MB" per palette.
+    func stats(style: MapStyle) -> (count: Int, bytes: Int) {
+        let dir = baseDir.appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
+        return stats(in: dir)
+    }
+
+    /// Returns (count, bytes) across ALL styles — total on-disk footprint.
+    func statsAll() -> (count: Int, bytes: Int) {
+        return stats(in: baseDir)
+    }
+
+    private nonisolated func stats(in dir: URL) -> (count: Int, bytes: Int) {
         let fm = FileManager.default
-        guard let it = fm.enumerator(at: baseDir, includingPropertiesForKeys: [.fileSizeKey]) else {
+        guard let it = fm.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else {
             return (0, 0)
         }
         var count = 0
@@ -130,15 +145,29 @@ actor TileDiskCache {
         return (count, total)
     }
 
-    /// Nuke the entire disk cache. Called from Settings → "Clear map
-    /// cache" button. Recreates the empty directory so subsequent
+    /// Nuke ONE style's tiles (Settings → per-palette trash). Recreates
+    /// the empty namespace directory so subsequent writes don't have to.
+    func clear(style: MapStyle) {
+        let fm = FileManager.default
+        let dir = baseDir.appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
+        do {
+            try fm.removeItem(at: dir)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            log.info("Disk cache CLEARED for style \(style.tileCacheNamespace, privacy: .public)")
+        } catch {
+            log.warning("Disk cache clear failed for \(style.tileCacheNamespace, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Nuke the entire disk cache (all styles). Called from Settings →
+    /// "Clear map cache". Recreates the empty directory so subsequent
     /// writes don't have to re-create it under the hood.
-    func clear() {
+    func clearAll() {
         let fm = FileManager.default
         do {
             try fm.removeItem(at: baseDir)
             try fm.createDirectory(at: baseDir, withIntermediateDirectories: true)
-            log.info("Disk cache CLEARED")
+            log.info("Disk cache CLEARED (all styles)")
         } catch {
             log.warning("Disk cache clear failed: \(error.localizedDescription, privacy: .public)")
         }

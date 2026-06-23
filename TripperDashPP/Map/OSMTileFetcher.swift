@@ -52,13 +52,12 @@ actor OSMTileFetcher {
 
     private let log = Logger(subsystem: "cz.kolaczek.TripperDashPP", category: "OSMTileFetcher")
 
-    /// Tile provider URL template. `{z}`, `{x}`, `{y}` are substituted
-    /// per request. We use OSM Standard ("Carto") as the default —
-    /// rock-solid availability, clear road hierarchy, optimised for
-    /// vehicle navigation. Future versions could expose this in
-    /// Settings so the user can switch to OpenTopoMap / CyclOSM
-    /// for a scenic ride.
-    private let baseURLTemplate: String = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    // Tile provider URL is no longer a single constant — it comes from
+    // the `MapStyle` passed into `fetch`. Both palettes use the SAME OSM
+    // Carto source (see `MapStyle.tileURLTemplate`); the dark palette is a
+    // composite-time recolour, not a separate download. The fetcher is
+    // style-agnostic: it substitutes `{s}/{z}/{x}/{y}` and applies the
+    // same rate-limit / retry / dedupe machinery regardless of palette.
 
     /// Mandatory under OSM tile policy. Without an identifiable
     /// User-Agent OSM.org bans the IP within minutes.
@@ -121,10 +120,11 @@ actor OSMTileFetcher {
     /// two HTTP requests. Network-efficient AND nicer to OSM.org.
     private var inFlightTasks: [String: Task<Data, Error>] = [:]
 
-    /// Fetch the PNG bytes for tile (z, x, y). Returns the raw PNG
-    /// data — caller is responsible for caching to disk (via
-    /// TileDiskCache) and decoding to CGImage.
-    func fetch(z: Int, x: Int, y: Int) async throws -> Data {
+    /// Fetch the PNG bytes for tile (z, x, y) in the given `style`.
+    /// Returns the raw PNG data — caller is responsible for caching to
+    /// disk (via TileDiskCache, keyed by the same style) and decoding to
+    /// CGImage.
+    func fetch(style: MapStyle, z: Int, x: Int, y: Int) async throws -> Data {
         // Sanity-clamp y to valid range (Web Mercator). x wraps around
         // the antimeridian but we don't expect any real-world route
         // to hit longitude ±180 within the lateral buffer.
@@ -132,7 +132,12 @@ actor OSMTileFetcher {
         guard y >= 0 && y < n else { throw OSMTileFetchError.http(status: 400) }
         let xWrapped = ((x % n) + n) % n   // wrap negatives too
 
-        let key = "\(z)/\(xWrapped)/\(y)"
+        // Dedupe / in-flight key is namespaced by the TILE cache
+        // namespace (the provider), not the palette. Light and dark share
+        // one OSM source (dark is a composite-time recolour), so a light
+        // and a dark request for the same (z, x, y) SHOULD collapse onto
+        // one shared fetch and one cached PNG — that's the efficiency win.
+        let key = "\(style.tileCacheNamespace)/\(z)/\(xWrapped)/\(y)"
 
         // Dedupe — coalesce with any in-flight task for the same key.
         if let existing = inFlightTasks[key] {
@@ -148,7 +153,7 @@ actor OSMTileFetcher {
 
         let task = Task<Data, Error> { [weak self] in
             guard let self else { throw OSMTileFetchError.cancelled }
-            return try await self.fetchWithSlot(z: z, x: xWrapped, y: y, key: key)
+            return try await self.fetchWithSlot(style: style, z: z, x: xWrapped, y: y, key: key)
         }
         inFlightTasks[key] = task
 
@@ -156,17 +161,36 @@ actor OSMTileFetcher {
         return try await task.value
     }
 
+    /// Pick a deterministic subdomain shard for the `{s}` placeholder so
+    /// the same (x, y) always resolves to the same host — keeps URLCache
+    /// warm and spreads load across a provider's shard hosts. Returns nil
+    /// when the style's template has no `{s}` — which is the case for OSM
+    /// Carto (single canonical host, empty `subdomains`), so today this
+    /// always returns nil and `{s}` is left unsubstituted (there is none).
+    private func shard(forX x: Int, y: Int, subdomains: [String]) -> String? {
+        guard !subdomains.isEmpty else { return nil }
+        let idx = abs(x &+ y) % subdomains.count
+        return subdomains[idx]
+    }
+
     /// Wrap a single fetch with the concurrency-gate dance + retry
     /// loop. Split out so the dedupe wrapper above can share it.
-    private func fetchWithSlot(z: Int, x: Int, y: Int, key: String) async throws -> Data {
+    private func fetchWithSlot(style: MapStyle, z: Int, x: Int, y: Int, key: String) async throws -> Data {
         await waitForSlot()
         defer { releaseSlot() }
 
-        let url = URL(string: baseURLTemplate
+        var template = style.tileURLTemplate
+        if let s = shard(forX: x, y: y, subdomains: style.subdomains) {
+            template = template.replacingOccurrences(of: "{s}", with: s)
+        }
+        let url = URL(string: template
             .replacingOccurrences(of: "{z}", with: "\(z)")
             .replacingOccurrences(of: "{x}", with: "\(x)")
             .replacingOccurrences(of: "{y}", with: "\(y)")
         )!
+        #if DEBUG
+        log.debug("Tile URL [\(style.tileCacheNamespace, privacy: .public)]: \(url.absoluteString, privacy: .public)")
+        #endif
 
         var lastError: Error?
         for attempt in 0...maxRetries {

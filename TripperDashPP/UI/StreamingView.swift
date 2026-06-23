@@ -129,6 +129,24 @@ struct StreamingView: View {
             // sliders button now (feat/route-waypoints). Removed from
             // here so there's a single source of truth the user edits.
 
+            Section("Map") {
+                Picker("Appearance", selection: Binding(
+                    get: { status.mapStyleSettings.mode },
+                    set: { status.setMapStyleMode($0) }
+                )) {
+                    ForEach(MapStyleSettings.Mode.allCases) { m in
+                        Text(m.label).tag(m)
+                    }
+                }
+                if status.mapStyleSettings.mode == .auto {
+                    LabeledContent("Currently",
+                                   value: status.effectiveMapStyle == .dark ? "Dark" : "Light")
+                }
+                Text("Auto follows local sunrise and sunset from your GPS position. Light and dark map tiles are cached separately.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             MapCacheSection()
 
             Section("Build") {
@@ -140,31 +158,29 @@ struct StreamingView: View {
     }
 }
 
-/// Settings cell that shows the on-disk map tile cache size and
-/// offers a one-tap "Clear" button. Kept as its own `View` (not
-/// inlined) so the `@State` for the stats stays scoped — the parent
-/// Form re-renders constantly when other settings change and we
-/// don't want every keystroke to trigger another disk walk.
+/// Settings cell that shows the on-disk map tile cache size and offers a
+/// clear button. Kept as its own `View` (not inlined) so the `@State` for
+/// the stats stays scoped — the parent Form re-renders constantly when
+/// other settings change and we don't want every keystroke to trigger
+/// another disk walk.
 private struct MapCacheSection: View {
     @State private var stats: (count: Int, bytes: Int) = (0, 0)
     @State private var isClearing = false
 
     var body: some View {
         Section("Map cache") {
-            LabeledContent("On disk") {
-                if isClearing {
-                    ProgressView()
-                } else {
-                    Text(formatStats(stats))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
+            // One shared OSM tile cache for both palettes: light and dark
+            // render from the SAME raster tiles (dark is a composite-time
+            // recolour), so there's a single on-disk namespace and a
+            // single row — no per-palette split anymore.
+            LabeledContent("Map tiles") {
+                statsView(stats)
             }
             Button(role: .destructive) {
                 Task {
                     isClearing = true
-                    await TileDiskCache.shared.clear()
-                    stats = await TileDiskCache.shared.stats()
+                    await TileDiskCache.shared.clearAll()
+                    await refresh()
                     isClearing = false
                 }
             } label: {
@@ -175,8 +191,24 @@ private struct MapCacheSection: View {
         .task {
             // First appearance: load real numbers. Cheap walk (~few
             // hundred files at most), no need for a background queue.
-            stats = await TileDiskCache.shared.stats()
+            await refresh()
         }
+    }
+
+    @ViewBuilder
+    private func statsView(_ s: (count: Int, bytes: Int)) -> some View {
+        if isClearing {
+            ProgressView()
+        } else {
+            Text(formatStats(s))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+
+    private func refresh() async {
+        // Single shared namespace → aggregate stats is the whole cache.
+        stats = await TileDiskCache.shared.statsAll()
     }
 
     private func formatStats(_ s: (count: Int, bytes: Int)) -> String {
