@@ -113,9 +113,18 @@ final class ActiveNavLoop {
         }()
 
         // Pre-compute wire values.
-        let primaryUnit = settings.primaryUnitWireByte(forMeters: distNext)
+        //
+        // Bucket the PRIMARY maneuver distance first (nearest 1/25/100 m
+        // by proximity — see `bucketedManeuverDistance`) so the bubble's
+        // "in N m" line stops twitching every GPS tick. The unit byte and
+        // wire value are both derived from the BUCKETED meters so the
+        // metric m↔km crossover stays consistent. The total-distance-to-
+        // destination is intentionally NOT bucketed — it ticks down slowly
+        // and a rounded value there would look wrong on a long route.
+        let primaryBucketed = settings.bucketedManeuverDistance(meters: distNext)
+        let primaryUnit = settings.primaryUnitWireByte(forMeters: primaryBucketed)
         let totalUnit = settings.totalDistanceUnitWireByte(forMeters: distTotal)
-        let primaryDist = settings.distanceWireValue(meters: distNext, unitByte: primaryUnit)
+        let primaryDist = settings.distanceWireValue(meters: primaryBucketed, unitByte: primaryUnit)
         let totalDist = settings.distanceWireValue(meters: distTotal, unitByte: totalUnit)
 
         // F2c: secondary wire values. Only attach the chevron when:
@@ -135,10 +144,13 @@ final class ActiveNavLoop {
         if emitSecondary, let s2 = secondStep {
             // The secondary maneuver's incoming leg is the PRIMARY step
             // (the rider reaches s2 right after completing `step`).
+            // Bucket its distance the same way as the primary so the
+            // look-ahead chip's "in N m" doesn't twitch either.
             let kind2 = ManeuverKind.classify(s2, previousStep: step)
-            let unit2 = settings.primaryUnitWireByte(forMeters: distSecond)
+            let secondBucketed = settings.bucketedManeuverDistance(meters: distSecond)
+            let unit2 = settings.primaryUnitWireByte(forMeters: secondBucketed)
             secondaryManeuverByte = kind2.wireByte
-            secondaryDistanceMeters = settings.distanceWireValue(meters: distSecond, unitByte: unit2)
+            secondaryDistanceMeters = settings.distanceWireValue(meters: secondBucketed, unitByte: unit2)
             secondaryUnitByte = unit2
         } else {
             secondaryManeuverByte = nil

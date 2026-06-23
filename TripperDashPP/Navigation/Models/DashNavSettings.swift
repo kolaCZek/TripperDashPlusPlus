@@ -121,6 +121,43 @@ final class DashNavSettings {
 
     // MARK: - Derived wire helpers
 
+    /// Quantize a maneuver distance (meters) into human-friendly buckets
+    /// so the dash bubble's "in N m" readout stops twitching every GPS
+    /// tick. Far from the turn the rider only needs a coarse number; in
+    /// the final approach they need fine granularity. Per Martin's field
+    /// request (6/2026):
+    ///
+    ///   - `< 50 m`      → nearest 1 m   (42 → 42)   final approach
+    ///   - `50 … <200 m` → nearest 25 m  (188 → 175, 73 → 75)
+    ///   - `≥ 200 m`     → nearest 100 m (437 → 400)
+    ///
+    /// Bucketing is done in METERS — the physical maneuver distance — and
+    /// the unit byte + wire value are then derived from the bucketed
+    /// value, so the metric m↔km/10ths crossover stays consistent (e.g.
+    /// 985 m buckets to 1000 m → "1.0 km", never a flickering "990 m").
+    ///
+    /// Only the PRIMARY/SECONDARY maneuver distances are bucketed (those
+    /// drive the bubble's twitchy "in N m" line). The total-distance-to-
+    /// destination is left continuous — it ticks down slowly and a round
+    /// number there would actually look wrong on a long route.
+    ///
+    /// NOTE: thresholds are metric. Imperial riders get the same physical
+    /// buckets converted to feet/miles downstream (stable, if not on
+    /// round imperial numbers); a dedicated imperial bucket table can come
+    /// later if anyone actually rides this in miles.
+    func bucketedManeuverDistance(meters m: Double) -> Double {
+        guard m.isFinite, m > 0 else { return 0 }
+        let step: Double
+        if m < 50 {
+            step = 1
+        } else if m < 200 {
+            step = 25
+        } else {
+            step = 100
+        }
+        return (m / step).rounded() * step
+    }
+
     /// Wire byte for the primary distance TLV (`05 06`).
     /// 10 = km/10ths, 20 = mi/10ths, 30 = metres, 50 = feet.
     /// Chosen based on `units` AND distance magnitude — short distances
