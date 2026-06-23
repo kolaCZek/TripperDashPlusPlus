@@ -45,7 +45,7 @@ Field-tested on a **Royal Enfield Guerrilla 450** with SSID `RE_9G5L_…`. See [
 ## Tech stack
 
 - **Swift 6 / SwiftUI**, **iOS 18+**, **Xcode 26**
-- **CARTO raster basemaps** for the map (keyless; no SDK, no API key, no tile quota), with a **Light / Dark / Auto** appearance setting — Light = Positron, Dark = Darkmatter (matched pair), Auto follows sunrise/sunset from GPS — plus **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
+- **OSM Carto raster basemap** for the map (keyless; no SDK, no API key), with a **Light / Dark / Auto** appearance setting — Light is the raw OSM raster; Dark is the *same* tile recoloured at composite time (CPU invert + 180° hue-rotate, so water stays blue not orange); Auto follows sunrise/sunset from GPS — plus **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
 - Apple frameworks: `Network`, `VideoToolbox`, `CryptoKit`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit`
 - **Zero** third-party SPM dependencies
 - Python 3.12+ for the `fake_dash` test harness (decode RTP, simulate the dash on a laptop)

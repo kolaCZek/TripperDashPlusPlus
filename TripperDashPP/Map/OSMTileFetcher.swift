@@ -53,10 +53,11 @@ actor OSMTileFetcher {
     private let log = Logger(subsystem: "cz.kolaczek.TripperDashPP", category: "OSMTileFetcher")
 
     // Tile provider URL is no longer a single constant — it comes from
-    // the `MapStyle` passed into `fetch`. Light uses OSM Carto, Dark uses
-    // CARTO dark_all (see `MapStyle.tileURLTemplate`). The fetcher is
-    // otherwise style-agnostic: it substitutes `{s}/{z}/{x}/{y}` and
-    // applies the same rate-limit / retry / dedupe machinery to both.
+    // the `MapStyle` passed into `fetch`. Both palettes use the SAME OSM
+    // Carto source (see `MapStyle.tileURLTemplate`); the dark palette is a
+    // composite-time recolour, not a separate download. The fetcher is
+    // style-agnostic: it substitutes `{s}/{z}/{x}/{y}` and applies the
+    // same rate-limit / retry / dedupe machinery regardless of palette.
 
     /// Mandatory under OSM tile policy. Without an identifiable
     /// User-Agent OSM.org bans the IP within minutes.
@@ -131,10 +132,12 @@ actor OSMTileFetcher {
         guard y >= 0 && y < n else { throw OSMTileFetchError.http(status: 400) }
         let xWrapped = ((x % n) + n) % n   // wrap negatives too
 
-        // Dedupe / in-flight key is namespaced by style so a light and a
-        // dark request for the same (z, x, y) DON'T collapse onto one
-        // shared task and return each other's palette.
-        let key = "\(style.cacheNamespace)/\(z)/\(xWrapped)/\(y)"
+        // Dedupe / in-flight key is namespaced by the TILE cache
+        // namespace (the provider), not the palette. Light and dark share
+        // one OSM source (dark is a composite-time recolour), so a light
+        // and a dark request for the same (z, x, y) SHOULD collapse onto
+        // one shared fetch and one cached PNG — that's the efficiency win.
+        let key = "\(style.tileCacheNamespace)/\(z)/\(xWrapped)/\(y)"
 
         // Dedupe — coalesce with any in-flight task for the same key.
         if let existing = inFlightTasks[key] {
@@ -160,8 +163,10 @@ actor OSMTileFetcher {
 
     /// Pick a deterministic subdomain shard for the `{s}` placeholder so
     /// the same (x, y) always resolves to the same host — keeps URLCache
-    /// warm and spreads load across CARTO's a/b/c/d hosts. Returns nil
-    /// when the style's template has no `{s}` (e.g. OSM Carto).
+    /// warm and spreads load across a provider's shard hosts. Returns nil
+    /// when the style's template has no `{s}` — which is the case for OSM
+    /// Carto (single canonical host, empty `subdomains`), so today this
+    /// always returns nil and `{s}` is left unsubstituted (there is none).
     private func shard(forX x: Int, y: Int, subdomains: [String]) -> String? {
         guard !subdomains.isEmpty else { return nil }
         let idx = abs(x &+ y) % subdomains.count
@@ -184,7 +189,7 @@ actor OSMTileFetcher {
             .replacingOccurrences(of: "{y}", with: "\(y)")
         )!
         #if DEBUG
-        log.debug("Tile URL [\(style.cacheNamespace, privacy: .public)]: \(url.absoluteString, privacy: .public)")
+        log.debug("Tile URL [\(style.tileCacheNamespace, privacy: .public)]: \(url.absoluteString, privacy: .public)")
         #endif
 
         var lastError: Error?

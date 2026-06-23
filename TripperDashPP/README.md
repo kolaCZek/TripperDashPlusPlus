@@ -24,7 +24,8 @@ H.264 session auto-rebuild live in `App/` (`AppStatus`, `SilentAudioKeeper`) and
 
 ## Build prerequisites
 
-None beyond Xcode 26 + a free Apple Developer account. The map uses
-CARTO raster basemaps (light/dark; no third-party SDK, no API token, no
-Secrets file); routing and search use Apple MapKit, which is built into
-iOS. Just open the project and Run on a real device.
+None beyond Xcode 26 + a free Apple Developer account. The map uses the
+OSM Carto raster basemap (one keyless tile source; the dark palette is a
+runtime recolour of the same tile, no second download; no third-party
+SDK, no API token, no Secrets file); routing and search use Apple MapKit,
+which is built into iOS. Just open the project and Run on a real device.

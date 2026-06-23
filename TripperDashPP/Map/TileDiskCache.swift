@@ -72,15 +72,15 @@ actor TileDiskCache {
     }()
 
     /// Build the on-disk URL for tile (z, x, y) in `style`. The style's
-    /// `cacheNamespace` is the FIRST path component — this is the
-    /// load-bearing isolation: light and dark share the same (z, x, y)
-    /// slippy address, so without the namespace split a dark tile would
-    /// overwrite the light PNG at the same coordinate (last write wins)
-    /// and the reader would get the wrong palette. Per-zoom + per-x
-    /// subdirectories keep the per-directory file count sane.
+    /// `tileCacheNamespace` is the FIRST path component. Both palettes
+    /// return the SAME namespace (`"osm"`) because they fetch the identical
+    /// raw OSM tile — the dark palette is a composite-time recolour, not a
+    /// different download — so light and dark deliberately SHARE one cached
+    /// PNG per (z, x, y). Per-zoom + per-x subdirectories keep the
+    /// per-directory file count sane.
     private nonisolated func url(style: MapStyle, z: Int, x: Int, y: Int, in baseDir: URL) -> URL {
         return baseDir
-            .appendingPathComponent(style.cacheNamespace, isDirectory: true)
+            .appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
             .appendingPathComponent("\(z)", isDirectory: true)
             .appendingPathComponent("\(x)", isDirectory: true)
             .appendingPathComponent("\(y).png", isDirectory: false)
@@ -115,14 +115,14 @@ actor TileDiskCache {
         do {
             try pngData.write(to: url, options: .atomic)
         } catch {
-            log.warning("Disk cache write failed for \(style.cacheNamespace, privacy: .public)/\(z, privacy: .public)/\(x, privacy: .public)/\(y, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.warning("Disk cache write failed for \(style.tileCacheNamespace, privacy: .public)/\(z, privacy: .public)/\(x, privacy: .public)/\(y, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
     /// Returns (count, bytes) for ONE style's namespace — used by the
     /// Settings UI so we can show "Light tiles • 84 • 7.2 MB" per palette.
     func stats(style: MapStyle) -> (count: Int, bytes: Int) {
-        let dir = baseDir.appendingPathComponent(style.cacheNamespace, isDirectory: true)
+        let dir = baseDir.appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
         return stats(in: dir)
     }
 
@@ -149,13 +149,13 @@ actor TileDiskCache {
     /// the empty namespace directory so subsequent writes don't have to.
     func clear(style: MapStyle) {
         let fm = FileManager.default
-        let dir = baseDir.appendingPathComponent(style.cacheNamespace, isDirectory: true)
+        let dir = baseDir.appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
         do {
             try fm.removeItem(at: dir)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            log.info("Disk cache CLEARED for style \(style.cacheNamespace, privacy: .public)")
+            log.info("Disk cache CLEARED for style \(style.tileCacheNamespace, privacy: .public)")
         } catch {
-            log.warning("Disk cache clear failed for \(style.cacheNamespace, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.warning("Disk cache clear failed for \(style.tileCacheNamespace, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 

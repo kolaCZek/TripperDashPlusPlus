@@ -326,7 +326,7 @@ final class RouteTileCache {
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
         let frontEdge = snapped + Self.initialBakeAheadMeters
-        log.info("Style re-bake: \(self.style.cacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
+        log.info("Style re-bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
 
         let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
         await bakeAnchors(at: initialIndices, progress: progress)
@@ -821,10 +821,12 @@ final class RouteTileCache {
         ) else {
             return nil
         }
-        // Land base colour for the active style — renders under
-        // missing-tile gaps and matches the visible tiles' background so
-        // network drop-outs blend in instead of glaring. Light = OSM
-        // Carto land (#F2EFE9); dark = CARTO dark_all land (~#26282B).
+        // Land base colour painted under missing-tile gaps so network
+        // drop-outs blend with the visible tiles instead of glaring. This
+        // is the OSM Carto land colour (#F2EFE9) for BOTH palettes because
+        // it is a PRE-transform colour: for `.dark` the composite recolour
+        // below inverts it along with the tiles, keeping the gaps matched
+        // to the (inverted) tiles automatically.
         ctx.setFillColor(style.landFill)
         ctx.fill(CGRect(x: 0, y: 0, width: bitmapSize, height: bitmapSize))
 
@@ -866,10 +868,23 @@ final class RouteTileCache {
         }
         ctx.restoreGState()
 
+        // Recolour the assembled composite for the dark palette. The tiles
+        // and the land fill behind missing-tile gaps were both drawn in
+        // OSM Carto's LIGHT colours; for `.dark` we now run the whole
+        // bitmap through one CPU colour matrix (invert + 180° hue-rotate)
+        // so the map reads as a legible dark palette while keeping OSM's
+        // semantics (water blue, parks green). `.light` has no transform
+        // and skips this entirely. Done HERE — after the tiles + land
+        // fill, BEFORE attribution — so the attribution ink is drawn in
+        // the FINAL palette and is NOT itself inverted. CPU-only (vImage)
+        // so it runs while the phone is locked. See `TileColorTransform`.
+        style.colorTransform?.applyInPlace(to: ctx)
+
         // Optional: stamp OSM/provider attribution in the bottom-right
         // corner. Small, style-aware ink so it stays legible over both
         // light and dark terrain. Drawn AFTER the saveGState restore so
-        // it uses Y-up coords (matches CoreText drawing convention).
+        // it uses Y-up coords (matches CoreText drawing convention), and
+        // AFTER the colour transform so its ink is in the final palette.
         drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
 
         guard let outImage = ctx.makeImage() else { return nil }
@@ -899,10 +914,11 @@ final class RouteTileCache {
     }
 
     /// Draw the style's attribution string in the bottom-right of the
-    /// composite. Required by the OSM Tile Usage Policy (and CARTO's
-    /// terms for the dark basemap): every map view must show attribution.
-    /// Ink + backing pill come from the style so the text stays legible
-    /// over both light and dark land fills.
+    /// composite. Required by the OSM Tile Usage Policy: every map view
+    /// must show "© OpenStreetMap contributors". Ink + backing pill come
+    /// from the style so the text stays legible over both the light map
+    /// and the recoloured dark one (this runs AFTER the dark colour
+    /// transform, so the ink is in the final palette and not inverted).
     ///
     /// We bake it into the composite (rather than overlay at render
     /// time) so it survives heading-up rotation — the rider always

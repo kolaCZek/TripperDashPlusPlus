@@ -251,7 +251,7 @@ final class MapViewSource: NSObject, FrameSource {
     func setMapStyle(_ style: MapStyle) {
         guard style != currentStyle else { return }
         currentStyle = style
-        log.info("Map style → \(style.cacheNamespace, privacy: .public)")
+        log.info("Map style → \(style.tileCacheNamespace, privacy: .public)")
 
         // Not navigating yet: nothing to re-bake. The next prerender (when
         // navigation starts) will pick up `currentStyle`. We still flip
@@ -280,7 +280,7 @@ final class MapViewSource: NSObject, FrameSource {
         routeTileCache = fresh   // atomic swap; old cache was visible until now
         lastTileHintIndex = 0
         lastTileExtendAt = nil
-        log.info("Style re-bake installed: \(style.cacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
+        log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
     }
 
     /// Extend the rolling tile-bake window around `coord`. Called from
