@@ -38,15 +38,22 @@ import CoreGraphics
 /// CPU and runs while the device is locked.
 struct TileColorTransform: Sendable {
 
-    /// Row-major 4×4 Int16 coefficients in **R, G, B, A channel-memory
-    /// order** — the byte order of the `premultipliedLast` ARGB8888
-    /// bitmap that `RouteTileCache.composite` allocates on little-endian
-    /// iOS. vImage computes, per pixel and per output channel `i`:
+    /// 4×4 Int16 coefficients for `vImageMatrixMultiply_ARGB8888`, in the
+    /// **column-major layout that function actually consumes**. This is a
+    /// sharp Accelerate gotcha: despite "row" naming elsewhere, the kernel
+    /// treats the flat array as 4 consecutive **input-channel columns**,
+    /// computing per pixel and per output channel `i`:
     ///
-    ///     out[i] = clamp( ( Σ_j matrix[i*4 + j] · src[j] ) / divisor, 0, 255 )
+    ///     out[i] = clamp( ( Σ_j matrix[j*4 + i] · src[j] ) / divisor, 0, 255 )
     ///
-    /// with no pre/post bias vector.
-    let matrix: [Int16]   // exactly 16 entries
+    /// i.e. output channel `i` reads entries `matrix[0*4+i], matrix[1*4+i],
+    /// matrix[2*4+i], matrix[3*4+i]` — the i-th *column*. Channels are in
+    /// R, G, B, A memory order (the `premultipliedLast` ARGB8888 bitmap
+    /// `RouteTileCache.composite` allocates on little-endian iOS). No
+    /// pre/post bias vector. The human-readable per-channel formulas in
+    /// `darkInvert` below therefore map to the **columns** of `matrix`,
+    /// not its rows — the literal is the mathematical matrix transposed.
+    let matrix: [Int16]   // exactly 16 entries, column-major for vImage
     let divisor: Int32
 
     /// invert(1) ∘ hue-rotate(180°).
@@ -68,12 +75,19 @@ struct TileColorTransform: Sendable {
     ///     G' = (−109·R − 110·G −  37·B + 256·A ) / 256
     ///     B' = (−109·R − 366·G + 219·B + 256·A ) / 256
     ///     A' = A
+    ///
+    /// Those formulas are the mathematical matrix in row form. Because
+    /// vImage reads `matrix` column-major (see `matrix` above), the literal
+    /// below is that matrix **transposed**: each *column* of the literal is
+    /// one of the formulas above (column 0 = R', column 1 = G', column 2 =
+    /// B', column 3 = A'). Shipping it untransposed produced an all-blue
+    /// dark map (every land/water/white pixel collapsed to ~(0,0,130)).
     static let darkInvert = TileColorTransform(
         matrix: [
-             147, -366,  -37, 256,
-            -109, -110,  -37, 256,
-            -109, -366,  219, 256,
-               0,    0,    0, 256,
+             147, -109, -109,   0,
+            -366, -110, -366,   0,
+             -37,  -37,  219,   0,
+             256,  256,  256, 256,
         ],
         divisor: 256
     )
