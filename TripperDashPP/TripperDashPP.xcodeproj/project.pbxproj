@@ -61,6 +61,7 @@
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
 		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
 		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
+		F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -120,6 +121,7 @@
 		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -153,6 +155,7 @@
 				A41A9C4D2FE20258009BF005 /* TripperDashPP.app */,
 				CAFEFEED00000000DEADBF01 /* MapStyle.swift */,
 				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
+				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -394,6 +397,7 @@
 				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
 				F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */,
 				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,
+				F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

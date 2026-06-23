@@ -521,6 +521,9 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             installRouteChangedHook()
+            // Resolve Light/Dark/Auto for the current position+time before
+            // the first bake, so the ride opens in the right palette.
+            status.primeMapStyleForStart()
             await installRouteGeometry(firstLeg)
             await status.activeNavigator.start(plan: plan)
             // Planning UI is consumed — drop it so picking returns to

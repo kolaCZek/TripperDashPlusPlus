@@ -259,6 +259,25 @@ final class AppStatus {
     /// clock format, ETA-vs-distance bottom row). Persisted, observable.
     let dashNavSettings = DashNavSettings()
 
+    /// User-facing map appearance preference (Light / Dark / Auto).
+    /// Persisted, observable. `MapStyleResolver` maps this + the live GPS
+    /// fix + clock onto `effectiveMapStyle`.
+    let mapStyleSettings = MapStyleSettings()
+
+    /// The concrete palette currently driving the renderer. Mirrors
+    /// `mapViewSource.currentStyle`; kept here so the settings UI can show
+    /// "Currently: Dark" under the Auto picker.
+    private(set) var effectiveMapStyle: MapStyle = .light
+
+    /// When the effective palette last changed — feeds the resolver's
+    /// dwell lock so Auto can't strobe.
+    @ObservationIgnored private var lastStyleSwitchAt: Date?
+
+    /// Throttle for the solar re-evaluation: the sun moves ~0.25°/min, so
+    /// re-checking once a minute is ample and keeps us off the per-fix
+    /// hot path.
+    @ObservationIgnored private var lastStyleEvalAt: Date?
+
     /// Active-nav 1 Hz pump. Created on demand when streaming starts
     /// (we need a live `mapSource` and `bikeLink.connected` first). Held
     /// here so we can stop it from `stopStreaming()`.
@@ -352,9 +371,74 @@ final class AppStatus {
         // Top up the rolling tile-bake window. Throttled inside
         // MapViewSource so we don't hammer URLSession on every fix.
         mapViewSource.extendTileCache(near: fix.coordinate)
+        // Re-evaluate the Auto map style (sun position). Throttled to
+        // ~60 s — far coarser than the GPS fix rate, fine for the sun.
+        maybeUpdateMapStyle(fix)
         Task { @MainActor in
             await activeNavigator.ingest(fix: fix)
         }
+    }
+
+    /// Throttled Auto-style re-evaluation. For manual modes the resolver
+    /// is a pass-through (still cheap). When the effective palette changes
+    /// we drive `MapViewSource.setMapStyle`, which holds the old tile
+    /// cache visible until the new palette finishes its first bake.
+    private func maybeUpdateMapStyle(_ fix: Fix) {
+        let now = Date()
+        if let last = lastStyleEvalAt, now.timeIntervalSince(last) < 60 { return }
+        lastStyleEvalAt = now
+        let next = MapStyleResolver.resolve(
+            mode: mapStyleSettings.mode,
+            coord: fix.coordinate,
+            date: fix.timestamp,
+            current: effectiveMapStyle,
+            lastSwitch: lastStyleSwitchAt
+        )
+        guard next != effectiveMapStyle else { return }
+        effectiveMapStyle = next
+        lastStyleSwitchAt = now
+        mapViewSource.setMapStyle(next)
+    }
+
+    /// Resolve the effective palette right now (used at navigation start,
+    /// before the first prerender, so the ride opens in the correct
+    /// Light/Dark style) and push it to the renderer's `currentStyle`
+    /// WITHOUT triggering a re-bake (there's no cache yet — the imminent
+    /// prerender will use it).
+    func primeMapStyleForStart() {
+        let coord = locationService.lastFix?.coordinate
+        let next = MapStyleResolver.resolve(
+            mode: mapStyleSettings.mode,
+            coord: coord,
+            date: Date(),
+            current: effectiveMapStyle,
+            lastSwitch: lastStyleSwitchAt
+        )
+        effectiveMapStyle = next
+        lastStyleSwitchAt = Date()
+        lastStyleEvalAt = Date()
+        mapViewSource.setMapStyle(next)
+    }
+
+    /// Apply a manual change of the appearance picker (Light/Dark/Auto).
+    /// Persists the mode and re-resolves immediately (no 60 s throttle —
+    /// the rider just tapped, they expect an instant response). For Auto
+    /// this resolves against the current sun position.
+    func setMapStyleMode(_ mode: MapStyleSettings.Mode) {
+        mapStyleSettings.mode = mode
+        let coord = locationService.lastFix?.coordinate
+        let next = MapStyleResolver.resolve(
+            mode: mode,
+            coord: coord,
+            date: Date(),
+            current: effectiveMapStyle,
+            lastSwitch: nil   // manual action bypasses the dwell lock
+        )
+        lastStyleEvalAt = Date()
+        guard next != effectiveMapStyle else { return }
+        effectiveMapStyle = next
+        lastStyleSwitchAt = Date()
+        mapViewSource.setMapStyle(next)
     }
 
     // MARK: - Build info (handy in the diagnostics overlay)
