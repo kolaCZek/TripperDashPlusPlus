@@ -82,30 +82,58 @@ enum RoundaboutInstructionParser {
              "dziesiąty", "dziesiątym"],
     ]
 
-    /// Digit-form regex: matches "2", "2.", "2nd", "2-nd", "2.výjezdem".
-    /// Captures the digits. Lookahead ensures we don't bleed into the
-    /// next word's digits (e.g. road numbers like "Hwy 25" still match
-    /// "25" but they're filtered downstream by the 1..20 range check).
-    private static let digitOrdinalRegex: NSRegularExpression = {
-        let pattern = #"\b(\d{1,2})(?:-?(?:st|nd|rd|th))?\.?(?=\s|\b|$)"#
+    /// Exit-noun alternation, per locale. The ordinal that names the exit
+    /// ALWAYS sits immediately before this noun in every Apple Maps
+    /// emission ("2nd **exit**", "2. **výjezdem**", "2. **Ausfahrt**",
+    /// "2. **výjazd**", "2. **zjazd**"). Anchoring the digit to this noun
+    /// is what stops a road number ("silnici 3") or an "Nth roundabout"
+    /// prefix from hijacking the exit count.
+    private static let exitNoun =
+        #"(?:exits?|v[ýy]jezd\w*|v[ýy]jazd\w*|ausfahrt\w*|zjazd\w*|sortie\w*|uscita\w*)"#
+
+    /// Digit immediately before the exit noun: "2 exit", "2nd exit",
+    /// "2. výjezdem", "2.výjezdem". Captures the digits in group 1.
+    private static let digitBeforeExitRegex: NSRegularExpression = {
+        let pattern = #"(\d{1,2})(?:-?(?:st|nd|rd|th))?\.?\s*"# + exitNoun + #"\b"#
         // swiftlint:disable:next force_try
         return try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+    }()
+
+    /// Does the instruction contain an exit noun at all? When it does we
+    /// REFUSE to fall back to a free-floating digit (that's how a road
+    /// number leaked in as the exit count). When it doesn't, the string
+    /// is degenerate and a bare number is the best we can do.
+    private static let hasExitNounRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        return try! NSRegularExpression(pattern: exitNoun + #"\b"#, options: [.caseInsensitive])
+    }()
+
+    /// Bare-number form ("2") used only when there is NO exit noun.
+    private static let bareNumberRegex: NSRegularExpression = {
+        // swiftlint:disable:next force_try
+        return try! NSRegularExpression(pattern: #"^\s*(\d{1,2})\s*$"#, options: [])
     }()
 
     /// Extract the exit number from an instructions string. Returns
     /// `nil` if no recognisable ordinal is present — caller should fall
     /// back to a generic roundabout glyph (exit 0).
     ///
-    /// Order: try the digit regex first (Apple Maps almost always emits
-    /// the arabic digit), then fall back to the word-ordinal table for
-    /// the rare "second exit" / "druhým výjezdem" form.
+    /// Strategy (order matters):
+    ///   1. Digit anchored to the exit noun — covers ~every real Apple
+    ///      Maps emission, and is immune to road numbers / "3rd roundabout"
+    ///      prefixes because the digit must sit right before the noun.
+    ///   2. Spelled-out ordinal followed (within a couple words) by the
+    ///      exit noun — the rare "second exit" / "druhým výjezdem" form.
+    ///   3. Bare number, ONLY when there is no exit noun at all (degenerate
+    ///      input). Never used when a noun is present, so a stray number
+    ///      elsewhere in a real instruction can't win.
     static func parseExitNumber(from instructions: String) -> Int? {
         let lowered = instructions.lowercased()
-
-        // Digit form.
         let nsString = lowered as NSString
-        let range = NSRange(location: 0, length: nsString.length)
-        if let match = digitOrdinalRegex.firstMatch(in: lowered, options: [], range: range),
+        let full = NSRange(location: 0, length: nsString.length)
+
+        // 1. Digit anchored to the exit noun.
+        if let match = digitBeforeExitRegex.firstMatch(in: lowered, options: [], range: full),
            match.numberOfRanges >= 2 {
             let digitsRange = match.range(at: 1)
             if digitsRange.location != NSNotFound,
@@ -115,16 +143,33 @@ enum RoundaboutInstructionParser {
             }
         }
 
-        // Word form fallback. Iterate sorted by number so behaviour is
-        // deterministic if two forms collide (shouldn't happen but cheap
-        // insurance).
-        for n in wordOrdinals.keys.sorted() {
-            for form in wordOrdinals[n] ?? [] {
-                let escaped = NSRegularExpression.escapedPattern(for: form)
-                if lowered.range(of: "\\b\(escaped)\\b",
-                                 options: .regularExpression) != nil {
-                    return n
+        let hasExitNoun =
+            hasExitNounRegex.firstMatch(in: lowered, options: [], range: full) != nil
+
+        // 2. Spelled-out ordinal near the exit noun.
+        if hasExitNoun {
+            for n in wordOrdinals.keys.sorted() {
+                for form in wordOrdinals[n] ?? [] {
+                    let escaped = NSRegularExpression.escapedPattern(for: form)
+                    // ordinal, then up to two words, then the exit noun.
+                    let pattern = "\\b\(escaped)\\b\\s*(?:\\w+\\s+){0,2}?" + exitNoun + "\\b"
+                    if lowered.range(of: pattern, options: .regularExpression) != nil {
+                        return n
+                    }
                 }
+            }
+            // Exit noun present but no parseable ordinal → generic glyph.
+            return nil
+        }
+
+        // 3. Bare number only (no exit noun anywhere).
+        if let match = bareNumberRegex.firstMatch(in: lowered, options: [], range: full),
+           match.numberOfRanges >= 2 {
+            let digitsRange = match.range(at: 1)
+            if digitsRange.location != NSNotFound,
+               let n = Int(nsString.substring(with: digitsRange)),
+               (1...20).contains(n) {
+                return n
             }
         }
 

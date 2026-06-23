@@ -75,6 +75,17 @@ ROUNDABOUT_FIXTURES: list[tuple[str, int | None]] = [
     # --- Word form: Polish -------------------------------------------
     ("wybierz drugi zjazd", 2),
 
+    # --- Regression: Bug A — road number / Nth-roundabout must NOT
+    #     hijack the exit count (field ride 6/2026, exit 1 shown as 3) ---
+    ("At the 3rd roundabout, take the 1st exit", 1),
+    ("Na 3. kruhovém objezdu vyjeďte 1. výjezdem", 1),
+    ("Na silnici 3 na kruhovém objezdu vyjeďte 1. výjezdem", 1),
+    ("Na kruhovém objezdu vyjeďte 1. výjezdem na silnici 3", 1),
+    ("take the 2nd exit onto Route 7", 2),
+    ("vyjeďte 4. výjezdem na D8", 4),
+    # Roundabout step with a road number but no exit ordinal → generic.
+    ("Na kruhovém objezdu na silnici 3 jeďte rovně", None),
+
     # --- False-positive guards: no roundabout, no exit number -------
     ("Turn left onto Wenceslas Square", None),
     ("Continue straight for 200 meters", None),
@@ -205,17 +216,40 @@ def test_swift_word_ordinals_match_python():
     )
 
 
-def test_swift_digit_regex_pattern_matches_python():
-    """The digit-form regex must be character-for-character identical
-    so both parsers handle the same edge cases."""
+def test_swift_exit_noun_literal_matches_python():
+    """The exit-noun alternation must be identical on both sides — it's
+    the anchor that prevents road numbers from leaking in as exit counts,
+    so a drift here silently reintroduces the 0x0D-for-0x0B bug."""
     src = _swift_parser_source()
-    # Match the Swift raw-string regex: #"<pattern>"#
-    m = re.search(r'pattern\s*=\s*#"([^"]+)"#', src)
-    assert m, "Could not find Swift digitOrdinalRegex pattern literal."
-    swift_pattern = m.group(1)
+    # Swift: `private static let exitNoun = #"(?:exits?|...)"#`
+    m = re.search(r'exitNoun\s*=\s*#"([^"]+)"#', src)
+    assert m, "Could not find Swift exitNoun literal."
+    swift_noun = m.group(1)
 
-    python_pattern = r"\b(\d{1,2})(?:-?(?:st|nd|rd|th))?\.?(?=\s|\b|$)"
-    assert swift_pattern == python_pattern, (
-        f"Digit regex drift:\n  Swift:  {swift_pattern!r}\n"
-        f"  Python: {python_pattern!r}"
+    from fake_dash.roundabout_parser import EXIT_NOUN as python_noun
+    assert swift_noun == python_noun, (
+        f"Exit-noun regex drift:\n  Swift:  {swift_noun!r}\n"
+        f"  Python: {python_noun!r}"
+    )
+
+
+def test_swift_digit_anchor_regex_matches_python():
+    """The digit-before-exit pattern must be character-for-character
+    identical (modulo the shared exitNoun concat) so both parsers handle
+    the same edge cases."""
+    src = _swift_parser_source()
+    # Swift builds it as: #"(\d{1,2})(?:-?(?:st|nd|rd|th))?\.?\s*"# + exitNoun + #"\b"#
+    m = re.search(r'let pattern = #"([^"]+)"#\s*\+\s*exitNoun\s*\+\s*#"([^"]+)"#', src)
+    assert m, "Could not find Swift digitBeforeExitRegex pattern literal."
+    swift_prefix, swift_suffix = m.group(1), m.group(2)
+
+    python_prefix = r"(\d{1,2})(?:-?(?:st|nd|rd|th))?\.?\s*"
+    python_suffix = r"\b"
+    assert swift_prefix == python_prefix, (
+        f"Digit-anchor prefix drift:\n  Swift:  {swift_prefix!r}\n"
+        f"  Python: {python_prefix!r}"
+    )
+    assert swift_suffix == python_suffix, (
+        f"Digit-anchor suffix drift:\n  Swift:  {swift_suffix!r}\n"
+        f"  Python: {python_suffix!r}"
     )

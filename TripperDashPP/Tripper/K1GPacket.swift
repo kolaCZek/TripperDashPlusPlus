@@ -339,11 +339,11 @@ extension K1GPacket {
     // outer_len / seg_count.
 
     /// `05 02 0001 <code>` — t3c.g(): primary maneuver glyph code.
-    /// Known values: `0x0B` = continue/straight, `0x3C` = bear-right.
-    /// Full enum is undocumented; send `0x0B` as a safe placeholder when
-    /// the real code isn't known — the dash will still show the rest of
-    /// the active-nav bubble (distance, ETA, …) and we render the actual
-    /// arrow in the video stream.
+    /// The full enum is now cataloged and user-verified against a
+    /// Guerrilla 450 (see `docs/maneuver-glyphs/README.md`, 90 entries).
+    /// Callers should pass the byte from `ManeuverKind.wireByte`; the
+    /// dash renders the matching bubble glyph (turn / roundabout / U-turn
+    /// / merge / exit / arrive / …). `0x5A..0xFF` hide the bubble.
     static func tlvPrimaryManeuver(_ code: UInt8) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x02, payload: Data([code]))
     }

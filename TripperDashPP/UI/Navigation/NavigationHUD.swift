@@ -162,17 +162,14 @@ struct NavigationHUD: View {
         return f.string(from: arr)
     }
 
-    /// Map MKRoute.Step.instructions to a vague SF Symbol guess. Apple
-    /// doesn't expose maneuver type publicly, so we keyword-match the
-    /// instruction text (cs + en). Falls back to arrow.up.
+    /// SF Symbol for the upcoming maneuver. Delegates to the SAME hybrid
+    /// classifier (`ManeuverKind.classify`) that drives the dash bubble —
+    /// geometry for direction, text for family — so the HUD icon always
+    /// agrees with what the dash shows. (Previously this had its own
+    /// substring keyword match that, like the dash classifier's old bug,
+    /// could read a right turn onto a "left"-named road as a left arrow.)
     private func maneuverSymbol(for step: MKRoute.Step?) -> String {
-        guard let s = step?.instructions.lowercased() else { return "arrow.up" }
-        if s.contains("vlevo") || s.contains("doleva") || s.contains("left") { return "arrow.turn.up.left" }
-        if s.contains("vpravo") || s.contains("doprava") || s.contains("right") { return "arrow.turn.up.right" }
-        if s.contains("kruh") || s.contains("roundabout") { return "arrow.triangle.2.circlepath" }
-        if s.contains("výjezd") || s.contains("exit") || s.contains("sjezd") { return "arrow.up.right" }
-        if s.contains("zpět") || s.contains("u-turn") { return "arrow.uturn.up" }
-        if s.contains("cíl") || s.contains("arrive") || s.contains("destination") { return "flag.checkered" }
-        return "arrow.up"
+        guard let step else { return "arrow.up" }
+        return ManeuverKind.classify(step, previousStep: nav.stepBeforeNext).sfSymbol
     }
 }

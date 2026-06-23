@@ -73,78 +73,122 @@ enum ManeuverKind: Equatable {
     case ferry                                     // 0x3E — ferry crossing
     case railroad                                  // 0x3F — level / train crossing
 
-    /// Best-effort classification from an `MKRoute.Step.instructions`
-    /// string. Mirrors `ManeuverGlyph.symbol(for:)` heuristics but maps
-    /// to our own enum so we can render path-based glyphs *and* pick a
-    /// catalog wire byte.
+    /// HYBRID classification of a maneuver step.
     ///
-    /// Roundabout cases default to `(exit: 0, clockwise: false)` —
-    /// MKRoute.Step does not expose exit number or turn direction, so
-    /// without geometry-side computation we render a generic small CCW
-    /// roundabout. F2b will replace this with a proper exit counter.
-    static func classify(_ step: MKRoute.Step) -> ManeuverKind {
+    /// `MKRoute.Step` exposes no structured maneuver type — only a
+    /// localized free-text `instructions` string. Relying on that text
+    /// for the *direction* of a turn was the source of two field bugs
+    /// (a right turn onto "…Leftbank Road" read as left; locale-fragile
+    /// keyword lists). So we split responsibilities:
+    ///
+    ///   - **Text** decides the maneuver FAMILY: roundabout? U-turn?
+    ///     merge? exit/ramp? ferry/railroad? arrival? plain turn?
+    ///   - **Geometry** decides the DIRECTION + sharpness of a plain
+    ///     turn, from the signed angle between the incoming and outgoing
+    ///     headings at the maneuver node. Language-independent, immune to
+    ///     road names that happen to contain "left"/"right".
+    ///
+    /// Roundabout EXIT NUMBER stays text-derived — the route polyline
+    /// passes through the circle but never traces the arms we don't take,
+    /// so the exit count is geometrically unknowable (see
+    /// `RoundaboutInstructionParser`).
+    ///
+    /// - Parameters:
+    ///   - step: the upcoming maneuver step (`nextStep`).
+    ///   - previousStep: the step the rider is currently completing,
+    ///     whose polyline ENDS at this maneuver's node. Supplies the
+    ///     incoming heading for the geometric turn angle. Pass `nil` for
+    ///     the first step (no incoming leg) — classification then falls
+    ///     back to text for direction.
+    static func classify(_ step: MKRoute.Step,
+                         previousStep: MKRoute.Step? = nil) -> ManeuverKind {
         let s = step.instructions.lowercased()
 
-        // Order matters — "sharp left" must match before "left".
-        if s.contains("u-turn") || s.contains("otočte") || s.contains("otočit") {
-            // MKRoute doesn't tell us which side, so we assume the
-            // local left-hand-drive convention (CZ): U-turn via the
-            // left side.
-            return .uTurnLeft
-        }
-        if s.contains("sharp left") || s.contains("ostře vlevo") || s.contains("ostře doleva") {
-            return .sharpLeft
-        }
-        if s.contains("sharp right") || s.contains("ostře vpravo") || s.contains("ostře doprava") {
-            return .sharpRight
-        }
-        if s.contains("slight left") || s.contains("mírně vlevo") || s.contains("mírně doleva") {
-            return .slightLeft
-        }
-        if s.contains("slight right") || s.contains("mírně vpravo") || s.contains("mírně doprava") {
-            return .slightRight
-        }
-        if s.contains("roundabout") || s.contains("kruhový") || s.contains("kruhovém")
-            || s.contains("kruháč") || s.contains("kruhovom") || s.contains("rondzie")
-            || s.contains("kreisverkehr") {
-            // F2b: extract exit number from the instructions string.
-            // Apple Maps emits "2nd exit" / "2. výjezdem" / etc.
-            // Fall back to exit 0 (generic small roundabout glyph) if
-            // we can't parse a number.
-            //
-            // Direction (CW/CCW) is left as `false` (CCW) for now —
-            // most of Continental Europe drives on the right, so
-            // roundabouts run CCW. F2c will fold in geometry-based
-            // CW detection for UK/IE/AU/JP/etc.
+        // ---- Family detection (text) -----------------------------------
+        // Roundabout first: roundabout strings also contain "exit", so
+        // this must precede the exit/ramp branch below.
+        if Keywords.isRoundabout(s) {
+            // Exit number is text-only (geometry can't see untaken arms).
             let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions) ?? 0
+            // Rotation: CCW for right-hand-traffic (Continental Europe),
+            // which is where this bike rides. A future enhancement can
+            // derive CW/CCW from the in-circle polyline winding.
             return .roundabout(exit: exit, clockwise: false)
         }
-        if s.contains("merge") || s.contains("zařaďte") || s.contains("připojit") {
-            // MKRoute "merge" instruction usually means "the highway
-            // you're joining comes in from the left" (you slide right
-            // into traffic). We default to mergeRight; a richer parser
-            // could look for "from the left/right" qualifiers.
-            return .mergeRight
-        }
-        if s.contains("exit") || s.contains("sjeďte") || s.contains("sjezd") {
-            // Default exit side mirrors typical motorway layout (right
-            // in right-hand-traffic countries). Pick by "left" hint
-            // if present.
-            if s.contains("left") || s.contains("vlevo") || s.contains("doleva") {
-                return .exitLeft
+
+        if Keywords.isUTurn(s) {
+            // Resolve side geometrically when we can; default to the
+            // local (right-hand-traffic) convention of a left U-turn.
+            switch ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
+                                         currentStepPolyline: step.polyline) {
+            case .uTurnRight, .sharpRight, .right, .slightRight:
+                return .uTurnRight
+            default:
+                return .uTurnLeft
             }
-            return .exitRight
         }
-        if s.contains("arrive") || s.contains("destination") || s.contains("cíl") {
-            return .arrive
+
+        if Keywords.isMerge(s) {
+            return geometricSide(step: step, previousStep: previousStep,
+                                 left: .mergeLeft, right: .mergeRight,
+                                 textDefault: .mergeRight, instruction: s)
         }
-        if s.contains("left") || s.contains("vlevo") || s.contains("doleva") {
-            return .left
+
+        if Keywords.isExitRamp(s) {
+            return geometricSide(step: step, previousStep: previousStep,
+                                 left: .exitLeft, right: .exitRight,
+                                 textDefault: .exitRight, instruction: s)
         }
-        if s.contains("right") || s.contains("vpravo") || s.contains("doprava") {
-            return .right
+
+        if Keywords.isFerry(s)    { return .ferry }
+        if Keywords.isRailroad(s) { return .railroad }
+        if Keywords.isArrive(s)   { return .arrive }
+
+        // ---- Plain turn: DIRECTION from geometry -----------------------
+        if let turn = ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
+                                            currentStepPolyline: step.polyline) {
+            switch turn {
+            case .straight:    return .straight
+            case .slightLeft:  return .slightLeft
+            case .left:        return .left
+            case .sharpLeft:   return .sharpLeft
+            case .slightRight: return .slightRight
+            case .right:       return .right
+            case .sharpRight:  return .sharpRight
+            case .uTurnLeft:   return .uTurnLeft
+            case .uTurnRight:  return .uTurnRight
+            }
         }
-        return .straight
+
+        // ---- Fallback: text direction (first step / degenerate geometry)
+        // Earliest-token wins, with word boundaries, so a road name later
+        // in the clause can't override the actual turn verb.
+        return Keywords.textualTurn(s)
+    }
+
+    /// Pick a left/right variant from geometry, falling back to a textual
+    /// "left" hint and finally a sensible default. Used for families where
+    /// the glyph has a handed pair (merge, exit) but the angle alone is
+    /// enough to tell the side.
+    private static func geometricSide(step: MKRoute.Step,
+                                      previousStep: MKRoute.Step?,
+                                      left: ManeuverKind,
+                                      right: ManeuverKind,
+                                      textDefault: ManeuverKind,
+                                      instruction s: String) -> ManeuverKind {
+        switch ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
+                                     currentStepPolyline: step.polyline) {
+        case .slightLeft?, .left?, .sharpLeft?, .uTurnLeft?:
+            return left
+        case .slightRight?, .right?, .sharpRight?, .uTurnRight?:
+            return right
+        case .straight?, nil:
+            // Angle is ~straight or unavailable — fall back to a textual
+            // side hint, then the family default.
+            if Keywords.hasLeftToken(s) && !Keywords.hasRightToken(s) { return left }
+            if Keywords.hasRightToken(s) && !Keywords.hasLeftToken(s) { return right }
+            return textDefault
+        }
     }
 
     /// The K1G maneuver byte for the dash bubble glyph.
@@ -192,6 +236,36 @@ enum ManeuverKind: Equatable {
             case (true,  10...19): return UInt8(0x46 + n - 10)     // 0x46..0x4F
             default:               return 0x0A                      // unreachable (clamp guarantees range)
             }
+        }
+    }
+
+    /// SF Symbol name for the in-app SwiftUI HUD. Derived from the SAME
+    /// `ManeuverKind` that drives the dash bubble, so the phone HUD and the
+    /// dash can never disagree on direction (they used to: both had their
+    /// own substring classifier and the HUD's matched road names too).
+    var sfSymbol: String {
+        switch self {
+        case .straight:                 return "arrow.up"
+        case .slightLeft:               return "arrow.up.left"
+        case .left:                     return "arrow.turn.up.left"
+        case .sharpLeft:                return "arrow.uturn.left"
+        case .slightRight:              return "arrow.up.right"
+        case .right:                    return "arrow.turn.up.right"
+        case .sharpRight:               return "arrow.uturn.right"
+        case .uTurnLeft:                return "arrow.uturn.down"
+        case .uTurnRight:               return "arrow.uturn.down"
+        case .mergeLeft, .mergeRight:   return "arrow.merge"
+        case .forkLeft:                 return "arrow.up.left"
+        case .forkRight:                return "arrow.up.right"
+        case .forkStraight:             return "arrow.up"
+        case .exitLeft:                 return "arrow.up.left.square"
+        case .exitRight:                return "arrow.up.right.square"
+        case .roundabout:               return "arrow.triangle.2.circlepath"
+        case .arrive, .arriveLeft, .arriveRight:
+                                        return "flag.checkered"
+        case .recalculating:            return "arrow.triangle.2.circlepath"
+        case .ferry:                    return "ferry"
+        case .railroad:                 return "tram.fill"
         }
     }
 }
