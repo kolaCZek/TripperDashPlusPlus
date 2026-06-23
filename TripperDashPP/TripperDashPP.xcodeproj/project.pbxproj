@@ -153,9 +153,6 @@
 			isa = PBXGroup;
 			children = (
 				A41A9C4D2FE20258009BF005 /* TripperDashPP.app */,
-				CAFEFEED00000000DEADBF01 /* MapStyle.swift */,
-				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
-				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -217,6 +214,9 @@
 				CAFEFEED00000000DEADBEF8 /* WebMercator.swift */,
 				CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */,
 				CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */,
+				CAFEFEED00000000DEADBF01 /* MapStyle.swift */,
+				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
+				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
