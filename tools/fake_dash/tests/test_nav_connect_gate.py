@@ -4,7 +4,8 @@ Tests for the connect-first navigation gate, as implemented in:
   - TripperDashPP/UI/MapPickerView.swift
     (controlButton: "Start navigation" only renders in
     (.picking, .connected) where isPlanning; planning while not
-    connected shows "Connect to dash to start" instead.
+    connected shows "Connect & start navigation" instead (tapping it
+    arms auto-start — see test_nav_autostart.py).
     startNavigation(plan:) also hard-guards on .connected and bounces
     to connect() if the link dropped between render and tap.)
 
@@ -47,7 +48,7 @@ class Control:
     RECONNECTING = "reconnecting"
     START_PLAN = "start_plan"          # the gated "Start navigation"
     CONNECTED_IDLE = "connected_idle"
-    CONNECT = "connect"                # "Connect to dash [to start]"
+    CONNECT = "connect"                # "Connect to dash" / "Connect & start navigation"
 
 
 def control_for(mode: str, link: str, is_planning: bool) -> str:
