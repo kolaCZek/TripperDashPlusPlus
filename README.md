@@ -35,7 +35,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 | K1G control plane (RSA handshake, heartbeats, initial burst) | ✅ validated on bike — UDP tx :2000 / rx :2002, BSD socket |
 | H.264 encoder + RTP packetizer (526×300 @ 6 fps, ~450 kbps) | ✅ validated on bike |
 | Background streaming (screen-off, phone in pocket) | ✅ pre-rendered OSM tiles + CPU CGContext composition, BG-safe |
-| Map rendering | ✅ OpenStreetMap raster tiles, disk-cached, rolling-window prefetch |
+| Map rendering | ✅ OpenStreetMap raster tiles, disk-cached, rolling-window prefetch, Light/Dark/Auto palette |
 | Destination search + favorites + route preview | ✅ MapKit (`MKLocalSearch` / `MKDirections`) |
 | Active turn-by-turn nav (maneuver TLV + burned-in glyph) | ✅ validated on bike (Phase 9e) |
 | Nav-mode projection lifecycle (q3c kick sequence) | ✅ validated on bike |
@@ -45,7 +45,7 @@ Field-tested on a **Royal Enfield Guerrilla 450** with SSID `RE_9G5L_…`. See [
 ## Tech stack
 
 - **Swift 6 / SwiftUI**, **iOS 18+**, **Xcode 26**
-- **OpenStreetMap raster tiles** for the map (self-hostable; no SDK, no API key, no tile quota) + **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
+- **CARTO raster basemaps** for the map (keyless; no SDK, no API key, no tile quota), with a **Light / Dark / Auto** appearance setting — Light = Positron, Dark = Darkmatter (matched pair), Auto follows sunrise/sunset from GPS — plus **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
 - Apple frameworks: `Network`, `VideoToolbox`, `CryptoKit`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit`
 - **Zero** third-party SPM dependencies
 - Python 3.12+ for the `fake_dash` test harness (decode RTP, simulate the dash on a laptop)

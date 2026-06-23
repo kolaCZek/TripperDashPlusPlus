@@ -25,13 +25,13 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 - **Toolchain**: **Xcode 26.5+, macOS 15+** (lower may build but is untested; CI pins to the latest stable Xcode on macOS 15 runners)
 - **Bundle ID**: `eu.kolaczek.tripperdashpp`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
-- **Maps**: **OpenStreetMap raster tiles** (`tile.openstreetmap.org` by default, self-hostable) fetched over cellular and cached on disk. **No third-party map SDK, no API key, no tile quota.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
+- **Maps**: **CARTO raster basemaps** (keyless XYZ), fetched over cellular and cached on disk. Two palettes via a user **Light / Dark / Auto** setting, sharing one cartography so transitions are a smooth recolour: **Light** = CARTO Positron (`{s}.basemaps.cartocdn.com/light_all`), **Dark** = CARTO Darkmatter (`{s}.basemaps.cartocdn.com/dark_all`) — both require attribution `© OpenStreetMap © CARTO`. Auto follows local sunrise/sunset from the GPS fix (see `SolarClock` / `MapStyleResolver`). Both palettes are disk-cached in **separate namespaces** (`RouteTiles/<light|dark>/…`) so they never overwrite each other. Providers are a one-line table swap in `MapStyle.swift` (self-host or back to OSM Carto); **no third-party map SDK, no API key, no tile quota.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
 - **Apple frameworks in use**: `Network`, `VideoToolbox`, `CryptoKit`, `Security`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit` (PiP keep-alive), `BackgroundTasks`, `UIKit` (CGContext frame composition), `SwiftUI`
 
 ## Architecture summary (one screen)
 
 ```
-iPhone ──(Cellular)──► tile.openstreetmap.org   OSM raster tiles (disk-cached)
+iPhone ──(Cellular)──► basemaps.cartocdn.com    CARTO raster tiles (light/dark, disk-cached)
 iPhone ──(Cellular)──► Apple MapKit             MKDirections routes + MKLocalSearch
 iPhone ──(Wi-Fi)─────► 192.168.1.1:2000         K1G control TX (RSA, heartbeat, nav kicks)
 iPhone ◄─(Wi-Fi)────── 192.168.1.1 → :2002      K1G control RX (auth, acks, button events)
@@ -122,7 +122,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 3. **No paid-only capabilities.** If you find yourself reaching for `NEHotspotConfiguration`, Apple Watch targets, push notifications, App Groups across devices, associated domains, or TestFlight — stop. We're on a free Developer account. Use the manual Wi-Fi switch flow + `NWPathMonitor` monitoring instead.
 
-4. **No third-party map SDK.** Mapbox and Google Maps iOS SDKs are both pure-Metal renderers that fail instantly in the background (`IOGPUMetalError` on the lock screen) — the whole "phone in pocket" use case rules them out. We render OSM raster tiles ourselves via CPU CGContext composition, which is background-safe. Don't reintroduce a map SDK.
+4. **No third-party map SDK.** Mapbox and Google Maps iOS SDKs are both pure-Metal renderers that fail instantly in the background (`IOGPUMetalError` on the lock screen) — the whole "phone in pocket" use case rules them out. We render CARTO raster tiles (light/dark) ourselves via CPU CGContext composition, which is background-safe. Don't reintroduce a map SDK.
 
 5. **No internet on the Wi-Fi interface.** The Tripper AP has no internet. Always verify that `URLSession` tile/route traffic goes via cellular. If a tile request goes via Wi-Fi it will time out, the user gets blank tiles, and they'll think the app is broken.
 
