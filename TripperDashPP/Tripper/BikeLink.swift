@@ -44,6 +44,20 @@ final class BikeLink {
 
     private(set) var state: LinkState = .idle
 
+    /// Convenience: are we in any `.error(…)` case? (Equatable on the enum
+    /// needs an associated value to compare, so a helper is cleaner.)
+    var isErrorState: Bool {
+        if case .error = state { return true }
+        return false
+    }
+
+    /// Fired on the Wi-Fi down→up edge while the link is idle/errored (not
+    /// mid-connection, not reconnecting). The owner (AppStatus) reads the
+    /// freshly-associated SSID and starts the link if it's a known,
+    /// non-suppressed dash network. Kept as a plain closure so BikeLink
+    /// itself stays free of any wifi-info entitlement dependency.
+    @ObservationIgnored var onWifiBecameAvailableWhileIdle: (() -> Void)?
+
     /// AES-256 session key the bike now also has (for Phase 4+).
     private(set) var aesKey: Data?
 
@@ -128,6 +142,14 @@ final class BikeLink {
 
     // MARK: - API
 
+    /// Start the Wi-Fi presence monitor without initiating a connection.
+    /// Call once at app startup so the SSID-aware auto-connect trigger
+    /// (`onWifiBecameAvailableWhileIdle`) is live even before the rider
+    /// taps Connect for the first time. Idempotent.
+    func startMonitoring() {
+        startPathMonitorIfNeeded()
+    }
+
     /// Begin the connect → handshake → connected transition. Returns
     /// immediately; observe `state` for progress.
     ///
@@ -183,6 +205,23 @@ final class BikeLink {
         lastError = nil
         state = .idle
         log.info("BikeLink disconnected (auto-reconnect cleared)")
+    }
+
+    /// Surface an error that originated OUTSIDE the connect flow (e.g. the
+    /// Wi-Fi join step in the layer above failed, so there's no point
+    /// starting a handshake that can't reach the dash). Puts the link into
+    /// `.error` with a user-facing message, mirroring an internal connect
+    /// failure, without having attempted a socket. No-op if we're already
+    /// mid-connection so we don't stomp live progress.
+    func reportExternalError(_ message: String) {
+        switch state {
+        case .idle, .error:
+            lastError = message
+            state = .error(message)
+            log.error("External error surfaced to link: \(message, privacy: .public)")
+        case .connecting, .handshaking, .reconnecting, .connected:
+            log.warning("Ignoring external error '\(message, privacy: .public)' while in state \(String(describing: self.state))")
+        }
     }
 
     // MARK: - Nav projection lifecycle
@@ -444,6 +483,17 @@ final class BikeLink {
                     // the loop keeps retrying. This is a latency win, not a
                     // correctness gate.
                     self.wakeReconnect()
+                } else if satisfied, !self.lastWifiSatisfied,
+                            (self.state == .idle || self.isErrorState) {
+                    // Wi-Fi just came up while we're NOT in a connection.
+                    // This is the SSID-aware auto-connect trigger: the
+                    // layer above reads the freshly-joined SSID and, if
+                    // it's a known dash network (and not suppressed after a
+                    // manual disconnect), starts the link. We don't read
+                    // the SSID here — BikeLink has no wifi-info dependency;
+                    // the closure owner does. Fired only on the down→up
+                    // edge so a stable Wi-Fi doesn't re-trigger every tick.
+                    self.onWifiBecameAvailableWhileIdle?()
                 }
             }
         }

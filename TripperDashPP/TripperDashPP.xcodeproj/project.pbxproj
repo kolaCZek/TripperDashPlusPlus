@@ -44,6 +44,11 @@
 		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
 		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
+		DFD1FA2D0655FF3D486A1C16 /* KnownNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F49B01965B52DC02EC50178 /* KnownNetwork.swift */; };
+		770E0B0642686DEA7219B574 /* KnownNetworksStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758D9D8D01E1E8A047D68147 /* KnownNetworksStore.swift */; };
+		131DFADFE6DD27D5C46BFFD1 /* WiFiManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372273549D18D05E9122F659 /* WiFiManager.swift */; };
+		604527AFBA404670E25898C7 /* WiFiAutoConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5EB0A94D4F928524043A31 /* WiFiAutoConnector.swift */; };
+		0CCADCDF4C6B690031C74F38 /* KnownNetworksSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5F8878BAC57ED48B96EEFA /* KnownNetworksSettingsView.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
@@ -103,6 +108,12 @@
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
 		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
+		3F49B01965B52DC02EC50178 /* KnownNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownNetwork.swift; sourceTree = "<group>"; };
+		758D9D8D01E1E8A047D68147 /* KnownNetworksStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownNetworksStore.swift; sourceTree = "<group>"; };
+		372273549D18D05E9122F659 /* WiFiManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiManager.swift; sourceTree = "<group>"; };
+		1A5EB0A94D4F928524043A31 /* WiFiAutoConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiAutoConnector.swift; sourceTree = "<group>"; };
+		FC5F8878BAC57ED48B96EEFA /* KnownNetworksSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownNetworksSettingsView.swift; sourceTree = "<group>"; };
+		6E0A64BE72BB38EF69EBD5C1 /* TripperDashPP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TripperDashPP.entitlements; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
@@ -147,6 +158,7 @@
 				A4F0FFFF000000000000A001 /* Navigation */,
 				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
+				6E0A64BE72BB38EF69EBD5C1 /* TripperDashPP.entitlements */,
 				A55E7000000000000A55E701 /* Assets.xcassets */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
@@ -181,6 +193,7 @@
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
+				FC5F8878BAC57ED48B96EEFA /* KnownNetworksSettingsView.swift */,
 				A4F0FFFF000000000000A003 /* Navigation */,
 			);
 			path = UI;
@@ -190,6 +203,10 @@
 			isa = PBXGroup;
 			children = (
 				A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */,
+				3F49B01965B52DC02EC50178 /* KnownNetwork.swift */,
+				758D9D8D01E1E8A047D68147 /* KnownNetworksStore.swift */,
+				372273549D18D05E9122F659 /* WiFiManager.swift */,
+				1A5EB0A94D4F928524043A31 /* WiFiAutoConnector.swift */,
 				A486F0602FE2DD0800AA36C3 /* DashSocket.swift */,
 				A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */,
 				A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */,
@@ -379,6 +396,11 @@
 				A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */,
 				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,
 				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
+				DFD1FA2D0655FF3D486A1C16 /* KnownNetwork.swift in Sources */,
+				770E0B0642686DEA7219B574 /* KnownNetworksStore.swift in Sources */,
+				131DFADFE6DD27D5C46BFFD1 /* WiFiManager.swift in Sources */,
+				604527AFBA404670E25898C7 /* WiFiAutoConnector.swift in Sources */,
+				0CCADCDF4C6B690031C74F38 /* KnownNetworksSettingsView.swift in Sources */,
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
@@ -556,6 +578,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				CODE_SIGN_ENTITLEMENTS = TripperDashPP.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -595,6 +618,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				CODE_SIGN_ENTITLEMENTS = TripperDashPP.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

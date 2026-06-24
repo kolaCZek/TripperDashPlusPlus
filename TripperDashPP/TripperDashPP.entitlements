@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+	<!-- ═══════════════════════════════════════════════════════════════ -->
+	<!-- TripperDash++ entitlements                                       -->
+	<!-- ═══════════════════════════════════════════════════════════════ -->
+	<!--
+	  This file is intentionally EMPTY on the free Apple Developer tier.
+
+	  The Wi-Fi management feature (read current SSID, join the dash AP
+	  from inside the app, auto-connect when already on a known dash
+	  network) needs the two NetworkExtension entitlements listed below.
+
+	  ▸ BOTH ARE PAID-ONLY. Apple's free Personal Team provisioning
+	    service will NOT issue a profile that contains them, so if you
+	    UNCOMMENT these on a free account the build FAILS TO SIGN with:
+
+	        Provisioning profile "..." doesn't include the
+	        com.apple.developer.networking.wifi-info entitlement
+
+	  ▸ Leaving them commented keeps the project building & sideloadable
+	    on a free account. WiFiManager is written to degrade gracefully:
+	    SSID reads return nil and in-app join surfaces a friendly error,
+	    so the app runs fine — you just join the dash Wi-Fi once via iOS
+	    Settings and use the manual "Connect to dash" button (the UDP
+	    handshake needs NEITHER entitlement).
+
+	  ── TO ACTIVATE (after enrolling in the $99/yr Apple Developer
+	     Program) ──────────────────────────────────────────────────────
+	    1. In Xcode → target TripperDashPP → Signing & Capabilities,
+	       add "Access WiFi Information" and "Hotspot Configuration".
+	       (Xcode registers them on the App ID and regenerates the
+	       provisioning profile automatically.)
+	    2. Uncomment the four lines below. Xcode may also add them for
+	       you when you add the capabilities — keep a single copy.
+	    3. Rebuild. The green connected-dot, in-app join, and SSID
+	       auto-connect light up with no source changes.
+
+	    Full walkthrough: docs/WIFI_MANAGEMENT.md
+	-->
+
+	<!-- Read the connected Wi-Fi SSID (NEHotspotNetwork.fetchCurrent). -->
+	<!-- <key>com.apple.developer.networking.wifi-info</key> -->
+	<!-- <true/> -->
+
+	<!-- Join / forget Wi-Fi networks (NEHotspotConfigurationManager). -->
+	<!-- <key>com.apple.developer.networking.HotspotConfiguration</key> -->
+	<!-- <true/> -->
+
+</dict>
+</plist>
