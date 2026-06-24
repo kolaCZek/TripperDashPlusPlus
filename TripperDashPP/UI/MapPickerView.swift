@@ -72,6 +72,16 @@ struct MapPickerView: View {
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
 
+    // Wi-Fi smart-connect state (feat/wifi-management).
+    /// Multi-network picker: set to the saved list when the rider taps
+    /// Connect with >1 saved network and not already on a known one.
+    @State private var connectPickerNetworks: [KnownNetwork]?
+    /// SSID prompt: shown when the rider taps Connect with no saved
+    /// networks. Collects the first RE_… SSID then connects.
+    @State private var showSSIDPrompt = false
+    @State private var promptSSID = ""
+    @State private var promptPassphrase = KnownNetwork.factoryPassphrase
+
     private enum DisplayMode { case picking, navigating, transitioning }
     private var mode: DisplayMode {
         if transitioning { return .transitioning }
@@ -161,6 +171,38 @@ struct MapPickerView: View {
             Button("Add as stop") { commitLongPress(asDestination: false) }
             Button("Set as destination") { commitLongPress(asDestination: true) }
             Button("Cancel", role: .cancel) { longPressCoord = nil }
+        }
+        // Smart-connect: no saved dash networks yet → ask for the first SSID.
+        .alert("Connect to dash", isPresented: $showSSIDPrompt) {
+            TextField("SSID (e.g. RE_1A2B3C)", text: $promptSSID)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            TextField("Wi-Fi password", text: $promptPassphrase)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Connect") { commitSSIDPrompt() }
+            Button("Cancel", role: .cancel) { pendingAutoStart = false }
+        } message: {
+            Text("Enter the Wi-Fi name shown on your dash. It looks like RE_ followed by six characters. The password is pre-filled with the Royal Enfield factory default.")
+        }
+        // Smart-connect: multiple saved networks and not on a known one →
+        // let the rider pick which dash to join.
+        .confirmationDialog("Which dash?",
+                            isPresented: Binding(
+                                get: { connectPickerNetworks != nil },
+                                set: { if !$0 { connectPickerNetworks = nil } }
+                            ),
+                            titleVisibility: .visible) {
+            ForEach(connectPickerNetworks ?? []) { network in
+                Button(network.ssid) {
+                    connectPickerNetworks = nil
+                    Task { await status.joinAndConnect(network) }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                connectPickerNetworks = nil
+                pendingAutoStart = false
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -455,11 +497,16 @@ struct MapPickerView: View {
     /// already laid out, tapping this arms `pendingAutoStart`: the rider
     /// has signalled intent to ride, so navigation auto-starts the moment
     /// the link reaches `.connected` (no second tap on "Start").
+    ///
+    /// Routes through the smart-connect decision tree instead of a bare
+    /// `bikeLink.connect()`: already-on-known-Wi-Fi connects straight off,
+    /// 0 saved networks prompts for an SSID, exactly 1 joins it, N shows a
+    /// picker. See `AppStatus.resolveConnectIntent()`.
     @ViewBuilder
     private var connectControl: some View {
         Button {
             if isPlanning { pendingAutoStart = true }
-            status.bikeLink.connect()
+            startSmartConnect()
         } label: {
             Label(isPlanning ? "Connect & start navigation" : "Connect to dash",
                   systemImage: "antenna.radiowaves.left.and.right")
@@ -467,6 +514,40 @@ struct MapPickerView: View {
                 .background(Color.accentColor.opacity(0.15))
         }
         .buttonStyle(.plain)
+    }
+
+    /// Run the smart-connect decision tree, then surface whichever UI the
+    /// resolved intent calls for (prompt / picker). The "started" cases are
+    /// handled inside AppStatus (it kicks the link), so here we only react
+    /// to the intents that need more UI.
+    private func startSmartConnect() {
+        Task {
+            switch await status.resolveConnectIntent() {
+            case .started:
+                break   // link already kicking off; progress UI takes over
+            case .needSSIDPrompt:
+                promptSSID = ""
+                promptPassphrase = KnownNetwork.factoryPassphrase
+                showSSIDPrompt = true
+            case .showPicker(let networks):
+                connectPickerNetworks = networks
+            }
+        }
+    }
+
+    /// The rider entered their first dash SSID in the prompt. Save it, then
+    /// join + connect. Saving means next time it's the single-network fast
+    /// path (or shows the green-dot / Connect rows in Settings). Empty SSID
+    /// just cancels.
+    private func commitSSIDPrompt() {
+        let trimmed = promptSSID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { pendingAutoStart = false; return }
+        let pass = promptPassphrase.isEmpty ? KnownNetwork.factoryPassphrase : promptPassphrase
+        guard let network = status.knownNetworks.add(ssid: trimmed, passphrase: pass) else {
+            pendingAutoStart = false
+            return
+        }
+        Task { await status.joinAndConnect(network) }
     }
 
     /// Connecting / handshaking progress + Cancel. When auto-start is
@@ -504,7 +585,7 @@ struct MapPickerView: View {
             .frame(maxWidth: .infinity).padding()
             .background(Color.yellow.opacity(0.15))
 
-            Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+            Button(role: .destructive) { status.manualDisconnect() } label: {
                 Text("Cancel")
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
             }
@@ -522,7 +603,7 @@ struct MapPickerView: View {
                 .padding(.vertical, 8)
                 .background(Color.green.opacity(0.12))
 
-            Button(role: .destructive) { status.bikeLink.disconnect() } label: {
+            Button(role: .destructive) { status.manualDisconnect() } label: {
                 Text("Disconnect")
                     .frame(maxWidth: .infinity).padding(.vertical, 8)
             }

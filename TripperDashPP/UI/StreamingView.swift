@@ -15,43 +15,23 @@ import SwiftUI
 struct StreamingView: View {
     @Environment(AppStatus.self) private var status
 
-    /// Allow editing the SSID/IP only when we're not actively connected
-    /// or mid-handshake. Idle and error states are both safe entry
-    /// points for retrying with different credentials.
-    private var isEditableState: Bool {
-        switch status.bikeLink.state {
-        case .idle, .error: return true
-        case .connecting, .handshaking, .reconnecting, .connected: return false
-        }
-    }
-
     var body: some View {
         Form {
             Section("Connection") {
                 LabeledContent("State", value: status.connectionState.rawValue)
-                if isEditableState {
-                    TextField("Bike Wi-Fi (SSID)", text: Binding(
-                        get: { status.bikeLink.ssid },
-                        set: { status.bikeLink.ssid = $0 }
-                    ))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    TextField("Dash IP", text: Binding(
-                        get: { status.bikeLink.bikeHost },
-                        set: { status.bikeLink.bikeHost = $0 }
-                    ))
-                    .keyboardType(.numbersAndPunctuation)
-                    .autocorrectionDisabled()
-                } else {
-                    LabeledContent("Wi-Fi", value: status.bikeSsid ?? "—")
-                    LabeledContent("Dash host", value: status.bikeLink.bikeHost)
-                }
                 if let err = status.lastError {
                     LabeledContent("Error") {
                         Text(err).foregroundStyle(.red)
                     }
                 }
+                LabeledContent("Dash host", value: status.bikeLink.bikeHost)
             }
+
+            // Saved dash Wi-Fi networks — replaces the old free-form SSID /
+            // Dash IP text fields. Add / delete / per-row Connect, with a
+            // green dot on the currently-connected network. The dash IP is
+            // fixed (192.168.1.1) so it's shown read-only above, not edited.
+            KnownNetworksSettingsView()
 
             Section("Dash display") {
                 Picker("Units", selection: Binding(

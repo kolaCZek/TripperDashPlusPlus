@@ -68,6 +68,126 @@ final class AppStatus {
     var bikeSsid: String? { bikeLink.ssid }
     var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
+    // MARK: - Wi-Fi management
+
+    /// Saved dash Wi-Fi networks (SSID + passphrase). UI binds the
+    /// Settings list and the connect flow to this. Persisted, observable.
+    let knownNetworks = KnownNetworksStore()
+
+    /// Thin wrapper over the NetworkExtension SSID-read / join APIs.
+    /// Degrades gracefully on a free account (see WiFiManager docs).
+    let wifiManager = WiFiManager()
+
+    /// Coordinates SSID-aware auto-connect + suppress-after-disconnect.
+    /// Built lazily via the `@ObservationIgnored` backing-field idiom
+    /// because `@Observable` forbids `lazy var`, and the connector needs
+    /// `self`'s inline stored properties (wifiManager, knownNetworks)
+    /// which aren't available in an inline initializer. First access wires
+    /// its connect callback back to `bikeLink.connect()`.
+    @ObservationIgnored private var _wifiAutoConnector: WiFiAutoConnector?
+    var wifiAutoConnector: WiFiAutoConnector {
+        if let c = _wifiAutoConnector { return c }
+        let c = WiFiAutoConnector(wifi: wifiManager, store: knownNetworks)
+        c.onShouldConnect = { [weak self] _ in
+            self?.bikeLink.connect()
+        }
+        _wifiAutoConnector = c
+        return c
+    }
+
+    /// True when BikeLink is free to begin a fresh connection.
+    var linkIsIdle: Bool {
+        switch bikeLink.state {
+        case .idle, .error: return true
+        case .connecting, .handshaking, .reconnecting, .connected: return false
+        }
+    }
+
+    /// What the UI should do when the rider taps the primary Connect CTA.
+    /// Resolved by `resolveConnectIntent()` after reading the live SSID.
+    enum ConnectIntent: Equatable, Sendable {
+        /// A connect was started directly — either we're already on a
+        /// known dash Wi-Fi, or there's exactly one saved network and the
+        /// join+handshake was kicked off. UI just shows progress.
+        case started
+        /// No saved networks yet — UI should prompt the rider to add an
+        /// SSID (the `RE_…` name printed on / shown by the dash).
+        case needSSIDPrompt
+        /// Multiple saved networks and we're not on any of them — UI shows
+        /// a picker so the rider chooses which dash to join.
+        case showPicker([KnownNetwork])
+    }
+
+    /// Decide how to connect, reading the currently-associated SSID.
+    ///
+    /// Decision tree (rider-confirmed):
+    ///   • already on a saved dash SSID → connect straight away
+    ///   • 0 saved networks            → ask for an SSID
+    ///   • exactly 1 saved network     → join it, then connect
+    ///   • N saved networks            → let the rider pick
+    ///
+    /// On a free account `currentSSID()` is always nil, so the "already on
+    /// known Wi-Fi" shortcut simply never triggers — the rider falls into
+    /// the 1/N path (which then needs the paid join entitlement) or keeps
+    /// using a manual iOS-Settings join + the plain connect.
+    func resolveConnectIntent() async -> ConnectIntent {
+        let currentSSID = await wifiManager.currentSSID()
+        if let s = currentSSID, knownNetworks.contains(ssid: s) {
+            // Already associated to a known dash AP — no join needed.
+            bikeLink.connect()
+            return .started
+        }
+        switch knownNetworks.count {
+        case 0:
+            return .needSSIDPrompt
+        case 1:
+            if let sole = knownNetworks.sole {
+                await joinAndConnect(sole)
+            }
+            return .started
+        default:
+            return .showPicker(knownNetworks.networks)
+        }
+    }
+
+    /// Join a specific saved network (system Wi-Fi join), then begin the
+    /// dash connection. Used by the single-network fast path and the
+    /// picker. The join needs the paid HotspotConfiguration entitlement;
+    /// on a free account it resolves to `.failed` and we surface the error
+    /// via BikeLink without starting a doomed handshake.
+    func joinAndConnect(_ network: KnownNetwork) async {
+        // Persist the chosen SSID onto BikeLink so existing UI that reads
+        // `bikeLink.ssid` (and the streamer host = fixed dash IP) stays
+        // consistent.
+        if let s = network.normalizedSSID { bikeLink.ssid = s }
+
+        let result = await wifiManager.join(network)
+        switch result {
+        case .joined, .alreadyConnected:
+            bikeLink.connect()
+        case .userCancelled:
+            // Rider dismissed the iOS join dialog — do nothing, no error.
+            break
+        case .failed(let reason):
+            bikeLink.reportExternalError("Wi-Fi join failed: \(reason)")
+        }
+    }
+
+    /// User-initiated disconnect. Tears the link down AND records the
+    /// suppress-after-disconnect intent so auto-connect won't immediately
+    /// rejoin the dash Wi-Fi the rider is still parked next to.
+    func manualDisconnect() {
+        bikeLink.disconnect()
+        Task { await wifiAutoConnector.noteManualDisconnect() }
+    }
+
+    /// Evaluate SSID-aware auto-connect. Safe to call on app-foreground and
+    /// on Wi-Fi path changes — no-ops unless we're idle AND sitting on a
+    /// known, non-suppressed dash SSID.
+    func evaluateWiFiAutoConnect() {
+        Task { await wifiAutoConnector.evaluate(linkIsIdle: linkIsIdle) }
+    }
+
     // MARK: - Streaming
 
     var metrics: StreamMetrics = .zero
@@ -107,6 +227,16 @@ final class AppStatus {
         // exist as inline stored properties, so this is the first
         // moment we can connect them.
         bikeLink.settings = dashNavSettings
+
+        // Wire the Wi-Fi auto-connect trigger: when Wi-Fi comes up while
+        // the link is idle, read the SSID and (if it's a known, non-
+        // suppressed dash network) start the link hands-free. Then start
+        // the presence monitor so the trigger is live from launch, before
+        // any manual Connect tap. Inert on a free account (SSID unreadable).
+        bikeLink.onWifiBecameAvailableWhileIdle = { [weak self] in
+            self?.evaluateWiFiAutoConnect()
+        }
+        bikeLink.startMonitoring()
 
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we
