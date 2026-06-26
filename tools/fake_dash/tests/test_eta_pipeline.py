@@ -39,8 +39,14 @@ def tlv_eta(when: datetime) -> Segment:
 
 
 def tlv_eta_format(is_24h: bool) -> Segment:
-    """`05 54 0001 <55|AA>` — mirror of `K1GPacket.tlvEtaFormat`."""
-    return Segment(type=0x05, sub=0x54, payload=bytes([0x55 if is_24h else 0xAA]))
+    """`05 54 0001 <30|31>` — mirror of `K1GPacket.tlvEtaFormat`.
+
+    PCAP-CONFIRMED: the real-phone capture `_NAV_FULL` in better-dash
+    carries `05 54 0001 30` (24-hour). The byte is decimal-ASCII-digit
+    encoded (same family as the unit bytes), NOT the 0x55/0xAA
+    separator-flag family. 24h → 0x30 (confirmed); 12h → 0x31 (inferred
+    from the digit encoding, pending 12h-mode HW confirmation)."""
+    return Segment(type=0x05, sub=0x54, payload=bytes([0x30 if is_24h else 0x31]))
 
 
 def tlv_remaining(seconds: float) -> Segment:
@@ -101,18 +107,25 @@ def test_tlv_eta_round_trips_through_envelope() -> None:
 # --- ETA format flag (0x05 / 0x54) -------------------------------------------
 
 
-def test_tlv_eta_format_24h_is_0x55() -> None:
-    """24-hour mode → 0x55 (TENTATIVE per the K1GPacket comment, pending
-    pcap verification in 12h dash mode)."""
+def test_tlv_eta_format_24h_is_0x30() -> None:
+    """24-hour mode → 0x30. PCAP-CONFIRMED against the real-phone capture
+    `_NAV_FULL` in better-dash (`05 54 0001 30`). The format byte is
+    decimal-ASCII-digit encoded (same family as the unit bytes), not the
+    0x55/0xAA separator-flag family the code previously (wrongly) used —
+    that mismatch made the dash drop the whole ETA block (blank-ETA bug,
+    6/2026)."""
     seg = tlv_eta_format(is_24h=True)
     assert seg.type == 0x05
     assert seg.sub == 0x54
-    assert seg.payload == bytes([0x55])
+    assert seg.payload == bytes([0x30])
 
 
-def test_tlv_eta_format_12h_is_0xaa() -> None:
+def test_tlv_eta_format_12h_is_0x31() -> None:
+    """12-hour mode → 0x31 (format index 1). INFERRED from the digit
+    encoding; no 12h-mode pcap on hand (the captured phone rode 24h).
+    Pinned so a future change is deliberate, flagged for HW confirmation."""
     seg = tlv_eta_format(is_24h=False)
-    assert seg.payload == bytes([0xAA])
+    assert seg.payload == bytes([0x31])
 
 
 # --- Remaining time (0x05 / 0x0B) --------------------------------------------
