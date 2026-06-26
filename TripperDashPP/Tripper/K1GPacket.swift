@@ -200,6 +200,21 @@ final class RollingSeq: @unchecked Sendable {
         value = value &+ 1
         return v
     }
+
+    /// Reset the counter to `start` (default 0) for a brand-new connection
+    /// episode. The better-dash authority constructs a FRESH `RollingSeq`
+    /// per connection (`tripper_app_like_nav.py` `RollingSeq(args.k1g_seq_start)`
+    /// at the top of `main`, and `dash_ui/bike_link.py` `RollingSeq(cfg.k1g_seq_start)`
+    /// on every `connect`). The Swift port keeps a single long-lived
+    /// `RollingSeq` on `BikeLink`, so it must reset explicitly at each
+    /// connect attempt to mirror that "new connection → seq starts at 0"
+    /// contract. A power-cycled dash resets its own K1G state machine and
+    /// expects the handshake to begin from a fresh sequence; replaying a
+    /// stale mid-ride seq makes it drop our initial burst.
+    func reset(to start: UInt8 = 0) {
+        lock.lock(); defer { lock.unlock() }
+        value = start
+    }
 }
 
 // MARK: - Well-known segments / packets
