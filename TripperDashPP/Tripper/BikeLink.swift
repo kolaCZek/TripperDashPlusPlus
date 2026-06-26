@@ -308,6 +308,15 @@ final class BikeLink {
             // `.connected` or give up — so the UI shows one steady
             // "Reconnecting…" instead of flickering through the sub-states.
             if !isReconnect { state = .connecting }
+            // Reset the rolling K1G sequence for this connect episode. The
+            // better-dash authority builds a fresh RollingSeq per connection;
+            // we keep one long-lived counter on BikeLink, so we reset it here
+            // to honour the same "new connection starts the handshake from a
+            // fresh sequence" contract. Without this, a reconnect after the
+            // bike is power-cycled replays a stale mid-ride seq and the
+            // freshly-rebooted dash drops our initial burst — the link never
+            // re-establishes and we time out after the 10-min budget.
+            seq.reset()
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
             try await s.start(timeout: 5.0)

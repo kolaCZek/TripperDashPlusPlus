@@ -105,6 +105,12 @@ final class ActiveNavigator {
     /// Whether a reroute is currently in flight.
     private(set) var isRerouting: Bool = false
 
+    /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.
+    /// Read-only for consumers (e.g. `ManeuverLog` records where each glyph
+    /// was shown). `nil` until the first fix lands. Minimal surface: the
+    /// navigator already digests the fix; we just retain its coordinate.
+    private(set) var currentCoordinate: CLLocationCoordinate2D?
+
     // MARK: - Multi-stop plan state (feat/route-waypoints)
 
     /// The multi-stop plan being navigated, when started via
@@ -287,6 +293,7 @@ final class ActiveNavigator {
     func ingest(fix: Fix) async {
         guard isNavigating, let route = activeRoute else { return }
         let coord = fix.coordinate
+        self.currentCoordinate = coord
 
         let (distFromRoute, segIdx) = PolylineMath.nearestSegment(
             on: route.polyline,

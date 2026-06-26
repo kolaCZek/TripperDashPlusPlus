@@ -200,6 +200,21 @@ final class RollingSeq: @unchecked Sendable {
         value = value &+ 1
         return v
     }
+
+    /// Reset the counter to `start` (default 0) for a brand-new connection
+    /// episode. The better-dash authority constructs a FRESH `RollingSeq`
+    /// per connection (`tripper_app_like_nav.py` `RollingSeq(args.k1g_seq_start)`
+    /// at the top of `main`, and `dash_ui/bike_link.py` `RollingSeq(cfg.k1g_seq_start)`
+    /// on every `connect`). The Swift port keeps a single long-lived
+    /// `RollingSeq` on `BikeLink`, so it must reset explicitly at each
+    /// connect attempt to mirror that "new connection → seq starts at 0"
+    /// contract. A power-cycled dash resets its own K1G state machine and
+    /// expects the handshake to begin from a fresh sequence; replaying a
+    /// stale mid-ride seq makes it drop our initial burst.
+    func reset(to start: UInt8 = 0) {
+        lock.lock(); defer { lock.unlock() }
+        value = start
+    }
 }
 
 // MARK: - Well-known segments / packets
@@ -439,12 +454,35 @@ extension K1GPacket {
     }
 
     /// `05 54 0001 <byte>` — t3c.f(): ETA format flag.
-    /// `is24Hour=true` → `0x55` (TENTATIVE — confirm with pcap when
-    /// dash is set to 12h in settings). The hour-of-day value in the
-    /// ETA TLV itself is independent of this flag.
+    ///
+    /// **Always `0x30`.** This is the only value the real dash is known to
+    /// accept: it is what the real-phone capture `_NAV_FULL` in better-dash
+    /// carries (`05 54 0001 30`, road "Taille de Mas du Gr", ETA "0303"),
+    /// and the byte lives in the decimal-ASCII-digit family (same `t3c.f` /
+    /// `sb.append(int)` encoding as the unit bytes), NOT the `0x55`/`0xAA`
+    /// separator-flag family.
+    ///
+    /// History of this byte, both field-confirmed by Martin:
+    ///   * `0x55`/`0xAA` (borrowed from the decimal-SEPARATOR flag) made the
+    ///     dash drop the whole ETA block → blank ETA (the original 6/2026
+    ///     bug). Fixed to `0x30` for 24h.
+    ///   * `0x31` for 12-hour was an UNVERIFIED guess (inferred from the
+    ///     digit encoding, no 12h pcap). On a 6/2026 ride Martin set the dash
+    ///     to 12-hour and the ETA went BLANK — same failure mode: the dash
+    ///     rejects `0x31` and drops the ETA block. So `0x31` is confirmed
+    ///     WRONG, not merely unconfirmed.
+    ///
+    /// We therefore send `0x30` unconditionally. The `0x08` ETA payload is
+    /// always 24-hour HH:MM, so on a dash set to 12-hour the rider still sees
+    /// the arrival time, rendered in 24-hour form, instead of a blank field.
+    /// Driving a genuine 12-hour render is blocked on a real 12h-mode capture
+    /// of the OEM app (or a HW bisection) to learn the correct flag — we will
+    /// NOT ship another blind guess to the dash. `is24Hour` is retained in the
+    /// signature for call-site compatibility but no longer changes the byte.
     static func tlvEtaFormat(is24Hour: Bool) -> K1GSegment {
-        K1GSegment(type: .navInfo, sub: 0x54,
-                   payload: Data([is24Hour ? 0x55 : 0xAA]))
+        _ = is24Hour  // intentionally ignored — see doc comment (0x31 blanks the dash)
+        return K1GSegment(type: .navInfo, sub: 0x54,
+                          payload: Data([0x30]))
     }
 
     /// `05 0B 0006 <ascii_DDHHMM>` — q3c.S2: remaining travel time, 6 ASCII

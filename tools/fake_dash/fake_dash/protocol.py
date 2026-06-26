@@ -151,6 +151,16 @@ class RollingSeq:
         self._v = (self._v + 1) & 0xFF
         return x
 
+    def reset(self, start: int = 0) -> None:
+        """Reset to `start` (default 0) for a new connection episode.
+
+        Mirrors `RollingSeq.reset(to:)` on the Swift side. The real client
+        builds a fresh RollingSeq per connection; this lets a long-lived
+        instance restore the same "new connection → fresh sequence"
+        contract instead of replaying a stale mid-ride seq (which makes a
+        power-cycled dash drop the reconnect handshake)."""
+        self._v = start & 0xFF
+
 
 # ---------------------------------------------------------------------------
 # Well-known K1G messages the *bike* (this fake_dash) sends to the phone.

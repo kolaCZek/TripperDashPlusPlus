@@ -133,7 +133,7 @@ def test_swift_forward_bias_and_puck_scale():
     m = re.search(r"forwardBiasFraction:\s*CGFloat\s*=\s*([\d.]+)", src)
     assert m and float(m.group(1)) == pytest.approx(0.28), "forward bias must be 0.28"
     m2 = re.search(r"puckScale:\s*CGFloat\s*=\s*([\d.]+)", src)
-    assert m2 and float(m2.group(1)) == pytest.approx(1.35), "puck scale must be 1.35"
+    assert m2 and float(m2.group(1)) == pytest.approx(1.7), "puck scale must be 1.7"
 
 
 def test_swift_zoom_in_lerps_faster_than_out():
@@ -155,21 +155,21 @@ def route_line_width(screen_px: float, zoom: float) -> float:
 @pytest.mark.parametrize("zoom", [0.8, 1.0, 1.4, 2.0, 2.9])
 def test_route_line_constant_on_screen(zoom):
     """Stroked inside the zoom scale, so width/zoom * zoom == constant px."""
-    screen_px = 5.0
+    screen_px = 7.0
     on_screen = route_line_width(screen_px, zoom) * zoom
     assert on_screen == pytest.approx(screen_px)
 
 
 def test_route_line_thinner_than_old_fixed_width():
     """At city zoom the old fixed width 8 rendered ~16 px (as thick as a
-    road). The new constant 5 px is well under that."""
-    assert 5.0 < 8 * 2.0     # new on-screen vs old at 2.0x
+    road). The new constant 7 px is still under that."""
+    assert 7.0 < 8 * 2.0     # new on-screen vs old at 2.0x
 
 
 def test_swift_route_line_constant_and_divides_by_zoom():
     src = _map_source_src()
     m = re.search(r"routeLineScreenPx:\s*CGFloat\s*=\s*([\d.]+)", src)
-    assert m and float(m.group(1)) == pytest.approx(5.0), "route line px must be 5.0"
+    assert m and float(m.group(1)) == pytest.approx(7.0), "route line px must be 7.0"
     # Both dash render paths must divide by zoom (constant on-screen width).
     assert src.count("routeLineScreenPx / currentZoom") == 2, (
         "both tile-cache and vector-only paths must stroke "

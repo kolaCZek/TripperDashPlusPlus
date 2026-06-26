@@ -10,13 +10,24 @@
 //
 //   - `units` → primary/total distance unit byte (`05 06`, `05 46`)
 //   - `decimalSeparator` → comma vs period (`05 0A`)
-//   - `clockFormat` → ETA format flag (`05 54`) plus how we format the
-//     local-time string we hand to `tlvEta`
-//   - `bottomLine` → mutex toggle: the dash bubble can show ETA OR total
-//     distance in its bottom row, not both. We always send the total
-//     distance TLV (the dash needs it for route progress), but we omit
-//     the ETA TLV when bottomLine == .distance so the bubble picks
-//     distance to render.
+//   - `clockFormat` → how we format the local-time string handed to
+//     `tlvEta`. NOTE: it no longer changes the `05 54` ETA-format byte —
+//     that byte is pinned to `0x30` because the dash rejects any other
+//     value (a 12h `0x31` guess blanked the ETA on the real dash, 6/2026).
+//     So the ETA always renders 24-hour on the dash for now; driving a
+//     true 12h render is blocked on a 12h-mode OEM capture.
+//   - `bottomLine` → user's preferred bottom row (ETA vs distance). As of
+//     6/2026 this is NOT enforced by omitting TLVs: the active-nav loop
+//     mirrors the OEM app and sends ETA + total-distance + remaining-time
+//     together every tick (the only wire layout the dash is known to
+//     accept). The OLD code omitted the ETA TLV when bottomLine ==
+//     .distance to make the bubble "pick" distance — that produced two
+//     field-confirmed bugs (blank ETA, and "switch to km does nothing")
+//     and diverged from the real-phone capture, so it was removed. Which
+//     field the dash shows in its bottom row is a dash-side decision we
+//     don't yet know how to drive deterministically (likely the
+//     undecoded `05 0C` field); `includeEtaTlv` is retained below but is
+//     currently advisory only.
 //
 //  Persisted in UserDefaults under "dashNavSettings.v3". v2 carried four
 //  diagnostic toggles for the Bug 3 clock-shift A/B test; once the root
@@ -200,6 +211,13 @@ final class DashNavSettings {
 
     var useCommaDecimal: Bool { decimalSeparator == .comma }
     var is24Hour: Bool { clockFormat == .h24 }
+    /// ADVISORY ONLY as of 6/2026. The active-nav loop no longer omits the
+    /// ETA TLV when this is false — it mirrors the OEM app and always sends
+    /// ETA + total-distance + remaining-time together. Kept so the UI toggle
+    /// still persists the user's preference and so a future, capture-verified
+    /// bottom-row selector (likely the `05 0C` field) can consume it. Do NOT
+    /// re-wire this to gate TLV emission — that was the blank-ETA / broken-km
+    /// bug.
     var includeEtaTlv: Bool { bottomLine == .eta }
 
     // MARK: - Persistence
