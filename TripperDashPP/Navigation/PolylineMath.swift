@@ -68,22 +68,67 @@ enum PolylineMath {
 
     /// Index of the next step whose start lies beyond `segmentIndex`.
     /// Used to surface the upcoming maneuver in the HUD.
+    ///
+    /// MKRoute.Step's polyline is a subset of the route polyline but we
+    /// get no global index, so we map each step's start onto the route
+    /// polyline ourselves. We snap each step start to the NEAREST route
+    /// vertex (argmin), walking a forward cursor so steps stay in route
+    /// order, and advance the cursor to just AFTER the matched vertex so
+    /// two steps can never share one vertex.
+    ///
+    /// Why not the previous "first vertex within 5 m" match: a step's
+    /// start rarely lands on a route vertex to within a few metres — the
+    /// route polyline is decimated (vertices ~10–30 m apart). With a hard
+    /// 5 m threshold, a step whose start had no vertex that close ran the
+    /// SHARED forward cursor all the way to the end of the polyline,
+    /// corrupting the mapping for every later step. And two maneuvers
+    /// spaced closer than the vertex pitch — MapKit's roundabout
+    /// entry/exit split, or two junctions in quick succession — could
+    /// match the SAME vertex and silently drop one maneuver from the
+    /// turn-by-turn stream. That was the Slaný 6/2026 field bug: the
+    /// junction at 50.22517,14.11473 vanished from the instructions, and
+    /// the roundabout glyph showed with no exit number then flipped to a
+    /// plain right arrow as the dropped step's stale classification leaked
+    /// through. Nearest-vertex + cursor=bestIdx+1 keeps adjacent
+    /// maneuvers on distinct vertices, so neither is lost.
     static func nextStepIndex(in route: MKRoute,
                               afterPolylineIndex segmentIndex: Int) -> Int? {
-        // MKRoute.Step's polyline is a subset of the route polyline —
-        // we don't get a global index, so we compare coordinate
-        // matches against the route polyline's points.
         let routePoints = route.polyline.points()
-        var pointIdx = 0
+        let routeCount = route.polyline.pointCount
+        guard routeCount > 0 else { return nil }
+
+        var cursor = 0
         for (stepIdx, step) in route.steps.enumerated() {
             let stepStart = step.polyline.points()[0].coordinate
-            // Walk routePoints forward until we hit this step's start.
-            while pointIdx < route.polyline.pointCount {
-                let p = routePoints[pointIdx].coordinate
-                if haversine(p, stepStart) < 5 { break }
-                pointIdx += 1
+            // Nearest route vertex to this step's start, searching forward
+            // from the cursor.
+            var bestIdx = cursor
+            var bestDist = CLLocationDistance.greatestFiniteMagnitude
+            var risingStreak = 0
+            var i = cursor
+            while i < routeCount {
+                let d = haversine(routePoints[i].coordinate, stepStart)
+                if d < bestDist {
+                    bestDist = d
+                    bestIdx = i
+                    risingStreak = 0
+                } else {
+                    // Past the local minimum. A short rising streak
+                    // tolerates a roundabout briefly doubling back near an
+                    // earlier vertex without scanning the whole remaining
+                    // polyline for every step (keeps this ~O(points), not
+                    // O(points × steps), on long routes).
+                    risingStreak += 1
+                    if risingStreak >= 8 { break }
+                }
+                i += 1
             }
-            if pointIdx > segmentIndex {
+            // Advance to just AFTER the matched vertex so the next step —
+            // strictly later along the route — starts its own search there
+            // and can't collapse onto this step's vertex.
+            cursor = min(bestIdx + 1, routeCount - 1)
+
+            if bestIdx > segmentIndex {
                 return stepIdx
             }
         }
