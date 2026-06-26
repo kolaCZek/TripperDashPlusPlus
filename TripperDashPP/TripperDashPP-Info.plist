@@ -67,6 +67,34 @@
 	</dict>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- File sharing — expose the app's Documents/ in the Files app   -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!--
+	  These two keys together surface the app sandbox's Documents/
+	  directory under Files → On My iPhone → TripperDash++, so the
+	  per-session maneuver logs that `ManeuverLog` writes to
+	  Documents/maneuver-logs/nav-<timestamp>.jsonl can be pulled off
+	  the phone after a ride WITHOUT Xcode (AirDrop / copy to Files /
+	  open in another app), then grepped or replayed offline.
+
+	  - UIFileSharingEnabled: makes Documents/ visible over USB (Finder)
+	    and in the Files app.
+	  - LSSupportsOpeningDocumentsInPlace: lets the Files app open the
+	    log files in place rather than importing a copy.
+
+	  The logs contain raw GPS — see the PRIVACY note in ManeuverLog.swift.
+	  They stay local: turning these on only exposes the sandbox to the
+	  device owner via Files/Finder; nothing is uploaded. Toggle
+	  `ManeuverLog.isEnabled = false` to stop writing them entirely.
+	-->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
 	<!-- Device requirements                                           -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
