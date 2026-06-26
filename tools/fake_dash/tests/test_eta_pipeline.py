@@ -39,14 +39,20 @@ def tlv_eta(when: datetime) -> Segment:
 
 
 def tlv_eta_format(is_24h: bool) -> Segment:
-    """`05 54 0001 <30|31>` — mirror of `K1GPacket.tlvEtaFormat`.
+    """`05 54 0001 30` — mirror of `K1GPacket.tlvEtaFormat`.
 
-    PCAP-CONFIRMED: the real-phone capture `_NAV_FULL` in better-dash
-    carries `05 54 0001 30` (24-hour). The byte is decimal-ASCII-digit
+    ALWAYS 0x30. PCAP-CONFIRMED: the real-phone capture `_NAV_FULL` in
+    better-dash carries `05 54 0001 30`. The byte is decimal-ASCII-digit
     encoded (same family as the unit bytes), NOT the 0x55/0xAA
-    separator-flag family. 24h → 0x30 (confirmed); 12h → 0x31 (inferred
-    from the digit encoding, pending 12h-mode HW confirmation)."""
-    return Segment(type=0x05, sub=0x54, payload=bytes([0x30 if is_24h else 0x31]))
+    separator-flag family.
+
+    The `is_24h` argument is ignored — kept only for call-site parity with
+    the Swift signature. 12-hour mode previously sent 0x31 (an inferred
+    guess); on a 6/2026 ride that BLANKED the ETA on the real dash (the dash
+    rejects 0x31 and drops the whole ETA block), so 0x31 is confirmed wrong.
+    We send 0x30 unconditionally; the dash then shows the (24-hour) HH:MM
+    payload instead of a blank field even when set to 12-hour."""
+    return Segment(type=0x05, sub=0x54, payload=bytes([0x30]))
 
 
 def tlv_remaining(seconds: float) -> Segment:
@@ -120,12 +126,24 @@ def test_tlv_eta_format_24h_is_0x30() -> None:
     assert seg.payload == bytes([0x30])
 
 
-def test_tlv_eta_format_12h_is_0x31() -> None:
-    """12-hour mode → 0x31 (format index 1). INFERRED from the digit
-    encoding; no 12h-mode pcap on hand (the captured phone rode 24h).
-    Pinned so a future change is deliberate, flagged for HW confirmation."""
+def test_tlv_eta_format_12h_also_0x30_never_0x31() -> None:
+    """12-hour mode ALSO sends 0x30 — never 0x31.
+
+    0x31 was an inferred guess that field-test DISPROVED: on a 6/2026 ride
+    with the dash set to 12-hour, the ETA went blank because the dash
+    rejects 0x31 and drops the whole ETA block (same failure mode as the
+    original 0x55/0xAA bug). 0x30 is the only value the dash is known to
+    accept, so we send it unconditionally; the rider sees the 24-hour HH:MM
+    arrival time instead of a blank field. This guards against anyone
+    re-introducing the 0x31 guess without a real 12h-mode capture."""
     seg = tlv_eta_format(is_24h=False)
-    assert seg.payload == bytes([0x31])
+    assert seg.payload == bytes([0x30]), (
+        "12h must send 0x30 (the only dash-accepted value); 0x31 blanks the "
+        "ETA on real hardware"
+    )
+    # And it must never regress to the disproven guess or the old flag family.
+    assert seg.payload != bytes([0x31])
+    assert seg.payload[0] not in (0x55, 0xAA)
 
 
 # --- Remaining time (0x05 / 0x0B) --------------------------------------------
@@ -194,46 +212,45 @@ def test_tlv_remaining_unit_is_constant_0x20() -> None:
     assert seg.payload == bytes([0x20])
 
 
-# --- ETA/remaining mutual exclusion in ActiveNavLoop -------------------------
+# --- ETA + remaining-time co-emission in ActiveNavLoop -----------------------
 #
-# ActiveNavLoop.tick() decides whether to send the ETA TLV (HH:MM) or
-# the remaining-time TLV (DDHHMM) based on `settings.includeEtaTlv`.
-# The two are mutually exclusive in the current dispatch logic.
+# ActiveNavLoop.tick() now mirrors the OEM Tripper app: whenever there is a
+# positive ETA estimate it emits BOTH the ETA TLV (HH:MM) and the
+# remaining-time TLV (DDHHMM) in the same packet, exactly as the real-phone
+# capture `_NAV_FULL` does. The total-distance TLV is sent unconditionally
+# downstream regardless.
 #
-# This isn't a hard wire-format constraint — the dash probably accepts
-# both — but it IS a UX rule we want to pin so a future refactor
-# doesn't accidentally start sending both at the same time and confuse
-# the bottom-row layout. The test below is a structural check rather
-# than a byte-level check.
+# This replaces the old XOR gate on `settings.includeEtaTlv` (bottomLine),
+# which had two field-confirmed bugs (Martin, 6/2026):
+#   * picking "distance remaining" dropped ETA and sent a remaining-TIME
+#     duration instead — "switch to km doesn't work";
+#   * it diverged from the only wire layout the dash is known to accept.
+# Which field the dash shows in its bottom row is a dash-side concern we
+# cannot drive by omitting TLVs, so the loop no longer tries to.
 
 
-def _swift_active_nav_loop_eta_dispatch_logic(
-    include_eta_tlv: bool, eta_seconds: float
-) -> tuple[bool, bool]:
-    """Returns (has_eta_date, has_remaining_seconds). Mirrors lines
-    105-110 of ActiveNavLoop.swift exactly."""
-    eta_date_set = include_eta_tlv and eta_seconds > 0
-    if include_eta_tlv:
-        remaining_set = False
-    else:
-        remaining_set = eta_seconds > 0
-    return (eta_date_set, remaining_set)
+def _swift_active_nav_loop_eta_dispatch_logic(eta_seconds: float) -> tuple[bool, bool]:
+    """Returns (has_eta_date, has_remaining_seconds). Mirrors the current
+    ActiveNavLoop.swift logic: both are attached together whenever
+    eta_seconds > 0, independent of bottomLine."""
+    has = eta_seconds > 0
+    return (has, has)
 
 
 @pytest.mark.parametrize(
-    "include_eta_tlv, eta_seconds, expected",
+    "eta_seconds, expected",
     [
-        (True, 0, (False, False)),       # at destination, ETA mode → neither
-        (True, 600, (True, False)),      # ETA mode + valid → ETA only
-        (False, 600, (False, True)),     # remaining mode + valid → remaining only
-        (False, 0, (False, False)),      # at destination, remaining mode → neither
+        (0, (False, False)),     # at destination → neither
+        (600, (True, True)),     # valid estimate → BOTH ETA and remaining
+        (1, (True, True)),       # any positive estimate → both
+        (-5, (False, False)),    # defensive: non-positive → neither
     ],
 )
-def test_active_nav_loop_eta_remaining_xor(
-    include_eta_tlv: bool, eta_seconds: float, expected: tuple[bool, bool]
+def test_active_nav_loop_emits_eta_and_remaining_together(
+    eta_seconds: float, expected: tuple[bool, bool]
 ) -> None:
-    """ETA and remaining-time TLVs are never both attached to the
-    same packet in the current dispatch logic. If this breaks, double-check
-    that ActiveNavLoop.swift hasn't started emitting both — that's a
-    UX regression Martin will want to know about."""
-    assert _swift_active_nav_loop_eta_dispatch_logic(include_eta_tlv, eta_seconds) == expected
+    """ETA and remaining-time TLVs are emitted TOGETHER whenever there's a
+    positive estimate, matching the OEM capture. If this regresses to an XOR
+    (one suppressing the other), the blank-ETA / "km switch does nothing"
+    field bugs come back — that's what this pins against."""
+    assert _swift_active_nav_loop_eta_dispatch_logic(eta_seconds) == expected

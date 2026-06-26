@@ -158,12 +158,30 @@ final class ActiveNavLoop {
             secondaryUnitByte = nil
         }
 
-        let etaDate: Date? = settings.includeEtaTlv && etaSec > 0
-            ? Date(timeIntervalSinceNow: etaSec)
-            : nil
-        let remainingSecs: TimeInterval? = settings.includeEtaTlv
-            ? nil  // when bottom row shows ETA we omit remaining-time
-            : (etaSec > 0 ? etaSec : nil)
+        // Mirror the OEM Tripper app's active-nav packet. The only
+        // real-phone capture we have authority for (`_NAV_FULL` in
+        // better-dash) sends the ETA (05 08), the total distance (05 09)
+        // AND the remaining-time (05 0B) TLVs together in EVERY packet —
+        // it does NOT omit one of them to pick the dash's bottom row.
+        //
+        // The previous code gated ETA vs remaining-time on `bottomLine`
+        // (an XOR), which had two field-confirmed bugs (Martin, 6/2026):
+        //   * choosing "distance remaining" dropped ETA and sent a
+        //     remaining-TIME duration instead of letting the dash show the
+        //     km-to-destination total — "switch to km doesn't work";
+        //   * it diverged from the OEM capture, the one wire layout we know
+        //     the dash accepts.
+        //
+        // Always emit ETA + remaining-time together whenever we have a
+        // positive estimate (total distance is already sent unconditionally
+        // downstream). The dash then renders its standard bubble exactly as
+        // it does for the OEM app. Selecting WHICH field occupies the bottom
+        // row (ETA vs km) is a dash-side concern we cannot drive by omitting
+        // TLVs — the likely lever is the still-undecoded `05 0C` "extra
+        // counter" field (see the skill's open-questions list); do NOT guess
+        // it blind against the real dash.
+        let etaDate: Date? = etaSec > 0 ? Date(timeIntervalSinceNow: etaSec) : nil
+        let remainingSecs: TimeInterval? = etaSec > 0 ? etaSec : nil
 
         let roadName: String? = {
             // MKRoute.Step doesn't expose the road name directly. Apple
