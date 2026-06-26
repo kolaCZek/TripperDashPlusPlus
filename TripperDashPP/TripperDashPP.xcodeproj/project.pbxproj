@@ -18,6 +18,7 @@
 		A4F000000000000000000061 /* Favorite.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000060 /* Favorite.swift */; };
 		A4F000000000000000000071 /* NavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000070 /* NavSettings.swift */; };
 		A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E00 /* ActiveNavLoop.swift */; };
+		A4F000000000000000000E71 /* ManeuverLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E70 /* ManeuverLog.swift */; };
 		A4F000000000000000000E11 /* DashNavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E10 /* DashNavSettings.swift */; };
 		A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E20 /* ManeuverIcon.swift */; };
 		A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */; };
@@ -78,6 +79,7 @@
 		A4F000000000000000000060 /* Favorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorite.swift; sourceTree = "<group>"; };
 		A4F000000000000000000070 /* NavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavSettings.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E00 /* ActiveNavLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavLoop.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E70 /* ManeuverLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverLog.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E10 /* DashNavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNavSettings.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E20 /* ManeuverIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverIcon.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundaboutInstructionParser.swift; sourceTree = "<group>"; };
@@ -237,6 +239,7 @@
 				A4F000000000000000000030 /* PolylineMath.swift */,
 				A4F000000000000000000040 /* ActiveNavigator.swift */,
 				A4F000000000000000000E00 /* ActiveNavLoop.swift */,
+				A4F000000000000000000E70 /* ManeuverLog.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -359,6 +362,7 @@
 				A4F000000000000000000061 /* Favorite.swift in Sources */,
 				A4F000000000000000000071 /* NavSettings.swift in Sources */,
 				A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */,
+				A4F000000000000000000E71 /* ManeuverLog.swift in Sources */,
 				A4F000000000000000000E11 /* DashNavSettings.swift in Sources */,
 				A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */,
 				A4F000000000000000000E41 /* ManeuverGeometry.swift in Sources */,

@@ -202,5 +202,26 @@ final class ActiveNavLoop {
             unitsImperial: settings.units == .imperial
         )
         mapSource?.setNavOverlay(overlay)
+
+        // 3. Internal file-based debug log of this nav tick (GPS + glyph +
+        //    distances + reroute + active-route identity). Non-blocking:
+        //    `record` only snapshots these values and hands them to its own
+        //    serial queue for the file write. See `ManeuverLog`. Internal /
+        //    local-only debug trail — never transmitted.
+        ManeuverLog.shared.record(
+            coordinate: nav.currentCoordinate,
+            maneuver: kind,
+            wireByte: kind.wireByte,
+            instructions: step?.instructions,
+            distanceToNextStep: distNext,
+            remainingDistance: distTotal,
+            etaSeconds: etaSec,
+            isRerouting: isRerouting,
+            destination: nav.destination?.name,
+            routeStepCount: nav.activeRoute?.steps.count ?? 0,
+            routeDistanceMeters: nav.activeRoute?.distance ?? 0,
+            secondaryWireByte: secondaryManeuverByte,
+            secondaryDistanceMeters: emitSecondary ? distSecond : nil
+        )
     }
 }
