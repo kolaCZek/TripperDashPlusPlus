@@ -91,17 +91,32 @@ def _k1g_packet_src() -> str:
     return swift.read_text(encoding="utf-8")
 
 
-def test_swift_eta_format_emits_0x30_not_separator_flag():
-    """`tlvEtaFormat` must emit 0x30/0x31 (digit family), matching the
-    capture — never the 0x55/0xAA separator-flag values that blanked the
-    ETA on the dash."""
+def test_swift_eta_format_emits_only_0x30_never_0x31_or_separator_flag():
+    """`tlvEtaFormat` must emit ONLY 0x30 — the single value the real dash
+    is known to accept (pcap `_NAV_FULL`). It must NOT emit:
+
+      * 0x55 / 0xAA — the decimal-SEPARATOR flag family; binding one of
+        those to the 0x08 ETA value made the dash drop the whole ETA block
+        (the original blank-ETA bug, 6/2026).
+      * 0x31 — the inferred 12-hour guess. Field-test DISPROVED it: with the
+        dash set to 12-hour the ETA went blank (the dash rejects 0x31). So
+        12h must fall back to 0x30, not 0x31.
+
+    The format byte is emitted unconditionally, so we check the whole
+    function body rather than a single payload line."""
     src = _k1g_packet_src()
     idx = src.index("static func tlvEtaFormat")
-    body = src[idx:idx + 400]
+    # End the slice at the next top-level func so we only inspect this body.
+    end = src.index("static func", idx + 1)
+    body = src[idx:end]
     payload_line = next(l for l in body.splitlines() if "payload: Data(" in l)
-    # The byte literals chosen for the format flag.
-    assert "0x30" in payload_line and "0x31" in payload_line, (
-        f"tlvEtaFormat must emit 0x30 (24h) / 0x31 (12h); got: {payload_line.strip()!r}"
+    assert "0x30" in payload_line, (
+        f"tlvEtaFormat must emit 0x30 (the only dash-accepted value); "
+        f"got: {payload_line.strip()!r}"
+    )
+    assert "0x31" not in payload_line, (
+        "tlvEtaFormat regressed to the 0x31 12-hour guess — field-test showed "
+        "0x31 blanks the ETA on the real dash; 12h must fall back to 0x30"
     )
     assert "0x55" not in payload_line and "0xAA" not in payload_line, (
         "tlvEtaFormat regressed to the 0x55/0xAA separator-flag family — "
