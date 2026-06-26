@@ -147,16 +147,19 @@ final class MapViewSource: NSObject, FrameSource {
     /// Scale factor for the user puck (blue dot + chevron). 1.0 = the
     /// original 28 px ring. Bumped to make the rider's position pop more
     /// against a busier, more-zoomed-in city map (2026-06 rider feedback:
-    /// "make the chevron a touch bigger so it's easier to spot").
-    private let puckScale: CGFloat = 1.35
+    /// "make the chevron a touch bigger so it's easier to spot"). Bumped
+    /// again 1.35 → 1.7 on a follow-up request to enlarge the position
+    /// chevron further so it's unmistakable at a glance on the bike dash.
+    private let puckScale: CGFloat = 1.7
 
     /// On-screen thickness (px) of the drawn route polyline, held CONSTANT
     /// across zoom levels. The line is stroked inside the `currentZoom`
     /// scale, so each draw path divides this by `currentZoom` to cancel
-    /// the scale out. 5 px reads as a clear route without the "as thick as
-    /// the road" look the old fixed width 8 produced at city zoom
-    /// (rider feedback 6/2026: "the route line is needlessly thick").
-    private let routeLineScreenPx: CGFloat = 5.0
+    /// the scale out. Bumped 5 → 7 px on rider feedback ("make the route a
+    /// bit thicker so it's easier to follow on the map") — still well under
+    /// the old fixed width 8 that rendered "as thick as the road" at city
+    /// zoom, but with a clearer, more legible track.
+    private let routeLineScreenPx: CGFloat = 7.0
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
