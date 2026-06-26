@@ -439,12 +439,33 @@ extension K1GPacket {
     }
 
     /// `05 54 0001 <byte>` — t3c.f(): ETA format flag.
-    /// `is24Hour=true` → `0x55` (TENTATIVE — confirm with pcap when
-    /// dash is set to 12h in settings). The hour-of-day value in the
-    /// ETA TLV itself is independent of this flag.
+    ///
+    /// 24-hour → `0x30`. **PCAP-CONFIRMED** against the real-phone
+    /// capture `_NAV_FULL` in better-dash `tripper_app_like_nav.py`
+    /// (a captured nav session: road name "Taille de Mas du Gr", ETA
+    /// "0303"), which carries `05 54 0001 30`.
+    ///
+    /// The format byte is in the **decimal-ASCII-digit family** — the
+    /// same `t3c.f`/`sb.append(int)` encoding as the distance unit bytes
+    /// (`t3c.j`), NOT the `0x55`/`0xAA` separator-flag family. In the
+    /// SAME capture the primary unit is `0x30` ("metres") via that exact
+    /// encoding. So format index 0 ("0") → byte `0x30`.
+    ///
+    /// Earlier this sent `0x55`/`0xAA` (borrowed from the decimal-
+    /// SEPARATOR flag). The dash couldn't bind a `0x55` format byte to
+    /// the `0x08` ETA value and DROPPED THE WHOLE ETA BLOCK — the
+    /// blank-ETA field bug (6/2026). The TLV ordering fix (commit
+    /// 56ec09c) had already restored the total-distance field; this byte
+    /// value is why ETA *alone* stayed blank afterward.
+    ///
+    /// 12-hour → `0x31` (format index 1) is **INFERRED** from the digit
+    /// encoding (no 12h pcap on hand; the captured phone was in 24h).
+    /// Needs HW confirmation in 12h dash mode. The HH:MM payload in the
+    /// `0x08` ETA TLV is always 24-hour space regardless of this flag;
+    /// the flag only tells the dash how to RENDER it.
     static func tlvEtaFormat(is24Hour: Bool) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x54,
-                   payload: Data([is24Hour ? 0x55 : 0xAA]))
+                   payload: Data([is24Hour ? 0x30 : 0x31]))
     }
 
     /// `05 0B 0006 <ascii_DDHHMM>` — q3c.S2: remaining travel time, 6 ASCII
