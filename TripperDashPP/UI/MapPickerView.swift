@@ -287,11 +287,12 @@ struct MapPickerView: View {
                 focusRequest: focusRequest,
                 userHeading: puckHeading,
                 onTap: { coord in
-                    // Tapping the map (re)selects a raw pin at that point.
-                    // The camera deliberately stays put — no focusRequest —
-                    // so the rider can nudge to a neighbouring point while
-                    // the card is up. Reverse-geocode in the background to
-                    // upgrade the "Pin x, y" name to a real address.
+                    // Long-pressing the map (re)selects a raw pin at that
+                    // point. The camera deliberately stays put — no
+                    // focusRequest — so the rider can nudge to a
+                    // neighbouring point while the card is up. Reverse-
+                    // geocode in the background to upgrade the "Pin x, y"
+                    // name to a real address.
                     selectRawPin(at: coord)
                 },
                 onRecenterVisibilityChange: { visible in

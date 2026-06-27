@@ -32,7 +32,7 @@
 //     the "center on me" button.
 //
 //  Capabilities:
-//   - single-tap → drop pin → `onTap(coord)` callback
+//   - long-press → drop pin → `onTap(coord)` callback
 //   - selected pin annotation rendered as a red mappin marker.
 //   - route polyline overlay rendered as a fat blue stroke
 //
@@ -78,9 +78,9 @@ struct InteractiveMapView: UIViewRepresentable {
     /// rotation.
     var userHeading: CLLocationDirection?
 
-    /// Fires when the user single-taps the map. Coordinate is mapped
-    /// from the touch location. Caller decides whether to drop a pin
-    /// or open a search.
+    /// Fires when the user long-presses the map (a deliberate "drop a
+    /// pin here" gesture). Coordinate is mapped from the press location.
+    /// Caller decides whether to drop a pin or open a search.
     var onTap: ((CLLocationCoordinate2D) -> Void)?
 
     /// Reports whether the recenter button should be shown — i.e. there
@@ -120,11 +120,14 @@ struct InteractiveMapView: UIViewRepresentable {
                          animated: false)
             context.coordinator.didInitialCenter = true
         }
-        // Tap gesture for drop-pin.
-        let tap = UITapGestureRecognizer(target: context.coordinator,
-                                         action: #selector(Coordinator.handleTap(_:)))
-        tap.delegate = context.coordinator
-        mv.addGestureRecognizer(tap)
+        // Long-press to drop a pin (a tap would fire on every incidental
+        // touch while panning; a deliberate press is the iOS-standard
+        // "drop a pin here" gesture, mirroring PlanningMapView).
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator,
+                                                     action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.45
+        longPress.delegate = context.coordinator
+        mv.addGestureRecognizer(longPress)
         context.coordinator.mapView = mv
         context.coordinator.onTap = onTap
         context.coordinator.onRecenterVisibilityChange = onRecenterVisibilityChange
@@ -229,8 +232,10 @@ struct InteractiveMapView: UIViewRepresentable {
         /// SwiftUI binding with no-op updates.
         private var lastRecenterVisible: Bool?
 
-        @objc func handleTap(_ gr: UITapGestureRecognizer) {
-            guard let mv = mapView, gr.state == .ended else { return }
+        @objc func handleLongPress(_ gr: UILongPressGestureRecognizer) {
+            // Fire once, at the moment the press is recognized (.began),
+            // not on every move/end event the recognizer emits.
+            guard let mv = mapView, gr.state == .began else { return }
             let point = gr.location(in: mv)
             let coord = mv.convert(point, toCoordinateFrom: mv)
             onTap?(coord)
@@ -238,7 +243,7 @@ struct InteractiveMapView: UIViewRepresentable {
 
         /// Don't swallow MKMapView's own gestures (zoom/pan for the
         /// default Apple Maps tools). Letting both fire means the user can
-        /// still pinch-zoom even while our single-tap is active.
+        /// still pinch-zoom / pan even while our long-press is armed.
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
