@@ -120,6 +120,15 @@ final class BikeLink {
     /// tolerated by all read paths.
     var settings: DashNavSettings?
 
+    /// Live phone-status source for the 1 Hz heartbeat (battery / charging
+    /// / GPS-fix / cell-signal presence). A `@Sendable` async closure so
+    /// the heartbeat `Task` can snapshot `DeviceTelemetry` on the main
+    /// actor each tick. AppStatus assigns this right after construction,
+    /// alongside `settings`. `nil` → the heartbeat falls back to its
+    /// built-in OEM-safe placeholder provider, so the link still beats
+    /// normally before wiring (or in tests).
+    var telemetryProvider: (@Sendable () async -> PhoneTelemetry)?
+
     init() {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
@@ -656,8 +665,11 @@ final class BikeLink {
 
     private func startHeartbeat(socket: DashSocket) {
         heartbeatTask?.cancel()
+        let provider = telemetryProvider
         heartbeatTask = Task { [weak self, seq] in
-            await HeartbeatLoop(socket: socket, seq: seq).run()
+            var loop = HeartbeatLoop(socket: socket, seq: seq)
+            if let provider { loop.telemetryProvider = provider }
+            await loop.run()
             // `run()` returns on cancellation (clean — disconnect or a
             // drop we already handled) OR on a send error (the link is
             // gone and nobody told us yet). Distinguish via the task's
