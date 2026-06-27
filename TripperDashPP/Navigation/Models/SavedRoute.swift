@@ -95,10 +95,19 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
     }
 
-    // MARK: - Hashable (identity-based, mirrors Favorite/Destination)
-
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    static func == (l: SavedRoute, r: SavedRoute) -> Bool { l.id == r.id }
+    // MARK: - Equatable / Hashable
+    //
+    // Synthesised (value-based) on purpose — every stored property is
+    // Hashable, so SwiftUI sees a row as "changed" when the name, points,
+    // or distance change, even though the id is stable. An identity-only
+    // `==`/`hash` (l.id == r.id) was the original bug: SavedRouteRow is a
+    // separate child view whose `route` is a `let`, so SwiftUI memoises it
+    // by equating the old and new value. Identity-only equality reported
+    // "unchanged" after a rename/edit, so the row kept the stale name
+    // until the list was rebuilt from scratch (sheet reopen). Do NOT
+    // reintroduce a custom identity-only conformance here; if a
+    // Set<SavedRoute>/dictionary keyed by identity is ever needed, wrap
+    // the id instead.
 
     // MARK: - Derived display
 
