@@ -263,6 +263,18 @@ final class AppStatus {
     /// sheet / favorites tiles / preferences panel to this directly.
     let navigationStore = NavigationStore()
 
+    /// Persisted library of imported GPX routes (feat/saved-routes-gpx).
+    /// The "Saved routes" sheet binds to this; navigating one builds a
+    /// fresh `PlannedRoute` via `beginPlanningFromSavedRoute`.
+    let savedRoutesStore = SavedRoutesStore()
+
+    /// One-shot signal from the saved-route detail screen asking the
+    /// picker to tear down the (possibly multi-level) Saved Routes sheet
+    /// after a route was staged for navigation, so the planning UI is
+    /// visible underneath. The picker observes this, dismisses, and
+    /// resets it to false.
+    var requestDismissSavedRoutes = false
+
     /// Active turn-by-turn session. `start(route:destination:)` flips
     /// `isNavigating` true; stop() resets. Reroute requests are wired
     /// through `onRerouteRequested` in init below.
@@ -327,6 +339,50 @@ final class AppStatus {
         let origin = Waypoint.currentLocation(originCoord)
         let destination = Waypoint.from(destination: dest)
         let plan = PlannedRoute(origin: origin, destination: destination)
+        plannedRoute = plan
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
+    /// Begin planning from a saved (imported) route. Builds a
+    /// `PlannedRoute` whose origin is the live GPS fix and whose via /
+    /// destination waypoints are the saved route's points (truncated to
+    /// the chosen start mode), then kicks off leg computation.
+    ///
+    /// This produces the SAME `PlannedRoute` shape the manual planner
+    /// makes, so everything downstream — the connect-first "Start
+    /// navigation" CTA, auto-start on connect, per-leg recompute,
+    /// reroute, arrival teardown, and the dash maneuver-glyph pump — is
+    /// reused with zero changes. A saved route is just a pre-seeded plan.
+    ///
+    /// `.fromNearest` drops the leading points before `nearestIndex` so
+    /// the rider joins the route at the closest point; `.fromFirst` keeps
+    /// the whole route. The origin is ALWAYS the live location (so
+    /// MKDirections has a real source and the first leg routes the rider
+    /// onto the saved geometry).
+    func beginPlanningFromSavedRoute(_ route: SavedRoute,
+                                     mode: RouteStartMode,
+                                     nearestIndex: Int) {
+        let navPoints = RouteStartPlanner.navigablePoints(route.points,
+                                                          mode: mode,
+                                                          nearestIndex: nearestIndex)
+        guard navPoints.count >= 1 else { return }
+
+        let originCoord = locationService.lastFix?.coordinate
+            ?? navPoints[0].coordinate
+        let origin = Waypoint.currentLocation(originCoord)
+
+        // Map saved RoutePoints → Waypoints. First/last get friendly
+        // fallback names; named GPX points keep their label.
+        let routeWaypoints: [Waypoint] = navPoints.enumerated().map { idx, p in
+            let fallback = idx == navPoints.count - 1 ? "Route end"
+                         : (route.kind == .waypoints ? "Stop \(idx + 1)" : "Via \(idx + 1)")
+            return Waypoint(name: p.name ?? fallback,
+                            addressLine: nil,
+                            coordinate: p.coordinate,
+                            isCurrentLocation: false)
+        }
+
+        let plan = PlannedRoute(waypoints: [origin] + routeWaypoints)
         plannedRoute = plan
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }

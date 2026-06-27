@@ -35,6 +35,7 @@ struct MapPickerView: View {
     @State private var locationToken: UUID?
     @State private var transitioning = false
     @State private var showSettings = false
+    @State private var showSavedRoutes = false
 
     /// Armed when the rider taps "Connect to dash to start" while a plan
     /// is laid out — i.e. they intend to ride, not just connect. When the
@@ -112,6 +113,12 @@ struct MapPickerView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showSavedRoutes = true } label: {
+                    Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                }
+                .accessibilityLabel("Saved routes")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape")
                 }
@@ -121,6 +128,11 @@ struct MapPickerView: View {
         .sheet(isPresented: $showSettings) {
             NavigationStack { StreamingView() }
                 .environment(status)
+        }
+        .sheet(isPresented: $showSavedRoutes) {
+            SavedRoutesListView()
+                .environment(status)
+                .environment(status.savedRoutesStore)
         }
         .fullScreenCover(isPresented: $prerenderActive) {
             PrerenderProgressView(progress: prerenderProgress)
@@ -191,6 +203,15 @@ struct MapPickerView: View {
             // to connect → cancel the armed auto-start so a later manual
             // connect doesn't unexpectedly launch into nothing.
             if !planning { pendingAutoStart = false }
+        }
+        .onChange(of: status.requestDismissSavedRoutes) { _, request in
+            // A saved route was staged for navigation from inside the
+            // Saved Routes sheet — tear the sheet down so the picker's
+            // planning UI (the staged plan) is visible. One-shot: reset.
+            if request {
+                showSavedRoutes = false
+                status.requestDismissSavedRoutes = false
+            }
         }
     }
 
