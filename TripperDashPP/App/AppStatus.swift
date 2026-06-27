@@ -531,4 +531,11 @@ final class AppStatus {
         .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
     let buildNumber: String = Bundle.main
         .object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+
+    /// Short git commit SHA the build was produced from. Stamped into the
+    /// Info.plist at build time by `tools/stamp-git-sha.sh` (a Run Script
+    /// build phase). Falls back to "dev" for the unstamped source plist or
+    /// "unknown" if the stamp script could not reach git.
+    let buildCommitSHA: String = Bundle.main
+        .object(forInfoDictionaryKey: "GitCommitSHA") as? String ?? "unknown"
 }

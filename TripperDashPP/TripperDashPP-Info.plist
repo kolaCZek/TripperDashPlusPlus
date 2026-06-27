@@ -111,5 +111,19 @@
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Build provenance                                              -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!--
+	  Short git commit SHA the binary was built from. This placeholder is
+	  overwritten at build time by the `stamp-git-sha.sh` Run Script phase
+	  (PlistBuddy writes into the built Info.plist). Surfaced in
+	  Settings → Build → Version as "1.0 (46ab7a9)". A trailing "*" means
+	  the working tree had uncommitted changes at build time.
+	-->
+	<key>GitCommitSHA</key>
+	<string>dev</string>
+
 </dict>
 </plist>
