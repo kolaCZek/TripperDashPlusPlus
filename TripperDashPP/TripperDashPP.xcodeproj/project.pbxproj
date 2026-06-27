@@ -48,6 +48,7 @@
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
+		A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F0 /* CallStateObserver.swift */; };
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
 		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
 		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
@@ -118,6 +119,7 @@
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
+		A4CA110000000000000000F0 /* CallStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallStateObserver.swift; sourceTree = "<group>"; };
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
 		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
 		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
@@ -215,6 +217,7 @@
 				A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */,
 				A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */,
 				A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */,
+				A4CA110000000000000000F0 /* CallStateObserver.swift */,
 			);
 			path = Tripper;
 			sourceTree = "<group>";
@@ -432,6 +435,7 @@
 				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
+				A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
 				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
 				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,

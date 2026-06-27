@@ -342,6 +342,59 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    // MARK: - Call-state notification
+    //
+    // Mirror the stock Royal Enfield app's incoming-call card on the big
+    // Tripper TFT. Decoded 2026-06-27 from the OEM Android app
+    // (`com.royalenfield.reprime`): `bluconnect.km3.u(sq8 state)` pushes the
+    // call state to the dash over the SAME K1G/UDP-2000 control plane we
+    // already use for nav — there is NO separate transport and NO paid
+    // entitlement. (The BLE `q12.m(byte)` path in the OEM app is for the
+    // OLD round Tripper and is irrelevant here — don't confuse the two.)
+    //
+    // Each state change is a 2-packet burst, exactly like `km3.u()`:
+    //   1. the `05 21 0001 <state>` call-state TLV
+    //   2. the `05 4D 0001 32` commit/trailer suffix (`dbg.f`)
+    //
+    // The four state bytes are byte-verified against the OEM constants
+    // `dbg.l2/n2/m2/o2`, and the idle value `0x32` is byte-identical to the
+    // `0521000132` tail better-dash already inlines in every 0044/0030
+    // heartbeat. Full reverse-engineering writeup + the AES caller-name
+    // caveat (why we ship state-only for now) live in the skill reference
+    // `references/call-notification-wire-protocol.md`.
+    //
+    // Caller-name card (`05 22`) is deliberately NOT implemented: the OEM
+    // app AES-encrypts the name under a key it RSA-hands to the dash, and
+    // on iOS `CXCallObserver` doesn't surface the caller's name/number for
+    // cellular calls anyway — so a generic state-only card is the complete
+    // achievable feature here.
+
+    /// Phone → bike call state. Raw byte is the `05 21` TLV payload, taken
+    /// verbatim from the OEM `sq8` enum mapping in `km3.u()`.
+    enum CallState: UInt8, Sendable, CaseIterable {
+        case incoming = 0x0A   // sq8.INCOMING_CALL  (dbg.l2) — ringing
+        case active   = 0x14   // sq8.ACTIVE_CALL    (dbg.n2) — answered / in call
+        case outgoing = 0x1E   // sq8.OUTGOING_CALL  (dbg.m2) — we dialed out
+        case none     = 0x32   // sq8.NO_CALL        (dbg.o2) — idle / call ended
+    }
+
+    /// `05 21 0001 <state>` — the standalone call-state TLV. One per state
+    /// change. Goes through the normal `encode()` so `seg_count` (=2) and
+    /// `outer_len` (=0x16) come out byte-identical to the OEM `dbg.l2/n2/m2/o2`
+    /// constants when `seq == 0`.
+    static func makeCallState(_ state: CallState, seq: UInt8) -> Data {
+        let seg = K1GSegment(type: .navInfo, sub: 0x21, payload: Data([state.rawValue]))
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// `05 4D 0001 32` — the call-state commit/trailer (`dbg.f`). `km3.u()`
+    /// always sends this immediately after the `05 21` packet, regardless of
+    /// state. Constant payload `0x32`.
+    static func makeCallStateCommit(seq: UInt8) -> Data {
+        let seg = K1GSegment(type: .navInfo, sub: 0x4D, payload: Data([0x32]))
+        return encode(segments: [seg], seq: seq)
+    }
+
     // MARK: - Active navigation TLVs (1 Hz during nav)
     //
     // Authority: `better-dash/tripper_app_like_nav.py` `_nav_tlv_*` builders

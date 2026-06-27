@@ -295,6 +295,46 @@ final class BikeLink {
         try? await s.send(pkt)
     }
 
+    // MARK: - Call-state notification
+    //
+    // Push the phone's current call state to the dash so it shows the OEM
+    // incoming-call card (decoded from `km3.u()` — see the
+    // `call-notification-wire-protocol.md` skill reference). Driven by
+    // `CallStateObserver` off `CXCallObserver`. Like the nav hooks, this is
+    // fire-and-forget on the link's seq counter and a no-op when not
+    // connected — a missed call card is cosmetic and must never disrupt the
+    // ride or the nav stream.
+
+    /// The last call state we pushed, so we can suppress duplicate sends
+    /// (CallKit can fire several `callChanged` events for one logical
+    /// transition). `nil` until the first push.
+    private var lastCallState: K1GPacket.CallState?
+
+    /// Send a call-state change to the dash as the OEM 2-packet burst
+    /// (`05 21 <state>` then the `05 4D 32` commit), mirroring `km3.u()`.
+    /// De-duplicates against the previously-sent state. No-op if not
+    /// connected (we simply drop the card — it'll re-sync on the next
+    /// distinct state once the link is back).
+    ///
+    /// Guard order matters: we check `.connected` BEFORE updating
+    /// `lastCallState`, so a state that arrives while disconnected is not
+    /// recorded as "sent". `lastCallState` is reset on every (re)connect
+    /// (`runConnectFlow`) so a fresh link always re-pushes the live state.
+    func sendCallState(_ state: K1GPacket.CallState) async {
+        guard self.state == .connected, let s = socket else { return }
+        guard state != lastCallState else { return }
+        lastCallState = state
+        let pkt    = K1GPacket.makeCallState(state, seq: seq.consume())
+        let commit = K1GPacket.makeCallStateCommit(seq: seq.consume())
+        do {
+            try await s.send(pkt)
+            try await s.send(commit)
+            log.info("Sent call-state \(String(describing: state)) (05 21 + 05 4D commit)")
+        } catch {
+            log.error("Call-state send failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Flow
 
     @discardableResult
@@ -317,6 +357,11 @@ final class BikeLink {
             // freshly-rebooted dash drops our initial burst — the link never
             // re-establishes and we time out after the 10-min budget.
             seq.reset()
+            // Forget the last call state we pushed so a fresh link re-syncs
+            // the live state (the dash reboots its own call card on a new
+            // session; replaying our last in-memory state would otherwise be
+            // suppressed by the de-dup guard in `sendCallState`).
+            lastCallState = nil
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
             try await s.start(timeout: 5.0)

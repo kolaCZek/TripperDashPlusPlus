@@ -115,6 +115,7 @@ final class AppStatus {
         // UDP into a black hole.
         observeBikeLink()
         wireNavigation()
+        wireCallObserver()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -447,6 +448,24 @@ final class AppStatus {
             self.stagedDestination = nil
             self.plannedRoute = nil
         }
+    }
+
+    // MARK: - Call-state observer (incoming-call card on the dash)
+
+    /// Owns the CallKit bridge for the app's lifetime. Held here (not a
+    /// local) so the `CXCallObserver` inside keeps its delegate alive — a
+    /// dropped observer silently stops delivering call events.
+    @ObservationIgnored private var callObserver: CallStateObserver?
+
+    /// Start observing system call state and forwarding it to the dash.
+    /// Mirrors `km3.u()` in the stock app: call changes become K1G
+    /// `05 21`/`05 4D` bursts over the existing nav control plane. No-op
+    /// when not connected (handled inside `BikeLink.sendCallState`), so it's
+    /// safe to start once at launch and leave running for the whole session.
+    private func wireCallObserver() {
+        let obs = CallStateObserver(link: bikeLink)
+        callObserver = obs
+        obs.start()
     }
 
     /// Forward GPS fixes into ActiveNavigator. Called from the picker
