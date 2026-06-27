@@ -316,11 +316,21 @@ final class BikeLink {
     /// connected (we simply drop the card — it'll re-sync on the next
     /// distinct state once the link is back).
     ///
+    /// Honours the user's `callStateEnabled` preference: when the card is
+    /// switched off we never light a NEW card, but a `.none` (clear) is
+    /// always allowed through, so toggling the setting off mid-call wipes a
+    /// card that's lit right now instead of leaving it stuck on the dash.
+    ///
     /// Guard order matters: we check `.connected` BEFORE updating
     /// `lastCallState`, so a state that arrives while disconnected is not
     /// recorded as "sent". `lastCallState` is reset on every (re)connect
     /// (`runConnectFlow`) so a fresh link always re-pushes the live state.
     func sendCallState(_ state: K1GPacket.CallState) async {
+        // Respect the user toggle — but always let a `.none` clear through
+        // so disabling the feature (or ending a call) can zero a live card.
+        if state != .none {
+            guard settings?.callStateEnabled ?? true else { return }
+        }
         guard self.state == .connected, let s = socket else { return }
         guard state != lastCallState else { return }
         lastCallState = state

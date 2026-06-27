@@ -466,6 +466,27 @@ final class AppStatus {
         let obs = CallStateObserver(link: bikeLink)
         callObserver = obs
         obs.start()
+        observeCallStateToggle()
+    }
+
+    /// Watch the `callStateEnabled` preference so that turning the card OFF
+    /// while one is lit clears it on the dash immediately. We push a `.none`
+    /// (which `BikeLink.sendCallState` lets through even when disabled) on
+    /// the OFF transition. Turning it back ON does nothing here — the next
+    /// real CallKit event re-syncs the live state. Same self-re-registering
+    /// `withObservationTracking` idiom as `observeBikeLink()`.
+    private func observeCallStateToggle() {
+        withObservationTracking {
+            _ = dashNavSettings.callStateEnabled
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.dashNavSettings.callStateEnabled == false {
+                    await self.bikeLink.sendCallState(.none)
+                }
+                self.observeCallStateToggle()
+            }
+        }
     }
 
     /// Forward GPS fixes into ActiveNavigator. Called from the picker

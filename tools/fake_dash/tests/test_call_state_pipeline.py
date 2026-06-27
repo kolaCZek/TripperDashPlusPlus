@@ -231,3 +231,48 @@ def test_ended_dominates_connected_so_card_clears() -> None:
     reordered, hanging up would leave a stale 'in call' card on the dash."""
     assert callkit_to_state(has_ended=True, has_connected=True, is_outgoing=False) == CALL_NONE
     assert callkit_to_state(has_ended=True, has_connected=True, is_outgoing=True) == CALL_NONE
+
+
+# --- callStateEnabled gate (BikeLink.sendCallState) --------------------------
+#
+# The user can switch the incoming-call card off in Settings
+# (DashNavSettings.callStateEnabled). BikeLink.sendCallState gates on it:
+# a NEW card (any state != none) is suppressed when disabled, but a NONE
+# (clear) is ALWAYS allowed through — so flipping the toggle off mid-call
+# wipes a lit card instead of stranding it on the dash. This mirrors the
+# Swift `if state != .none { guard callStateEnabled }` guard.
+
+
+def gate_allows_send(state: int, enabled: bool) -> bool:
+    """Mirror of the BikeLink.sendCallState toggle gate (the part BEFORE the
+    .connected / de-dupe guards). Returns True if the state is allowed to
+    proceed to the wire."""
+    if state != CALL_NONE:
+        return enabled
+    return True  # a clear always goes through
+
+
+@pytest.mark.parametrize("state", ALL_STATES)
+def test_gate_allows_everything_when_enabled(state: int) -> None:
+    """With the card enabled (the default), every state proceeds — the gate
+    is transparent."""
+    assert gate_allows_send(state, enabled=True) is True
+
+
+@pytest.mark.parametrize(
+    "state",
+    [CALL_INCOMING, CALL_ACTIVE, CALL_OUTGOING],
+)
+def test_gate_suppresses_new_cards_when_disabled(state: int) -> None:
+    """With the card disabled, a NEW card (ringing / active / outgoing) is
+    suppressed — nothing call-related hits the wire."""
+    assert gate_allows_send(state, enabled=False) is False
+
+
+def test_gate_always_allows_clear_even_when_disabled() -> None:
+    """A NONE (clear) is allowed through even when disabled, so turning the
+    toggle off while a card is lit clears it instead of leaving it stuck.
+    This is the load-bearing exception in the gate — if it regresses, the
+    'turn it off mid-call' UX silently breaks (card stays on the dash)."""
+    assert gate_allows_send(CALL_NONE, enabled=False) is True
+    assert gate_allows_send(CALL_NONE, enabled=True) is True
