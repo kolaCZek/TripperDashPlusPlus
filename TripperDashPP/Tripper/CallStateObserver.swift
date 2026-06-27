@@ -77,9 +77,17 @@ final class CallStateObserver: NSObject {
     /// Pure mapping from a CallKit call to our wire call-state. Static and
     /// side-effect-free so the unit/logic tests (and the Python wire mirror)
     /// can pin the exact truth table without standing up CallKit.
-    static func callState(hasEnded: Bool,
-                          hasConnected: Bool,
-                          isOutgoing: Bool) -> K1GPacket.CallState {
+    ///
+    /// `nonisolated`: this is a pure function over `Sendable` inputs/output
+    /// with no access to the type's main-actor state, so it must be callable
+    /// from the `nonisolated` `CXCallObserverDelegate` callback without an
+    /// `await`. Without this, Swift 6 infers main-actor isolation from the
+    /// enclosing `@MainActor` class and rejects the synchronous call in the
+    /// delegate ("call to main actor-isolated static method … in a
+    /// synchronous nonisolated context").
+    nonisolated static func callState(hasEnded: Bool,
+                                      hasConnected: Bool,
+                                      isOutgoing: Bool) -> K1GPacket.CallState {
         if hasEnded { return .none }
         if hasConnected { return .active }
         if isOutgoing { return .outgoing }
