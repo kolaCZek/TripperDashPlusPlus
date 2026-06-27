@@ -1,14 +1,18 @@
 name: iOS build
 
 # Build-only sanity check: does the app still compile?
-# Runs on every push and every PR. The app is a UIKit/MapKit/VideoToolbox
-# iOS target, so it must build on a macOS runner with Xcode — it cannot be
-# built on Linux. No code signing (simulator build), no tests (there is no
-# test target yet), just `xcodebuild build`.
+# Runs on every push. The app is a UIKit/MapKit/VideoToolbox iOS target,
+# so it must build on a macOS runner with Xcode — it cannot be built on
+# Linux. No code signing (simulator build), no tests (there is no test
+# target yet), just `xcodebuild build`.
+#
+# Only `push` is wired up (not `pull_request`): a push run's check is
+# attached to the head commit, so it already surfaces on any PR for that
+# commit — adding a pull_request trigger would just double-run the same
+# SHA and burn macOS minutes.
 
 on:
   push:
-  pull_request:
 
 concurrency:
   group: ios-build-${{ github.ref }}
