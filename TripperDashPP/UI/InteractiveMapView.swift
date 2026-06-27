@@ -72,6 +72,12 @@ struct InteractiveMapView: UIViewRepresentable {
     /// When set, render this polyline as the active/preview route.
     var routePolyline: MKPolyline?
 
+    /// Device heading in degrees clockwise from true north (-1 / nil =
+    /// unknown). Drives the rotation of the heading cone under the user
+    /// puck. Because the map is north-up, this maps 1:1 to on-screen
+    /// rotation.
+    var userHeading: CLLocationDirection?
+
     /// Fires when the user single-taps the map. Coordinate is mapped
     /// from the touch location. Caller decides whether to drop a pin
     /// or open a search.
@@ -181,6 +187,10 @@ struct InteractiveMapView: UIViewRepresentable {
 
         // Recompute recenter-button visibility against the new fix.
         coord.recomputeRecenterVisibility()
+
+        // Push the latest heading into the live puck (if it's on screen).
+        coord.userHeading = userHeading
+        coord.applyHeadingToPuck()
     }
 
     static func dismantleUIView(_ mv: MKMapView, coordinator: Coordinator) {
@@ -201,6 +211,12 @@ struct InteractiveMapView: UIViewRepresentable {
         var onTap: ((CLLocationCoordinate2D) -> Void)?
         var onRecenterVisibilityChange: ((Bool) -> Void)?
         var userCoordinate: CLLocationCoordinate2D?
+        /// Latest heading (deg clockwise from north), pushed into the
+        /// puck view when it exists.
+        var userHeading: CLLocationDirection?
+        /// The live user-location puck, retained weakly so we can rotate
+        /// its cone as fresh headings arrive without re-querying the map.
+        weak var puckView: UserPuckAnnotationView?
 
         /// Set once we've framed the user on the first fix (or the rider
         /// has explicitly moved/focused the camera). Guards against the
@@ -264,6 +280,14 @@ struct InteractiveMapView: UIViewRepresentable {
             return !central.contains(pt)
         }
 
+        // MARK: - Heading cone
+
+        /// Push the current heading into the live puck view. No-op until
+        /// the puck has been created (first user-location update).
+        func applyHeadingToPuck() {
+            puckView?.headingDegrees = userHeading
+        }
+
         // MARK: - Delegate
 
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
@@ -285,7 +309,19 @@ struct InteractiveMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
-            if annotation is MKUserLocation { return nil }
+            if annotation is MKUserLocation {
+                // Custom puck so we can draw a heading cone on a north-up
+                // map (MapKit only shows its own cone in followWithHeading,
+                // which would rotate the whole map — not wanted here).
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: UserPuckAnnotationView.reuseID)
+                    as? UserPuckAnnotationView
+                    ?? UserPuckAnnotationView(annotation: annotation,
+                                              reuseIdentifier: UserPuckAnnotationView.reuseID)
+                v.annotation = annotation
+                v.headingDegrees = userHeading
+                puckView = v
+                return v
+            }
             if annotation is DestinationAnnotation {
                 let id = "DestinationPin"
                 let view = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView

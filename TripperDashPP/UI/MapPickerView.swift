@@ -91,6 +91,16 @@ struct MapPickerView: View {
     /// Whether the picking phase should show the multi-stop planning UI.
     private var isPlanning: Bool { status.plannedRoute != nil }
 
+    /// Heading fed to the home-map puck cone, in degrees clockwise from
+    /// north. Prefer true heading; fall back to magnetic; nil (hide the
+    /// cone) when neither is valid (negative == uncalibrated/unknown).
+    private var puckHeading: CLLocationDirection? {
+        guard let h = status.locationService.lastHeading else { return nil }
+        if h.trueHeading >= 0 { return h.trueHeading }
+        if h.magneticHeading >= 0 { return h.magneticHeading }
+        return nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
@@ -275,6 +285,7 @@ struct MapPickerView: View {
                 userCoordinate: status.locationService.lastFix?.coordinate,
                 selectedPin: selectedDestination?.coordinate,
                 focusRequest: focusRequest,
+                userHeading: puckHeading,
                 onTap: { coord in
                     // Tapping the map (re)selects a raw pin at that point.
                     // The camera deliberately stays put — no focusRequest —
