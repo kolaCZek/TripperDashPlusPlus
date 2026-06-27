@@ -185,14 +185,6 @@ struct NavigationHUD: View {
                 RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(.quaternary, lineWidth: 0.5)
             )
-            .overlay(alignment: .bottomTrailing) {
-                Text("© OpenStreetMap")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4).padding(.vertical, 2)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                    .padding(4)
-            }
         }
     }
 
