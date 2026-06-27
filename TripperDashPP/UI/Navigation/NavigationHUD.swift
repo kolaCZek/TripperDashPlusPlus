@@ -40,6 +40,7 @@ struct NavigationHUD: View {
                     stopProgressPill(plan: plan)
                 }
                 etaCard
+                routeOverview
             }
             Spacer()
         }
@@ -162,6 +163,29 @@ struct NavigationHUD: View {
             Text(title).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Static "progress bar" overview of the whole planned route: the
+    /// travelled trace (grey) + the route ahead (blue) + a position puck,
+    /// reusing the same snapshot recipe as the editor's saved-route
+    /// thumbnail. Lives in the otherwise-empty space below the ETA card.
+    /// Only shown once there's geometry to draw (avoids an empty grey box
+    /// in the beat before the first fix / route lands).
+    @ViewBuilder
+    private var routeOverview: some View {
+        if !nav.routeAheadCoordinates.isEmpty || !nav.traveledCoordinates.isEmpty {
+            RouteProgressMap(
+                traveled: nav.traveledCoordinates,
+                ahead: nav.routeAheadCoordinates,
+                position: nav.currentCoordinate
+            )
+            .frame(height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            )
+        }
     }
 
     // MARK: - Display helpers

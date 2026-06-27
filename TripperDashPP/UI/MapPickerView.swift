@@ -112,11 +112,17 @@ struct MapPickerView: View {
             controlButton
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showSavedRoutes = true } label: {
-                    Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+            // The saved-routes shortcut only belongs in the idle browsing
+            // state ("where do I want to go?"). Once a route is being
+            // planned for navigation — or navigation is already running —
+            // it has no logical place in the top bar, so hide it there.
+            if mode == .picking && !isPlanning {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSavedRoutes = true } label: {
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .accessibilityLabel("Saved routes")
                 }
-                .accessibilityLabel("Saved routes")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: {
