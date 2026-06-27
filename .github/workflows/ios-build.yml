@@ -1,0 +1,59 @@
+name: iOS build
+
+# Build-only sanity check: does the app still compile?
+# Runs on every push and every PR. The app is a UIKit/MapKit/VideoToolbox
+# iOS target, so it must build on a macOS runner with Xcode — it cannot be
+# built on Linux. No code signing (simulator build), no tests (there is no
+# test target yet), just `xcodebuild build`.
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: xcodebuild (iOS Simulator)
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    env:
+      PROJECT: TripperDashPP/TripperDashPP.xcodeproj
+      SCHEME: TripperDashPP
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select latest stable Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Show available simulators
+        run: xcrun simctl list devicetypes | grep -i iphone || true
+
+      - name: Resolve an iOS Simulator destination
+        id: dest
+        run: |
+          # Pick a generic iOS Simulator destination for the build. Using a
+          # generic destination avoids pinning to a runtime/device that the
+          # runner image may drop in a future update.
+          echo "destination=generic/platform=iOS Simulator" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "${{ steps.dest.outputs.destination }}" \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
