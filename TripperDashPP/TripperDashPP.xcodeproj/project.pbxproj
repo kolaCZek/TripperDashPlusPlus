@@ -65,6 +65,12 @@
 		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
 		F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */; };
 		F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */; };
+		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
+		FE70000000000000000000A1 /* GPXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000A0 /* GPXParser.swift */; };
+		FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B0 /* SavedRoutesStore.swift */; };
+		FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000C0 /* RouteStartPlanner.swift */; };
+		FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000D0 /* SavedRoutesListView.swift */; };
+		FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000E0 /* SavedRouteDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -128,6 +134,12 @@
 		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
+		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
+		FE70000000000000000000A0 /* GPXParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXParser.swift; sourceTree = "<group>"; };
+		FE70000000000000000000B0 /* SavedRoutesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesStore.swift; sourceTree = "<group>"; };
+		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
+		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
+		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -240,6 +252,9 @@
 				A4F000000000000000000040 /* ActiveNavigator.swift */,
 				A4F000000000000000000E00 /* ActiveNavLoop.swift */,
 				A4F000000000000000000E70 /* ManeuverLog.swift */,
+				FE70000000000000000000A0 /* GPXParser.swift */,
+				FE70000000000000000000B0 /* SavedRoutesStore.swift */,
+				FE70000000000000000000C0 /* RouteStartPlanner.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -257,6 +272,7 @@
 				A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */,
 				A4F000000000000000000F00 /* Waypoint.swift */,
 				A4F000000000000000000F10 /* PlannedRoute.swift */,
+				FE70000000000000000000F0 /* SavedRoute.swift */,
 				A4F000000000000000000E60 /* MapStyleSettings.swift */,
 			);
 			path = Models;
@@ -275,6 +291,8 @@
 				A4F000000000000000000F30 /* PlanningMapView.swift */,
 				A4F000000000000000000F40 /* WaypointListView.swift */,
 				A4F000000000000000000F50 /* RoutePreferencesView.swift */,
+				FE70000000000000000000D0 /* SavedRoutesListView.swift */,
+				FE70000000000000000000E0 /* SavedRouteDetailView.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -410,6 +428,12 @@
 				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,
 				F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */,
 				F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */,
+				FE70000000000000000000F1 /* SavedRoute.swift in Sources */,
+				FE70000000000000000000A1 /* GPXParser.swift in Sources */,
+				FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */,
+				FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */,
+				FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */,
+				FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
