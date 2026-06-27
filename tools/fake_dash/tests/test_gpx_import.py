@@ -29,6 +29,7 @@ from tests.gpx_geometry_mirror import (
     ParsedGPX,
     Pt,
     StartDecision,
+    SavedRouteVM,
     analyze,
     bounding_span,
     douglas_peucker,
@@ -40,6 +41,7 @@ from tests.gpx_geometry_mirror import (
     path_length,
     perpendicular_distance,
     reduce,
+    swiftui_row_rerenders,
 )
 
 # ─────────────────────────── helpers ────────────────────────────────
@@ -467,4 +469,54 @@ class TestBoundingSpan:
         a = bounding_span([Pt(50.0, 14.0), Pt(50.5, 14.8)])
         b = bounding_span([Pt(50.5, 14.8), Pt(50.0, 14.0)])
         assert a == b
+
+
+# ──────────────── saved-route list refresh on rename ─────────────────
+
+
+class TestRowRerenderOnRename:
+    """Pins the fix for: renaming a saved route didn't refresh the list
+    row until the sheet was closed & reopened.
+
+    SwiftUI memoises SavedRouteRow (a value-typed child) by `==`-ing the
+    old and new SavedRoute. The model originally shipped an identity-only
+    `==` (l.id == r.id), so a rename compared EQUAL to the stale row and
+    the redraw was skipped. The fix is value-based equality (synthesised),
+    which these tests lock in. `swiftui_row_rerenders` returns whether the
+    framework would redraw, i.e. old != new.
+    """
+
+    def test_identity_equality_skips_rerender_on_rename(self):
+        # Reproduces the BUG: same id, new name, identity-only == → no redraw.
+        old = SavedRouteVM("R1", "Alps day 1")
+        new = SavedRouteVM("R1", "Alps day 2")
+        assert swiftui_row_rerenders(old, new, "identity") is False
+
+    def test_value_equality_rerenders_on_rename(self):
+        # The FIX: value-based == sees the name change → redraw.
+        old = SavedRouteVM("R1", "Alps day 1")
+        new = SavedRouteVM("R1", "Alps day 2")
+        assert swiftui_row_rerenders(old, new, "value") is True
+
+    def test_value_equality_rerenders_on_points_edit(self):
+        # Editing points (delete/reorder) must also refresh the row's
+        # "N pts" / distance, which identity-only equality also broke.
+        old = SavedRouteVM("R1", "Route", points=("a", "b", "c"), distance_m=1000.0)
+        new = SavedRouteVM("R1", "Route", points=("a", "c"), distance_m=600.0)
+        assert swiftui_row_rerenders(old, new, "value") is True
+        assert swiftui_row_rerenders(old, new, "identity") is False
+
+    def test_value_equality_no_rerender_when_truly_unchanged(self):
+        # Guard against the over-correction: an identical value must NOT
+        # force a redraw (that would defeat memoisation entirely).
+        old = SavedRouteVM("R1", "Route", points=("a", "b"), distance_m=900.0)
+        new = SavedRouteVM("R1", "Route", points=("a", "b"), distance_m=900.0)
+        assert swiftui_row_rerenders(old, new, "value") is False
+
+    def test_distinct_ids_always_differ(self):
+        # Different routes are never collapsed under either mode.
+        old = SavedRouteVM("R1", "Route")
+        new = SavedRouteVM("R2", "Route")
+        assert swiftui_row_rerenders(old, new, "value") is True
+        assert swiftui_row_rerenders(old, new, "identity") is True
 

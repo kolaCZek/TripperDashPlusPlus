@@ -46,6 +46,51 @@ class Pt:
     name: Optional[str] = None
 
 
+# ─────────────── SwiftUI row-memoisation model ───────────────────────
+#
+# Models the bug behind "renaming a saved route doesn't refresh the list
+# until the sheet is reopened". SwiftUI memoises a child view (SavedRouteRow,
+# whose `route` is a `let`) by comparing the OLD and NEW value with `==`.
+# If `==` is identity-only (l.id == r.id), a renamed route compares EQUAL
+# to its old self, so SwiftUI skips re-rendering the row and the stale name
+# sticks. Value-based `==` (the Swift default synthesis, every stored field
+# compared) reports "changed", so the row re-renders.
+#
+# `EQUALITY_MODE` mirrors which conformance SavedRoute.swift ships:
+#   "value"    → synthesised, all fields  (the FIX)
+#   "identity" → custom l.id == r.id       (the original BUG)
+
+
+class SavedRouteVM:
+    """Minimal mirror of SavedRoute's identity + equality for the row test."""
+
+    def __init__(self, route_id: str, name: str, points: tuple = (),
+                 distance_m: float = 0.0):
+        self.id = route_id
+        self.name = name
+        self.points = points
+        self.distance_m = distance_m
+
+    def _key(self, mode: str):
+        if mode == "identity":
+            return (self.id,)
+        # value-based: every stored property participates (mirrors Swift's
+        # synthesised Equatable over id/name/points/distance/…).
+        return (self.id, self.name, self.points, self.distance_m)
+
+    def equals(self, other: "SavedRouteVM", mode: str) -> bool:
+        return self._key(mode) == other._key(mode)
+
+
+def swiftui_row_rerenders(old: SavedRouteVM, new: SavedRouteVM, mode: str) -> bool:
+    """True if SwiftUI would redraw the row, i.e. it considers old != new.
+
+    SwiftUI redraws a memoised value-typed child only when the new value is
+    NOT equal to the previously rendered one.
+    """
+    return not old.equals(new, mode)
+
+
 # ─────────────────────────── geometry ───────────────────────────────
 
 

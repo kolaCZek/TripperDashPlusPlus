@@ -74,17 +74,6 @@ struct SavedRouteDetailView: View {
                 TextField("Route name", text: $draftName)
                     .onSubmit { commitName() }
                     .submitLabel(.done)
-                    // Commit live as the rider types, not just on submit /
-                    // disappear. `.onDisappear` fires AFTER the pop
-                    // animation completes, by which point the list behind
-                    // the NavigationLink has already re-rendered with the
-                    // OLD name — so a swipe-back rename looked like it was
-                    // ignored until the sheet was closed and reopened.
-                    // Committing on change keeps the @Observable store
-                    // ahead of the list re-render. commitName() no-ops on
-                    // empty / unchanged input, so clearing the field to
-                    // retype never persists a blank name.
-                    .onChange(of: draftName) { _, _ in commitName() }
             }
 
             Section("Details") {
