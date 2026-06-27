@@ -30,6 +30,7 @@ from tests.gpx_geometry_mirror import (
     Pt,
     StartDecision,
     analyze,
+    bounding_span,
     douglas_peucker,
     haversine,
     import_route,
@@ -413,3 +414,57 @@ class TestNavigablePoints:
     def test_unknown_mode_raises(self):
         with pytest.raises(ValueError):
             navigable_points(_route_line(), "sideways", 0)
+
+
+# ───────────────────── preview-map bounding span ─────────────────────
+
+
+class TestBoundingSpan:
+    """Mirror of GPXGeometry.boundingSpan used by the route preview map."""
+
+    def test_empty_returns_none(self):
+        assert bounding_span([]) is None
+
+    def test_center_is_midpoint_of_extent(self):
+        pts = [Pt(50.0, 14.0), Pt(50.4, 14.6)]
+        center_lat, center_lon, _, _ = bounding_span(pts)
+        assert center_lat == pytest.approx(50.2)
+        assert center_lon == pytest.approx(14.3)
+
+    def test_padding_factor_applied(self):
+        pts = [Pt(50.0, 14.0), Pt(50.0, 14.0), Pt(50.10, 14.20)]
+        _, _, lat_delta, lon_delta = bounding_span(pts, padding_factor=1.35)
+        # raw spans 0.10 lat / 0.20 lon, padded ×1.35.
+        assert lat_delta == pytest.approx(0.135)
+        assert lon_delta == pytest.approx(0.270)
+
+    def test_single_point_uses_min_span(self):
+        # A degenerate (single-point) route must not zoom to infinity —
+        # both deltas clamp to the floor.
+        center_lat, center_lon, lat_delta, lon_delta = bounding_span(
+            [Pt(50.08, 14.43)], min_span_degrees=0.004
+        )
+        assert center_lat == pytest.approx(50.08)
+        assert center_lon == pytest.approx(14.43)
+        assert lat_delta == pytest.approx(0.004)
+        assert lon_delta == pytest.approx(0.004)
+
+    def test_tiny_route_clamps_to_min_span(self):
+        # ~11 m apart → padded span still under the floor → clamped.
+        pts = [Pt(50.0000, 14.0000), Pt(50.0001, 14.0001)]
+        _, _, lat_delta, lon_delta = bounding_span(pts, min_span_degrees=0.004)
+        assert lat_delta == pytest.approx(0.004)
+        assert lon_delta == pytest.approx(0.004)
+
+    def test_large_route_keeps_padded_span(self):
+        # A big tour stays governed by the padded extent, not the floor.
+        pts = [Pt(48.0, 14.0), Pt(50.0, 16.0)]
+        _, _, lat_delta, lon_delta = bounding_span(pts)
+        assert lat_delta == pytest.approx(2.7)   # 2.0 × 1.35
+        assert lon_delta == pytest.approx(2.7)
+
+    def test_span_independent_of_point_order(self):
+        a = bounding_span([Pt(50.0, 14.0), Pt(50.5, 14.8)])
+        b = bounding_span([Pt(50.5, 14.8), Pt(50.0, 14.0)])
+        assert a == b
+

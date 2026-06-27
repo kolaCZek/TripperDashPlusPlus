@@ -14,12 +14,32 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
 3. **Import GPX** drives the system document picker
    (`.fileImporter`). Pick a `.gpx` file → it's parsed, reduced if
    needed, and saved. A green "Imported …" confirmation flashes.
-4. Tap a saved route → **detail**: rename, delete, or **Start
-   navigation**.
+4. Tap a saved route → **detail**:
+   - a **map preview** at the top shows the route's shape (start = green
+     dot, end = red dot, blue casing line) so the rider recognises it at
+     a glance before starting;
+   - rename it;
+   - **Edit** (top-right) to prune or reorder its points (see below);
+   - delete it, or **Start navigation**.
 5. **Start navigation** stages a `PlannedRoute` (origin = live GPS) and
    dismisses back to the picker, which shows the normal planning UI.
    From there the existing *Connect to dash → Start* path takes over
    unchanged (auto-start, reroute, arrival, dash glyphs all apply).
+
+## Editing a saved route
+
+The detail screen's **Edit** button (`EditButton`) reveals per-point
+editing in the *Points* section:
+
+- **Delete a point** — swipe or the red minus. The store enforces a
+  **2-point floor** (`updatePoints` refuses to drop below start+end), and
+  a multi-delete that would cross the floor only removes down to it.
+- **Reorder points** — drag handles, **waypoint routes only**. A recorded
+  `.track`'s order *is* its shape, so reordering is disabled there (the
+  `.onMove` handler is `nil`) — only deletion of a stray point is offered.
+- Every edit calls `SavedRoutesStore.updatePoints`, which **recomputes
+  the stored distance** from the new geometry and re-persists. The map
+  preview re-renders to match.
 
 ## How a GPX file maps to a route
 
@@ -86,7 +106,8 @@ route library can't take the rider's Home/Work pins down with it.
 | `Navigation/SavedRoutesStore.swift` | persisted library, CRUD |
 | `Navigation/RouteStartPlanner.swift` | pure first/nearest decision logic |
 | `UI/Navigation/SavedRoutesListView.swift` | library list + `.fileImporter` |
-| `UI/Navigation/SavedRouteDetailView.swift` | rename / delete / start |
+| `UI/Navigation/SavedRouteDetailView.swift` | preview / rename / edit points / delete / start |
+| `UI/Navigation/SavedRoutePreviewMap.swift` | static `MKMapSnapshotter` route thumbnail (polyline + start/end pins) |
 | `App/AppStatus.swift` | `beginPlanningFromSavedRoute(_:mode:nearestIndex:)` |
 | `UI/MapPickerView.swift` | toolbar button + sheet wiring |
 
@@ -97,12 +118,14 @@ without booting Xcode (the app code imports SwiftUI/MapKit, which only
 build on a Mac):
 
 - `tools/fake_dash/tests/gpx_geometry_mirror.py` — port of `GPXGeometry`
-  + `RouteStartPlanner` + the GPX extraction-priority rule.
-- `tools/fake_dash/tests/test_gpx_import.py` — 41 tests: haversine,
+  (incl. `bounding_span` used by the preview map) + `RouteStartPlanner` +
+  the GPX extraction-priority rule.
+- `tools/fake_dash/tests/test_gpx_import.py` — 48 tests: haversine,
   perpendicular distance, RDP reduce (endpoints/names kept, hard cap,
   order preserved, idempotent), extraction priority (rte>trk>wpt),
   tolerance (namespaces, bad coords, name fallback), full-trace distance,
-  start-mode analyze + navigable-point truncation.
+  start-mode analyze + navigable-point truncation, and preview bounding
+  span (center, padding, min-span clamp, order-independence).
 
 ```
 make fake-dash-test          # in the container

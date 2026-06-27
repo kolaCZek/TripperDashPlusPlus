@@ -97,6 +97,25 @@ final class SavedRoutesStore {
         persist()
     }
 
+    /// Replace a route's ordered points (used by the detail editor:
+    /// reorder / delete individual points). Recomputes the stored
+    /// distance from the new geometry and no-ops if the id is gone or the
+    /// edit would leave fewer than 2 points (a route needs a start + end).
+    func updatePoints(id: UUID, points: [RoutePoint]) {
+        guard let idx = routes.firstIndex(where: { $0.id == id }) else {
+            log.warning("updatePoints: id not found \(id)")
+            return
+        }
+        guard points.count >= 2 else {
+            log.warning("updatePoints: refusing to leave <2 points")
+            return
+        }
+        routes[idx].points = points
+        routes[idx].totalDistanceMeters =
+            GPXGeometry.pathLength(points.map(\.coordinate))
+        persist()
+    }
+
     func route(id: UUID) -> SavedRoute? {
         routes.first { $0.id == id }
     }

@@ -317,6 +317,33 @@ enum GPXGeometry {
         return total
     }
 
+    /// Bounding region (center + lat/lon span in degrees) that frames all
+    /// points with padding — used by the saved-route preview map to pick
+    /// an `MKCoordinateRegion`. Returns nil for an empty input.
+    ///
+    /// `paddingFactor` enlarges the raw min/max box so the trace isn't
+    /// flush against the edges; `minSpanDegrees` stops a single point or a
+    /// tiny route from zooming in absurdly far. Antimeridian crossing is
+    /// NOT handled (motorcycle routes don't wrap ±180°); a route spanning
+    /// the date line would frame the long way round.
+    static func boundingSpan(_ coords: [CLLocationCoordinate2D],
+                             paddingFactor: Double = 1.35,
+                             minSpanDegrees: Double = 0.004)
+        -> (center: CLLocationCoordinate2D, latDelta: Double, lonDelta: Double)? {
+        guard let first = coords.first else { return nil }
+        var minLat = first.latitude, maxLat = first.latitude
+        var minLon = first.longitude, maxLon = first.longitude
+        for c in coords {
+            minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+        }
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2,
+                                            longitude: (minLon + maxLon) / 2)
+        let latDelta = max((maxLat - minLat) * paddingFactor, minSpanDegrees)
+        let lonDelta = max((maxLon - minLon) * paddingFactor, minSpanDegrees)
+        return (center, latDelta, lonDelta)
+    }
+
     /// Reduce a dense ordered point list to at most `cap` points,
     /// preserving shape. Strategy:
     ///   1. Douglas–Peucker with an initial epsilon, doubling epsilon

@@ -70,6 +70,30 @@ def path_length(pts: list[Pt]) -> float:
     return sum(haversine(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
 
 
+def bounding_span(
+    coords: list[Pt],
+    padding_factor: float = 1.35,
+    min_span_degrees: float = 0.004,
+) -> Optional[tuple[float, float, float, float]]:
+    """Mirror of GPXGeometry.boundingSpan — center + padded lat/lon deltas.
+
+    Returns (center_lat, center_lon, lat_delta, lon_delta) or None for an
+    empty input. Antimeridian crossing is intentionally NOT handled (same
+    as Swift).
+    """
+    if not coords:
+        return None
+    lats = [c.lat for c in coords]
+    lons = [c.lon for c in coords]
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    center_lat = (min_lat + max_lat) / 2
+    center_lon = (min_lon + max_lon) / 2
+    lat_delta = max((max_lat - min_lat) * padding_factor, min_span_degrees)
+    lon_delta = max((max_lon - min_lon) * padding_factor, min_span_degrees)
+    return (center_lat, center_lon, lat_delta, lon_delta)
+
+
 def perpendicular_distance(p: Pt, a: Pt, b: Pt) -> float:
     mid_lat = math.radians((a.lat + b.lat) / 2)
     m_per_deg_lat = M_PER_DEG

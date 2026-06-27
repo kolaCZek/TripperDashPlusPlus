@@ -71,6 +71,7 @@
 		FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000C0 /* RouteStartPlanner.swift */; };
 		FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000D0 /* SavedRoutesListView.swift */; };
 		FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000E0 /* SavedRouteDetailView.swift */; };
+		FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -140,6 +141,7 @@
 		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
 		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
 		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
+		FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutePreviewMap.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -293,6 +295,7 @@
 				A4F000000000000000000F50 /* RoutePreferencesView.swift */,
 				FE70000000000000000000D0 /* SavedRoutesListView.swift */,
 				FE70000000000000000000E0 /* SavedRouteDetailView.swift */,
+				FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -434,6 +437,7 @@
 				FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */,
 				FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */,
 				FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */,
+				FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
