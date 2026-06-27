@@ -54,15 +54,24 @@ struct MapPickerView: View {
     @State private var showSearch = false
     @State private var showFavoriteEditor = false
     @State private var favoriteEditorSeed: Destination?
-    @State private var previewDestination: Destination?
+    /// The destination currently selected on the home map: drives both
+    /// the red pin and the compact preview card. Replaces the old
+    /// `droppedPin` + `previewDestination` (modal sheet) pair — the card
+    /// is now an inline overlay so the map stays live underneath and the
+    /// rider can tap a neighbouring point to retarget.
+    @State private var selectedDestination: Destination?
+    /// One-shot camera focus request handed to InteractiveMapView. Set
+    /// when a search result / favorite is picked, or the recenter button
+    /// is tapped. A plain map tap deliberately does NOT set it, so the
+    /// camera holds still while the rider drops pins around.
+    @State private var focusRequest: MapFocusRequest?
+    /// Whether the "center on me" button should be shown — reported by
+    /// the map when the user puck drifts out of the central region.
+    @State private var showRecenterButton = false
     /// When set, the next destination picked in DestinationSearchSheet
     /// is committed straight into this quick-access slot instead of
     /// going through the preview/route flow.
     @State private var slotToFill: QuickAccessSlot?
-
-    /// Pin dropped on the map (via long-press / tap) before user chose
-    /// to either save it or calculate a route.
-    @State private var droppedPin: CLLocationCoordinate2D?
 
     // feat/route-waypoints planning state
     /// True when the search sheet result should be ADDED to the active
@@ -153,15 +162,6 @@ struct MapPickerView: View {
         .sheet(isPresented: $showFavoriteEditor) {
             FavoriteEditorSheet(existing: nil, seed: favoriteEditorSeed)
                 .environment(status.navigationStore)
-        }
-        .sheet(item: $previewDestination) { dest in
-            DestinationPreviewSheet(destination: dest) { d in
-                // Begin multi-stop planning with this as the destination
-                // (origin = current location). n=2 == the old preview
-                // flow, just rendered by the planning components.
-                status.beginPlanning(to: d)
-            }
-            .environment(status.navigationStore)
         }
         .sheet(isPresented: $showRoutePreferences, onDismiss: {
             // Preferences (avoid highways/tolls) changed → every leg
@@ -272,15 +272,19 @@ struct MapPickerView: View {
     private var browsingBody: some View {
         ZStack(alignment: .top) {
             InteractiveMapView(
-                coordinate: status.locationService.lastFix?.coordinate,
-                followsUser: droppedPin == nil,
-                destinationPin: droppedPin,
-                onTapPin: { coord in
-                    let pin = Destination(name: "Dropped pin",
-                                          addressLine: nil,
-                                          coordinate: coord)
-                    droppedPin = coord
-                    previewDestination = pin
+                userCoordinate: status.locationService.lastFix?.coordinate,
+                selectedPin: selectedDestination?.coordinate,
+                focusRequest: focusRequest,
+                onTap: { coord in
+                    // Tapping the map (re)selects a raw pin at that point.
+                    // The camera deliberately stays put — no focusRequest —
+                    // so the rider can nudge to a neighbouring point while
+                    // the card is up. Reverse-geocode in the background to
+                    // upgrade the "Pin x, y" name to a real address.
+                    selectRawPin(at: coord)
+                },
+                onRecenterVisibilityChange: { visible in
+                    showRecenterButton = visible
                 }
             )
             .ignoresSafeArea(edges: .horizontal)
@@ -300,11 +304,9 @@ struct MapPickerView: View {
                 searchPill
                 QuickAccessTiles(
                     onPick: { fav in
-                        let dest = Destination(name: fav.name,
-                                               addressLine: fav.addressLine,
-                                               coordinate: fav.coordinate)
-                        droppedPin = fav.coordinate
-                        previewDestination = dest
+                        // Favorite tap: select it AND recenter the camera
+                        // on it (an explicit focus request).
+                        selectFavorite(fav)
                     },
                     onFillSlot: { slot in
                         slotToFill = slot
@@ -318,7 +320,100 @@ struct MapPickerView: View {
                 .padding(.horizontal, 10)
             }
             .padding(.top, 6)
+
+            // Recenter FAB (bottom-right) + the compact preview card
+            // (bottom, full-width) share the bottom overlay region.
+            VStack(spacing: 10) {
+                Spacer()
+                if showRecenterButton {
+                    HStack {
+                        Spacer()
+                        recenterButton
+                            .padding(.trailing, 14)
+                    }
+                }
+                if let dest = selectedDestination {
+                    DestinationPreviewCard(
+                        destination: dest,
+                        onCalculateRoutes: { d in
+                            selectedDestination = nil
+                            status.beginPlanning(to: d)
+                        },
+                        onAddToFavorites: { d in
+                            favoriteEditorSeed = d
+                            showFavoriteEditor = true
+                        },
+                        onClose: {
+                            selectedDestination = nil
+                        }
+                    )
+                    .environment(status.navigationStore)
+                }
+            }
+            .padding(.bottom, 8)
+            .animation(.easeInOut(duration: 0.2), value: selectedDestination)
+            .animation(.easeInOut(duration: 0.2), value: showRecenterButton)
         }
+    }
+
+    /// Round "center on me" button, bottom-right. Issues an explicit
+    /// focus request to the current GPS fix (the only thing that ever
+    /// re-frames the user after the one-shot initial center).
+    private var recenterButton: some View {
+        Button {
+            if let c = status.locationService.lastFix?.coordinate {
+                focusRequest = MapFocusRequest(coordinate: c)
+            }
+        } label: {
+            Image(systemName: "location.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 44, height: 44)
+                .background(.regularMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.separator, lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Center on my location")
+    }
+
+    // MARK: - Home-map selection helpers
+
+    /// Select a raw tapped point. Holds the pin synchronously, then
+    /// reverse-geocodes in the background to give it a real name/address.
+    private func selectRawPin(at coord: CLLocationCoordinate2D) {
+        let dest = Destination.fromTap(coord)
+        selectedDestination = dest
+        Task { await upgradeTapName(dest.id, coord) }
+    }
+
+    /// Select a favorite and recenter the camera on it.
+    private func selectFavorite(_ fav: Favorite) {
+        selectedDestination = fav.asDestination
+        focusRequest = MapFocusRequest(coordinate: fav.coordinate)
+    }
+
+    /// Best-effort reverse geocode for a tapped pin. Updates the live
+    /// selection in place iff it's still the same pin. Silent on failure
+    /// (the "Pin lat, lon" fallback stays).
+    ///
+    /// `@MainActor` because it mutates `selectedDestination` (`@State`)
+    /// after the `await`; the geocoder suspension still frees the main
+    /// thread while the network round-trip is in flight.
+    @MainActor
+    private func upgradeTapName(_ id: UUID, _ coord: CLLocationCoordinate2D) async {
+        let geocoder = CLGeocoder()
+        let loc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        guard let placemark = try? await geocoder.reverseGeocodeLocation(loc).first else { return }
+        let name = placemark.name ?? placemark.thoroughfare ?? "Dropped pin"
+        let addr = [placemark.thoroughfare, placemark.locality].compactMap { $0 }.joined(separator: ", ")
+        // Only apply if the selection is still this exact pin (the rider
+        // may have tapped elsewhere or cleared the card meanwhile).
+        guard selectedDestination?.id == id else { return }
+        selectedDestination = Destination(id: id,
+                                          name: name,
+                                          addressLine: addr.isEmpty ? nil : addr,
+                                          coordinate: coord)
     }
 
     /// The multi-stop planning UI: PlanningMapView (top) + waypoint list
@@ -589,9 +684,10 @@ struct MapPickerView: View {
             Task { await status.recomputeDirtyLegs(dirty, in: plan) }
             return
         }
-        // Default: open the preview, which begins planning on confirm.
-        droppedPin = dest.coordinate
-        previewDestination = dest
+        // Default: select on the home map (pin + compact card) and
+        // recenter the camera on the picked point.
+        selectedDestination = dest
+        focusRequest = MapFocusRequest(coordinate: dest.coordinate)
     }
 
     /// Commit a long-pressed coordinate as either a via-stop or the new
@@ -710,7 +806,7 @@ struct MapPickerView: View {
         status.mapViewSource.setRoutePolyline(nil)
         status.stagedDestination = nil
         status.plannedRoute = nil
-        droppedPin = nil
+        selectedDestination = nil
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -725,7 +821,7 @@ struct MapPickerView: View {
     /// `stop()` sets `isNavigating = false`, so `mode` returns `.picking`.
     private func finishArrival() {
         status.activeNavigator.stop()
-        droppedPin = nil
+        selectedDestination = nil
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))

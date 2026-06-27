@@ -193,6 +193,44 @@ final class NavigationStore {
         return settings.favorites.filter { !pinned.contains($0.id) }
     }
 
+    // MARK: - Favorite membership
+
+    /// Whether a destination is already saved as a favorite (pinned or
+    /// in the Others list). Used to hide the "Add to favorites" action in
+    /// the preview card when it would be a no-op.
+    ///
+    /// Matches first by stable id (a favorite tapped via QuickAccess /
+    /// Others carries its own UUID through `asDestination`), then falls
+    /// back to coordinate proximity (~25 m) so a freshly searched or
+    /// tapped point that happens to sit on an existing favorite is still
+    /// recognised. Proximity uses equirectangular metres — cheap and
+    /// plenty accurate at city scale.
+    func isFavorited(_ destination: Destination) -> Bool {
+        matchingFavorite(for: destination) != nil
+    }
+
+    /// The favorite matching this destination by id or proximity, if any.
+    func matchingFavorite(for destination: Destination) -> Favorite? {
+        if let byId = settings.favorites.first(where: { $0.id == destination.id }) {
+            return byId
+        }
+        let c = destination.coordinate
+        return settings.favorites.first { fav in
+            Self.metersBetween(fav.coordinate, c) < 25
+        }
+    }
+
+    /// Equirectangular-approximation distance in metres. Adequate for the
+    /// short distances (<1 km) this is used for.
+    private static func metersBetween(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        let earth = 6_371_000.0
+        let latRad = (a.latitude + b.latitude) / 2 * .pi / 180
+        let dLat = (b.latitude - a.latitude) * .pi / 180
+        let dLon = (b.longitude - a.longitude) * .pi / 180
+        let x = dLon * cos(latRad)
+        return earth * (x * x + dLat * dLat).squareRoot()
+    }
+
     // MARK: - Route preferences
 
     func setAvoidHighways(_ v: Bool) { settings.avoidHighways = v; persist() }

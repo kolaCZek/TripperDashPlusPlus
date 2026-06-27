@@ -17,29 +17,57 @@
 //  which keeps the view alive long enough for the GPU command buffer
 //  to drain before ARC frees the Metal resources.
 //
+//  Camera model (picker home map — June 2026 redesign):
+//   - ALWAYS north-up. Rotation is disabled (`isRotateEnabled = false`)
+//     and we never enter a heading-tracking mode, so the map can't spin.
+//   - The camera does NOT follow the user. On the FIRST GPS fix we
+//     center once (`didInitialCenter`); after that the camera stays
+//     exactly where the rider left it — panning never snaps back.
+//   - Recentering is explicit only: a `MapFocusRequest` (issued by the
+//     recenter FAB, a search pick, or a favorite tap) animates the
+//     camera to a coordinate. Each request carries a UUID so repeated
+//     focuses on the same coordinate still fire.
+//   - `onRecenterVisibilityChange` reports whether the user puck has
+//     drifted out of the central region, so the parent can show/hide
+//     the "center on me" button.
+//
 //  Capabilities:
-//   - single-tap → drop pin → `onTapPin(coord)` callback
-//   - destination pin annotation rendered as a red flag.checkered
+//   - single-tap → drop pin → `onTap(coord)` callback
+//   - selected pin annotation rendered as a red mappin marker.
 //   - route polyline overlay rendered as a fat blue stroke
 //
 
 import MapKit
 import SwiftUI
 
+/// One-shot request to animate the camera to a coordinate. The `id`
+/// makes each request unique so issuing the same coordinate twice (e.g.
+/// tapping the recenter button repeatedly) still moves the camera.
+struct MapFocusRequest: Equatable {
+    let id: UUID
+    var coordinate: CLLocationCoordinate2D
+
+    init(coordinate: CLLocationCoordinate2D) {
+        self.id = UUID()
+        self.coordinate = coordinate
+    }
+
+    static func == (l: MapFocusRequest, r: MapFocusRequest) -> Bool { l.id == r.id }
+}
+
 struct InteractiveMapView: UIViewRepresentable {
-    /// Center coordinate. Only consulted when `followsUser == false`.
-    /// When followsUser is true, MKMapView's own user tracking handles
-    /// the camera.
-    var coordinate: CLLocationCoordinate2D?
+    /// Latest GPS fix. Drives the one-shot initial center and the
+    /// recenter-visibility computation. The camera never follows it.
+    var userCoordinate: CLLocationCoordinate2D?
 
-    /// When true, MKMapView locks the camera to the user puck and
-    /// rotates with heading. When false, we manage center via
-    /// `coordinate`.
-    var followsUser: Bool = true
+    /// When set, render a red marker at this coordinate (the currently
+    /// selected destination / dropped pin). nil removes the marker.
+    var selectedPin: CLLocationCoordinate2D?
 
-    /// When set, render a red marker at this coordinate (typically the
-    /// active destination pin).
-    var destinationPin: CLLocationCoordinate2D?
+    /// When this changes to a new request, animate the camera to its
+    /// coordinate (keeping the current zoom). Used by the recenter FAB,
+    /// search picks, and favorite taps.
+    var focusRequest: MapFocusRequest?
 
     /// When set, render this polyline as the active/preview route.
     var routePolyline: MKPolyline?
@@ -47,7 +75,12 @@ struct InteractiveMapView: UIViewRepresentable {
     /// Fires when the user single-taps the map. Coordinate is mapped
     /// from the touch location. Caller decides whether to drop a pin
     /// or open a search.
-    var onTapPin: ((CLLocationCoordinate2D) -> Void)?
+    var onTap: ((CLLocationCoordinate2D) -> Void)?
+
+    /// Reports whether the recenter button should be shown — i.e. there
+    /// is a known user location AND it has drifted out of the central
+    /// region of the viewport. Only called when the value changes.
+    var onRecenterVisibilityChange: ((Bool) -> Void)?
 
     func makeUIView(context: Context) -> MKMapView {
         let mv = MKMapView(frame: .zero)
@@ -57,18 +90,29 @@ struct InteractiveMapView: UIViewRepresentable {
         // the app accent colour (explicit product requirement: the map dot
         // must always read as the system blue, even if the accent changes).
         mv.tintColor = .systemBlue
-        mv.showsCompass = true
+        // North-up forever: no rotation, so the compass is meaningless.
+        mv.showsCompass = false
         mv.showsScale = false
-        mv.isRotateEnabled = true
+        mv.isRotateEnabled = false
         mv.isPitchEnabled = false  // 2D only, simpler tap → coord mapping
-        if followsUser {
-            mv.setUserTrackingMode(.followWithHeading, animated: false)
-        }
+        // Deliberately NO userTrackingMode: the camera must not follow or
+        // rotate with the user. We manage centering ourselves (one-shot
+        // initial center + explicit focus requests).
+        mv.userTrackingMode = .none
         if #available(iOS 16.0, *) {
             mv.preferredConfiguration = MKStandardMapConfiguration(
                 elevationStyle: .flat,
                 emphasisStyle: .default
             )
+        }
+        // Seed the initial region from a known fix so we don't flash the
+        // whole world before the first center.
+        if let coord = userCoordinate {
+            mv.setRegion(MKCoordinateRegion(center: coord,
+                                            latitudinalMeters: 3000,
+                                            longitudinalMeters: 3000),
+                         animated: false)
+            context.coordinator.didInitialCenter = true
         }
         // Tap gesture for drop-pin.
         let tap = UITapGestureRecognizer(target: context.coordinator,
@@ -76,25 +120,42 @@ struct InteractiveMapView: UIViewRepresentable {
         tap.delegate = context.coordinator
         mv.addGestureRecognizer(tap)
         context.coordinator.mapView = mv
-        context.coordinator.onTapPin = onTapPin
+        context.coordinator.onTap = onTap
+        context.coordinator.onRecenterVisibilityChange = onRecenterVisibilityChange
+        context.coordinator.userCoordinate = userCoordinate
         return mv
     }
 
     func updateUIView(_ mv: MKMapView, context: Context) {
-        context.coordinator.onTapPin = onTapPin
+        let coord = context.coordinator
+        coord.onTap = onTap
+        coord.onRecenterVisibilityChange = onRecenterVisibilityChange
+        coord.userCoordinate = userCoordinate
 
-        // Tracking sync
-        if followsUser, mv.userTrackingMode == .none {
-            mv.setUserTrackingMode(.followWithHeading, animated: true)
-        }
-        if !followsUser, let coord = coordinate {
-            mv.setCenter(coord, animated: true)
+        // One-shot initial center: first time we have a fix and the rider
+        // hasn't picked anything yet, frame the user. Never again after.
+        if !coord.didInitialCenter,
+           focusRequest == nil,
+           selectedPin == nil,
+           let c = userCoordinate {
+            mv.setRegion(MKCoordinateRegion(center: c,
+                                            latitudinalMeters: 3000,
+                                            longitudinalMeters: 3000),
+                         animated: false)
+            coord.didInitialCenter = true
         }
 
-        // Destination pin sync — single annotation, remove + add on
-        // change rather than diffing.
+        // Explicit focus request → animate to coordinate (keep zoom).
+        if let req = focusRequest, req.id != coord.lastFocusId {
+            coord.lastFocusId = req.id
+            coord.didInitialCenter = true   // an explicit move counts as "framed"
+            mv.setCenter(req.coordinate, animated: true)
+        }
+
+        // Selected-pin sync — single annotation, remove + add on change
+        // rather than diffing.
         let existing = mv.annotations.compactMap { $0 as? DestinationAnnotation }
-        if let dest = destinationPin {
+        if let dest = selectedPin {
             let same = existing.first.map { $0.coordinate == dest } ?? false
             if !same {
                 mv.removeAnnotations(existing)
@@ -117,6 +178,9 @@ struct InteractiveMapView: UIViewRepresentable {
         } else if !existingOverlays.isEmpty {
             mv.removeOverlays(existingOverlays)
         }
+
+        // Recompute recenter-button visibility against the new fix.
+        coord.recomputeRecenterVisibility()
     }
 
     static func dismantleUIView(_ mv: MKMapView, coordinator: Coordinator) {
@@ -131,24 +195,79 @@ struct InteractiveMapView: UIViewRepresentable {
         Coordinator()
     }
 
+    @MainActor
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         weak var mapView: MKMapView?
-        var onTapPin: ((CLLocationCoordinate2D) -> Void)?
+        var onTap: ((CLLocationCoordinate2D) -> Void)?
+        var onRecenterVisibilityChange: ((Bool) -> Void)?
+        var userCoordinate: CLLocationCoordinate2D?
+
+        /// Set once we've framed the user on the first fix (or the rider
+        /// has explicitly moved/focused the camera). Guards against the
+        /// camera ever snapping back to the user on later GPS updates.
+        var didInitialCenter = false
+        /// Last honored focus request id, so we move the camera exactly
+        /// once per request.
+        var lastFocusId: UUID?
+        /// Last reported recenter-button visibility, to avoid spamming the
+        /// SwiftUI binding with no-op updates.
+        private var lastRecenterVisible: Bool?
 
         @objc func handleTap(_ gr: UITapGestureRecognizer) {
             guard let mv = mapView, gr.state == .ended else { return }
             let point = gr.location(in: mv)
             let coord = mv.convert(point, toCoordinateFrom: mv)
-            onTapPin?(coord)
+            onTap?(coord)
         }
 
-        /// Don't swallow MKMapView's own gestures (zoom/pan/long-press
-        /// for default Apple Maps tools). Letting both fire means the
-        /// user can still pinch-zoom even while our single-tap is
-        /// active.
+        /// Don't swallow MKMapView's own gestures (zoom/pan for the
+        /// default Apple Maps tools). Letting both fire means the user can
+        /// still pinch-zoom even while our single-tap is active.
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
+        }
+
+        // MARK: - Recenter visibility
+
+        /// The recenter button should appear when we know where the rider
+        /// is but their puck has drifted out of the central region of the
+        /// viewport (either because they panned away or they physically
+        /// moved while the static north-up camera stayed put).
+        ///
+        /// The visibility callback is dispatched on the next main-actor
+        /// tick (via `Task { @MainActor in … }`) rather than invoked
+        /// inline: this method runs from `updateUIView`, and mutating
+        /// SwiftUI `@State` synchronously during a view update logs a
+        /// "Modifying state during view update" runtime warning. Bouncing
+        /// to the next tick sidesteps that. Capturing `self` (a
+        /// `@MainActor` class → implicitly Sendable) keeps it
+        /// strict-concurrency clean — the non-Sendable closure is only
+        /// touched inside the main-actor task, never across a hop.
+        func recomputeRecenterVisibility() {
+            let visible = computeRecenterVisible()
+            guard visible != lastRecenterVisible else { return }
+            lastRecenterVisible = visible
+            Task { @MainActor in
+                self.onRecenterVisibilityChange?(visible)
+            }
+        }
+
+        private func computeRecenterVisible() -> Bool {
+            guard let user = userCoordinate, let mv = mapView else { return false }
+            let b = mv.bounds
+            guard b.width > 0, b.height > 0 else { return false }
+            let pt = mv.convert(user, toPointTo: mv)
+            // Central region = bounds inset by 28% on each edge. If the
+            // puck sits inside it, the rider is "centered enough" → hide.
+            let central = b.insetBy(dx: b.width * 0.28, dy: b.height * 0.28)
+            return !central.contains(pt)
+        }
+
+        // MARK: - Delegate
+
+        func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) {
+            recomputeRecenterVisibility()
         }
 
         // MARK: - Renderers
@@ -173,8 +292,8 @@ struct InteractiveMapView: UIViewRepresentable {
                     ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
                 view.annotation = annotation
                 view.markerTintColor = .systemRed
-                view.glyphImage = UIImage(systemName: "flag.checkered")
-                view.canShowCallout = true
+                view.glyphImage = UIImage(systemName: "mappin")
+                view.canShowCallout = false
                 return view
             }
             return nil
