@@ -23,19 +23,27 @@ import os
 /// Sends a `0044` heartbeat + `0030` metadata pair every
 /// `K1G.heartbeatInterval` seconds until the task is cancelled. The two
 /// packets carry their own rolling sequence bytes (consumed from `seq`).
+///
+/// Phone status (battery / charging / GPS-fix / cell-signal presence) is
+/// pulled FRESH each tick from `telemetryProvider`, a `@Sendable` closure
+/// that hops to the main actor and snapshots `DeviceTelemetry`. When the
+/// app doesn't supply one (tests, or device telemetry turned off), the
+/// default provider returns `PhoneTelemetry.placeholder` — the same
+/// "sane phone client" constants the loop shipped before live telemetry
+/// existed — so the dash keep-alive is never affected by the toggle.
 struct HeartbeatLoop {
 
     let socket: DashSocket
     let seq: RollingSeq
 
-    /// Placeholder hardware status values used while we don't have real
-    /// sensor wiring on iOS. Match the Android defaults closely enough
-    /// that the dash treats us as "a sane phone client".
+    /// Live phone-status source. Defaults to the OEM-safe placeholder so
+    /// existing call sites / tests keep their old behaviour unchanged.
+    var telemetryProvider: @Sendable () async -> PhoneTelemetry = { .placeholder }
+
+    /// Engine temperature stays a fixed placeholder — it's bike hardware
+    /// the phone genuinely can't measure, so there's no live source to
+    /// wire and the dash just needs a plausible constant.
     var fixedTempC: Int = 20
-    var cellSignal0to255: Int = 160
-    var batteryPct0to100: Int = 80
-    var gpsOn: Bool = true
-    var charging: Bool = false
     var musicRatio0to1: Double = 0.3
     var alarmRatio0to1: Double = 0.3
 
@@ -46,23 +54,29 @@ struct HeartbeatLoop {
 
     /// Run until cancelled. Suspends on cancellation cleanly.
     func run() async {
-        Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030)")
+        Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
         while !Task.isCancelled {
+            // Fresh phone status every tick. Cheap (a struct copy on the
+            // main actor); mirrors the OEM 1 Hz `REForeGroundService`
+            // timer which re-reads BatteryManager + cell info each fire.
+            let t = await telemetryProvider()
+
             let hb = K1GPacket.makeHeartbeat0044(
                 seq: seq.consume(),
                 fixedTempC: fixedTempC,
-                cellSignal0to255: cellSignal0to255,
-                batteryPct0to100: batteryPct0to100,
-                gpsOn: gpsOn,
-                charging: charging,
+                cellSignal0to255: t.cellSignal0to255,
+                batteryPct0to100: t.batteryPct0to100,
+                gpsOn: t.gpsOn,
+                charging: t.charging,
+                signalPresent: t.signalPresent,
                 musicRatio0to1: musicRatio0to1,
                 navDistanceRounded: 0,
                 alarmRatio0to1: alarmRatio0to1
             )
             let md = K1GPacket.makeMetadata0030(
                 seq: seq.consume(),
-                cellSignal0to255: cellSignal0to255,
+                cellSignal0to255: t.cellSignal0to255,
                 musicRatio0to1: musicRatio0to1,
                 navDistanceRounded: 0,
                 alarmRatio0to1: alarmRatio0to1
