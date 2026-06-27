@@ -97,12 +97,6 @@ final class SavedRoutesStore {
         persist()
     }
 
-    /// Used by swipe-to-delete in the list.
-    func remove(atOffsets offsets: IndexSet) {
-        routes.remove(atOffsets: offsets)
-        persist()
-    }
-
     func route(id: UUID) -> SavedRoute? {
         routes.first { $0.id == id }
     }
