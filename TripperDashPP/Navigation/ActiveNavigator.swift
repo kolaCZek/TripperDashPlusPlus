@@ -111,6 +111,50 @@ final class ActiveNavigator {
     /// navigator already digests the fix; we just retain its coordinate.
     private(set) var currentCoordinate: CLLocationCoordinate2D?
 
+    // MARK: - Route overview geometry (feat/nav-route-overview-map)
+
+    /// Real GPS breadcrumb of where the rider has ACTUALLY been, thinned
+    /// to ~`breadcrumbMinSpacing` m spacing. Drives the grey "travelled"
+    /// part of the navigation overview map. Held ACROSS reroutes (a
+    /// reroute replaces the route *ahead*, never the past) so the
+    /// travelled trace never vanishes when the blue line is swapped —
+    /// the rider keeps a continuous "you came from here" progress bar.
+    /// Reset only on a fresh `start(...)` and `stop()`.
+    private(set) var traveledCoordinates: [CLLocationCoordinate2D] = []
+
+    /// Materialised coordinates of the CURRENT active route (the leg the
+    /// rider is on). Refreshed on every active-route swap — `start`,
+    /// reroute, leg-advance — and NEVER per fix, so slicing it for the
+    /// "ahead" overview each frame is a cheap array op instead of a
+    /// full `MKPolyline` materialisation.
+    private var activeRouteCoordsCache: [CLLocationCoordinate2D] = []
+
+    /// Materialised coordinates of all plan legs AFTER the current one,
+    /// concatenated in order. Empty for single-destination nav and once
+    /// the rider is on the final leg. Refreshed whenever the leg /plan
+    /// changes (`seed` sees the up-to-date `plan`/`currentLegIndex`),
+    /// NOT on reroute (a reroute only swaps the current leg's route).
+    private var subsequentLegsCoordsCache: [CLLocationCoordinate2D] = []
+
+    /// Minimum spacing between retained breadcrumb points. 30 m keeps
+    /// the travelled trace faithful to the road shape on a 150 pt
+    /// overview thumbnail while bounding the array to a few thousand
+    /// points even on a multi-hour ride.
+    private let breadcrumbMinSpacing: CLLocationDistance = 30
+
+    /// The route still AHEAD of the rider, for the overview map: the
+    /// current route sliced from the nearest segment onward, plus any
+    /// subsequent plan legs. Cheap — slices the cached arrays, no
+    /// polyline materialisation. The grey breadcrumb + this blue line
+    /// together span the whole planned route start→finish.
+    var routeAheadCoordinates: [CLLocationCoordinate2D] {
+        guard !activeRouteCoordsCache.isEmpty else { return subsequentLegsCoordsCache }
+        let start = min(max(0, lastSegmentIndex), activeRouteCoordsCache.count - 1)
+        var ahead = Array(activeRouteCoordsCache[start...])
+        ahead.append(contentsOf: subsequentLegsCoordsCache)
+        return ahead
+    }
+
     // MARK: - Multi-stop plan state (feat/route-waypoints)
 
     /// The multi-stop plan being navigated, when started via
@@ -188,6 +232,7 @@ final class ActiveNavigator {
         self.remainingWaypoints = 0
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.traveledCoordinates = []   // fresh ride → empty breadcrumb
         seed(route: route, destination: destination)
         self.isNavigating = true
         log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
@@ -209,6 +254,7 @@ final class ActiveNavigator {
         self.remainingWaypoints = plan.legs.count - self.currentLegIndex
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.traveledCoordinates = []   // fresh ride → empty breadcrumb
 
         let leg = plan.legs[self.currentLegIndex]
         guard let route = leg.selected?.route,
@@ -241,6 +287,44 @@ final class ActiveNavigator {
         self.secondNextStep = route.steps.dropFirst().first
         self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
             + (route.steps.dropFirst().first?.distance ?? 0)
+        // Refresh the overview caches. `plan`/`currentLegIndex` are
+        // already set by the caller (start/leg-advance) before seed runs,
+        // so this picks up the right "subsequent legs" set.
+        refreshOverviewCaches()
+    }
+
+    /// Recompute the cached overview geometry — the current route's
+    /// coordinates and the concatenated coordinates of all plan legs
+    /// after the current one. Called on every active-route swap
+    /// (`seed`, reroute), NEVER per fix. The breadcrumb is deliberately
+    /// untouched here: a reroute/leg-advance replaces the route ahead,
+    /// not the travelled past.
+    private func refreshOverviewCaches() {
+        activeRouteCoordsCache = activeRoute?.polyline.coordinateList() ?? []
+        guard let plan, currentLegIndex < plan.legs.count - 1 else {
+            subsequentLegsCoordsCache = []
+            return
+        }
+        var tail: [CLLocationCoordinate2D] = []
+        for legIdx in (currentLegIndex + 1)..<plan.legs.count {
+            guard plan.legs.indices.contains(legIdx),
+                  let route = plan.legs[legIdx].selected?.route else { continue }
+            tail.append(contentsOf: route.polyline.coordinateList())
+        }
+        subsequentLegsCoordsCache = tail
+    }
+
+    /// Append a fresh fix to the travelled breadcrumb, thinned so points
+    /// are at least `breadcrumbMinSpacing` apart. Keeps the trace honest
+    /// to the road shape without unbounded growth on a long ride.
+    private func appendBreadcrumb(_ coord: CLLocationCoordinate2D) {
+        guard let last = traveledCoordinates.last else {
+            traveledCoordinates.append(coord)
+            return
+        }
+        if PolylineMath.haversine(last, coord) >= breadcrumbMinSpacing {
+            traveledCoordinates.append(coord)
+        }
     }
 
     func stop() {
@@ -268,6 +352,11 @@ final class ActiveNavigator {
         // Arrival state — reset so the next route starts clean.
         self.hasArrived = false
         self.hasBeenUnderway = false
+        // Overview geometry — drop breadcrumb + caches so the next ride
+        // starts with an empty progress bar.
+        self.traveledCoordinates = []
+        self.activeRouteCoordsCache = []
+        self.subsequentLegsCoordsCache = []
     }
 
     /// Reached the final destination. Flip into the `hasArrived` display
@@ -294,6 +383,10 @@ final class ActiveNavigator {
         guard isNavigating, let route = activeRoute else { return }
         let coord = fix.coordinate
         self.currentCoordinate = coord
+        // Record the travelled trace (thinned). Drives the grey
+        // "where you've been" line on the overview map; held across
+        // reroutes so the progress bar keeps its history.
+        appendBreadcrumb(coord)
 
         let (distFromRoute, segIdx) = PolylineMath.nearestSegment(
             on: route.polyline,
@@ -416,6 +509,13 @@ final class ActiveNavigator {
             self.offRouteSince = nil
             self.isOffRoute = false
             self.remainingDistance = newRoute.distance
+            // Overview: refresh the AHEAD geometry to the new route.
+            // The travelled breadcrumb is deliberately NOT touched — a
+            // reroute replaces the road in front of the rider, never the
+            // ground already covered, so the progress bar keeps its
+            // history (the grey trace) and only the blue line ahead
+            // changes shape.
+            refreshOverviewCaches()
             // F4: reroute keeps the smoothed-speed history so ETA
             // reflects how the rider was actually moving, not the
             // route's untouched expected average. Falls back to the
