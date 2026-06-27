@@ -26,7 +26,8 @@
 		A4F000000000000000000E51 /* ManeuverKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E50 /* ManeuverKeywords.swift */; };
 		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
 		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
-		A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */; };
+		A4F0000000000000000000A1 /* DestinationPreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewCard.swift */; };
+		A4F0000000000000000000B1 /* UserPuckAnnotationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */; };
 		A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000C0 /* NavigationHUD.swift */; };
 		A4F000000000000000000F01 /* Waypoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F00 /* Waypoint.swift */; };
 		A4F000000000000000000F11 /* PlannedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F10 /* PlannedRoute.swift */; };
@@ -95,7 +96,8 @@
 		A4F000000000000000000E50 /* ManeuverKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverKeywords.swift; sourceTree = "<group>"; };
 		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
 		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
-		A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewSheet.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000A0 /* DestinationPreviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewCard.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPuckAnnotationView.swift; sourceTree = "<group>"; };
 		A4F0000000000000000000C0 /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
 		A4F000000000000000000F00 /* Waypoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waypoint.swift; sourceTree = "<group>"; };
 		A4F000000000000000000F10 /* PlannedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannedRoute.swift; sourceTree = "<group>"; };
@@ -288,7 +290,8 @@
 				A4F000000000000000000080 /* DestinationSearchSheet.swift */,
 				A4F000000000000000000090 /* FavoriteEditorSheet.swift */,
 				EFEF1001000000000000A001 /* PrerenderProgressView.swift */,
-				A4F0000000000000000000A0 /* DestinationPreviewSheet.swift */,
+				A4F0000000000000000000A0 /* DestinationPreviewCard.swift */,
+				A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */,
 				A4F0000000000000000000C0 /* NavigationHUD.swift */,
 				A4F0000000000000000000D0 /* QuickAccessTiles.swift */,
 				A4F000000000000000000F20 /* RouteLegPolyline.swift */,
@@ -394,7 +397,8 @@
 				A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */,
 				A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */,
 				A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */,
-				A4F0000000000000000000A1 /* DestinationPreviewSheet.swift in Sources */,
+				A4F0000000000000000000A1 /* DestinationPreviewCard.swift in Sources */,
+				A4F0000000000000000000B1 /* UserPuckAnnotationView.swift in Sources */,
 				A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */,
 				A4F000000000000000000F01 /* Waypoint.swift in Sources */,
 				A4F000000000000000000F11 /* PlannedRoute.swift in Sources */,
@@ -584,8 +588,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -623,8 +627,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
