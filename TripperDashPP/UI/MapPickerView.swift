@@ -748,6 +748,10 @@ struct MapPickerView: View {
         // the Auto resolver / manual picker before navigation starts (see
         // AppStatus), so the ride opens in the right Light/Dark style.
         status.mapViewSource.setCurrentRoute(route)
+        // Prefetch speed cameras along the new route corridor (best-effort,
+        // disk-cached, gated on the Notifications → Speed cameras toggle).
+        // Fire-and-forget: navigation must never wait on Overpass.
+        status.prefetchSpeedCameras(for: route)
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         prerenderProgress = 0
         prerenderActive = true

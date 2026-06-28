@@ -11,6 +11,7 @@
 
 import CoreLocation
 import Foundation
+import MapKit
 import Observation
 import UIKit
 
@@ -118,6 +119,7 @@ final class AppStatus {
         wireCallObserver()
         wireDeviceTelemetry()
         wireMessageFeed()
+        wireRideAlerts()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -459,6 +461,18 @@ final class AppStatus {
     /// dropped observer silently stops delivering call events.
     @ObservationIgnored private var callObserver: CallStateObserver?
 
+    // MARK: - Ride alerts (weather pill + speed cameras)
+
+    /// Keyless weather provider for the dash weather pill. Owned for the
+    /// app's lifetime so its throttle state + URLSession persist across
+    /// start/stop streaming. Polled (throttled) from `navigatorIngest`
+    /// using the rider's live position + route-ahead look-ahead point.
+    @ObservationIgnored private let weatherService = WeatherAlertService()
+
+    /// Guards against overlapping speed-camera prefetches when several
+    /// route installs land close together (start + immediate reroute).
+    @ObservationIgnored private var speedCameraPrefetchTask: Task<Void, Never>?
+
     /// Start observing system call state and forwarding it to the dash.
     /// Mirrors `km3.u()` in the stock app: call changes become K1G
     /// `05 21`/`05 4D` bursts over the existing nav control plane. No-op
@@ -580,8 +594,103 @@ final class AppStatus {
         // Re-evaluate the Auto map style (sun position). Throttled to
         // ~60 s — far coarser than the GPS fix rate, fine for the sun.
         maybeUpdateMapStyle(fix)
+        // Ride-relevant weather, throttled inside the service (≥5 min /
+        // ≥~100 m). Off entirely when the toggle is disabled, and the
+        // pill is cleared so a stale warning doesn't linger.
+        refreshWeather(at: fix.coordinate)
         Task { @MainActor in
             await activeNavigator.ingest(fix: fix)
+        }
+    }
+
+    /// Poll the weather service (throttled) and push the result into the
+    /// renderer's weather pill. No-op + cleared pill when the rider has
+    /// turned Weather alerts off.
+    private func refreshWeather(at position: CLLocationCoordinate2D) {
+        guard dashNavSettings.weatherAlertsEnabled else {
+            if mapViewSource.weatherAlert != nil {
+                mapViewSource.setWeatherAlert(nil)
+            }
+            return
+        }
+        let ahead = activeNavigator.routeAheadCoordinates
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let alert = await self.weatherService.refresh(position: position, routeAhead: ahead)
+            // Re-check the toggle: the rider may have flipped it OFF during
+            // the await, in which case we must NOT paint a stale pill.
+            self.mapViewSource.setWeatherAlert(
+                self.dashNavSettings.weatherAlertsEnabled ? alert : nil
+            )
+        }
+    }
+
+    /// Prefetch speed cameras along the freshly-installed route and hand
+    /// them to the renderer. Called from `MapPickerView.installRouteGeometry`
+    /// on nav start + every reroute / leg advance. Best-effort: a failed
+    /// or empty fetch just leaves the map without markers. No-op (and the
+    /// existing markers cleared) when the toggle is off.
+    func prefetchSpeedCameras(for route: MKRoute) {
+        speedCameraPrefetchTask?.cancel()
+        guard dashNavSettings.speedCamerasEnabled else {
+            mapViewSource.setSpeedCameras([])
+            return
+        }
+        let coords = route.polyline.coordinateList()
+        guard coords.count >= 2 else { return }
+        speedCameraPrefetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let cams = await SpeedCameraService.shared.camerasAlong(route: coords)
+            guard !Task.isCancelled else { return }
+            // Re-check the toggle after the network await.
+            self.mapViewSource.setSpeedCameras(
+                self.dashNavSettings.speedCamerasEnabled ? cams : []
+            )
+        }
+    }
+
+    /// Watch the two ride-alert toggles so flipping either OFF mid-ride
+    /// clears its overlay immediately (rather than waiting for the next
+    /// fix / route install). Turning back ON does nothing here — the next
+    /// fix re-polls weather, and the next route install re-prefetches
+    /// cameras. Same self-re-registering `withObservationTracking` idiom
+    /// as the call-state / message observers.
+    private func wireRideAlerts() {
+        observeWeatherToggle()
+        observeSpeedCameraToggle()
+    }
+
+    private func observeWeatherToggle() {
+        withObservationTracking {
+            _ = dashNavSettings.weatherAlertsEnabled
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.dashNavSettings.weatherAlertsEnabled == false {
+                    self.mapViewSource.setWeatherAlert(nil)
+                }
+                self.observeWeatherToggle()
+            }
+        }
+    }
+
+    private func observeSpeedCameraToggle() {
+        withObservationTracking {
+            _ = dashNavSettings.speedCamerasEnabled
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.dashNavSettings.speedCamerasEnabled == false {
+                    self.speedCameraPrefetchTask?.cancel()
+                    self.mapViewSource.setSpeedCameras([])
+                } else if self.activeNavigator.isNavigating,
+                          let route = self.activeNavigator.activeRoute {
+                    // Re-enabled mid-ride → backfill markers for the
+                    // current route without waiting for the next reroute.
+                    self.prefetchSpeedCameras(for: route)
+                }
+                self.observeSpeedCameraToggle()
+            }
         }
     }
 

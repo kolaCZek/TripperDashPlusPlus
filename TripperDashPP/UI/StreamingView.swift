@@ -102,6 +102,20 @@ struct StreamingView: View {
                 )) {
                     Text("Incoming message")
                 }
+
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.weatherAlertsEnabled },
+                    set: { status.dashNavSettings.weatherAlertsEnabled = $0 }
+                )) {
+                    Text("Weather alerts")
+                }
+
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.speedCamerasEnabled },
+                    set: { status.dashNavSettings.speedCamerasEnabled = $0 }
+                )) {
+                    Text("Speed cameras")
+                }
             }
 
             // Route preferences live ONLY in the planning panel's

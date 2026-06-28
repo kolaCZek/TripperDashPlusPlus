@@ -159,6 +159,31 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Ride-alerts: surface ride-relevant WEATHER (rain/ice/storm/strong
+    /// gusts/fog) as a compact pill burned into the bottom-right of the
+    /// streamed map. Sourced keyless from Open-Meteo (WeatherKit needs a
+    /// paid entitlement we don't have — see CLAUDE.md). Defaults ON.
+    /// When OFF, `WeatherAlertService` is never polled and the pill never
+    /// draws. Mirrors the OEM app's "Weather Alerts" notification.
+    var weatherAlertsEnabled: Bool = true {
+        didSet { persist() }
+    }
+
+    /// Ride-alerts: plot SPEED CAMERAS (OSM `highway=speed_camera`, fetched
+    /// via Overpass) as map markers along the route. Best-effort — OSM
+    /// coverage is crowd-sourced and incomplete, so this is map enrichment,
+    /// NOT a guaranteed enforcement warning (the settings footer says so
+    /// too). Defaults ON. When OFF, no Overpass fetch happens and no
+    /// markers draw.
+    ///
+    /// NOTE (6/2026): a proximity CHIME for approaching cameras is
+    /// intentionally deferred until the app has voice/audio guidance — see
+    /// the `royal-enfield-tripper-dash` skill's open-items. For now this is
+    /// purely the visual map layer.
+    var speedCamerasEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     // MARK: - Derived wire helpers
 
     /// Quantize a maneuver distance (meters) into human-friendly buckets
@@ -271,6 +296,8 @@ final class DashNavSettings {
         var lookaheadThresholdMeters: Double?
         var callStateEnabled: Bool?
         var messageNotifyEnabled: Bool?
+        var weatherAlertsEnabled: Bool?
+        var speedCamerasEnabled: Bool?
     }
 
     init() {
@@ -289,6 +316,8 @@ final class DashNavSettings {
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
         self.messageNotifyEnabled = p.messageNotifyEnabled ?? true
+        self.weatherAlertsEnabled = p.weatherAlertsEnabled ?? true
+        self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
     }
 
     private func persist() {
@@ -300,7 +329,9 @@ final class DashNavSettings {
             lookaheadEnabled: lookaheadEnabled,
             lookaheadThresholdMeters: lookaheadThresholdMeters,
             callStateEnabled: callStateEnabled,
-            messageNotifyEnabled: messageNotifyEnabled
+            messageNotifyEnabled: messageNotifyEnabled,
+            weatherAlertsEnabled: weatherAlertsEnabled,
+            speedCamerasEnabled: speedCamerasEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
