@@ -86,53 +86,21 @@ struct StreamingView: View {
                         Text(b.label).tag(b)
                     }
                 }
+            }
 
+            Section("Notifications") {
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.callStateEnabled },
                     set: { status.dashNavSettings.callStateEnabled = $0 }
                 )) {
-                    Text("Show incoming-call card")
+                    Text("Incoming call")
                 }
 
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.messageNotifyEnabled },
                     set: { status.dashNavSettings.messageNotifyEnabled = $0 }
                 )) {
-                    Text("Show incoming-message cards")
-                }
-            }
-
-            Section("Stream") {
-                LabeledContent("Encoded fps",     value: String(format: "%.1f", status.metrics.encodedFps))
-                LabeledContent("Bitrate (kbps)",  value: String(format: "%.0f", status.metrics.kbpsOut))
-                LabeledContent("NALs emitted",    value: "\(status.metrics.nalsEmitted)")
-                LabeledContent("IDR frames",      value: "\(status.metrics.idrCount)")
-                LabeledContent("Packets sent",    value: "\(status.metrics.packetsSent)")
-                LabeledContent("Packets dropped", value: "\(status.metrics.packetsDropped)")
-            }
-
-            Section("Background") {
-                Toggle(isOn: Binding(
-                    get: { status.keepAwakeWhileStreaming },
-                    set: { status.keepAwakeWhileStreaming = $0 }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Keep streaming when screen locks")
-                        Text("Uses GPS + silent audio so iOS doesn't suspend the app. A blue indicator appears in the status bar.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if status.isStreaming {
-                    LabeledContent("Wakelock") {
-                        if status.backgroundKeepAliveActive {
-                            Label("Active", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        } else {
-                            Label("Off — screen-off will break stream", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                        }
-                    }
+                    Text("Incoming message")
                 }
             }
 
