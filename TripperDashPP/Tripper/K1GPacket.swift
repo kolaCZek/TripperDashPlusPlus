@@ -395,6 +395,91 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    // MARK: - Incoming-message notification
+    //
+    // Mirror the stock app's incoming-message cards on the Tripper TFT.
+    // Decoded 2026-06-27 from `bluconnect.km3` (the SAME K1G singleton that
+    // builds the call-state packets — `km3.u()`). The flow is
+    // `SmsReceiver → NavigationRootFragment.B1 → km3.z(list, unread)`.
+    //
+    // `km3.z()` keeps a rolling list of up to 5 messages (newest at slot 0)
+    // and, each time a message arrives, emits:
+    //   1. one unread/missed COUNT packet (`06 09 0002 <count_BE>`), then
+    //   2. for every populated slot, THREE separate single-segment packets:
+    //        content   (`05 <contentSub> <encLen> <enc>`)
+    //        sender    (`05 <senderSub>  <encLen> <enc>`)
+    //        timestamp (`05 <tsSub>      <encLen> <enc>`)
+    //
+    // Each field is its own UDP datagram with its own rolling seq — exactly
+    // what `encode([seg], seq)` produces (the stock `str2` header
+    // `000200000000020100054B31472000` is byte-identical to our envelope's
+    // seg_count(0002)+pad+IC+magic+seq prefix).
+    //
+    // content / sender / timestamp are AES-encrypted via `K1GCrypto`
+    // (`edk.g()` port) under `BikeLink.aesKey`. The COUNT is plaintext.
+    //
+    // Slot/sub tags are byte-verified against `km3.java:9-25`.
+
+    /// One of the 5 message slots the dash renders (0 = newest). Each slot
+    /// owns three distinct TLV sub-bytes — content, sender, timestamp —
+    /// taken verbatim from the OEM `km3` constant table.
+    struct MessageSlot: Sendable {
+        let contentSub: UInt8
+        let senderSub: UInt8
+        let timestampSub: UInt8
+
+        /// The 5 OEM slots, index 0…4 (newest first), from `km3.z()`.
+        /// Tags: km3.b/c/d/e/f (content), g/h/i/j/k (sender), l/m/n/o/p (ts).
+        static let all: [MessageSlot] = [
+            MessageSlot(contentSub: 0x24, senderSub: 0x27, timestampSub: 0x2A), // 0524/0527/052A
+            MessageSlot(contentSub: 0x25, senderSub: 0x28, timestampSub: 0x2B), // 0525/0528/052B
+            MessageSlot(contentSub: 0x26, senderSub: 0x29, timestampSub: 0x2C), // 0526/0529/052C
+            MessageSlot(contentSub: 0x4E, senderSub: 0x50, timestampSub: 0x52), // 054E/0550/0552
+            MessageSlot(contentSub: 0x4F, senderSub: 0x51, timestampSub: 0x53), // 054F/0551/0553
+        ]
+
+        /// Max slots the dash tracks (`km3` keeps a 5-deep list).
+        static let count = all.count
+    }
+
+    /// Stock truncation limits before encryption (`km3.c` / `km3.h`).
+    enum MessageLimits {
+        /// Content is `trim()`-med then capped at 79 chars (`km3.c:170`).
+        static let contentChars = 79
+        /// Sender name capped at 19 chars (`km3.h:244`, `substring(0,19)`).
+        static let senderChars = 19
+    }
+
+    /// `06 09 0002 <count_BE>` — unread-message / missed-call count.
+    /// Plaintext (NOT encrypted). `km3.e(count, "0609")` always sends this
+    /// first in `km3.z()`. Payload is the count as a 2-byte big-endian int.
+    static func makeMessageCount(_ count: UInt16, seq: UInt8) -> Data {
+        var be = count.bigEndian
+        let seg = K1GSegment(type: .status, sub: 0x09, payload: Data(bytes: &be, count: 2))
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// `05 <sub> <encLen> <encrypted>` — one encrypted message field. The
+    /// `encryptedPayload` is the `IV‖ciphertext` blob from
+    /// `K1GCrypto.encryptField(...)`; `sub` is the slot/field tag from
+    /// `MessageSlot`. Single-segment envelope, byte-exact to `km3.c/d/f`.
+    static func makeMessageField(sub: UInt8, encryptedPayload: Data, seq: UInt8) -> Data {
+        let seg = K1GSegment(type: .navInfo, sub: sub, payload: encryptedPayload)
+        return encode(segments: [seg], seq: seq)
+    }
+
+    /// Format a message timestamp the way `km3.f` does: `MMddhhmmss` in the
+    /// device's local calendar. NOTE the stock app uses lowercase `hh`
+    /// (12-hour clock) and no AM/PM marker — reproduce it verbatim, quirks
+    /// and all, so our bytes match the OEM app. The result is the STRING to
+    /// feed into `K1GCrypto.encryptField`.
+    static func formatMessageTimestamp(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "MMddhhmmss"
+        return fmt.string(from: date)
+    }
+
     // MARK: - Active navigation TLVs (1 Hz during nav)
     //
     // Authority: `better-dash/tripper_app_like_nav.py` `_nav_tlv_*` builders

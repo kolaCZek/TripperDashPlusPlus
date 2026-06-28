@@ -117,6 +117,7 @@ final class AppStatus {
         wireNavigation()
         wireCallObserver()
         wireDeviceTelemetry()
+        wireMessageFeed()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -516,6 +517,57 @@ final class AppStatus {
         bikeLink.telemetryProvider = { @Sendable [weak tele] in
             guard let tele else { return .placeholder }
             return await tele.snapshot()
+        }
+    }
+
+    // MARK: - Incoming-message feed (message cards on the dash)
+
+    /// Owns the rolling 5-deep message list for the app's lifetime. Held
+    /// here (not a local) so observers / the source feed stay attached.
+    /// `@ObservationIgnored` because the UI doesn't render it directly — the
+    /// dash does, via `BikeLink.sendMessageNotification`.
+    @ObservationIgnored private(set) var messageFeed: MessageFeed = MessageFeed()
+
+    /// Stand up the message feed. There is no automatic iOS source for
+    /// arbitrary incoming SMS/RCS (unlike Android's `SMS_RECEIVED`), so this
+    /// only initialises the model + toggle observer; actual messages arrive
+    /// via `ingestMessage(...)` from whatever source the app wires up later
+    /// (its own push Notification-Service-Extension, or a user/test entry).
+    private func wireMessageFeed() {
+        observeMessageNotifyToggle()
+    }
+
+    /// Push one incoming message to the dash: record it in the rolling feed,
+    /// then send the whole list as the OEM `km3.z()` burst. No-op on the
+    /// wire when the toggle is off or the link is down (both handled inside
+    /// `BikeLink.sendMessageNotification`), but we still keep the local feed
+    /// up to date so re-enabling / reconnecting can replay the latest cards.
+    func ingestMessage(_ message: MessageNotification) {
+        let snapshot = messageFeed.push(message)
+        let unread = messageFeed.unreadCount
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.bikeLink.sendMessageNotification(snapshot, unreadCount: unread)
+        }
+    }
+
+    /// Watch `messageNotifyEnabled`: when the rider turns message cards OFF
+    /// we clear the rolling feed so a later re-enable doesn't replay stale
+    /// cards, and (best-effort) zero the dash's unread count. The dash has no
+    /// explicit "clear all messages" opcode, so turning OFF simply stops new
+    /// pushes; the existing cards age out on the dash side. Same
+    /// self-re-registering `withObservationTracking` idiom as the others.
+    private func observeMessageNotifyToggle() {
+        withObservationTracking {
+            _ = dashNavSettings.messageNotifyEnabled
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.dashNavSettings.messageNotifyEnabled == false {
+                    self.messageFeed.clear()
+                }
+                self.observeMessageNotifyToggle()
+            }
         }
     }
 
