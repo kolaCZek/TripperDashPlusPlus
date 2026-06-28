@@ -704,6 +704,7 @@ extension K1GPacket {
         batteryPct0to100: Int = 80,
         gpsOn: Bool = true,
         charging: Bool = false,
+        signalPresent: Bool = true,
         musicRatio0to1: Double = 0.3,
         navDistanceRounded: Int = 0,
         alarmRatio0to1: Double = 0.3
@@ -711,21 +712,37 @@ extension K1GPacket {
         var body = Data(capacity: 64)
 
         // Hardcoded header: outer_len placeholder | seg_count=10 | pad | marker | K1G  | seq
+        //
+        // `seg_count = 0x000A` is a CONSTANT copied verbatim from the
+        // Android `REForeGroundService.d.run()` — the OEM app emits the
+        // same 10 regardless of how many TLVs it actually appends, and the
+        // dash accepts it. So adding/removing a TLV here does NOT change
+        // this byte. (The captured OEM 0044 carries exactly 10 TLVs incl.
+        // `06 01` + the idle `05 21`/`05 4D`; we omit engine-temp's OEM
+        // absence quirk and the call-state pair lives on its own burst, so
+        // our real TLV count differs — intentionally — from this byte.)
         body.append(contentsOf: [0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00])
         body.append(contentsOf: K1G.icHeaderMarker)
         body.append(contentsOf: K1G.magic)
         body.append(seq)
 
-        // 06 08 00 01 <cell>     — cell signal
+        // 06 08 00 01 <cell>     — cell signal strength (0-255 analog bars)
         body.append(contentsOf: [0x06, 0x08, 0x00, 0x01, UInt8(cellSignal0to255 & 0xFF)])
         // 06 10 00 01 <temp+40>  — engine temperature
         body.append(contentsOf: [0x06, 0x10, 0x00, 0x01, UInt8((fixedTempC + 40) & 0xFF)])
         // 06 03 00 01 <55|AA>    — GPS on (Q3C_V + Q3C_A/B)
         body.append(contentsOf: [0x06, 0x03, 0x00, 0x01, gpsOn ? 0x55 : 0xAA])
-        // 06 04 00 01 <batt+100> — battery capacity (Q3C_U)
+        // 06 04 00 01 <batt+100> — battery capacity (Q3C_U). OEM payload is
+        //                          (level + 100); dash subtracts 100 to get %.
         body.append(contentsOf: [0x06, 0x04, 0x00, 0x01, UInt8((batteryPct0to100 + 100) & 0xFF)])
         // 06 0F 00 01 <55|AA>    — charging flag (Q3C_T)
         body.append(contentsOf: [0x06, 0x0F, 0x00, 0x01, charging ? 0x55 : 0xAA])
+        // 06 01 00 01 <01|00>    — mobile signal PRESENT (Q3C_S). The OEM
+        //                          derives this from `getAllCellInfo()...
+        //                          getLevel() > 0` — a binary present/absent
+        //                          flag, NOT a bar count. Byte-verified
+        //                          against the captured 0044 (`06 01 0001 01`).
+        body.append(contentsOf: [0x06, 0x01, 0x00, 0x01, signalPresent ? 0x01 : 0x00])
         // music bucket
         body.append(contentsOf: musicVolumeTLV(ratio0to1: musicRatio0to1))
         // 05 2D 00 02 <distance:u16BE> (Q3C_Q2)
