@@ -27,10 +27,10 @@ import os
 /// Phone status (battery / charging / GPS-fix / cell-signal presence) is
 /// pulled FRESH each tick from `telemetryProvider`, a `@Sendable` closure
 /// that hops to the main actor and snapshots `DeviceTelemetry`. When the
-/// app doesn't supply one (tests, or device telemetry turned off), the
-/// default provider returns `PhoneTelemetry.placeholder` — the same
-/// "sane phone client" constants the loop shipped before live telemetry
-/// existed — so the dash keep-alive is never affected by the toggle.
+/// app doesn't supply one (e.g. unit tests, or before the provider is
+/// wired), the default provider returns `PhoneTelemetry.placeholder` — the
+/// same "sane phone client" constants the loop shipped before live
+/// telemetry existed — so the dash keep-alive is never affected.
 struct HeartbeatLoop {
 
     let socket: DashSocket

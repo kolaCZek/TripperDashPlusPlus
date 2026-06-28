@@ -24,10 +24,10 @@ better-dash inlines verbatim as `INITIAL_BURST_HEX[9]`
 The Swift side is `K1GPacket.makeHeartbeat0044(...)` /
 `.makeMetadata0030(...)` fed each tick from `DeviceTelemetry.snapshot()`
 (TripperDashPP/Tripper/DeviceTelemetry.swift) via the `HeartbeatLoop`
-`telemetryProvider` closure. This file pins the wire bytes AND the
-enabled/disabled gate (`DashNavSettings.deviceTelemetryEnabled`) on the
-Python side so a future Swift edit that breaks either is caught by
-`pytest`, not by Martin squinting at a dash on a moving bike.
+`telemetryProvider` closure. This file pins the wire bytes of the
+phone-status TLVs so a future Swift edit that breaks them is caught by
+`pytest`, not by Martin squinting at a dash on a moving bike. Phone-status
+telemetry is always reported (no user toggle) — same as the stock app.
 
 ── iOS faithfulness note ──
 The OEM `06 01` is a BINARY present/absent flag (`getLevel() > 0`), not a
@@ -119,20 +119,11 @@ def make_heartbeat_0044(
     return bytes(body)
 
 
-# --- Python mirror of DeviceTelemetry.snapshot() gate ------------------------
-
-PLACEHOLDER = {
-    "cell_signal": 160,
-    "battery_pct": 80,
-    "gps_on": True,
-    "charging": False,
-    "signal_present": True,
-}
+# --- Python mirror of DeviceTelemetry.snapshot() ----------------------------
 
 
 def telemetry_snapshot(
     *,
-    enabled: bool,
     has_cell_signal: bool,
     battery_pct: int,
     gps_on: bool,
@@ -140,12 +131,11 @@ def telemetry_snapshot(
 ) -> dict:
     """Mirror of `DeviceTelemetry.snapshot()`.
 
-    When disabled, returns the OEM-safe placeholder regardless of the live
-    readings (the privacy / "don't break the link" escape hatch). When
-    enabled, the analog `06 08` strength is a presence proxy (0xA0 / 0x00).
+    Always reports the phone's live status — the stock app reports
+    unconditionally and so do we (there's no user opt-out). The analog
+    `06 08` strength is a presence proxy (0xA0 / 0x00) because iOS exposes
+    no true bar count.
     """
-    if not enabled:
-        return dict(PLACEHOLDER)
     return {
         "cell_signal": 0xA0 if has_cell_signal else 0x00,
         "battery_pct": battery_pct,
@@ -257,26 +247,13 @@ def test_seg_count_is_the_oem_constant_0x000a():
     assert make_heartbeat_0044(seq=0)[2:4] == bytes([0x00, 0x0A])
 
 
-# === Tests: the enable/disable gate (DeviceTelemetry.snapshot) ===============
+# === Tests: DeviceTelemetry.snapshot (always-on, no gate) ====================
 
 
-def test_disabled_returns_oem_safe_placeholder_regardless_of_live_state():
-    """The load-bearing privacy guarantee: when the toggle is OFF, NONE of
-    the rider's real battery/charging/signal/gps leaks — snapshot is the
-    fixed placeholder even with wildly different live readings."""
+def test_snapshot_reports_live_state():
+    """Telemetry is always on: snapshot reflects the live readings verbatim
+    (the stock app reports unconditionally and so do we)."""
     snap = telemetry_snapshot(
-        enabled=False,
-        has_cell_signal=False,   # live: no signal
-        battery_pct=3,           # live: nearly dead
-        gps_on=False,            # live: no fix
-        charging=True,           # live: charging
-    )
-    assert snap == PLACEHOLDER
-
-
-def test_enabled_reports_live_state():
-    snap = telemetry_snapshot(
-        enabled=True,
         has_cell_signal=True,
         battery_pct=42,
         gps_on=True,
@@ -289,11 +266,10 @@ def test_enabled_reports_live_state():
     assert snap["cell_signal"] == 0xA0
 
 
-def test_enabled_no_signal_drives_both_signal_tlvs_to_absent():
+def test_snapshot_no_signal_drives_both_signal_tlvs_to_absent():
     """No cellular path → 06 01 absent (0x00) AND the 06 08 proxy to 0x00,
     so the dash shows a consistent 'no signal'."""
     snap = telemetry_snapshot(
-        enabled=True,
         has_cell_signal=False,
         battery_pct=70,
         gps_on=True,
@@ -303,38 +279,26 @@ def test_enabled_no_signal_drives_both_signal_tlvs_to_absent():
     assert snap["cell_signal"] == 0x00
 
 
-def test_gate_disabled_heartbeat_still_well_formed():
-    """Turning telemetry off must NOT break the heartbeat: feeding the
-    placeholder snapshot still yields a valid, decodable 0044 with all the
-    status TLVs present (just neutral) — the link keep-alive is unaffected."""
+def test_snapshot_low_battery_no_fix_reported_truthfully():
+    """A nearly-dead, no-fix, charging phone is reported AS-IS — there is no
+    longer any placeholder/opt-out path that would mask the real state."""
     snap = telemetry_snapshot(
-        enabled=False,
-        has_cell_signal=False, battery_pct=3, gps_on=False, charging=True,
+        has_cell_signal=False,
+        battery_pct=3,
+        gps_on=False,
+        charging=True,
     )
-    pkt = make_heartbeat_0044(
-        seq=7,
-        cell_signal=snap["cell_signal"],
-        battery_pct=snap["battery_pct"],
-        gps_on=snap["gps_on"],
-        charging=snap["charging"],
-        signal_present=snap["signal_present"],
-    )
-    m = _tlv_map(pkt)
-    # All status TLVs present and neutral/placeholder.
-    assert m[(0x06, 0x04)] == bytes([80 + 100])
-    assert m[(0x06, 0x0F)] == bytes([0xAA])   # placeholder = not charging
-    assert m[(0x06, 0x03)] == bytes([0x55])   # placeholder = gps on
-    assert m[(0x06, 0x01)] == bytes([0x01])   # placeholder = signal present
-    # And the envelope is structurally sound.
-    outer_len = (pkt[0] << 8) | pkt[1]
-    assert outer_len == len(pkt)
+    assert snap["battery_pct"] == 3
+    assert snap["gps_on"] is False
+    assert snap["charging"] is True
+    assert snap["signal_present"] is False
+    assert snap["cell_signal"] == 0x00
 
 
-def test_enabled_full_round_trip_through_decoder():
+def test_snapshot_full_round_trip_through_decoder():
     """End-to-end: live readings → snapshot → 0044 → decode → expected
     bytes on the wire."""
     snap = telemetry_snapshot(
-        enabled=True,
         has_cell_signal=True,
         battery_pct=55,
         gps_on=False,

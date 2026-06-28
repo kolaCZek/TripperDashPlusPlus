@@ -142,23 +142,6 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
-    /// Phase 9g: report the PHONE's own status to the dash in the 1 Hz
-    /// `0044`/`0030` heartbeat — battery %, charging, GPS-fix and mobile
-    /// signal presence (the `06 04` / `06 0F` / `06 03` / `06 01` + `06 08`
-    /// TLVs the stock app's `REForeGroundService` sends, see
-    /// `DeviceTelemetry` + the `phone-status-wire-protocol.md` skill
-    /// reference). Defaults to ON so the dash shows real phone status like
-    /// the OEM app does.
-    ///
-    /// When OFF, the heartbeat still goes out every second (the dash
-    /// keep-alive depends on the frame ARRIVING, not its contents) but
-    /// carries OEM-safe placeholder status instead of the rider's real
-    /// battery/charging/signal — a privacy / "I don't want my phone
-    /// battery on the bike dash" escape hatch that can't break the link.
-    var deviceTelemetryEnabled: Bool = true {
-        didSet { persist() }
-    }
-
     // MARK: - Derived wire helpers
 
     /// Quantize a maneuver distance (meters) into human-friendly buckets
@@ -254,7 +237,9 @@ final class DashNavSettings {
     // Bumped to v6 when the device-telemetry toggle (deviceTelemetryEnabled)
     // landed. Older blobs (v5 and earlier) are silently ignored on first
     // read; we just rewrite them under the new key with current defaults
-    // (device telemetry ON, call-state card ON, lookahead ON, threshold 300 m).
+    // (call-state card ON, lookahead ON, threshold 300 m). Phone-status
+    // telemetry is no longer a setting — it's always reported (a dropped
+    // `deviceTelemetryEnabled` key in an old blob is simply ignored).
     private static let storeKey = "dashNavSettings.v6"
 
     private struct Persisted: Codable {
@@ -268,7 +253,6 @@ final class DashNavSettings {
         var lookaheadEnabled: Bool?
         var lookaheadThresholdMeters: Double?
         var callStateEnabled: Bool?
-        var deviceTelemetryEnabled: Bool?
     }
 
     init() {
@@ -286,7 +270,6 @@ final class DashNavSettings {
         self.lookaheadEnabled = p.lookaheadEnabled ?? true
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
-        self.deviceTelemetryEnabled = p.deviceTelemetryEnabled ?? true
     }
 
     private func persist() {
@@ -297,8 +280,7 @@ final class DashNavSettings {
             bottomLine: bottomLine,
             lookaheadEnabled: lookaheadEnabled,
             lookaheadThresholdMeters: lookaheadThresholdMeters,
-            callStateEnabled: callStateEnabled,
-            deviceTelemetryEnabled: deviceTelemetryEnabled
+            callStateEnabled: callStateEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

@@ -101,18 +101,6 @@ struct StreamingView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-
-                Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.deviceTelemetryEnabled },
-                    set: { status.dashNavSettings.deviceTelemetryEnabled = $0 }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Report phone status to dash")
-                        Text("Mirrors the stock app: sends your phone's battery %, charging, GPS-fix and mobile-signal presence in the 1 Hz heartbeat so the dash can show them. Turning this off keeps the link alive but sends neutral placeholder status instead of your real phone state.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
             }
 
             Section("Stream") {

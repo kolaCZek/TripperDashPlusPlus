@@ -500,39 +500,22 @@ final class AppStatus {
 
     /// Stand up the phone-status provider and hand `BikeLink` a `@Sendable`
     /// snapshot closure it can call once per heartbeat tick. Mirrors the
-    /// stock app's `REForeGroundService` 1 Hz status timer (battery / GPS /
-    /// charging / signal). Safe to call once at launch: the provider runs
-    /// for the whole session and `BikeLink` only consults it while the
-    /// heartbeat loop is alive (i.e. while connected).
+    /// Begin streaming the phone's own status into the dash heartbeat,
+    /// mirroring the stock app's `REForeGroundService` 1 Hz status timer
+    /// (battery / GPS / charging / signal). Always on — the stock app
+    /// reports unconditionally and so do we; there's no user setting.
+    /// Safe to call once at launch: the provider runs for the whole session
+    /// and `BikeLink` only consults it while the heartbeat loop is alive
+    /// (i.e. while connected).
     private func wireDeviceTelemetry() {
         let tele = DeviceTelemetry(location: locationService)
         deviceTelemetry = tele
-        // Honour the persisted preference before the first sample goes out.
-        tele.enabled = dashNavSettings.deviceTelemetryEnabled
         tele.start()
-        // `snapshot()` is main-actor isolated and internally returns the
-        // OEM-safe placeholder when disabled, so the closure stays correct
-        // across toggle flips without re-wiring.
+        // `snapshot()` is main-actor isolated; the closure stays valid for
+        // the whole session.
         bikeLink.telemetryProvider = { @Sendable [weak tele] in
             guard let tele else { return .placeholder }
             return await tele.snapshot()
-        }
-        observeDeviceTelemetryToggle()
-    }
-
-    /// Watch `deviceTelemetryEnabled` and mirror it onto the live provider
-    /// so flipping the toggle takes effect on the very next heartbeat tick
-    /// (no reconnect needed). Same self-re-registering
-    /// `withObservationTracking` idiom as `observeBikeLink()`.
-    private func observeDeviceTelemetryToggle() {
-        withObservationTracking {
-            _ = dashNavSettings.deviceTelemetryEnabled
-        } onChange: {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.deviceTelemetry?.enabled = self.dashNavSettings.deviceTelemetryEnabled
-                self.observeDeviceTelemetryToggle()
-            }
         }
     }
 
