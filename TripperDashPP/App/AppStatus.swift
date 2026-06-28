@@ -115,6 +115,7 @@ final class AppStatus {
         // UDP into a black hole.
         observeBikeLink()
         wireNavigation()
+        wireCallObserver()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -446,6 +447,45 @@ final class AppStatus {
             self.activeNavigator.onActiveRouteChanged = nil
             self.stagedDestination = nil
             self.plannedRoute = nil
+        }
+    }
+
+    // MARK: - Call-state observer (incoming-call card on the dash)
+
+    /// Owns the CallKit bridge for the app's lifetime. Held here (not a
+    /// local) so the `CXCallObserver` inside keeps its delegate alive — a
+    /// dropped observer silently stops delivering call events.
+    @ObservationIgnored private var callObserver: CallStateObserver?
+
+    /// Start observing system call state and forwarding it to the dash.
+    /// Mirrors `km3.u()` in the stock app: call changes become K1G
+    /// `05 21`/`05 4D` bursts over the existing nav control plane. No-op
+    /// when not connected (handled inside `BikeLink.sendCallState`), so it's
+    /// safe to start once at launch and leave running for the whole session.
+    private func wireCallObserver() {
+        let obs = CallStateObserver(link: bikeLink)
+        callObserver = obs
+        obs.start()
+        observeCallStateToggle()
+    }
+
+    /// Watch the `callStateEnabled` preference so that turning the card OFF
+    /// while one is lit clears it on the dash immediately. We push a `.none`
+    /// (which `BikeLink.sendCallState` lets through even when disabled) on
+    /// the OFF transition. Turning it back ON does nothing here — the next
+    /// real CallKit event re-syncs the live state. Same self-re-registering
+    /// `withObservationTracking` idiom as `observeBikeLink()`.
+    private func observeCallStateToggle() {
+        withObservationTracking {
+            _ = dashNavSettings.callStateEnabled
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.dashNavSettings.callStateEnabled == false {
+                    await self.bikeLink.sendCallState(.none)
+                }
+                self.observeCallStateToggle()
+            }
         }
     }
 

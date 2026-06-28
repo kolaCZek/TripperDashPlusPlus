@@ -130,6 +130,18 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Phase 9f: push the phone's call state to the dash so it shows the OEM
+    /// incoming-call card (the `05 21` / `05 4D` K1G burst — see
+    /// `CallStateObserver` + the `call-notification-wire-protocol.md` skill
+    /// reference). Defaults to ON. Disable to keep the dash quiet during
+    /// calls — handy if a rider takes a lot of calls on the move and doesn't
+    /// want the card stealing the nav bubble, or if a particular Tripper
+    /// firmware misrenders it. When off, `BikeLink.sendCallState` becomes a
+    /// no-op, so NOTHING call-related is ever put on the wire.
+    var callStateEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     // MARK: - Derived wire helpers
 
     /// Quantize a maneuver distance (meters) into human-friendly buckets
@@ -222,21 +234,23 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v4 when the F2c lookahead toggles landed. v3 blobs
-    // are silently ignored on first read; we just rewrite them under
-    // the new key with current defaults (lookahead ON, threshold 300 m).
-    private static let storeKey = "dashNavSettings.v4"
+    // Bumped to v5 when the call-state toggle (callStateEnabled) landed.
+    // Older blobs (v4 and earlier) are silently ignored on first read; we
+    // just rewrite them under the new key with current defaults (call-state
+    // card ON, lookahead ON, threshold 300 m).
+    private static let storeKey = "dashNavSettings.v5"
 
     private struct Persisted: Codable {
         var units: UnitSystem
         var decimalSeparator: DecimalSeparator
         var clockFormat: ClockFormat
         var bottomLine: BottomLineMode
-        // Optional so we can still decode v3 blobs that lack these
+        // Optional so we can still decode older blobs that lack these
         // fields — Codable's silent ignore handles forward additions
         // when the keys are optional. Defaults applied in load().
         var lookaheadEnabled: Bool?
         var lookaheadThresholdMeters: Double?
+        var callStateEnabled: Bool?
     }
 
     init() {
@@ -253,6 +267,7 @@ final class DashNavSettings {
         self.bottomLine = p.bottomLine
         self.lookaheadEnabled = p.lookaheadEnabled ?? true
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
+        self.callStateEnabled = p.callStateEnabled ?? true
     }
 
     private func persist() {
@@ -262,7 +277,8 @@ final class DashNavSettings {
             clockFormat: clockFormat,
             bottomLine: bottomLine,
             lookaheadEnabled: lookaheadEnabled,
-            lookaheadThresholdMeters: lookaheadThresholdMeters
+            lookaheadThresholdMeters: lookaheadThresholdMeters,
+            callStateEnabled: callStateEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
