@@ -94,12 +94,6 @@ final class DeviceTelemetry {
     /// equivalent of the OEM's `getLevel() > 0` presence check.
     private(set) var hasCellSignal: Bool = true
 
-    /// Master on/off, driven by `DashNavSettings.deviceTelemetryEnabled`.
-    /// When false, `snapshot()` returns OEM-safe placeholders so the dash
-    /// shows neutral phone status and NO real battery/charging/signal of
-    /// the rider's phone is put on the wire.
-    var enabled: Bool = true
-
     // MARK: - Internals
 
     /// GPS-fix truth comes from the one shared `LocationService` (same
@@ -174,11 +168,10 @@ final class DeviceTelemetry {
 
     // MARK: - Snapshot for the heartbeat
 
-    /// Build the per-tick telemetry the heartbeat encodes. Returns the
-    /// OEM-safe placeholder when telemetry is disabled, so the caller
-    /// never has to special-case the toggle.
+    /// Build the per-tick telemetry the heartbeat encodes. Always reports
+    /// the phone's real status — the stock app reports unconditionally and
+    /// so do we (there's no user opt-out).
     func snapshot() -> PhoneTelemetry {
-        guard enabled else { return .placeholder }
         return PhoneTelemetry(
             cellSignal0to255: hasCellSignal ? 0xA0 : 0x00,
             batteryPct0to100: batteryPct,
