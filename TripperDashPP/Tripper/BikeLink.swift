@@ -354,7 +354,74 @@ final class BikeLink {
         }
     }
 
-    // MARK: - Flow
+    // MARK: - Incoming-message notification
+    //
+    // Push incoming messages to the dash as the OEM `km3.z()` burst: one
+    // plaintext `06 09` unread-count packet, then — for every populated slot
+    // (newest first, up to 5) — three AES-encrypted field packets
+    // (content / sender / timestamp). Decoded from `bluconnect.km3`; see
+    // `message-notification-wire-protocol.md`.
+    //
+    // Unlike call-state this is NOT driven by a clean iOS system source
+    // (iOS exposes no general incoming-SMS API), so it's fed explicitly via
+    // `AppStatus`/`MessageFeed` from the app's own push extension or a
+    // user/test entry. The wire + crypto are byte-exact and round-trip
+    // tested against `fake_dash`.
+    //
+    // Encryption uses the SAME `aesKey` negotiated by the RSA handshake and
+    // already shared with the dash — so the dash can decrypt these fields
+    // with the key we handed it in the `08 00` session-key packet.
+
+    /// Send the current message list to the dash, mirroring `km3.z(list,
+    /// unread)`. No-op (silently) when:
+    ///   - the user's `messageNotifyEnabled` toggle is off,
+    ///   - the link isn't `.connected`,
+    ///   - we have no negotiated `aesKey` (can't encrypt → dash can't decrypt),
+    ///   - the list is empty.
+    /// Like the call card, a missed message is cosmetic and must never
+    /// disrupt nav — every failure path just drops the push.
+    func sendMessageNotification(_ messages: [MessageNotification], unreadCount: Int) async {
+        guard settings?.messageNotifyEnabled ?? true else { return }
+        guard self.state == .connected, let s = socket else { return }
+        guard let key = aesKey else {
+            log.error("Message notify skipped: no AES session key (handshake incomplete)")
+            return
+        }
+        guard !messages.isEmpty else { return }
+
+        // 1) Plaintext unread/missed count (`06 09`), sent first like km3.z().
+        let count = UInt16(max(0, min(unreadCount, 0xFFFF)))
+        do {
+            try await s.send(K1GPacket.makeMessageCount(count, seq: seq.consume()))
+        } catch {
+            log.error("Message count send failed: \(error.localizedDescription)")
+            return
+        }
+
+        // 2) Per slot (newest first, capped at the dash's 5), three encrypted
+        //    field packets: content, sender, timestamp.
+        let slots = K1GPacket.MessageSlot.all
+        for (index, message) in messages.prefix(slots.count).enumerated() {
+            let slot = slots[index]
+            do {
+                let contentEnc = try K1GCrypto.encryptField(message.contentField, key: key)
+                let senderEnc  = try K1GCrypto.encryptField(message.senderField,  key: key)
+                let tsString   = K1GPacket.formatMessageTimestamp(message.timestamp)
+                let tsEnc      = try K1GCrypto.encryptField(tsString, key: key)
+
+                try await s.send(K1GPacket.makeMessageField(
+                    sub: slot.contentSub, encryptedPayload: contentEnc, seq: seq.consume()))
+                try await s.send(K1GPacket.makeMessageField(
+                    sub: slot.senderSub, encryptedPayload: senderEnc, seq: seq.consume()))
+                try await s.send(K1GPacket.makeMessageField(
+                    sub: slot.timestampSub, encryptedPayload: tsEnc, seq: seq.consume()))
+            } catch {
+                log.error("Message slot \(index) send failed: \(error.localizedDescription)")
+                // Keep going — a later slot may still encrypt/send fine.
+            }
+        }
+        log.info("Sent \(min(messages.count, slots.count)) message card(s) to dash (unread=\(count))")
+    }
 
     @discardableResult
     private func runConnectFlow(isReconnect: Bool = false) async -> Bool {

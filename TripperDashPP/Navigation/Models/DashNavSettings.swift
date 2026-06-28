@@ -142,6 +142,23 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Phase 9h: mirror incoming MESSAGES onto the dash the same way the OEM
+    /// app does — the `km3.z()` burst of a plaintext `06 09` unread count plus
+    /// up to five AES-encrypted slots (content `0524…`, sender `0527…`,
+    /// timestamp `052A…`). See `MessageNotification` + the
+    /// `message-notification-wire-protocol.md` skill reference. Defaults to
+    /// ON. When OFF, `BikeLink.sendMessageNotification` is a no-op so nothing
+    /// message-related ever reaches the wire.
+    ///
+    /// NOTE: unlike call-state, iOS has no general incoming-SMS API, so this
+    /// only surfaces messages from whatever source the app actually feeds
+    /// into `MessageFeed` (its own push extension, or a user/test entry) —
+    /// the toggle gates the wire path regardless of where the message came
+    /// from.
+    var messageNotifyEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     // MARK: - Derived wire helpers
 
     /// Quantize a maneuver distance (meters) into human-friendly buckets
@@ -234,13 +251,13 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v6 when the device-telemetry toggle (deviceTelemetryEnabled)
-    // landed. Older blobs (v5 and earlier) are silently ignored on first
+    // Bumped to v7 when the message-notify toggle (messageNotifyEnabled)
+    // landed. Older blobs (v6 and earlier) are silently ignored on first
     // read; we just rewrite them under the new key with current defaults
-    // (call-state card ON, lookahead ON, threshold 300 m). Phone-status
-    // telemetry is no longer a setting — it's always reported (a dropped
-    // `deviceTelemetryEnabled` key in an old blob is simply ignored).
-    private static let storeKey = "dashNavSettings.v6"
+    // (message notify ON, call-state card ON, lookahead ON, threshold 300 m).
+    // Phone-status telemetry is no longer a setting — it's always reported
+    // (a dropped `deviceTelemetryEnabled` key in an old blob is simply ignored).
+    private static let storeKey = "dashNavSettings.v7"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -253,6 +270,7 @@ final class DashNavSettings {
         var lookaheadEnabled: Bool?
         var lookaheadThresholdMeters: Double?
         var callStateEnabled: Bool?
+        var messageNotifyEnabled: Bool?
     }
 
     init() {
@@ -270,6 +288,7 @@ final class DashNavSettings {
         self.lookaheadEnabled = p.lookaheadEnabled ?? true
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
+        self.messageNotifyEnabled = p.messageNotifyEnabled ?? true
     }
 
     private func persist() {
@@ -280,7 +299,8 @@ final class DashNavSettings {
             bottomLine: bottomLine,
             lookaheadEnabled: lookaheadEnabled,
             lookaheadThresholdMeters: lookaheadThresholdMeters,
-            callStateEnabled: callStateEnabled
+            callStateEnabled: callStateEnabled,
+            messageNotifyEnabled: messageNotifyEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

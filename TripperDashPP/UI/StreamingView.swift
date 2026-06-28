@@ -86,20 +86,19 @@ struct StreamingView: View {
                         Text(b.label).tag(b)
                     }
                 }
-                Text("Active-nav bubble can show either ETA or remaining distance — pick which one the dash should render.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.callStateEnabled },
                     set: { status.dashNavSettings.callStateEnabled = $0 }
                 )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Show incoming-call card")
-                        Text("Mirrors the stock app: shows a call card on the dash when the phone rings, is answered, or hangs up. State only — no caller name. Turning this off clears any card showing right now.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Show incoming-call card")
+                }
+
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.messageNotifyEnabled },
+                    set: { status.dashNavSettings.messageNotifyEnabled = $0 }
+                )) {
+                    Text("Show incoming-message cards")
                 }
             }
 
