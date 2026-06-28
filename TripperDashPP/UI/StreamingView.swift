@@ -102,6 +102,30 @@ struct StreamingView: View {
                 )) {
                     Text("Incoming message")
                 }
+
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.weatherAlertsEnabled },
+                    set: { status.dashNavSettings.weatherAlertsEnabled = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Weather alerts")
+                        Text("Rain, ice, storms, strong wind and fog shown as a badge in the corner of the dash map.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.speedCamerasEnabled },
+                    set: { status.dashNavSettings.speedCamerasEnabled = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Speed cameras")
+                        Text("Marks known speed cameras along your route on the dash map. Crowd-sourced from OpenStreetMap — coverage is incomplete, so treat it as a hint, not a guarantee.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             // Route preferences live ONLY in the planning panel's

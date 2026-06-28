@@ -89,6 +89,19 @@ final class MapViewSource: NSObject, FrameSource {
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
 
+    /// Latest ride-relevant weather alert, pushed in by the nav pump from
+    /// `WeatherAlertService`. `nil` → no pill drawn (clear weather, the
+    /// common case). Rendered bottom-right so it never overlaps the route
+    /// or the centred puck. See the "Ride-alerts overlay" extension below.
+    var weatherAlert: WeatherAlert?
+
+    /// Speed cameras to plot on the map, prefetched along the active route
+    /// by `SpeedCameraService`. Empty → nothing drawn. Each is rendered as
+    /// an upright camera pictograph at its geographic position (rotates
+    /// WITH the map for position, but the icon itself stays upright and
+    /// constant-size, like a proper POI marker).
+    var speedCameras: [SpeedCamera] = []
+
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
@@ -549,6 +562,14 @@ extension MapViewSource {
             drawVectorOnlyFrame(into: ctx)
         }
 
+        // Weather alert pill — bottom-right corner, transform-independent
+        // (drawn in the flat outer ctx so it sits in a fixed screen spot
+        // regardless of map rotation/zoom). Placed AFTER the map branch so
+        // it overlays the tiles, and it deliberately lives in the bottom-
+        // right where neither the forward-biased puck nor the route runs.
+        // No-op when `weatherAlert == nil` (clear weather).
+        drawWeatherAlert(into: ctx)
+
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
         // primary-maneuver TLV (whose enum is largely undocumented).
@@ -726,6 +747,16 @@ extension MapViewSource {
         }
 
         ctx.restoreGState()
+
+        // Speed-camera POI markers — geo-anchored (they move/rotate WITH
+        // the map as the rider travels) but drawn upright + constant-size
+        // in the outer ctx so the camera glyph is always readable. Drawn
+        // after the map/route restoreGState, before the puck so the user's
+        // position stays on top. Projection params captured from this
+        // tile-cache frame above.
+        drawSpeedCameras(into: ctx,
+                         centerLat: centerLat, centerLon: centerLon,
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
 
         // Draw user direction arrow in the center. The map is rotated
         // heading-up, so the arrow always points toward the top of the
@@ -1104,6 +1135,293 @@ extension MapViewSource {
         ctx.clip(to: CGRect(x: 0, y: -fontSize, width: width, height: fontSize * 1.6))
         CTLineDraw(line, ctx)
         ctx.restoreGState()
+    }
+}
+
+// MARK: - Ride-alerts overlay (weather pill + speed cameras)
+//
+// Two burned-in overlays the rider asked for (6/2026), grouped here so
+// the map/nav code above stays focused:
+//
+//   • Weather pill — a compact, glanceable badge in the BOTTOM-RIGHT
+//     corner (chosen by the rider: doesn't overlap the route or the
+//     forward-biased puck, and there's free space there). Transform-
+//     independent: drawn in the flat outer Y-DOWN ctx so it stays pinned
+//     to the same screen corner regardless of map rotation/zoom.
+//
+//   • Speed-camera markers — geo-anchored POIs. Their POSITION rides with
+//     the map (we re-apply the exact same scale→rotate→translate CTM the
+//     polyline uses, by hand, so a camera sits precisely on its road), but
+//     the icon itself is drawn UPRIGHT and constant-size like a real map
+//     pin, so it never ends up sideways when the map rotates heading-up.
+//
+// Both are pure CGContext paths (no asset catalog, no SF Symbols),
+// matching the maneuver-glyph philosophy: legible over arbitrary OSM
+// tiles after H.264 chroma subsampling.
+
+extension MapViewSource {
+
+    /// Push the latest weather alert (or `nil` to clear). Mirrors
+    /// `setNavOverlay`'s shape so the nav pump drives both the same way.
+    func setWeatherAlert(_ alert: WeatherAlert?) {
+        self.weatherAlert = alert
+    }
+
+    /// Install the speed cameras to plot (prefetched along the route).
+    /// Pass `[]` to clear.
+    func setSpeedCameras(_ cameras: [SpeedCamera]) {
+        self.speedCameras = cameras
+    }
+
+    // MARK: Weather pill
+
+    fileprivate func drawWeatherAlert(into ctx: CGContext) {
+        guard let alert = weatherAlert else { return }
+
+        let accent: CGColor = alert.severity == .warning
+            ? CGColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1.0)   // red
+            : CGColor(red: 1.00, green: 0.66, blue: 0.05, alpha: 1.0)   // amber
+
+        // Layout constants. Glyph box + gap + text, inside a dark pill with
+        // a coloured border so it reads over both light and dark tiles.
+        let margin: CGFloat = 12
+        let padX: CGFloat = 9
+        let glyphSize: CGFloat = 22
+        let gap: CGFloat = 7
+        let fontSize: CGFloat = 15
+        let pillH: CGFloat = 34
+
+        // Measure the title so the pill hugs the text.
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
+        let textW = (alert.title as NSString)
+            .size(withAttributes: textAttrs).width.rounded(.up)
+
+        let pillW = padX + glyphSize + gap + textW + padX
+        // Bottom-right anchor (Y-DOWN: bottom = large y).
+        let originX = frameSize.width - margin - pillW
+        let originY = frameSize.height - margin - pillH
+        let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
+
+        // Backdrop: 78% black, 1.5 px coloured border.
+        ctx.saveGState()
+        let path = CGPath(roundedRect: pill, cornerWidth: 9, cornerHeight: 9, transform: nil)
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.78))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(accent)
+        ctx.setLineWidth(1.5)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        // Glyph, vertically centred in the pill.
+        let glyphOrigin = CGPoint(x: pill.minX + padX, y: pill.midY - glyphSize / 2)
+        ctx.saveGState()
+        ctx.translateBy(x: glyphOrigin.x, y: glyphOrigin.y)
+        drawWeatherGlyph(alert.glyph, in: ctx, size: glyphSize, tint: accent)
+        ctx.restoreGState()
+
+        // Title text, vertically centred. Reuse the same CoreText helper
+        // the maneuver overlay uses (white + black stroke for contrast).
+        let textOrigin = CGPoint(x: pill.minX + padX + glyphSize + gap,
+                                 y: pill.midY - fontSize / 2 - 1)
+        Self.drawText(alert.title, in: ctx, at: textOrigin,
+                      width: textW + 4, fontSize: fontSize, bold: true)
+    }
+
+    /// Draw a weather pictograph in a `size`×`size` box whose origin is the
+    /// CURRENT ctx origin (caller has translated). Y-DOWN coordinates
+    /// (top-left origin) — silhouettes read fine either way. `tint` colours
+    /// the active element (rain streaks, bolt, flake); the cloud base is
+    /// light grey so it reads on the dark pill.
+    private func drawWeatherGlyph(_ glyph: WeatherAlert.Glyph,
+                                  in ctx: CGContext, size: CGFloat, tint: CGColor) {
+        let cloudGrey = CGColor(red: 0.86, green: 0.88, blue: 0.92, alpha: 1.0)
+        let s = size
+
+        func fillCloud() {
+            // Cloud = three overlapping discs on a flat base, upper-middle
+            // of the box so there's room for rain/flakes beneath.
+            ctx.setFillColor(cloudGrey)
+            let baseY = s * 0.30
+            ctx.fillEllipse(in: CGRect(x: s * 0.06, y: baseY + s * 0.06, width: s * 0.42, height: s * 0.42))
+            ctx.fillEllipse(in: CGRect(x: s * 0.30, y: baseY - s * 0.02, width: s * 0.46, height: s * 0.46))
+            ctx.fillEllipse(in: CGRect(x: s * 0.52, y: baseY + s * 0.08, width: s * 0.38, height: s * 0.38))
+            ctx.fill(CGRect(x: s * 0.14, y: baseY + s * 0.26, width: s * 0.66, height: s * 0.20))
+        }
+
+        switch glyph {
+        case .rain:
+            fillCloud()
+            ctx.setStrokeColor(tint)
+            ctx.setLineWidth(max(1.6, s * 0.07))
+            ctx.setLineCap(.round)
+            for i in 0..<3 {
+                let x = s * (0.28 + 0.22 * CGFloat(i))
+                ctx.move(to: CGPoint(x: x, y: s * 0.74))
+                ctx.addLine(to: CGPoint(x: x - s * 0.08, y: s * 0.94))
+            }
+            ctx.strokePath()
+
+        case .storm:
+            fillCloud()
+            // Lightning bolt — filled zig-zag.
+            ctx.setFillColor(tint)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: s * 0.52, y: s * 0.70))
+            ctx.addLine(to: CGPoint(x: s * 0.40, y: s * 0.70))
+            ctx.addLine(to: CGPoint(x: s * 0.50, y: s * 0.86))
+            ctx.addLine(to: CGPoint(x: s * 0.42, y: s * 0.86))
+            ctx.addLine(to: CGPoint(x: s * 0.56, y: s * 1.00))
+            ctx.addLine(to: CGPoint(x: s * 0.50, y: s * 0.82))
+            ctx.addLine(to: CGPoint(x: s * 0.58, y: s * 0.82))
+            ctx.closePath()
+            ctx.fillPath()
+
+        case .snow:
+            fillCloud()
+            ctx.setFillColor(tint)
+            for i in 0..<3 {
+                let x = s * (0.30 + 0.20 * CGFloat(i))
+                ctx.fillEllipse(in: CGRect(x: x - s * 0.04, y: s * 0.80, width: s * 0.08, height: s * 0.08))
+            }
+
+        case .ice:
+            // Snowflake — 6 spokes from centre, no cloud.
+            ctx.setStrokeColor(tint)
+            ctx.setLineWidth(max(1.5, s * 0.06))
+            ctx.setLineCap(.round)
+            let cx = s * 0.5, cy = s * 0.5, r = s * 0.40
+            for k in 0..<6 {
+                let a = CGFloat(k) * .pi / 3
+                ctx.move(to: CGPoint(x: cx, y: cy))
+                ctx.addLine(to: CGPoint(x: cx + r * cos(a), y: cy + r * sin(a)))
+            }
+            ctx.strokePath()
+
+        case .fog:
+            // Three horizontal bars.
+            ctx.setStrokeColor(cloudGrey)
+            ctx.setLineWidth(max(1.8, s * 0.08))
+            ctx.setLineCap(.round)
+            for i in 0..<3 {
+                let y = s * (0.34 + 0.20 * CGFloat(i))
+                ctx.move(to: CGPoint(x: s * 0.16, y: y))
+                ctx.addLine(to: CGPoint(x: s * 0.84, y: y))
+            }
+            ctx.strokePath()
+
+        case .wind:
+            // Two swoosh lines with a little hook.
+            ctx.setStrokeColor(tint)
+            ctx.setLineWidth(max(1.8, s * 0.08))
+            ctx.setLineCap(.round)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: s * 0.14, y: s * 0.40))
+            ctx.addCurve(to: CGPoint(x: s * 0.74, y: s * 0.34),
+                         control1: CGPoint(x: s * 0.50, y: s * 0.22),
+                         control2: CGPoint(x: s * 0.74, y: s * 0.18))
+            ctx.move(to: CGPoint(x: s * 0.14, y: s * 0.64))
+            ctx.addCurve(to: CGPoint(x: s * 0.66, y: s * 0.70),
+                         control1: CGPoint(x: s * 0.50, y: s * 0.82),
+                         control2: CGPoint(x: s * 0.66, y: s * 0.86))
+            ctx.strokePath()
+        }
+    }
+
+    // MARK: Speed cameras
+
+    /// Plot each speed camera at its projected screen position. Re-applies
+    /// the SAME composite transform the tile/polyline path uses (forward
+    /// bias → heading rotation → zoom → geo-delta in px), computed by hand
+    /// so we can then draw the icon UPRIGHT in the flat outer ctx. Cameras
+    /// whose projected position falls outside the frame (+ margin) are
+    /// culled.
+    fileprivate func drawSpeedCameras(into ctx: CGContext,
+                                      centerLat: Double, centerLon: Double,
+                                      pxPerDegLon: Double, pxPerDegLat: Double) {
+        guard !speedCameras.isEmpty else { return }
+
+        let theta = -lastHeading * .pi / 180.0
+        let cosT = cos(theta), sinT = sin(theta)
+        // Keep the whole projection in Double; CGFloat↔Double don't mix
+        // implicitly in Swift, and the geo-deltas are already Double. We
+        // narrow to CGFloat only at the final CGPoint.
+        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
+        let anchorX = Double(frameSize.width) / 2
+        let anchorY = Double(frameSize.height) / 2 + biasPx
+        let z = Double(currentZoom)
+        let w = Double(frameSize.width), h = Double(frameSize.height)
+
+        for cam in speedCameras {
+            // Geo-delta in unrotated pixels (same formula as the polyline).
+            let dx = (cam.coordinate.longitude - centerLon) * pxPerDegLon
+            let dy = -(cam.coordinate.latitude - centerLat) * pxPerDegLat  // Y-DOWN: north = -y
+            // Apply zoom, then the heading rotation (CGAffineTransform
+            // rotation matrix), then the anchor translate. This reproduces
+            // ctx.translate(anchor) · rotate(theta) · scale(z) acting on
+            // the point — i.e. exactly where the tile path would put it.
+            let zx = dx * z, zy = dy * z
+            let rx = zx * cosT - zy * sinT
+            let ry = zx * sinT + zy * cosT
+            let sx = anchorX + rx
+            let sy = anchorY + ry
+
+            // Cull off-frame markers (with a margin so a half-visible icon
+            // at the edge still appears).
+            guard sx > -24, sx < w + 24,
+                  sy > -24, sy < h + 24 else { continue }
+
+            drawCameraMarker(into: ctx, at: CGPoint(x: sx, y: sy), camera: cam)
+        }
+    }
+
+    /// One upright camera marker centred at screen point `p` (Y-DOWN outer
+    /// ctx). A rounded teardrop pin in the camera's accent colour with a
+    /// little camera body cut into it, plus the speed limit beneath when
+    /// known. Section/average-speed cameras get a violet accent to set them
+    /// apart from spot cameras (red).
+    private func drawCameraMarker(into ctx: CGContext, at p: CGPoint, camera: SpeedCamera) {
+        let accent: CGColor = camera.isSection
+            ? CGColor(red: 0.55, green: 0.30, blue: 0.85, alpha: 1.0)   // violet — section
+            : CGColor(red: 0.90, green: 0.16, blue: 0.16, alpha: 1.0)   // red — spot
+
+        ctx.saveGState()
+        ctx.translateBy(x: p.x, y: p.y)
+
+        // Marker disc (with white outline for contrast over any tile).
+        let r: CGFloat = 11
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: -r - 1.5, y: -r - 1.5, width: (r + 1.5) * 2, height: (r + 1.5) * 2))
+        ctx.setFillColor(accent)
+        ctx.fillEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2))
+
+        // Camera body (white): a rounded rect + a lens circle + a small
+        // viewfinder bump, all inside the disc.
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        let body = CGRect(x: -7, y: -4.5, width: 14, height: 9)
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 2, cornerHeight: 2, transform: nil))
+        ctx.fillPath()
+        // viewfinder bump on top-left
+        ctx.fill(CGRect(x: -5.5, y: -6.5, width: 4, height: 2.5))
+        // lens hole (accent shows through)
+        ctx.setFillColor(accent)
+        ctx.fillEllipse(in: CGRect(x: -2.6, y: -2.6, width: 5.2, height: 5.2))
+
+        ctx.restoreGState()
+
+        // Speed limit badge beneath the marker, when mapped. Small but
+        // bold + stroked so it survives H.264. Skip for section cameras
+        // without a number to avoid clutter.
+        if let limit = camera.maxspeedKmh {
+            let label = "\(limit)"
+            let fontSize: CGFloat = 11
+            let approxW = CGFloat(label.count) * fontSize * 0.62 + 6
+            Self.drawText(label, in: ctx,
+                          at: CGPoint(x: p.x - approxW / 2, y: p.y + r + 2),
+                          width: approxW, fontSize: fontSize, bold: true)
+        }
     }
 }
 
