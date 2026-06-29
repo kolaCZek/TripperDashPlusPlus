@@ -254,3 +254,83 @@ def test_active_nav_loop_emits_eta_and_remaining_together(
     (one suppressing the other), the blank-ETA / "km switch does nothing"
     field bugs come back — that's what this pins against."""
     assert _swift_active_nav_loop_eta_dispatch_logic(eta_seconds) == expected
+
+
+# --- F5 hybrid ETA estimator (ActiveNavigator.computeEta + pace EWMA) ---------
+#
+# Mirrors the Swift hybrid ETA: a ratio backbone bent by a slowly-tracked
+# pace factor. Pins the two field requirements (Martin, 6/2026):
+#   * constant 90 km/h on a route Apple planned slower → ETA creeps DOWN, no jumps;
+#   * sustained slower-than-planned pace → ETA creeps UP;
+#   * stop at a light → pace freezes, ETA only follows position (no whipsaw).
+
+
+class _EtaModel:
+    """1:1 port of ActiveNavigator's pace-factor + computeEta logic."""
+
+    PACE_ALPHA = 0.01
+    PACE_MIN_MOVING = 3.0  # m/s
+    PACE_MIN, PACE_MAX = 0.5, 2.0
+    MIN_SAMPLES = 5
+
+    def __init__(self, distance_m: float, expected_s: float) -> None:
+        self.distance, self.expected = distance_m, expected_s
+        self.pace, self.samples = 1.0, 0
+
+    def ingest(self, speed_mps: float) -> None:
+        if speed_mps >= self.PACE_MIN_MOVING and self.expected > 0:
+            planned = self.distance / self.expected
+            if planned > 0:
+                s = min(self.PACE_MAX, max(self.PACE_MIN, speed_mps / planned))
+                self.pace = s if self.samples == 0 else (1 - self.PACE_ALPHA) * self.pace + self.PACE_ALPHA * s
+                self.samples += 1
+
+    def eta(self, remaining_m: float) -> float:
+        ratio = remaining_m / self.distance if self.distance > 0 else 0
+        ratio_eta = self.expected * ratio
+        return ratio_eta if self.samples < self.MIN_SAMPLES else ratio_eta / self.pace
+
+
+def test_eta_cold_start_is_pure_ratio() -> None:
+    """Before 5 moving samples, ETA is the ratio backbone — exactly Apple's
+    plan scaled by remaining fraction. Half the distance left → half ETA."""
+    m = _EtaModel(distance_m=20_000, expected_s=1200)
+    assert m.eta(20_000) == 1200
+    assert m.eta(10_000) == 600
+
+
+def test_eta_stop_freezes_estimate() -> None:
+    """A stop (speed below the moving floor) folds NO pace samples: ETA tracks
+    position only, so standing still leaves it flat instead of ballooning."""
+    m = _EtaModel(distance_m=20_000, expected_s=1200)
+    for _ in range(60):
+        m.ingest(0.0)
+    assert m.samples == 0 and m.pace == 1.0
+    assert m.eta(10_000) == 600  # unchanged — the F4 cap-jump is gone
+
+
+def test_eta_constant_fast_pace_descends_below_plan() -> None:
+    """90 km/h (25 m/s) on a route Apple planned at ~60 km/h: ETA bends DOWN
+    over a minute or two, never up."""
+    m = _EtaModel(distance_m=20_000, expected_s=1200)  # planned 16.7 m/s
+    for _ in range(300):
+        m.ingest(25.0)
+    assert m.pace > 1.4
+    assert m.eta(20_000) < 900  # well under the 1200 s plan
+
+
+def test_eta_slower_than_plan_grows() -> None:
+    m = _EtaModel(distance_m=20_000, expected_s=1200)
+    for _ in range(300):
+        m.ingest(8.0)  # ~29 km/h vs planned 60
+    assert m.pace < 0.8
+    assert m.eta(20_000) > 1400
+
+
+def test_eta_pace_factor_clamped() -> None:
+    """A GPS spike can't more than halve ETA: pace factor caps at 2.0."""
+    m = _EtaModel(distance_m=20_000, expected_s=1200)
+    for _ in range(300):
+        m.ingest(200.0)
+    assert m.pace <= 2.0 + 1e-9
+    assert m.eta(20_000) >= 600
