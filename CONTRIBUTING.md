@@ -22,7 +22,7 @@ This is the **most valuable** contribution right now. Until we know which bikes 
 - Bike model + Tripper firmware
 - Steps to reproduce
 - Expected vs actual behavior
-- Logs (Settings → TripperDash++ → Export logs, once that exists)
+- Logs (the maneuver/instruction log is in the app's Documents folder — pull it via the Files app or Xcode → Devices)
 
 ### 💡 I have a feature idea
 

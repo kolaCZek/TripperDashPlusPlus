@@ -220,7 +220,7 @@ final class MapViewSource: NSObject, FrameSource {
         preparePool()
         subscribeLocation()
         startTimer()
-        log.info("MapViewSource started (live MKMapView, \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
+        log.info("MapViewSource started (prerendered tiles + CGContext, \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
     }
 
     func stop() {
