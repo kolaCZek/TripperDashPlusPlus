@@ -119,12 +119,16 @@ enum ManeuverKind: Equatable {
             // looks like it "lost" the exit count partway through (field
             // ride 6/2026). Carry the ordinal forward from the previous
             // roundabout step so the whole maneuver shows one stable,
-            // correct exit number from entry through exit.
+            // correct exit number from entry through exit. When NO step in
+            // the chain carries an ordinal (Apple often emits only "turn
+            // left/continue/right onto …"), fall back to a direction-based
+            // estimate so the dash draws a numbered arc, not a blank circle.
             let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions)
                 ?? previousStep.flatMap { prev -> Int? in
                     guard Keywords.isRoundabout(prev.instructions.lowercased()) else { return nil }
                     return RoundaboutInstructionParser.parseExitNumber(from: prev.instructions)
                 }
+                ?? RoundaboutInstructionParser.inferExitFromDirection(step.instructions)
                 ?? 0
             // Rotation: CCW for right-hand-traffic (Continental Europe),
             // which is where this bike rides. A future enhancement can

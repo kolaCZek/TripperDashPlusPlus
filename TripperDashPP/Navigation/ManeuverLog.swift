@@ -148,6 +148,12 @@ final class ManeuverLog: @unchecked Sendable {
         let secondaryManeuver: String?
         let secondaryWireByte: UInt8?
         let secondaryDistanceMeters: Double?
+        /// Last N vertices of the incoming (prev) step + first N of the
+        /// next step, [lat,lon] pairs, rounded to ~1 m. Lets a replay
+        /// recompute the exact ManeuverGeometry angle offline — diagnoses
+        /// the L/R flips where stepBeforeNext isn't adjacent to nextStep.
+        let prevPolyTail: [[Double]]?
+        let nextPolyHead: [[Double]]?
 
         /// Compact route fingerprint. A reroute or leg-advance changes the
         /// destination, step count, or total distance, so any of those
@@ -181,6 +187,8 @@ final class ManeuverLog: @unchecked Sendable {
         var secondaryManeuver: String?
         var secondaryWireByte: String?
         var secondaryDistanceMeters: Double?
+        var prevPolyTail: [[Double]]?
+        var nextPolyHead: [[Double]]?
         // route_changed only:
         var fromRouteId: String?
         var toRouteId: String?
@@ -241,7 +249,9 @@ final class ManeuverLog: @unchecked Sendable {
         routeDistanceMeters: Double,
         secondaryManeuver: ManeuverKind? = nil,
         secondaryWireByte: UInt8? = nil,
-        secondaryDistanceMeters: Double? = nil
+        secondaryDistanceMeters: Double? = nil,
+        prevPolyTail: [[Double]]? = nil,
+        nextPolyHead: [[Double]]? = nil
     ) {
         guard Self.isEnabled else { return }
 
@@ -264,7 +274,9 @@ final class ManeuverLog: @unchecked Sendable {
             routeDistanceMeters: routeDistanceMeters,
             secondaryManeuver: secondaryManeuver.map { String(describing: $0) },
             secondaryWireByte: secondaryWireByte,
-            secondaryDistanceMeters: secondaryDistanceMeters
+            secondaryDistanceMeters: secondaryDistanceMeters,
+            prevPolyTail: prevPolyTail,
+            nextPolyHead: nextPolyHead
         )
 
         queue.async { [weak self] in
@@ -320,7 +332,9 @@ final class ManeuverLog: @unchecked Sendable {
             routeDistanceMeters: entry.routeDistanceMeters,
             secondaryManeuver: entry.secondaryManeuver,
             secondaryWireByte: entry.secondaryWireByte.map(Self.hex),
-            secondaryDistanceMeters: entry.secondaryDistanceMeters
+            secondaryDistanceMeters: entry.secondaryDistanceMeters,
+            prevPolyTail: entry.prevPolyTail,
+            nextPolyHead: entry.nextPolyHead
         )
         append(tick)
     }
