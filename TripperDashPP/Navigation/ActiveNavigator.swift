@@ -41,33 +41,37 @@ final class ActiveNavigator {
     /// Meters remaining to the destination along the current route.
     private(set) var remainingDistance: CLLocationDistance = 0
 
-    /// Live ETA in seconds. F4: derived from `remainingDistance /
-    /// smoothedSpeed`, with the route's `expectedTravelTime`-derived
-    /// ratio as the cold-start fallback. Reacts to actual rider speed
-    /// instead of assuming the original Apple Maps average.
+    /// Live ETA in seconds. F5 hybrid: a ratio backbone
+    /// (`expectedTravelTime * remaining/distance`) corrected by a slowly
+    /// tracked pace factor (actual/planned ground speed). The backbone
+    /// reacts to POSITION — at a stop `remaining` freezes so the arrival
+    /// time only ticks forward, never jumps — while the pace factor bends
+    /// the estimate for a rider who sustains a faster/slower pace than
+    /// Apple assumed. eta = ratioEta / paceFactor. Replaces F4's
+    /// `remaining / instantaneousSpeed`, which whipsawed at every traffic
+    /// light because it divided by current speed instead of long-run pace.
     private(set) var etaSeconds: TimeInterval = 0
 
-    /// EWMA-smoothed ground speed in m/s. Updated on every `ingest`
-    /// when the GPS reports a valid (>=0) speed. Initial 0 means
-    /// "not yet known" — caller falls back to the ratio estimator.
-    private var smoothedSpeedMps: Double = 0
-    /// Number of valid speed samples folded into `smoothedSpeedMps`.
-    /// We require at least 3 before trusting the live estimate so a
-    /// single noisy first fix doesn't dominate.
-    private var validSpeedSamples: Int = 0
-    /// Smoothing factor for the EWMA. ~30 s effective window at 1 Hz
-    /// fix rate (`alpha=0.1` → time constant ≈ 1/alpha = 10 samples).
-    /// Smooths out red-lights and gear changes without lagging real
-    /// speed changes (highway entry / village exit) by more than ~10 s.
-    private let speedEwmaAlpha: Double = 0.1
-    /// Minimum speed (m/s) we feed into the ETA divider so a stop at
-    /// a light doesn't blow ETA up to "arrive in 12 hours". 2 m/s ≈
-    /// 7 km/h, slow-roll pace.
-    private let etaMinSpeedMps: Double = 2.0
-    /// Sanity cap: ETA never grows beyond 4× the original Apple Maps
-    /// expected travel time. Prevents a stretch of stop-and-go from
-    /// projecting an absurd arrival time.
-    private let etaMaxRatio: Double = 4.0
+    /// EWMA of (actual ground speed / planned route speed). 1.0 = exactly
+    /// Apple's assumed pace; >1 = rider faster than plan (ETA shrinks);
+    /// <1 = slower (ETA grows). Only folded while genuinely moving, so a
+    /// red light freezes it rather than dragging it toward zero. Starts at
+    /// 1.0 = "assume Apple's pace until proven otherwise".
+    private var paceFactor: Double = 1.0
+    /// Count of moving samples folded into `paceFactor`. Require a few
+    /// before trusting it so one noisy fix doesn't bend the ETA.
+    private var paceSamples: Int = 0
+    /// EWMA alpha for the pace factor. ~100 s time constant at 1 Hz fix
+    /// rate (1/alpha = 100 samples): a sustained road-type change (90 km/h
+    /// stretch, slow village crawl) bends ETA over a minute or two; a stop
+    /// or a gear change is averaged out instead of jolting the display.
+    private let paceEwmaAlpha: Double = 0.01
+    /// Below this the rider is stopped/crawling: don't fold pace (freeze)
+    /// and don't trust live correction. 3 m/s ≈ 11 km/h.
+    private let paceMinMovingMps: Double = 3.0
+    /// Clamp so a wild GPS burst can't more than double or halve ETA.
+    private let paceFactorMin: Double = 0.5
+    private let paceFactorMax: Double = 2.0
 
     /// The next maneuver step the rider should anticipate.
     private(set) var nextStep: MKRoute.Step?
@@ -339,10 +343,10 @@ final class ActiveNavigator {
         self.distanceToNextStep = 0
         self.secondNextStep = nil
         self.distanceToSecondNextStep = 0
-        // F4: drop the smoothed-speed history so the next route
-        // starts cold and doesn't inherit yesterday's average.
-        self.smoothedSpeedMps = 0
-        self.validSpeedSamples = 0
+        // F5: drop the pace history so the next route starts cold
+        // (pure ratio) and doesn't inherit yesterday's tempo.
+        self.paceFactor = 1.0
+        self.paceSamples = 0
         self.isOffRoute = false
         self.offRouteSince = nil
         // Multi-stop: drop the plan so the next session starts fresh.
@@ -430,19 +434,24 @@ final class ActiveNavigator {
             return
         }
 
-        // F4: live ETA. Fold the GPS-reported speed into an EWMA; once
-        // we have a few valid samples and the smoothed speed is above
-        // the floor, divide remaining distance by it. Otherwise fall
-        // back to the route-ratio estimator (matches what Apple Maps
-        // does pre-CarPlay).
-        if fix.speed >= 0 {
-            if validSpeedSamples == 0 {
-                smoothedSpeedMps = fix.speed
-            } else {
-                smoothedSpeedMps = (1 - speedEwmaAlpha) * smoothedSpeedMps
-                    + speedEwmaAlpha * fix.speed
+        // F5: hybrid live ETA. Ratio backbone tracks position (and
+        // freezes at a stop); pace factor bends it toward the rider's
+        // sustained tempo. Fold actual/planned pace into a slow EWMA, but
+        // ONLY while genuinely moving — at a stop we freeze the factor so
+        // waiting at a light bends nothing. plannedSpeed is the route's
+        // own average (distance/expectedTravelTime); paceFactor>1 means
+        // the rider beats Apple's plan, so ETA shrinks (and vice versa).
+        if fix.speed >= paceMinMovingMps, route.expectedTravelTime > 0 {
+            let plannedSpeed = route.distance / route.expectedTravelTime
+            if plannedSpeed > 0 {
+                let sample = max(paceFactorMin, min(paceFactorMax, fix.speed / plannedSpeed))
+                if paceSamples == 0 {
+                    paceFactor = sample
+                } else {
+                    paceFactor = (1 - paceEwmaAlpha) * paceFactor + paceEwmaAlpha * sample
+                }
+                paceSamples += 1
             }
-            validSpeedSamples += 1
         }
         self.etaSeconds = computeEta(remaining: remaining, route: route)
 
@@ -570,30 +579,18 @@ final class ActiveNavigator {
 
     // MARK: - ETA helper
 
-    /// F4: live ETA estimator. Prefers `remaining / smoothedSpeed`
-    /// once we've collected at least 3 valid samples and the smoothed
-    /// speed is above the slow-roll floor. Otherwise falls back to
-    /// the original ratio estimator. Clamps the result so a long
-    /// stop-and-go burst can't project a comical arrival time.
+    /// F5: hybrid ETA. Backbone is the ratio estimate
+    /// (`expectedTravelTime * remaining/distance`) — it tracks position so
+    /// it descends smoothly while rolling and freezes at a stop. We then
+    /// divide by `paceFactor` so a rider holding a steady pace above/below
+    /// Apple's plan sees the arrival bend the right way over a minute or
+    /// two. paceFactor stays 1.0 (and is ignored) until a few moving
+    /// samples land, so cold start == pure ratio.
     private func computeEta(remaining: CLLocationDistance, route: MKRoute) -> TimeInterval {
-        // Cold start / stopped: fall back to the route-ratio estimator
-        // (same behaviour as before F4).
         let ratio = route.distance > 0 ? remaining / route.distance : 0
         let ratioEta = route.expectedTravelTime * ratio
-
-        guard validSpeedSamples >= 3, smoothedSpeedMps > etaMinSpeedMps else {
-            return ratioEta
-        }
-
-        let liveEta = remaining / smoothedSpeedMps
-        // Sanity cap: never project more than `etaMaxRatio` × the
-        // original expected travel time. Protects against pathological
-        // bursts (jam, mechanical stop) blowing the ETA into the next
-        // day. The ratio estimator already self-limits to
-        // `expectedTravelTime`, so the cap only ever bites the live
-        // branch.
-        let cap = route.expectedTravelTime * etaMaxRatio
-        return min(liveEta, cap)
+        guard paceSamples >= 5 else { return ratioEta }
+        return ratioEta / paceFactor
     }
 
     // MARK: - Formatting helpers
