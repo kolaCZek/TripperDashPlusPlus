@@ -175,4 +175,31 @@ enum RoundaboutInstructionParser {
 
         return nil
     }
+
+    /// Last-resort exit estimate from the turn DIRECTION when no ordinal is
+    /// in the text. Apple Maps frequently emits a roundabout step with NO
+    /// exit number at all ("At the roundabout, turn left onto Silnice 608",
+    /// "…continue onto…", "…turn right onto…") — `parseExitNumber` returns
+    /// nil and the dash drew a numberless circle for the whole maneuver
+    /// (every tick exit 0; field ride 6/2026, the 608 run was 659 ticks of
+    /// blank circle). A direction word IS present, so for right-hand
+    /// traffic (CCW circle) we map it to the typical exit slot:
+    ///   right  → 1st exit   (peel off early)
+    ///   straight/continue → 2nd exit  (across)
+    ///   left   → 3rd exit   (most of the way round)
+    /// A guess, not gospel: prefer `parseExitNumber`; use this only when
+    /// that yields nil. Beats a numberless glyph, and the arc direction
+    /// matches the rider's actual path. Returns nil when no direction word
+    /// is present (then the caller's generic exit-0 circle stands).
+    static func inferExitFromDirection(_ instructions: String) -> Int? {
+        let s = instructions.lowercased()
+        let li = Keywords.firstIndex(s, Keywords.leftTokens)
+        let ri = Keywords.firstIndex(s, Keywords.rightTokens)
+        switch (li, ri) {
+        case let (l?, r?): return l <= r ? 3 : 1
+        case (_?, nil):    return 3
+        case (nil, _?):    return 1
+        case (nil, nil):   return 2   // "continue"/"straight" → across
+        }
+    }
 }
