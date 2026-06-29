@@ -308,13 +308,20 @@ final class MapViewSource: NSObject, FrameSource {
     /// or in flight, so calling more often than necessary is wasteful
     /// but not incorrect. The throttle is for log noise + battery.
     ///
-    /// No-op while the app is backgrounded — we'd be issuing fetches
-    /// to URLs that the OS might happily resolve, but the rider can't
-    /// see the result and we'd waste data + battery. The bake catches
-    /// up automatically on the next foreground tick.
+    /// Runs in `.background` too — and that is the WHOLE POINT. A
+    /// motorbike rider has the phone locked in a pocket for the entire
+    /// ride, so the app is `.background` the moment they pull away. The
+    /// bake is pure URLSession + CGContext (see
+    /// `ios-background-rendering-and-state-changes.md`): BG-safe, no GPU.
+    /// The old `applicationState == .active` guard meant the rolling
+    /// window NEVER extended in the only state that matters, so once the
+    /// fast-start window ran out (~8 km) the dash fell back to vector-only
+    /// for the rest of the trip — exactly the field report of "map tiles
+    /// vanished halfway, only the pre-cached ones showed" (Zvoleneves →
+    /// Terezín, 2026-06). Data/battery cost is bounded by the same
+    /// throttle + idempotent bake set; a usable map outweighs it.
     func extendTileCache(near coord: CLLocationCoordinate2D) {
         guard let cache = routeTileCache else { return }
-        guard UIApplication.shared.applicationState == .active else { return }
         let now = Date()
         if let last = lastTileExtendAt,
            now.timeIntervalSince(last) < Self.tileExtendThrottle {
