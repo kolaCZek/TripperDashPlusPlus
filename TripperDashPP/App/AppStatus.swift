@@ -660,18 +660,18 @@ final class AppStatus {
         speedLimitPrefetchTask?.cancel()
         pushSpeedLimitConfig()
         guard dashNavSettings.speedLimitDisplay != .off else {
-            mapViewSource.setSpeedLimits([])
+            mapViewSource.setSpeedLimits(.empty)
             return
         }
         let coords = route.polyline.coordinateList()
         guard coords.count >= 2 else { return }
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let ways = await SpeedLimitService.shared.limitsAlong(route: coords)
+            let data = await SpeedLimitService.shared.limitsAlong(route: coords)
             guard !Task.isCancelled else { return }
             // Re-check the mode after the network await.
             self.mapViewSource.setSpeedLimits(
-                self.dashNavSettings.speedLimitDisplay != .off ? ways : []
+                self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
             )
         }
     }
@@ -751,7 +751,7 @@ final class AppStatus {
                 self.pushSpeedLimitConfig()
                 if self.dashNavSettings.speedLimitDisplay == .off {
                     self.speedLimitPrefetchTask?.cancel()
-                    self.mapViewSource.setSpeedLimits([])
+                    self.mapViewSource.setSpeedLimits(.empty)
                 } else if self.mapViewSource.speedLimitWaysEmpty,
                           self.activeNavigator.isNavigating,
                           let route = self.activeNavigator.activeRoute {

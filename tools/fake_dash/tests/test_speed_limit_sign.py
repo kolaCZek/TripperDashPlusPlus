@@ -102,6 +102,37 @@ def nearest_limit(point, ways):
     return best
 
 
+def nearest_road_distance(point, roads):
+    """Mirror of SpeedLimitService.nearestRoadDistance. `roads` is a list
+    of coord-lists (bare geometry, no limit). Returns the min distance or
+    None."""
+    best = None
+    for coords in roads:
+        if len(coords) < 2:
+            continue
+        for i in range(len(coords) - 1):
+            d = distance_point_to_segment(point, coords[i], coords[i + 1])
+            if best is None or d < best:
+                best = d
+    return best
+
+
+# Shadow-guard thresholds — mirror MapViewSource.
+SHADOW_ABS_M = 12.0
+SHADOW_RATIO = 2.0
+
+
+def is_shadowed(match_distance, nearest_road):
+    """Mirror of MapViewSource.isShadowed. The tagged match is a
+    parallel-road artefact when a road is closer by >= SHADOW_ABS_M AND by
+    a factor >= SHADOW_RATIO. None nearest_road never shadows."""
+    if nearest_road is None:
+        return False
+    if not (nearest_road < match_distance - SHADOW_ABS_M):
+        return False
+    return match_distance >= nearest_road * SHADOW_RATIO
+
+
 def parse_maxspeed_kmh(raw):
     """Mirror of SpeedLimitService.parseMaxspeedKmh."""
     if raw is None:
@@ -241,12 +272,19 @@ def test_over_limit_tolerance():
 
 def test_service_queries_ways_with_geometry():
     src = service_src()
-    # Must query WAYS (limits live on roads, not nodes) with inline geometry.
-    assert 'way["maxspeed"]' in src
+    # Must query drivable WAYS (limits live on roads, not nodes) with inline
+    # geometry. As of the shadow guard we fetch ALL drivable highways (not
+    # just maxspeed-tagged ones) so the map-match can tell which road the
+    # rider is really on, so the query is a `highway` regex, and the
+    # `maxspeed` read happens in the split/parse step instead.
+    assert 'way["highway"' in src
+    assert "residential" in src and "tertiary" in src   # drivable classes
     assert "out geom;" in src
+    assert 'parseMaxspeedKmh(e.tags?["maxspeed"])' in src  # limit still read per-way
     # Pure, testable map-match entry points exist with the names the
     # renderer calls.
     assert "func nearestLimit(" in src
+    assert "func nearestRoadDistance(" in src            # shadow guard input
     assert "func distancePointToSegment(" in src
     assert "func parseMaxspeedKmh(" in src
 
@@ -385,3 +423,97 @@ def test_sign_uses_width_fit_not_fixed_fraction():
     assert "fontSize *= maxTextWidth / textSize.width" in src, "missing shrink-to-fit step"
     # The old fixed-fraction sizing must be gone so it can't regress.
     assert "label.count >= 3 ? d * 0.40 : d * 0.48" not in src, "old fixed-fraction sizing still present"
+
+
+# --- Shadow guard: don't show a parallel road's limit -----------------
+# Bug report: at 50.23286244880771, 14.17603391165378 (a 50 km/h obec)
+# the dash showed 90. Overpass shows the rider sits 0.3 m from an UNTAGGED
+# residential street, while a `maxspeed=90` tertiary (III/10142) runs 28 m
+# away. The old map-match could only see tagged ways, so it snapped to the
+# 90 (28 m < 35 m snap). The shadow guard suppresses that: a much closer
+# road means you're on a different road than the tagged one.
+
+def test_isShadowed_unit_thresholds():
+    # Closer road must beat the match by >= 12 m AND >= 2x to shadow it.
+    assert is_shadowed(28.0, 0.3) is True       # the real bug: 28 vs 0.3
+    assert is_shadowed(30.0, 5.0) is True        # 5 < 18 and 30 >= 10
+    # Not shadowed: gap too small (roads side by side) ...
+    assert is_shadowed(20.0, 10.0) is False      # 10 is not < 20-12=8
+    # ... or ratio too small even with a big absolute gap is impossible
+    # here, but a near-equal pair (rider on the tagged road) never shadows:
+    assert is_shadowed(15.0, 15.0) is False
+    assert is_shadowed(40.0, 39.0) is False
+    # No road geometry loaded → guard is a no-op (never suppress).
+    assert is_shadowed(28.0, None) is False
+
+
+def test_isShadowed_rider_on_the_tagged_road():
+    # When the rider is genuinely on the tagged road, nearestRoad ≈
+    # matchDistance (the tagged way IS a road), so it must never shadow.
+    for d in (2.0, 8.0, 15.0, 30.0):
+        assert is_shadowed(d, d) is False
+        assert is_shadowed(d, d - 0.5) is False
+
+
+def test_real_bug_point_50_2328_14_1760_is_suppressed():
+    """End-to-end mirror at the reported coordinates using OSM-derived
+    geometry: a 90 tertiary 28 m away, an untagged residential 0.3 m away.
+    The match finds 90; the shadow guard must then suppress it."""
+    p = (50.23286244880771, 14.17603391165378)
+
+    # A short segment of the untagged residential running ~0.3 m off the
+    # point (roughly E-W through the point's latitude).
+    residential = [
+        (50.232862, 14.175800),
+        (50.232863, 14.176400),
+    ]
+    # The tertiary III/10142 with maxspeed=90, offset ~28 m north.
+    # 28 m ≈ 0.000251° latitude.
+    tertiary_90 = [
+        (50.233114, 14.175700),
+        (50.233115, 14.176400),
+    ]
+
+    match = nearest_limit(p, [(90, tertiary_90)])
+    assert match is not None
+    assert match[0] == 90                       # the wrong number it would show
+    assert 24 <= match[1] <= 32, f"tertiary ~28 m, got {match[1]:.1f}"
+
+    nearest_road = nearest_road_distance(p, [residential, tertiary_90])
+    assert nearest_road is not None
+    assert nearest_road < 2.0, f"on the residential (~0.3 m), got {nearest_road:.1f}"
+
+    # The guard must fire → no false 90.
+    assert is_shadowed(match[1], nearest_road) is True
+
+
+def test_genuine_tagged_road_still_shows():
+    """Inverse: when the rider is on a tagged 50 road (no closer untagged
+    road), the limit must still display — the guard mustn't over-suppress."""
+    p = (50.0, 14.0)
+    road_50 = [(49.99995, 14.0), (50.00005, 14.0)]   # passes through point
+    match = nearest_limit(p, [(50, road_50)])
+    assert match is not None and match[0] == 50
+    # Only roads present is the tagged one itself → nearestRoad == match dist.
+    nearest_road = nearest_road_distance(p, [road_50])
+    assert is_shadowed(match[1], nearest_road) is False
+
+
+def test_mapsource_wires_shadow_guard():
+    """The renderer must actually call the guard in recomputeSpeedLimit and
+    bail when shadowed — not just define it."""
+    src = mapsource_src()
+    assert "func isShadowed(" in src
+    assert "nearestRoadDistance(" in src
+    assert "Self.isShadowed(matchDistance:" in src
+    # Stored road geometry the guard reads.
+    assert "speedLimitRoads" in src
+
+
+def test_service_shadow_plumbing():
+    """Service must return roads alongside limits and split them out."""
+    src = service_src()
+    assert "struct SpeedLimitData" in src
+    assert "struct RoadShape" in src
+    assert "func split(" in src
+    assert "func nearestRoadDistance(" in src

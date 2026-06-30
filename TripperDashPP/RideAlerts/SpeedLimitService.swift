@@ -49,6 +49,28 @@ struct SpeedLimitMatch: Equatable, Sendable {
     let distanceMeters: Double
 }
 
+/// Bare drivable-road geometry WITHOUT a limit. We fetch these alongside
+/// the tagged ways purely so the map-match can tell when the rider is
+/// actually on a *different, closer* road than the nearest tagged one —
+/// the "shadow" case where a parallel untagged street (e.g. a 50 km/h
+/// residential through an obec) sits right under the rider while a faster
+/// tagged road (a 90 km/h tertiary) runs 30 m away. Without this the
+/// match would snap to the only thing it can see — the wrong 90.
+struct RoadShape: Sendable, Identifiable {
+    let id: Int64
+    let coords: [CLLocationCoordinate2D]
+}
+
+/// Everything the renderer needs for the speed-limit layer: the tagged
+/// limit ways to read a number from, and ALL nearby drivable roads
+/// (tagged or not) to sanity-check which road the rider is really on.
+struct SpeedLimitData: Sendable {
+    let limits: [SpeedLimitWay]
+    let roads: [RoadShape]
+
+    static let empty = SpeedLimitData(limits: [], roads: [])
+}
+
 // MARK: - Service
 
 /// Fetches + caches OSM `maxspeed` ways along a route. Actor-isolated for
@@ -97,27 +119,28 @@ actor SpeedLimitService {
         return URLSession(configuration: cfg)
     }()
 
-    /// Fetch every `maxspeed`-tagged way within the route's bounding box.
-    /// Disk-cache first; only the first ride through a region hits the
-    /// network. Returns `[]` on total failure — a missing limit layer must
-    /// never break navigation.
-    func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> [SpeedLimitWay] {
-        guard coords.count >= 2 else { return [] }
+    /// Fetch the speed-limit layer within the route's bounding box: the
+    /// `maxspeed`-tagged ways AND the bare geometry of every other drivable
+    /// road nearby (for the shadow guard). Disk-cache first; only the first
+    /// ride through a region hits the network. Returns `.empty` on total
+    /// failure — a missing limit layer must never break navigation.
+    func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedLimitData {
+        guard coords.count >= 2 else { return .empty }
         let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
         let key = box.cacheKey
 
         if let cached = loadCache(key: key) {
-            log.info("Speed limits: disk-cache hit \(key, privacy: .public) (\(cached.count, privacy: .public))")
+            log.info("Speed limits: disk-cache hit \(key, privacy: .public) (\(cached.limits.count, privacy: .public) limits, \(cached.roads.count, privacy: .public) roads)")
             return cached
         }
         do {
-            let ways = try await fetch(box: box)
-            saveCache(key: key, ways: ways)
-            log.info("Speed limits: fetched \(ways.count, privacy: .public) ways for \(key, privacy: .public)")
-            return ways
+            let data = try await fetch(box: box)
+            saveCache(key: key, data: data)
+            log.info("Speed limits: fetched \(data.limits.count, privacy: .public) limits + \(data.roads.count, privacy: .public) roads for \(key, privacy: .public)")
+            return data
         } catch {
             log.warning("Speed limits fetch failed: \(String(describing: error), privacy: .public)")
-            return []
+            return .empty
         }
     }
 
@@ -139,6 +162,24 @@ actor SpeedLimitService {
                 if best == nil || d < best!.distanceMeters {
                     best = SpeedLimitMatch(kmh: way.maxspeedKmh, distanceMeters: d)
                 }
+            }
+        }
+        return best
+    }
+
+    /// Shortest perpendicular distance (m) from `point` to ANY of the bare
+    /// drivable roads, or `nil` if there are none. Used by the shadow guard
+    /// to compare "nearest road of any kind" against "nearest road that
+    /// carries a limit": if the rider is sitting much closer to an untagged
+    /// road, the tagged match is a parallel-road artefact and is suppressed.
+    nonisolated static func nearestRoadDistance(to point: CLLocationCoordinate2D,
+                                                roads: [RoadShape]) -> Double? {
+        var best: Double?
+        for road in roads {
+            guard road.coords.count >= 2 else { continue }
+            for i in 0..<(road.coords.count - 1) {
+                let d = distancePointToSegment(point, road.coords[i], road.coords[i + 1])
+                if best == nil || d < best! { best = d }
             }
         }
         return best
@@ -186,13 +227,16 @@ actor SpeedLimitService {
         let elements: [Element]
     }
 
-    private func fetch(box: BBox) async throws -> [SpeedLimitWay] {
-        // `out geom;` returns the way's full coordinate list inline, which
-        // is exactly what we need for map-matching without a second
-        // node-resolution round-trip.
+    private func fetch(box: BBox) async throws -> SpeedLimitData {
+        // Fetch ALL drivable roads in the corridor (not just the
+        // `maxspeed`-tagged ones) so the map-match can tell which road the
+        // rider is really on. `out geom;` returns each way's full
+        // coordinate list inline — no second node-resolution round-trip.
+        // The `highway` regex is the drivable set; footways/cycleways/steps
+        // are excluded so a parallel pavement can't shadow the road.
         let query = """
         [out:json][timeout:25];
-        way["maxspeed"](\(box.south),\(box.west),\(box.north),\(box.east));
+        way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|road|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"](\(box.south),\(box.west),\(box.north),\(box.east));
         out geom;
         """
         var lastError: Error?
@@ -212,7 +256,7 @@ actor SpeedLimitService {
                     continue
                 }
                 let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
-                return decoded.elements.compactMap(Self.makeWay)
+                return Self.split(decoded.elements)
             } catch {
                 lastError = error
                 continue
@@ -221,15 +265,24 @@ actor SpeedLimitService {
         throw lastError ?? URLError(.unknown)
     }
 
-    /// Pure decode of one Overpass way → `SpeedLimitWay?`. Skips ways with
-    /// no geometry or an unparseable / non-numeric `maxspeed` (e.g.
-    /// "none", "walk", "CZ:urban" — implied limits we don't resolve yet).
-    /// `nonisolated static` so it's unit-testable against canned JSON.
-    nonisolated static func makeWay(_ e: OverpassResponse.Element) -> SpeedLimitWay? {
-        guard let geom = e.geometry, geom.count >= 2 else { return nil }
-        guard let kmh = parseMaxspeedKmh(e.tags?["maxspeed"]) else { return nil }
-        let coords = geom.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-        return SpeedLimitWay(id: e.id, coords: coords, maxspeedKmh: kmh)
+    /// Split a batch of Overpass highway elements into the tagged limit
+    /// ways (those carrying a parseable numeric `maxspeed`) and the bare
+    /// road shapes (ALL drivable roads, tagged or not — the limit ways are
+    /// roads too, so a tagged road the rider is actually on still counts as
+    /// the nearest road and won't be shadowed by itself). `nonisolated
+    /// static` so it's unit-testable against canned JSON.
+    nonisolated static func split(_ elements: [OverpassResponse.Element]) -> SpeedLimitData {
+        var limits: [SpeedLimitWay] = []
+        var roads: [RoadShape] = []
+        for e in elements {
+            guard let geom = e.geometry, geom.count >= 2 else { continue }
+            let coords = geom.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            roads.append(RoadShape(id: e.id, coords: coords))
+            if let kmh = parseMaxspeedKmh(e.tags?["maxspeed"]) {
+                limits.append(SpeedLimitWay(id: e.id, coords: coords, maxspeedKmh: kmh))
+            }
+        }
+        return SpeedLimitData(limits: limits, roads: roads)
     }
 
     /// Parse an OSM `maxspeed` tag into km/h. Thin wrapper over the shared
@@ -276,11 +329,20 @@ actor SpeedLimitService {
     private struct CacheEnvelope: Codable {
         let savedAt: Date
         let ways: [Way]
+        /// Bare drivable-road geometry for the shadow guard. Optional so a
+        /// pre-shadow-guard cache file still decodes (it just has no roads,
+        /// and the guard then no-ops until the next refetch).
+        let roads: [Road]?
         struct Way: Codable {
             let id: Int64
             let lats: [Double]
             let lons: [Double]
             let maxspeed: Int
+        }
+        struct Road: Codable {
+            let id: Int64
+            let lats: [Double]
+            let lons: [Double]
         }
     }
 
@@ -288,7 +350,7 @@ actor SpeedLimitService {
         cacheDir.appendingPathComponent("\(key).json")
     }
 
-    private func loadCache(key: String) -> [SpeedLimitWay]? {
+    private func loadCache(key: String) -> SpeedLimitData? {
         let url = cacheURL(key: key)
         guard let data = try? Data(contentsOf: url),
               let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
@@ -297,23 +359,36 @@ actor SpeedLimitService {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
-        return env.ways.compactMap { w in
+        let limits: [SpeedLimitWay] = env.ways.compactMap { w in
             guard w.lats.count == w.lons.count, w.lats.count >= 2 else { return nil }
             let coords = zip(w.lats, w.lons).map {
                 CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1)
             }
             return SpeedLimitWay(id: w.id, coords: coords, maxspeedKmh: w.maxspeed)
         }
+        let roads: [RoadShape] = (env.roads ?? []).compactMap { r in
+            guard r.lats.count == r.lons.count, r.lats.count >= 2 else { return nil }
+            let coords = zip(r.lats, r.lons).map {
+                CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1)
+            }
+            return RoadShape(id: r.id, coords: coords)
+        }
+        return SpeedLimitData(limits: limits, roads: roads)
     }
 
-    private func saveCache(key: String, ways: [SpeedLimitWay]) {
+    private func saveCache(key: String, data: SpeedLimitData) {
         let env = CacheEnvelope(
             savedAt: Date(),
-            ways: ways.map { w in
+            ways: data.limits.map { w in
                 CacheEnvelope.Way(id: w.id,
                                   lats: w.coords.map(\.latitude),
                                   lons: w.coords.map(\.longitude),
                                   maxspeed: w.maxspeedKmh)
+            },
+            roads: data.roads.map { r in
+                CacheEnvelope.Road(id: r.id,
+                                   lats: r.coords.map(\.latitude),
+                                   lons: r.coords.map(\.longitude))
             }
         )
         if let raw = try? JSONEncoder().encode(env) {
