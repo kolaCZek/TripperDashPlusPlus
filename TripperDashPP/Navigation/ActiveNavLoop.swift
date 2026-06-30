@@ -231,6 +231,8 @@ final class ActiveNavLoop {
         // tick — a few cheap value writes, so flipping the display mode,
         // the over-limit tolerance, or km/h ⇄ mph mid-ride re-evaluates the
         // sign on the next frame without waiting for a route re-prefetch.
+        // `imperial` here also re-labels the speed-camera pills, which read
+        // the same `speedLimitImperial` flag (shared `displayLimit`).
         mapSource?.setSpeedLimitConfig(
             mode: settings.speedLimitDisplay.rawValue,
             toleranceKmh: settings.speedLimitOverToleranceKmh,
