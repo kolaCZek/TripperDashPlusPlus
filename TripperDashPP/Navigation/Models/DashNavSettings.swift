@@ -95,6 +95,28 @@ final class DashNavSettings {
         }
     }
 
+    /// When to burn the posted-speed-limit sign (traffic-sign disc in the
+    /// bottom-right of the dash) into the stream.
+    ///   - `off`        → never drawn, no Overpass fetch.
+    ///   - `always`     → drawn whenever a limit is map-matched for the
+    ///                    current road.
+    ///   - `overOnly`   → drawn only while the rider is over the limit
+    ///                    (by more than `speedLimitOverToleranceKmh`), so
+    ///                    the sign acts as a "you're speeding" warning.
+    enum SpeedLimitDisplay: String, Codable, CaseIterable, Identifiable {
+        case off
+        case always
+        case overOnly
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .off:      return "Off"
+            case .always:   return "Always"
+            case .overOnly: return "Only when speeding"
+            }
+        }
+    }
+
     // MARK: - State
 
     var units: UnitSystem = .metric {
@@ -184,6 +206,53 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// When to show the posted-speed-limit traffic sign. Defaults to
+    /// `.always` — most riders want the current limit visible at a glance.
+    /// `.off` skips the Overpass fetch entirely.
+    var speedLimitDisplay: SpeedLimitDisplay = .always {
+        didSet { persist() }
+    }
+
+    /// Tolerance (km/h) the rider must EXCEED the posted limit by before
+    /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
+    /// sign from flickering on/off as GPS speed jitters right at the limit
+    /// (and matches the unwritten "nobody gets booked for +3" reality).
+    var speedLimitOverToleranceKmh: Double = 3 {
+        didSet { persist() }
+    }
+
+    /// The same tolerance EXPRESSED IN THE RIDER'S DISPLAY UNIT, for the
+    /// settings stepper. The canonical store above stays km/h — the
+    /// over-limit comparison in `MapViewSource` is km/h end-to-end and
+    /// physically unit-independent (a rider doing 54 in a 50 is speeding
+    /// whether the dash shows km/h or mph). But an imperial rider should
+    /// DIAL the slop in mph, not km/h, and SEE it in mph. Get/set converts;
+    /// the value round-trips through km/h, so toggling units can nudge it
+    /// by the rounding — fine for a deliberately fuzzy "nobody gets booked
+    /// for +N" number. Default 3 km/h shows as 2 mph.
+    var speedLimitOverToleranceDisplay: Int {
+        get { Self.toleranceToDisplay(kmh: speedLimitOverToleranceKmh,
+                                      imperial: units == .imperial) }
+        set { speedLimitOverToleranceKmh = Self.toleranceToKmh(display: newValue,
+                                                               imperial: units == .imperial) }
+    }
+
+    /// Unit suffix for the tolerance stepper label ("km/h" / "mph").
+    var speedLimitToleranceUnit: String { units == .imperial ? "mph" : "km/h" }
+
+    /// km/h → shown tolerance value in the rider's unit (rounded to a whole
+    /// km/h or mph step). Pure + static so it's unit-testable and mirrored.
+    static func toleranceToDisplay(kmh: Double, imperial: Bool) -> Int {
+        imperial ? Int((kmh / 1.609344).rounded()) : Int(kmh.rounded())
+    }
+
+    /// Shown tolerance value (km/h or mph) → canonical km/h store. Clamps
+    /// negatives to zero so a stepper can't push the slop below 0.
+    static func toleranceToKmh(display: Int, imperial: Bool) -> Double {
+        let v = max(0, display)
+        return imperial ? Double(v) * 1.609344 : Double(v)
+    }
+
     // MARK: - Derived wire helpers
 
     /// Quantize a maneuver distance (meters) into human-friendly buckets
@@ -206,21 +275,43 @@ final class DashNavSettings {
     /// destination is left continuous — it ticks down slowly and a round
     /// number there would actually look wrong on a long route.
     ///
-    /// NOTE: thresholds are metric. Imperial riders get the same physical
-    /// buckets converted to feet/miles downstream (stable, if not on
-    /// round imperial numbers); a dedicated imperial bucket table can come
-    /// later if anyone actually rides this in miles.
+    /// NOTE: buckets are proximity-scaled AND unit-aware. A metric rider
+    /// gets 1/25/100 m steps; an imperial rider gets feet / tenths-of-a-
+    /// mile steps so the converted "in N ft" / "in N.N mi" readout lands
+    /// on round imperial numbers instead of the ragged conversion of a
+    /// metric bucket (e.g. 400 m → 1312 ft). The imperial feet↔miles
+    /// threshold mirrors `primaryUnitWireByte`'s 160 m crossover so the
+    /// bucket and the unit byte can never disagree.
     func bucketedManeuverDistance(meters m: Double) -> Double {
         guard m.isFinite, m > 0 else { return 0 }
-        let step: Double
-        if m < 50 {
-            step = 1
-        } else if m < 200 {
-            step = 25
-        } else {
-            step = 100
+        switch units {
+        case .metric:
+            let step: Double
+            if m < 50 {
+                step = 1
+            } else if m < 200 {
+                step = 25
+            } else {
+                step = 100
+            }
+            return (m / step).rounded() * step
+        case .imperial:
+            // Bucket in the rider's actual display unit, then convert the
+            // rounded value back to metres (the wire/unit-byte helpers
+            // re-derive feet/miles from it). Thresholds match the unit
+            // byte's 160 m feet↔miles crossover.
+            let ftPerM = 3.280839895
+            if m < 160 {
+                // Feet domain: 10 ft on final approach, 50 ft mid.
+                let feet = m * ftPerM
+                let step = feet < 150 ? 10.0 : 50.0
+                return ((feet / step).rounded() * step) / ftPerM
+            } else {
+                // Miles domain: nearest 0.1 mi.
+                let stepM = 1609.344 / 10.0
+                return (m / stepM).rounded() * stepM
+            }
         }
-        return (m / step).rounded() * step
     }
 
     /// Wire byte for the primary distance TLV (`05 06`).
@@ -298,6 +389,8 @@ final class DashNavSettings {
         var messageNotifyEnabled: Bool?
         var weatherAlertsEnabled: Bool?
         var speedCamerasEnabled: Bool?
+        var speedLimitDisplay: SpeedLimitDisplay?
+        var speedLimitOverToleranceKmh: Double?
     }
 
     init() {
@@ -318,6 +411,8 @@ final class DashNavSettings {
         self.messageNotifyEnabled = p.messageNotifyEnabled ?? true
         self.weatherAlertsEnabled = p.weatherAlertsEnabled ?? true
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
+        self.speedLimitDisplay = p.speedLimitDisplay ?? .always
+        self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
     }
 
     private func persist() {
@@ -331,7 +426,9 @@ final class DashNavSettings {
             callStateEnabled: callStateEnabled,
             messageNotifyEnabled: messageNotifyEnabled,
             weatherAlertsEnabled: weatherAlertsEnabled,
-            speedCamerasEnabled: speedCamerasEnabled
+            speedCamerasEnabled: speedCamerasEnabled,
+            speedLimitDisplay: speedLimitDisplay,
+            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

@@ -28,58 +28,203 @@ enum Keywords {
     // verbs/nouns Apple Maps emits, not road-name fragments).
 
     static let roundabout = [
+        // EN
         "roundabout", "rotary", "traffic circle",
-        "kruhový", "kruhovém", "kruhovým", "kruháč", "kruhák",
-        "kruhovom",
+        // CZ / SK
+        "kruhový", "kruhovém", "kruhovým", "kruháč", "kruhák", "kruhovom",
+        // PL
         "rondel", "rondo", "rondzie",
+        // DE
         "kreisverkehr", "kreisel",
+        // ES (rotonda / glorieta)
+        "rotonda", "glorieta",
+        // FR (rond-point / giratoire)
+        "rond-point", "rond point", "giratoire",
+        // IT (rotatoria / rotonda — shares "rotonda" with ES)
+        "rotatoria",
+        // PT (rotunda)
+        "rotunda",
+        // NL (rotonde)
+        "rotonde",
+        // Nordics: NO rundkjøring, SV rondell, DA rundkørsel, FI liikenneympyrä
+        "rundkjøring", "rondell", "rundkørsel", "liikenneympyrä",
     ]
 
     static let uTurn = [
+        // EN
         "u-turn", "u turn", "make a u-turn",
+        // CZ
         "otočte se", "otočte", "otočit", "otočení",
+        // DE / PL
         "wenden", "zawróć",
+        // ES (cambio de sentido / media vuelta)
+        "cambio de sentido", "media vuelta",
+        // FR (demi-tour)
+        "demi-tour", "demi tour",
+        // IT (inversione a U)
+        "inversione",
+        // PT (retorno / inverta o sentido)
+        "retorno", "inverta",
+        // NL (keer om / U-bocht)
+        "keer om", "u-bocht",
+        // Nordics: NO u-sving, FI käänny ympäri. (Short SV "vänd" / NO
+        // "snu" omitted — they collide as substrings inside common words
+        // e.g. SV "användning", so they'd cause false U-turn matches.)
+        "u-sving", "käänny ympäri",
     ]
 
     static let merge = [
-        "merge", "zařaďte se", "zařaďte", "připojte se", "připojit",
+        // EN
+        "merge",
+        // CZ
+        "zařaďte se", "zařaďte", "připojte se", "připojit",
+        // DE / PL
         "einfädeln", "auffahren", "włącz się",
+        // ES (incorpórese)
+        "incorpór",
+        // FR (insérez-vous / rejoignez)
+        "insérez", "rejoignez",
+        // IT (immettiti / confluisci)
+        "immett", "confluis",
+        // PT (incorpore-se)
+        "incorpore",
+        // NL (voeg in)
+        "voeg in",
+        // Nordics: NO flett, SV anslut
+        "flett", "anslut",
     ]
 
     static let exitRamp = [
+        // EN
         "exit", "ramp", "off-ramp", "take the ramp",
+        // CZ
         "sjeďte", "sjezd", "sjezdem", "nájezd",
+        // DE
         "ausfahrt", "abfahrt",
+        // SK / PL
         "zjazd", "zjazdem",
+        // ES (salida)
+        "salida",
+        // FR (sortie)
+        "sortie",
+        // IT (uscita / esci)
+        "uscita", "esci",
+        // PT (saída)
+        "saída",
+        // NL (afrit / afslag)
+        "afrit", "afslag",
+        // Nordics: NO avkjørsel, SV avfart, DA frakørsel, FI poistu
+        "avkjørsel", "avfart", "frakørsel", "poistu",
     ]
 
     static let ferry = [
-        "ferry", "board the ferry", "trajekt", "přívoz", "fähre", "prom",
+        // EN
+        "ferry", "board the ferry",
+        // CZ / DE / PL
+        "trajekt", "přívoz", "fähre", "prom",
+        // ES transbordador, IT traghetto, PT balsa, NL veerboot
+        // (short FR "bac" / NL "veer" omitted — they collide as substrings
+        // inside ordinary words, so they'd cause false ferry matches).
+        "transbordador", "traghetto", "balsa", "veerboot",
+        // Nordics: NO ferge/ferje/ferja, SV färja, DA færge, FI lautta
+        "ferge", "ferje", "ferja", "färja", "færge", "lautta",
     ]
 
     static let railroad = [
+        // EN
         "railroad", "railway", "level crossing", "grade crossing",
+        // CZ / DE / PL
         "železniční přejezd", "přejezd", "bahnübergang", "przejazd kolejowy",
+        // ES paso a nivel, FR passage à niveau, IT passaggio a livello,
+        // PT passagem de nível, NL overweg/spoorwegovergang
+        "paso a nivel", "passage à niveau", "passaggio a livello",
+        "passagem de nível", "overweg", "spoorwegovergang",
+        // Nordics: NO planovergang, SV järnvägskorsning, DA jernbaneoverskæring
+        "planovergang", "järnvägskorsning", "jernbaneoverskæring",
     ]
 
     static let arrive = [
+        // EN
         "arrive", "arrival", "destination", "you have arrived",
-        "cíl", "dorazíte", "dorazili", "ziel", "cel podróży", "u cíle",
+        // CZ
+        "cíl", "dorazíte", "dorazili", "u cíle",
+        // DE / PL
+        "ziel", "cel podróży",
+        // ES (ha llegado / destino)
+        "llegado", "llegada", "destino",
+        // FR (arrivé / destination — shares "destination" with EN)
+        "arrivé", "arrivée",
+        // IT (arrivat / destinazione)
+        "arrivat", "destinazione",
+        // PT (chegou / chegada / destino — shares "destino" with ES)
+        "chegou", "chegada",
+        // NL (bestemming / gearriveerd / aankomst)
+        "bestemming", "gearriveerd", "aankomst",
+        // Nordics: NO framme/ankomst, SV framme, FI perillä/määränpää
+        "framme", "ankomst", "perillä", "määränpää",
     ]
 
     // MARK: - Direction tokens. Matched on WORD BOUNDARIES (see
     // `firstIndex`) so a road NAME containing one of these can't flip the
     // turn. Order within each list does not matter — we use the earliest
     // MATCH POSITION in the instruction, not list order.
+    //
+    // Multi-language note: tokens are whole words Apple Maps emits as the
+    // turn verb in each locale. Where a language fuses the direction into
+    // a single word (NL "linksaf"/"rechtsaf", FI "vasemmalle"/"oikealle"),
+    // the fused form is listed explicitly because the `\b...\b` matcher
+    // won't find "links" inside "linksaf".
 
     static let leftTokens = [
-        "left", "vlevo", "doleva", "vľavo", "doľava", "links", "lewo",
+        "left",                       // EN
+        "vlevo", "doleva",            // CZ
+        "vľavo", "doľava",            // SK
+        "links", "linksaf",           // DE / NL
+        "lewo",                       // PL
+        "izquierda",                  // ES
+        "gauche",                     // FR
+        "sinistra",                   // IT
+        "esquerda",                   // PT
+        "venstre",                    // NO / DA
+        "vänster",                    // SV
+        "vasemmalle", "vasen",        // FI
     ]
     static let rightTokens = [
-        "right", "vpravo", "doprava", "rechts", "prawo",
+        "right",                      // EN
+        "vpravo", "doprava",          // CZ / SK
+        "rechts", "rechtsaf",         // DE / NL
+        "prawo",                      // PL
+        "derecha",                    // ES
+        "droite",                     // FR
+        "destra",                     // IT
+        "direita",                    // PT
+        "høyre", "højre",             // NO / DA
+        "höger",                      // SV
+        "oikealle", "oikea",          // FI
     ]
-    static let sharpTokens  = ["sharp", "ostře", "ostro", "scharf"]
-    static let slightTokens = ["slight", "mírně", "mierne", "leicht", "lekko"]
+    static let sharpTokens  = [
+        "sharp",                      // EN
+        "ostře", "ostro",             // CZ / SK
+        "scharf",                     // DE
+        "cerrada",                    // ES
+        "serré",                      // FR
+        "secca",                      // IT
+        "acentuada",                  // PT
+        "scherp",                     // NL
+        "skarp",                      // NO / SV
+    ]
+    static let slightTokens = [
+        "slight",                     // EN
+        "mírně", "mierne",            // CZ / SK
+        "leicht",                     // DE
+        "lekko",                      // PL
+        "ligera",                     // ES
+        "légère", "légèrement",       // FR
+        "leggera",                    // IT
+        "ligeira",                    // PT
+        "licht", "flauw",             // NL
+        "svak", "svag",               // NO / SV
+    ]
 
     // MARK: - Family predicates
 

@@ -229,6 +229,14 @@ enum ManeuverGeometry {
         return coords
     }
 
+    /// The LAST vertex of a polyline — i.e. the maneuver node for an
+    /// arriving step (whose polyline ends at the turn). `nil` for an empty
+    /// polyline. Used by `ManeuverKind.classify` to resolve the driving
+    /// side at the maneuver without a live GPS fix.
+    static func lastCoordinate(of polyline: MKPolyline) -> CLLocationCoordinate2D? {
+        coordinates(of: polyline).last
+    }
+
     /// Initial great-circle bearing a→b, degrees, 0=N, 90=E, clockwise.
     static func bearing(from a: CLLocationCoordinate2D,
                         to b: CLLocationCoordinate2D) -> Double {

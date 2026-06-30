@@ -1,0 +1,323 @@
+//
+//  SpeedLimitService.swift
+//  TripperDashPP
+//
+//  Fetches OSM `maxspeed` road data along the active route and map-matches
+//  the rider's GPS position to the nearest road segment to derive the
+//  posted speed limit. Sibling of `SpeedCameraService` — same Overpass +
+//  bbox + disk-cache machinery — but it queries *ways* (with geometry)
+//  instead of point nodes, because a speed limit belongs to a stretch of
+//  road, not a single coordinate.
+//
+//  Coverage note (6/2026): this is EXPLICIT `maxspeed` tags only. Where a
+//  road isn't tagged, no sign shows — we deliberately do NOT guess an
+//  implied limit from the road class yet (that needs a per-country table
+//  and urban/rural detection; tracked as a follow-up). So treat a missing
+//  sign as "unknown", never "no limit".
+//
+
+import Foundation
+import CoreLocation
+import os.log
+
+// MARK: - Model
+
+/// One OSM way carrying an explicit `maxspeed`, with its full polyline
+/// geometry so we can measure how close the rider is to it. `maxspeedKmh`
+/// is always km/h (the OSM dataset is European; we convert for display).
+struct SpeedLimitWay: Equatable, Sendable, Identifiable {
+    let id: Int64
+    let coords: [CLLocationCoordinate2D]
+    let maxspeedKmh: Int
+
+    static func == (lhs: SpeedLimitWay, rhs: SpeedLimitWay) -> Bool {
+        guard lhs.id == rhs.id, lhs.maxspeedKmh == rhs.maxspeedKmh,
+              lhs.coords.count == rhs.coords.count else { return false }
+        for (a, b) in zip(lhs.coords, rhs.coords) {
+            if a.latitude != b.latitude || a.longitude != b.longitude { return false }
+        }
+        return true
+    }
+}
+
+/// Result of map-matching a GPS point to the limit ways: the matched
+/// limit plus how far (m) the rider is from that road segment. The caller
+/// applies snap/hysteresis thresholds so the sign doesn't flicker in the
+/// gaps between tagged segments.
+struct SpeedLimitMatch: Equatable, Sendable {
+    let kmh: Int
+    let distanceMeters: Double
+}
+
+// MARK: - Service
+
+/// Fetches + caches OSM `maxspeed` ways along a route. Actor-isolated for
+/// the network/cache; the map-match itself is a `nonisolated static` pure
+/// function so the MainActor renderer can call it every fix without a hop
+/// and so it's unit-testable against canned geometry.
+actor SpeedLimitService {
+
+    static let shared = SpeedLimitService()
+
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "SpeedLimit")
+
+    /// Same public Overpass endpoints + courteous-fallback policy as the
+    /// camera service. Both speak the identical API.
+    private let endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
+
+    /// Lateral buffer (m) around the route bbox. Tighter than the camera
+    /// service's 1 km — a speed limit only matters for roads the rider is
+    /// actually on, and a smaller box keeps the (heavier, geometry-laden)
+    /// way query cheaper.
+    private static let corridorBufferMeters: Double = 300
+
+    private let cacheDir: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("SpeedLimits", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+    private static let cacheTTL: TimeInterval = 30 * 24 * 3600
+
+    private lazy var session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 25
+        cfg.timeoutIntervalForResource = 40
+        cfg.allowsCellularAccess = true
+        cfg.waitsForConnectivity = true
+        cfg.httpAdditionalHeaders = [
+            "User-Agent": "TripperDashPP/1.0 (https://github.com/kolaCZek/TripperDashPlusPlus)"
+        ]
+        // NB: `URLSessionConfiguration.makeSession()` is a `private`
+        // extension scoped to SpeedCameraService.swift, so it's not
+        // visible here — construct the session directly.
+        return URLSession(configuration: cfg)
+    }()
+
+    /// Fetch every `maxspeed`-tagged way within the route's bounding box.
+    /// Disk-cache first; only the first ride through a region hits the
+    /// network. Returns `[]` on total failure — a missing limit layer must
+    /// never break navigation.
+    func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> [SpeedLimitWay] {
+        guard coords.count >= 2 else { return [] }
+        let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
+        let key = box.cacheKey
+
+        if let cached = loadCache(key: key) {
+            log.info("Speed limits: disk-cache hit \(key, privacy: .public) (\(cached.count, privacy: .public))")
+            return cached
+        }
+        do {
+            let ways = try await fetch(box: box)
+            saveCache(key: key, ways: ways)
+            log.info("Speed limits: fetched \(ways.count, privacy: .public) ways for \(key, privacy: .public)")
+            return ways
+        } catch {
+            log.warning("Speed limits fetch failed: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
+    // MARK: - Map-match (pure, testable)
+
+    /// Map-match `point` to the nearest segment of any limit way and return
+    /// the posted limit + the perpendicular distance to that segment.
+    /// `nil` only when there are no ways at all. The caller decides whether
+    /// the distance is close enough to trust (snap threshold) and applies
+    /// hysteresis. Pure + `nonisolated static` so it runs on the MainActor
+    /// renderer each fix and is unit-testable.
+    nonisolated static func nearestLimit(to point: CLLocationCoordinate2D,
+                                         ways: [SpeedLimitWay]) -> SpeedLimitMatch? {
+        var best: SpeedLimitMatch?
+        for way in ways {
+            guard way.coords.count >= 2 else { continue }
+            for i in 0..<(way.coords.count - 1) {
+                let d = distancePointToSegment(point, way.coords[i], way.coords[i + 1])
+                if best == nil || d < best!.distanceMeters {
+                    best = SpeedLimitMatch(kmh: way.maxspeedKmh, distanceMeters: d)
+                }
+            }
+        }
+        return best
+    }
+
+    /// Perpendicular distance (m) from `p` to the segment `a→b`, using a
+    /// local equirectangular projection around `p`. Accurate to well under
+    /// a metre at the few-hundred-metre scale we map-match over, and far
+    /// cheaper than great-circle math for a per-fix inner loop.
+    nonisolated static func distancePointToSegment(_ p: CLLocationCoordinate2D,
+                                                   _ a: CLLocationCoordinate2D,
+                                                   _ b: CLLocationCoordinate2D) -> Double {
+        let mPerDegLat = 111_320.0
+        let mPerDegLon = 111_320.0 * cos(p.latitude * .pi / 180)
+        // Project to local metres with `p` at the origin.
+        let px = 0.0, py = 0.0
+        let ax = (a.longitude - p.longitude) * mPerDegLon
+        let ay = (a.latitude - p.latitude) * mPerDegLat
+        let bx = (b.longitude - p.longitude) * mPerDegLon
+        let by = (b.latitude - p.latitude) * mPerDegLat
+
+        let dx = bx - ax, dy = by - ay
+        let segLenSq = dx * dx + dy * dy
+        if segLenSq < 1e-9 {
+            // Degenerate segment — distance to the point `a`.
+            return hypot(px - ax, py - ay)
+        }
+        // Projection parameter t of p onto the segment, clamped to [0,1].
+        var t = ((px - ax) * dx + (py - ay) * dy) / segLenSq
+        t = max(0, min(1, t))
+        let projX = ax + t * dx
+        let projY = ay + t * dy
+        return hypot(px - projX, py - projY)
+    }
+
+    // MARK: - Network
+
+    struct OverpassResponse: Decodable {
+        struct Element: Decodable {
+            struct Pt: Decodable { let lat: Double; let lon: Double }
+            let id: Int64
+            let tags: [String: String]?
+            let geometry: [Pt]?
+        }
+        let elements: [Element]
+    }
+
+    private func fetch(box: BBox) async throws -> [SpeedLimitWay] {
+        // `out geom;` returns the way's full coordinate list inline, which
+        // is exactly what we need for map-matching without a second
+        // node-resolution round-trip.
+        let query = """
+        [out:json][timeout:25];
+        way["maxspeed"](\(box.south),\(box.west),\(box.north),\(box.east));
+        out geom;
+        """
+        var lastError: Error?
+        for endpoint in endpoints {
+            do {
+                var req = URLRequest(url: URL(string: endpoint)!)
+                req.httpMethod = "POST"
+                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                req.httpBody = "data=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? "")"
+                    .data(using: .utf8)
+                let (data, response) = try await session.data(for: req)
+                guard let http = response as? HTTPURLResponse else {
+                    throw URLError(.badServerResponse)
+                }
+                guard http.statusCode == 200 else {
+                    lastError = URLError(.badServerResponse)
+                    continue
+                }
+                let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
+                return decoded.elements.compactMap(Self.makeWay)
+            } catch {
+                lastError = error
+                continue
+            }
+        }
+        throw lastError ?? URLError(.unknown)
+    }
+
+    /// Pure decode of one Overpass way → `SpeedLimitWay?`. Skips ways with
+    /// no geometry or an unparseable / non-numeric `maxspeed` (e.g.
+    /// "none", "walk", "CZ:urban" — implied limits we don't resolve yet).
+    /// `nonisolated static` so it's unit-testable against canned JSON.
+    nonisolated static func makeWay(_ e: OverpassResponse.Element) -> SpeedLimitWay? {
+        guard let geom = e.geometry, geom.count >= 2 else { return nil }
+        guard let kmh = parseMaxspeedKmh(e.tags?["maxspeed"]) else { return nil }
+        let coords = geom.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+        return SpeedLimitWay(id: e.id, coords: coords, maxspeedKmh: kmh)
+    }
+
+    /// Parse an OSM `maxspeed` tag into km/h. Thin wrapper over the shared
+    /// `MaxspeedParser` so the limit service and the camera service can't
+    /// disagree (they used to — see MaxspeedParser.swift, bug #3). Kept as
+    /// a named static so existing call sites and the source drift-guard
+    /// test (`func parseMaxspeedKmh(`) stay valid.
+    ///   "50", "50 km/h"           → 50
+    ///   "80;100" (multiple)       → 80 (leading value)
+    ///   "30 mph"                  → 48 (converted)
+    ///   "none" / "walk" / "CZ:..." → nil (no explicit numeric limit)
+    nonisolated static func parseMaxspeedKmh(_ raw: String?) -> Int? {
+        MaxspeedParser.kmh(raw)
+    }
+
+    // MARK: - bbox
+
+    struct BBox {
+        let south, west, north, east: Double
+        /// Coarse key (~0.01° ≈ 1.1 km grid) so re-riding a region is a
+        /// disk hit, matching the camera service's keying granularity.
+        var cacheKey: String {
+            func q(_ v: Double) -> Int { Int((v * 100).rounded()) }
+            return "\(q(south))_\(q(west))_\(q(north))_\(q(east))"
+        }
+    }
+
+    nonisolated static func boundingBox(of coords: [CLLocationCoordinate2D],
+                                        bufferMeters: Double) -> BBox {
+        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
+        for c in coords {
+            minLat = min(minLat, c.latitude);  maxLat = max(maxLat, c.latitude)
+            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+        }
+        let latBuf = bufferMeters / 111_320.0
+        let midLat = (minLat + maxLat) / 2
+        let lonBuf = bufferMeters / (111_320.0 * max(0.01, cos(midLat * .pi / 180)))
+        return BBox(south: minLat - latBuf, west: minLon - lonBuf,
+                    north: maxLat + latBuf, east: maxLon + lonBuf)
+    }
+
+    // MARK: - Disk cache
+
+    private struct CacheEnvelope: Codable {
+        let savedAt: Date
+        let ways: [Way]
+        struct Way: Codable {
+            let id: Int64
+            let lats: [Double]
+            let lons: [Double]
+            let maxspeed: Int
+        }
+    }
+
+    private func cacheURL(key: String) -> URL {
+        cacheDir.appendingPathComponent("\(key).json")
+    }
+
+    private func loadCache(key: String) -> [SpeedLimitWay]? {
+        let url = cacheURL(key: key)
+        guard let data = try? Data(contentsOf: url),
+              let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
+        else { return nil }
+        guard Date().timeIntervalSince(env.savedAt) < Self.cacheTTL else {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        return env.ways.compactMap { w in
+            guard w.lats.count == w.lons.count, w.lats.count >= 2 else { return nil }
+            let coords = zip(w.lats, w.lons).map {
+                CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1)
+            }
+            return SpeedLimitWay(id: w.id, coords: coords, maxspeedKmh: w.maxspeed)
+        }
+    }
+
+    private func saveCache(key: String, ways: [SpeedLimitWay]) {
+        let env = CacheEnvelope(
+            savedAt: Date(),
+            ways: ways.map { w in
+                CacheEnvelope.Way(id: w.id,
+                                  lats: w.coords.map(\.latitude),
+                                  lons: w.coords.map(\.longitude),
+                                  maxspeed: w.maxspeedKmh)
+            }
+        )
+        if let raw = try? JSONEncoder().encode(env) {
+            try? raw.write(to: cacheURL(key: key))
+        }
+    }
+}

@@ -60,7 +60,10 @@ def camera_label(maxspeed_kmh: int, imperial: bool) -> str:
     """Mirror of drawCameraMarker's label construction.
 
     OSM `maxspeed` is always km/h (European dataset). Metric shows it
-    verbatim; imperial converts to mph (rounded) and swaps the unit.
+    verbatim; imperial converts to mph (rounded) and swaps the unit. The
+    numeric conversion goes through the shared `displayLimit` helper in
+    Swift (same one the posted-limit sign uses) so the pill and the sign
+    can never disagree; the pill additionally appends the unit string.
     """
     if imperial:
         value = round(maxspeed_kmh / KMH_PER_MPH)
@@ -144,28 +147,55 @@ def test_label_carries_unit_string():
     e.g. '50 km/h' / '31 mph', not a bare number."""
     src = _map_source_src()
     assert '"mph"' in src and '"km/h"' in src, "marker label must carry the unit"
-    assert "Double(limit) / 1.609344" in src, "km/h → mph conversion factor drifted"
+    # The km/h → mph conversion lives in the shared `displayLimit` helper
+    # (post-merge with the global-units PR): the pill and the posted-limit
+    # sign both call it, so the factor is pinned there once.
+    assert "Double(kmh) / 1.609344" in src, "km/h → mph conversion factor drifted"
 
 
 # ----------------------------------------------------------------------
 # Swift-source drift: units-toggle plumbing.
+#
+# Post-merge architecture: the camera pill no longer carries its own
+# `speedCameraImperial` flag. It reads the same `speedLimitImperial`
+# flag the posted-limit sign uses, set via `setSpeedLimitConfig`, and
+# converts through the shared `displayLimit` helper — one source of
+# truth so the radar pill and the limit sign can't disagree on units.
 # ----------------------------------------------------------------------
 
-def test_units_flag_exists_on_source():
+def test_units_come_from_shared_display_helper():
     src = _map_source_src()
-    assert "speedCameraImperial" in src, "units flag missing on MapViewSource"
-    assert "func setSpeedCameraImperial(" in src, "units setter missing"
+    assert "speedLimitImperial" in src, "shared units flag missing on MapViewSource"
+    assert "static func displayLimit(kmh: Int, imperial: Bool)" in src, (
+        "shared displayLimit helper missing — pill/sign would diverge"
+    )
+    # The pill must go through the shared helper, not a private conversion.
+    assert "Self.displayLimit(kmh: limit, imperial: speedLimitImperial)" in src, (
+        "camera pill must read its value from the shared displayLimit helper"
+    )
+    # The retired per-camera flag must be gone so it can't drift back.
+    assert "speedCameraImperial" not in src, (
+        "retired speedCameraImperial flag still present — should use speedLimitImperial"
+    )
 
 
 def test_units_flag_is_driven_from_settings():
-    """The flag must be fed from DashNavSettings.units in BOTH the
-    prefetch path (initial) and the per-tick nav loop (mid-ride toggle)."""
-    assert "setSpeedCameraImperial(" in _app_status_src(), (
-        "prefetch path must seed the camera units flag"
+    """The units flag must be fed from DashNavSettings.units in BOTH the
+    prefetch path (initial, via pushSpeedLimitConfig) and the per-tick nav
+    loop (mid-ride toggle), through the shared speed-limit config."""
+    app = _app_status_src()
+    assert "setSpeedLimitConfig(" in app, (
+        "prefetch path must push the speed-limit/units config"
+    )
+    assert "imperial: dashNavSettings.units == .imperial" in app, (
+        "config must derive imperial from DashNavSettings.units"
     )
     nav = _active_nav_loop_src()
-    assert "setSpeedCameraImperial(settings.units == .imperial)" in nav, (
-        "nav loop must keep camera units in sync each tick (mid-ride toggle)"
+    assert "setSpeedLimitConfig(" in nav, (
+        "nav loop must keep units/limit config in sync each tick (mid-ride toggle)"
+    )
+    assert "imperial: settings.units == .imperial" in nav, (
+        "nav loop must derive imperial from settings.units each tick"
     )
 
 
