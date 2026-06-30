@@ -24,6 +24,7 @@
 		A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */; };
 		A4F000000000000000000E41 /* ManeuverGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E40 /* ManeuverGeometry.swift */; };
 		A4F000000000000000000E51 /* ManeuverKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E50 /* ManeuverKeywords.swift */; };
+		A4F000000000000000000E81 /* DrivingSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E80 /* DrivingSide.swift */; };
 		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
 		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
 		A4F0000000000000000000A1 /* DestinationPreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewCard.swift */; };
@@ -68,6 +69,7 @@
 		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
 		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
 		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
+		B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000E0 /* MaxspeedParser.swift */; };
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
 		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
 		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
@@ -101,6 +103,7 @@
 		A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundaboutInstructionParser.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E40 /* ManeuverGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverGeometry.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E50 /* ManeuverKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverKeywords.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E80 /* DrivingSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivingSide.swift; sourceTree = "<group>"; };
 		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
 		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
 		A4F0000000000000000000A0 /* DestinationPreviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewCard.swift; sourceTree = "<group>"; };
@@ -147,6 +150,7 @@
 		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000E0 /* MaxspeedParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxspeedParser.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
@@ -243,6 +247,7 @@
 			children = (
 				B1DEA1E700000000000000A0 /* WeatherAlertService.swift */,
 				B1DEA1E700000000000000B0 /* SpeedCameraService.swift */,
+				B1DEA1E700000000000000E0 /* MaxspeedParser.swift */,
 				B1DEA1E700000000000000D0 /* SpeedLimitService.swift */,
 			);
 			path = RideAlerts;
@@ -304,6 +309,7 @@
 				A4F000000000000000000E20 /* ManeuverIcon.swift */,
 				A4F000000000000000000E40 /* ManeuverGeometry.swift */,
 				A4F000000000000000000E50 /* ManeuverKeywords.swift */,
+				A4F000000000000000000E80 /* DrivingSide.swift */,
 				A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */,
 				A4F000000000000000000F00 /* Waypoint.swift */,
 				A4F000000000000000000F10 /* PlannedRoute.swift */,
@@ -442,6 +448,7 @@
 				A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */,
 				A4F000000000000000000E41 /* ManeuverGeometry.swift in Sources */,
 				A4F000000000000000000E51 /* ManeuverKeywords.swift in Sources */,
+				A4F000000000000000000E81 /* DrivingSide.swift in Sources */,
 				A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */,
 				A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */,
 				A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */,
@@ -488,6 +495,7 @@
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
 				B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */,
 				B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */,
+				B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */,
 				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
 				F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */,
 				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,

@@ -120,6 +120,15 @@ enum ManeuverKind: Equatable {
                          precedingStep: MKRoute.Step? = nil) -> ManeuverKind {
         let s = arrivingStep.instructions.lowercased()
 
+        // Driving side at the maneuver node (= last vertex of the arriving
+        // step's polyline). Decides every left/right-MIRRORED default below
+        // (roundabout winding, U-turn side, direction→exit heuristic) so the
+        // app is correct in left-hand-traffic countries, not just RHT
+        // Continental Europe. Falls back to right-hand traffic (the global
+        // default) when the polyline is empty.
+        let drivingSide: DrivingSide = ManeuverGeometry.lastCoordinate(of: arrivingStep.polyline)
+            .map(DrivingSide.at) ?? .right
+
         // Turn geometry at the node = end of `arrivingStep.polyline` =
         // start of `departingStep.polyline`. `nil` when there's no outgoing
         // leg (final/arrival step) — direction then falls back to text.
@@ -152,22 +161,28 @@ enum ManeuverKind: Equatable {
                     guard Keywords.isRoundabout(prev.instructions.lowercased()) else { return nil }
                     return RoundaboutInstructionParser.parseExitNumber(from: prev.instructions)
                 }
-                ?? RoundaboutInstructionParser.inferExitFromDirection(arrivingStep.instructions)
+                ?? RoundaboutInstructionParser.inferExitFromDirection(arrivingStep.instructions,
+                                                                     drivingSide: drivingSide)
                 ?? 0
-            // Rotation: CCW for right-hand-traffic (Continental Europe),
-            // which is where this bike rides. A future enhancement can
-            // derive CW/CCW from the in-circle polyline winding.
-            return .roundabout(exit: exit, clockwise: false)
+            // Rotation follows the driving side: counter-clockwise for
+            // right-hand traffic (Continental Europe, the Americas, …),
+            // clockwise for left-hand traffic (UK/IE, Japan, Australia,
+            // India, …). Derived from the maneuver node's location so the
+            // dash arc curves the same way the rider actually goes round.
+            return .roundabout(exit: exit, clockwise: drivingSide.roundaboutClockwise)
         }
 
         if Keywords.isUTurn(s) {
             // Resolve side geometrically when we can; default to the
-            // local (right-hand-traffic) convention of a left U-turn.
+            // driving-side convention (left U-turn in right-hand traffic,
+            // right U-turn in left-hand traffic) when the angle is unavailable.
             switch geoTurn {
             case .uTurnRight, .sharpRight, .right, .slightRight:
                 return .uTurnRight
-            default:
+            case .uTurnLeft, .sharpLeft, .left, .slightLeft:
                 return .uTurnLeft
+            default:
+                return drivingSide == .left ? .uTurnRight : .uTurnLeft
             }
         }
 
