@@ -44,19 +44,34 @@ def _swift_settings_source() -> str:
     return swift.read_text(encoding="utf-8")
 
 
-def bucketed_maneuver_distance(m: float) -> float:
+def bucketed_maneuver_distance(m: float, imperial: bool = False) -> float:
     """Mirror of `DashNavSettings.bucketedManeuverDistance`. Uses
     floor(q + 0.5) to match Swift's round-half-away-from-zero `.rounded()`
-    (all inputs here are positive)."""
+    (all inputs here are positive).
+
+    Unit-aware (#11): metric rides bucket in 1/25/100 m steps; imperial
+    rides bucket in 10/50 ft then 0.1 mi steps so the converted readout
+    lands on round imperial numbers. Returns METERS either way — the
+    wire/unit-byte helpers re-derive ft/mi from it. The imperial feet↔miles
+    crossover is 160 m, matching `primaryUnitWireByte`."""
     if not math.isfinite(m) or m <= 0:
         return 0.0
-    if m < 50:
-        step = 1.0
-    elif m < 200:
-        step = 25.0
-    else:
-        step = 100.0
-    return math.floor(m / step + 0.5) * step
+    if not imperial:
+        if m < 50:
+            step = 1.0
+        elif m < 200:
+            step = 25.0
+        else:
+            step = 100.0
+        return math.floor(m / step + 0.5) * step
+    # Imperial.
+    ft_per_m = 3.280839895
+    if m < 160:
+        feet = m * ft_per_m
+        step = 10.0 if feet < 150 else 50.0
+        return (math.floor(feet / step + 0.5) * step) / ft_per_m
+    step_m = 1609.344 / 10.0
+    return math.floor(m / step_m + 0.5) * step_m
 
 
 # ----------------------------------------------------------------------
@@ -129,6 +144,127 @@ def test_zero_and_nonfinite_guard():
     assert bucketed_maneuver_distance(-5) == 0
     assert bucketed_maneuver_distance(float("nan")) == 0
     assert bucketed_maneuver_distance(float("inf")) == 0
+    # Same guards in imperial.
+    assert bucketed_maneuver_distance(0, imperial=True) == 0
+    assert bucketed_maneuver_distance(-5, imperial=True) == 0
+    assert bucketed_maneuver_distance(float("nan"), imperial=True) == 0
+    assert bucketed_maneuver_distance(float("inf"), imperial=True) == 0
+
+
+# ----------------------------------------------------------------------
+# Imperial bucketing (#11): the converted readout must land on round
+# feet / tenths-of-a-mile, not the ragged conversion of a metric bucket.
+# ----------------------------------------------------------------------
+
+_FT = 3.280839895
+
+
+@pytest.mark.parametrize("meters, expected_feet", [
+    # Feet domain (< 160 m): 10 ft steps under 150 ft, 50 ft steps above.
+    (5, 20),       # 16.4 ft → 20
+    (9, 30),       # 29.5 ft → 30
+    (30, 100),     # 98.4 ft → 100
+    (45.72, 150),  # exactly 150 ft → stays (boundary into 50-step)
+    (80, 250),     # 262 ft → 250
+    (100, 350),    # 328 ft → 350
+    (152, 500),    # 498.7 ft → 500
+    (159, 500),    # 521.6 ft → still 500 (just under the mile crossover)
+])
+def test_imperial_feet_buckets_are_round(meters, expected_feet):
+    b = bucketed_maneuver_distance(meters, imperial=True)
+    assert round(b * _FT) == expected_feet
+
+
+@pytest.mark.parametrize("meters, expected_tenths_mi", [
+    # Miles domain (>= 160 m): nearest 0.1 mi.
+    (160, 1),     # 0.0994 mi → 0.1
+    (200, 1),     # 0.124 mi → 0.1
+    (300, 2),     # 0.186 mi → 0.2
+    (800, 5),     # 0.497 mi → 0.5
+    (1609.344, 10),  # exactly 1.0 mi
+    (2400, 15),   # 1.491 mi → 1.5
+])
+def test_imperial_mile_buckets_are_tenths(meters, expected_tenths_mi):
+    b = bucketed_maneuver_distance(meters, imperial=True)
+    tenths = round((b / 1609.344) * 10)
+    assert tenths == expected_tenths_mi
+
+
+def test_imperial_monotonic_non_decreasing():
+    """Same invariant as metric: the imperial 'in N ft / N.N mi' readout
+    must never increase as the rider gets closer to the turn."""
+    prev = -1.0
+    m = 0.0
+    while m <= 4000:
+        b = bucketed_maneuver_distance(m, imperial=True)
+        assert b >= prev - 1e-9, f"non-monotonic at {m}: {b} < {prev}"
+        prev = b
+        m += 0.5
+
+
+def test_imperial_feet_to_miles_crossover_matches_unit_byte():
+    """The bucket's feet↔miles boundary (160 m) must equal the unit byte's
+    crossover in primaryUnitWireByte, or a distance could bucket to feet
+    but get tagged as miles (or vice-versa)."""
+    src = _swift_settings_source()
+    # primaryUnitWireByte switches imperial feet→miles at 160 m.
+    assert "m < 160 ? 0x50 : 0x20" in src
+    # The imperial bucket branch uses the same 160 m threshold.
+    start = src.index("func bucketedManeuverDistance(")
+    end = src.index("\n    }", start)
+    body = src[start:end]
+    assert "m < 160" in body, (
+        "imperial bucket crossover drifted from primaryUnitWireByte's 160 m"
+    )
+
+
+# ----------------------------------------------------------------------
+# Speeding tolerance is unit-aware (#10): canonical store is km/h, the
+# stepper shows/sets mph for imperial riders.
+# ----------------------------------------------------------------------
+
+def tolerance_to_display(kmh: float, imperial: bool) -> int:
+    """Mirror of DashNavSettings.toleranceToDisplay."""
+    return (math.floor(kmh / 1.609344 + 0.5) if imperial
+            else math.floor(kmh + 0.5))
+
+
+def tolerance_to_kmh(display: int, imperial: bool) -> float:
+    """Mirror of DashNavSettings.toleranceToKmh."""
+    v = max(0, display)
+    return v * 1.609344 if imperial else float(v)
+
+
+def test_tolerance_metric_is_identity():
+    assert tolerance_to_display(3, imperial=False) == 3
+    assert tolerance_to_kmh(5, imperial=False) == 5.0
+
+
+def test_tolerance_default_3kmh_shows_2mph():
+    # 3 km/h is the default; an imperial rider sees +2 mph.
+    assert tolerance_to_display(3.0, imperial=True) == 2
+
+
+def test_tolerance_mph_round_trips_through_kmh():
+    # Dialing 5 mph stores ~8.05 km/h and reads back as 5 mph.
+    kmh = tolerance_to_kmh(5, imperial=True)
+    assert abs(kmh - 8.04672) < 1e-4
+    assert tolerance_to_display(kmh, imperial=True) == 5
+
+
+def test_tolerance_clamps_negative_to_zero():
+    assert tolerance_to_kmh(-3, imperial=True) == 0.0
+    assert tolerance_to_kmh(-3, imperial=False) == 0.0
+
+
+def test_swift_tolerance_helpers_exist_and_match():
+    """Drift guard: the Swift conversion helpers must exist with the same
+    1.609344 factor and clamp, or the stepper and the km/h store diverge."""
+    src = _swift_settings_source()
+    assert "static func toleranceToDisplay(kmh: Double, imperial: Bool) -> Int" in src
+    assert "static func toleranceToKmh(display: Int, imperial: Bool) -> Double" in src
+    assert "1.609344" in src
+    assert "max(0, display)" in src
 
 
 # ----------------------------------------------------------------------
@@ -141,8 +277,8 @@ def test_swift_bucket_thresholds_match_mirror():
     start = src.index("func bucketedManeuverDistance(")
     end = src.index("\n    }", start)
     body = src[start:end]
-    # The two thresholds (50, 200) and the three steps (1, 25, 100) must
-    # all be literally present in the Swift body.
+    # The metric thresholds (50, 200) and the three steps (1, 25, 100)
+    # must all be literally present in the Swift body.
     for needed in ("< 50", "< 200", "= 1", "= 25", "= 100"):
         assert needed in body, (
             f"Bucket constant '{needed}' missing from Swift "

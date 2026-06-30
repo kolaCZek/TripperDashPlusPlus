@@ -125,6 +125,16 @@ struct StreamingView: View {
                         Text(mode.label).tag(mode)
                     }
                 }
+                if status.dashNavSettings.speedLimitDisplay == .overOnly {
+                    Stepper(
+                        "Speeding tolerance: +\(status.dashNavSettings.speedLimitOverToleranceDisplay) \(status.dashNavSettings.speedLimitToleranceUnit)",
+                        value: Binding(
+                            get: { status.dashNavSettings.speedLimitOverToleranceDisplay },
+                            set: { status.dashNavSettings.speedLimitOverToleranceDisplay = $0 }
+                        ),
+                        in: 0...20
+                    )
+                }
                 Text("Shows the posted limit as a road sign in the bottom-right corner. From OpenStreetMap data — coverage varies and untagged roads show nothing, so treat a missing sign as unknown, not zero.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
