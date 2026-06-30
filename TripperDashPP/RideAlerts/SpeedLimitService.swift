@@ -232,21 +232,17 @@ actor SpeedLimitService {
         return SpeedLimitWay(id: e.id, coords: coords, maxspeedKmh: kmh)
     }
 
-    /// Parse an OSM `maxspeed` tag into km/h. Handles the common shapes:
+    /// Parse an OSM `maxspeed` tag into km/h. Thin wrapper over the shared
+    /// `MaxspeedParser` so the limit service and the camera service can't
+    /// disagree (they used to — see MaxspeedParser.swift, bug #3). Kept as
+    /// a named static so existing call sites and the source drift-guard
+    /// test (`func parseMaxspeedKmh(`) stay valid.
     ///   "50", "50 km/h"           → 50
     ///   "80;100" (multiple)       → 80 (leading value)
     ///   "30 mph"                  → 48 (converted)
-    ///   "none" / "walk" / "CZ:.." → nil (no explicit numeric limit)
+    ///   "none" / "walk" / "CZ:..." → nil (no explicit numeric limit)
     nonisolated static func parseMaxspeedKmh(_ raw: String?) -> Int? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-        let lower = raw.lowercased()
-        // Leading integer (covers "50", "50 km/h", "80;100", "30 mph").
-        let digits = lower.prefix { $0.isNumber }
-        guard let value = Int(digits), value > 0 else { return nil }
-        if lower.contains("mph") {
-            return Int((Double(value) * 1.609344).rounded())
-        }
-        return value   // km/h (OSM default unit)
+        MaxspeedParser.kmh(raw)
     }
 
     // MARK: - bbox

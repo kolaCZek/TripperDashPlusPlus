@@ -41,10 +41,11 @@ import OSLog
 
 /// One mapped speed camera. `id` is the OSM node id (stable across
 /// fetches, used for de-duplication). `maxspeedKmh` is parsed from the
-/// `maxspeed` tag when present (km/h assumed — the dataset is European;
-/// "50" → 50). `isSection` flags average-speed / section-control cameras
-/// (OSM `enforcement=average_speed` or a Czech "úsekové měření" note),
-/// which the renderer can badge differently.
+/// `maxspeed` tag when present, via the shared `MaxspeedParser` — so an
+/// imperial "55 mph" camera is stored as 89 km/h, same as the limit
+/// service (bug #3). `isSection` flags average-speed / section-control
+/// cameras (OSM `enforcement=average_speed` or a Czech "úsekové měření"
+/// note), which the renderer can badge differently.
 struct SpeedCamera: Equatable, Sendable, Identifiable {
     let id: Int64
     let coordinate: CLLocationCoordinate2D
@@ -189,11 +190,11 @@ actor SpeedCameraService {
     nonisolated static func makeCamera(_ e: OverpassResponse.Element) -> SpeedCamera? {
         guard let lat = e.lat, let lon = e.lon else { return nil }
         let tags = e.tags ?? [:]
-        let maxspeed: Int? = tags["maxspeed"].flatMap { raw in
-            // "50", "50 km/h", "80;100" → take the leading integer.
-            let digits = raw.prefix { $0.isNumber }
-            return Int(digits)
-        }
+        // Shared parser with the limit service: handles "50", "50 km/h",
+        // "80;100", and crucially "55 mph" → 89 (US/UK cameras). Before,
+        // this took bare leading digits and rendered "55" for a 55 mph
+        // zone (bug #3).
+        let maxspeed: Int? = MaxspeedParser.kmh(tags["maxspeed"])
         let note = (tags["note"] ?? "").lowercased()
         let isSection = tags["enforcement"] == "average_speed"
             || tags["speed_camera"] == "section"

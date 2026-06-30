@@ -1645,15 +1645,27 @@ extension MapViewSource {
 
         // Speed limit badge beneath the marker, when mapped. Small but
         // bold + stroked so it survives H.264. Skip for section cameras
-        // without a number to avoid clutter.
+        // without a number to avoid clutter. Unit-aware (#4): an imperial
+        // rider sees the mph value, so the radar badge and the posted
+        // limit sign agree (both go through `displayLimit`) instead of the
+        // badge showing raw km/h next to an mph sign.
         if let limit = camera.maxspeedKmh {
-            let label = "\(limit)"
+            let label = "\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"
             let fontSize: CGFloat = 11
             let approxW = CGFloat(label.count) * fontSize * 0.62 + 6
             Self.drawText(label, in: ctx,
                           at: CGPoint(x: p.x - approxW / 2, y: p.y + r + 2),
                           width: approxW, fontSize: fontSize, bold: true)
         }
+    }
+
+    /// Convert an internal km/h limit to the number shown to the rider,
+    /// honouring the imperial units setting. Single helper so the camera
+    /// badge and the posted-limit sign can't disagree on the displayed
+    /// value (#4). Like a real road sign, the caller renders the bare
+    /// number — the disc shape / context conveys the unit.
+    fileprivate static func displayLimit(kmh: Int, imperial: Bool) -> Int {
+        imperial ? Int((Double(kmh) / 1.609344).rounded()) : kmh
     }
 
     // MARK: Speed-limit sign
@@ -1674,10 +1686,10 @@ extension MapViewSource {
 
         // Value + (no) unit. A real road sign carries no unit text — the
         // disc shape IS the unit — so we show the bare number. Imperial
-        // riders see the mph-converted number (OSM maxspeed is km/h).
-        let value: Int = speedLimitImperial
-            ? Int((Double(kmh) / 1.609344).rounded())
-            : kmh
+        // riders see the mph-converted number (OSM maxspeed is km/h). Uses
+        // the same `displayLimit` helper as the camera badge so the two
+        // can never disagree (#4).
+        let value = Self.displayLimit(kmh: kmh, imperial: speedLimitImperial)
         let label = "\(value)"
 
         let d = Self.speedLimitSignDiameter

@@ -182,23 +182,33 @@ enum RoundaboutInstructionParser {
     /// "…continue onto…", "…turn right onto…") — `parseExitNumber` returns
     /// nil and the dash drew a numberless circle for the whole maneuver
     /// (every tick exit 0; field ride 6/2026, the 608 run was 659 ticks of
-    /// blank circle). A direction word IS present, so for right-hand
-    /// traffic (CCW circle) we map it to the typical exit slot:
-    ///   right  → 1st exit   (peel off early)
-    ///   straight/continue → 2nd exit  (across)
-    ///   left   → 3rd exit   (most of the way round)
+    /// blank circle). A direction word IS present, so we map it to the
+    /// typical exit slot. The mapping MIRRORS with the driving side, because
+    /// the circle winds the opposite way:
+    ///   right-hand traffic (CCW circle):
+    ///     right → 1st exit (peel off early), straight → 2nd, left → 3rd
+    ///   left-hand traffic (CW circle):
+    ///     left  → 1st exit (peel off early), straight → 2nd, right → 3rd
     /// A guess, not gospel: prefer `parseExitNumber`; use this only when
     /// that yields nil. Beats a numberless glyph, and the arc direction
     /// matches the rider's actual path. Returns nil when no direction word
     /// is present (then the caller's generic exit-0 circle stands).
-    static func inferExitFromDirection(_ instructions: String) -> Int? {
+    static func inferExitFromDirection(_ instructions: String,
+                                       drivingSide: DrivingSide = .right) -> Int? {
         let s = instructions.lowercased()
         let li = Keywords.firstIndex(s, Keywords.leftTokens)
         let ri = Keywords.firstIndex(s, Keywords.rightTokens)
+        // The exit number for the EARLY-peel side is 1, the FAR side is 3.
+        // In right-hand traffic the early side is the right; in left-hand
+        // traffic it's the left.
+        let earlySideExit = 1
+        let farSideExit = 3
+        let leftExit  = drivingSide == .left ? earlySideExit : farSideExit
+        let rightExit = drivingSide == .left ? farSideExit  : earlySideExit
         switch (li, ri) {
-        case let (l?, r?): return l <= r ? 3 : 1
-        case (_?, nil):    return 3
-        case (nil, _?):    return 1
+        case let (l?, r?): return l <= r ? leftExit : rightExit
+        case (_?, nil):    return leftExit
+        case (nil, _?):    return rightExit
         case (nil, nil):   return 2   // "continue"/"straight" → across
         }
     }
