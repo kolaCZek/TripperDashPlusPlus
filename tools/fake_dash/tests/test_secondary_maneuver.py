@@ -150,8 +150,12 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
 #
 #   emitSecondary = settings.lookaheadEnabled
 #                   && !isRerouting
-#                   && secondStep != nil
+#                   && lookahead != nil       // nav.lookaheadManeuver
 #                   && distNext <= settings.lookaheadThresholdMeters
+#
+# (`lookahead != nil` is the derived-model equivalent of the old
+# `secondNextStep != nil` gate: `lookaheadManeuver` is non-nil exactly
+# when there's a step after the upcoming one to classify.)
 #
 # Pinned here so a future tweak to the gate condition (e.g. adding
 # speed-based suppression) doesn't accidentally break the always-emit-
@@ -220,7 +224,7 @@ def test_lookahead_default_threshold_is_300m() -> None:
 # Mirrors the primary-glyph override in `ActiveNavLoop.tick()`:
 #
 #   let kind = isRerouting ? .recalculating
-#                          : (step.map(classify) ?? .straight)
+#                          : (nav.upcomingManeuver ?? .straight)
 #
 # While a reroute is in flight the upcoming step is from the STALE route,
 # so we show the dash's spinning-compass icon (0x1C) instead of an arrow

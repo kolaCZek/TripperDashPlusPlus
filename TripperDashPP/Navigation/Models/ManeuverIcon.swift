@@ -73,20 +73,31 @@ enum ManeuverKind: Equatable {
     case ferry                                     // 0x3E — ferry crossing
     case railroad                                  // 0x3F — level / train crossing
 
-    /// HYBRID classification of a maneuver step.
+    /// HYBRID classification of the maneuver at a route node.
     ///
     /// `MKRoute.Step` exposes no structured maneuver type — only a
-    /// localized free-text `instructions` string. Relying on that text
-    /// for the *direction* of a turn was the source of two field bugs
-    /// (a right turn onto "…Leftbank Road" read as left; locale-fragile
-    /// keyword lists). So we split responsibilities:
+    /// localized free-text `instructions` string. AND, critically, Apple
+    /// puts that string on the step whose polyline ENDS at the maneuver
+    /// node: `instructions` names the turn ONTO the next road, i.e. the
+    /// maneuver at the END of THIS step's polyline, not at its start. So
+    /// the step the rider is currently TRAVERSING — the one whose polyline
+    /// ends at the upcoming node (`arrivingStep`) — is the one whose
+    /// `.instructions` describe the upcoming maneuver. Reading the text
+    /// from the *following* step (whose polyline LEAVES the node) was one
+    /// maneuver too far ahead: the off-by-one that showed "Turn right onto
+    /// Mlýnská" on the dash while the rider should still have been told to
+    /// turn left onto Papírenská (field logs, 6/2026).
     ///
-    ///   - **Text** decides the maneuver FAMILY: roundabout? U-turn?
-    ///     merge? exit/ramp? ferry/railroad? arrival? plain turn?
-    ///   - **Geometry** decides the DIRECTION + sharpness of a plain
-    ///     turn, from the signed angle between the incoming and outgoing
-    ///     headings at the maneuver node. Language-independent, immune to
-    ///     road names that happen to contain "left"/"right".
+    /// Responsibilities, split so neither road names nor locale can flip a
+    /// turn:
+    ///   - **Text** (`arrivingStep.instructions`) decides the maneuver
+    ///     FAMILY: roundabout? U-turn? merge? exit/ramp? ferry/railroad?
+    ///     arrival? plain turn?
+    ///   - **Geometry** decides the DIRECTION + sharpness of a plain turn,
+    ///     from the signed angle at the node between the incoming leg
+    ///     (`arrivingStep.polyline`, ending at the node) and the outgoing
+    ///     leg (`departingStep.polyline`, leaving the node). Language-
+    ///     independent, immune to road names containing "left"/"right".
     ///
     /// Roundabout EXIT NUMBER stays text-derived — the route polyline
     /// passes through the circle but never traces the arms we don't take,
@@ -94,15 +105,28 @@ enum ManeuverKind: Equatable {
     /// `RoundaboutInstructionParser`).
     ///
     /// - Parameters:
-    ///   - step: the upcoming maneuver step (`nextStep`).
-    ///   - previousStep: the step the rider is currently completing,
-    ///     whose polyline ENDS at this maneuver's node. Supplies the
-    ///     incoming heading for the geometric turn angle. Pass `nil` for
-    ///     the first step (no incoming leg) — classification then falls
-    ///     back to text for direction.
-    static func classify(_ step: MKRoute.Step,
-                         previousStep: MKRoute.Step? = nil) -> ManeuverKind {
-        let s = step.instructions.lowercased()
+    ///   - arrivingStep: the step the rider is COMPLETING; its polyline
+    ///     ENDS at the maneuver node and its `.instructions` name the
+    ///     upcoming maneuver (text + family + the incoming heading).
+    ///   - departingStep: the step that LEAVES the node (its polyline
+    ///     starts there), supplying the outgoing heading for the turn
+    ///     angle. `nil` at the final maneuver (arrival has no outgoing
+    ///     leg) — direction then falls back to text.
+    ///   - precedingStep: the step BEFORE `arrivingStep`. Used only to
+    ///     carry a roundabout's exit ordinal forward across MapKit's split
+    ///     entry/exit roundabout steps.
+    static func classify(arrivingStep: MKRoute.Step,
+                         departingStep: MKRoute.Step?,
+                         precedingStep: MKRoute.Step? = nil) -> ManeuverKind {
+        let s = arrivingStep.instructions.lowercased()
+
+        // Turn geometry at the node = end of `arrivingStep.polyline` =
+        // start of `departingStep.polyline`. `nil` when there's no outgoing
+        // leg (final/arrival step) — direction then falls back to text.
+        let geoTurn: ManeuverGeometry.Turn? = departingStep.flatMap { dep in
+            ManeuverGeometry.turn(previousStepPolyline: arrivingStep.polyline,
+                                  currentStepPolyline: dep.polyline)
+        }
 
         // ---- Family detection (text) -----------------------------------
         // Roundabout first: roundabout strings also contain "exit", so
@@ -117,18 +141,18 @@ enum ManeuverKind: Equatable {
             // Parsing the exit step alone yields nil → exit 0 → a generic
             // numberless circle glyph appears mid-maneuver and the bubble
             // looks like it "lost" the exit count partway through (field
-            // ride 6/2026). Carry the ordinal forward from the previous
+            // ride 6/2026). Carry the ordinal forward from the PRECEDING
             // roundabout step so the whole maneuver shows one stable,
             // correct exit number from entry through exit. When NO step in
             // the chain carries an ordinal (Apple often emits only "turn
             // left/continue/right onto …"), fall back to a direction-based
             // estimate so the dash draws a numbered arc, not a blank circle.
-            let exit = RoundaboutInstructionParser.parseExitNumber(from: step.instructions)
-                ?? previousStep.flatMap { prev -> Int? in
+            let exit = RoundaboutInstructionParser.parseExitNumber(from: arrivingStep.instructions)
+                ?? precedingStep.flatMap { prev -> Int? in
                     guard Keywords.isRoundabout(prev.instructions.lowercased()) else { return nil }
                     return RoundaboutInstructionParser.parseExitNumber(from: prev.instructions)
                 }
-                ?? RoundaboutInstructionParser.inferExitFromDirection(step.instructions)
+                ?? RoundaboutInstructionParser.inferExitFromDirection(arrivingStep.instructions)
                 ?? 0
             // Rotation: CCW for right-hand-traffic (Continental Europe),
             // which is where this bike rides. A future enhancement can
@@ -139,8 +163,7 @@ enum ManeuverKind: Equatable {
         if Keywords.isUTurn(s) {
             // Resolve side geometrically when we can; default to the
             // local (right-hand-traffic) convention of a left U-turn.
-            switch ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
-                                         currentStepPolyline: step.polyline) {
+            switch geoTurn {
             case .uTurnRight, .sharpRight, .right, .slightRight:
                 return .uTurnRight
             default:
@@ -149,13 +172,13 @@ enum ManeuverKind: Equatable {
         }
 
         if Keywords.isMerge(s) {
-            return geometricSide(step: step, previousStep: previousStep,
+            return geometricSide(geoTurn: geoTurn,
                                  left: .mergeLeft, right: .mergeRight,
                                  textDefault: .mergeRight, instruction: s)
         }
 
         if Keywords.isExitRamp(s) {
-            return geometricSide(step: step, previousStep: previousStep,
+            return geometricSide(geoTurn: geoTurn,
                                  left: .exitLeft, right: .exitRight,
                                  textDefault: .exitRight, instruction: s)
         }
@@ -165,8 +188,7 @@ enum ManeuverKind: Equatable {
         if Keywords.isArrive(s)   { return .arrive }
 
         // ---- Plain turn: DIRECTION from geometry -----------------------
-        if let turn = ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
-                                            currentStepPolyline: step.polyline) {
+        if let turn = geoTurn {
             switch turn {
             case .straight:    return .straight
             case .slightLeft:  return .slightLeft
@@ -186,18 +208,16 @@ enum ManeuverKind: Equatable {
         return Keywords.textualTurn(s)
     }
 
-    /// Pick a left/right variant from geometry, falling back to a textual
-    /// "left" hint and finally a sensible default. Used for families where
-    /// the glyph has a handed pair (merge, exit) but the angle alone is
-    /// enough to tell the side.
-    private static func geometricSide(step: MKRoute.Step,
-                                      previousStep: MKRoute.Step?,
+    /// Pick a left/right variant from a precomputed geometry `Turn`,
+    /// falling back to a textual "left" hint and finally a sensible
+    /// default. Used for families where the glyph has a handed pair (merge,
+    /// exit) but the angle alone is enough to tell the side.
+    private static func geometricSide(geoTurn: ManeuverGeometry.Turn?,
                                       left: ManeuverKind,
                                       right: ManeuverKind,
                                       textDefault: ManeuverKind,
                                       instruction s: String) -> ManeuverKind {
-        switch ManeuverGeometry.turn(previousStepPolyline: previousStep?.polyline,
-                                     currentStepPolyline: step.polyline) {
+        switch geoTurn {
         case .slightLeft?, .left?, .sharpLeft?, .uTurnLeft?:
             return left
         case .slightRight?, .right?, .sharpRight?, .uTurnRight?:

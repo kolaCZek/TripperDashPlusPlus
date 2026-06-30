@@ -115,7 +115,7 @@ struct NavigationHUD: View {
         HStack(alignment: .center, spacing: 14) {
             ZStack {
                 Circle().fill(.blue.opacity(0.15)).frame(width: 60, height: 60)
-                Image(systemName: maneuverSymbol(for: nav.nextStep))
+                Image(systemName: upcomingManeuverSymbol)
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(.blue)
             }
@@ -123,7 +123,7 @@ struct NavigationHUD: View {
                 Text(distanceToNext)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text(nav.nextStep?.instructions ?? "Continue")
+                Text(nav.upcomingInstructions ?? "Continue")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -219,14 +219,15 @@ struct NavigationHUD: View {
         return f.string(from: arr)
     }
 
-    /// SF Symbol for the upcoming maneuver. Delegates to the SAME hybrid
-    /// classifier (`ManeuverKind.classify`) that drives the dash bubble —
-    /// geometry for direction, text for family — so the HUD icon always
-    /// agrees with what the dash shows. (Previously this had its own
-    /// substring keyword match that, like the dash classifier's old bug,
-    /// could read a right turn onto a "left"-named road as a left arrow.)
-    private func maneuverSymbol(for step: MKRoute.Step?) -> String {
-        guard let step else { return "arrow.up" }
-        return ManeuverKind.classify(step, previousStep: nav.stepBeforeNext).sfSymbol
+    /// SF Symbol for the UPCOMING maneuver. Reads the navigator's DERIVED
+    /// `upcomingManeuver` — the single place that pairs Apple's
+    /// end-of-polyline instruction text (from the arriving step) with the
+    /// arriving→departing turn geometry — so the HUD icon always agrees
+    /// with the dash glyph AND with the instruction text directly below
+    /// it. (Previously this re-ran the classifier on `nav.nextStep`, the
+    /// DEPARTING step, which both duplicated the pairing logic and, via the
+    /// text source, sat one maneuver ahead of the arrow.)
+    private var upcomingManeuverSymbol: String {
+        nav.upcomingManeuver?.sfSymbol ?? "arrow.up"
     }
 }

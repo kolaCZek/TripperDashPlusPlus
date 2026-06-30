@@ -1,0 +1,983 @@
+{
+ "meta": {
+  "source_log": "nav-20260630-121712.jsonl",
+  "description": "Distilled real navigation field log (Prague, 6/2026). One representative tick per maneuver segment, chosen closest to the maneuver node. Captures the off-by-one between the instruction TEXT (which Apple writes on the step ENDING at the node, i.e. stepBeforeNext) and the turn GEOMETRY/arrow (the angle AT the node). Used by test_nav_instruction_offset.py.",
+  "segments": 16,
+  "segments_with_geometry": 15
+ },
+ "segments": [
+  {
+   "segment": 0,
+   "ticks": 69,
+   "hasGeometry": true,
+   "minDistToNode": 4.9,
+   "instructions": "Turn right onto Suchdolská",
+   "maneuver": "right",
+   "wireByte": "0x15",
+   "distanceToNextStep": 4.899379081390168,
+   "secondaryWireByte": "0x0C",
+   "secondaryDistanceMeters": 225.46937908139017,
+   "prevPolyTail": [
+    [
+     50.141671,
+     14.342912
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.141671,
+     14.342912
+    ],
+    [
+     50.141651,
+     14.342413
+    ],
+    [
+     50.141679,
+     14.342412
+    ],
+    [
+     50.142022,
+     14.342415
+    ],
+    [
+     50.142157,
+     14.34257
+    ],
+    [
+     50.142219,
+     14.342723
+    ],
+    [
+     50.142231,
+     14.342891
+    ],
+    [
+     50.142195,
+     14.343159
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 1,
+   "ticks": 13,
+   "hasGeometry": true,
+   "minDistToNode": 8.44,
+   "instructions": "At the roundabout, continue onto Suchdolská",
+   "maneuver": "roundabout(exit: 2, clockwise: false)",
+   "wireByte": "0x0C",
+   "distanceToNextStep": 8.436895966622599,
+   "secondaryWireByte": "0x0B",
+   "secondaryDistanceMeters": 4408.916895966623,
+   "prevPolyTail": [
+    [
+     50.141671,
+     14.342912
+    ],
+    [
+     50.141651,
+     14.342413
+    ],
+    [
+     50.141679,
+     14.342412
+    ],
+    [
+     50.142022,
+     14.342415
+    ],
+    [
+     50.142157,
+     14.34257
+    ],
+    [
+     50.142219,
+     14.342723
+    ],
+    [
+     50.142231,
+     14.342891
+    ],
+    [
+     50.142195,
+     14.343159
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.142195,
+     14.343159
+    ],
+    [
+     50.142108,
+     14.343444
+    ],
+    [
+     50.14202,
+     14.343805
+    ],
+    [
+     50.141871,
+     14.344467
+    ],
+    [
+     50.141802,
+     14.344955
+    ],
+    [
+     50.141765,
+     14.34513
+    ],
+    [
+     50.141664,
+     14.345262
+    ],
+    [
+     50.141581,
+     14.345331
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 2,
+   "ticks": 58,
+   "hasGeometry": true,
+   "minDistToNode": 6.68,
+   "instructions": "At the roundabout, take a slight right turn onto Roztocká",
+   "maneuver": "roundabout(exit: 1, clockwise: false)",
+   "wireByte": "0x0B",
+   "distanceToNextStep": 6.675644016292074,
+   "secondaryWireByte": "0x15",
+   "secondaryDistanceMeters": 1591.5256440162923,
+   "prevPolyTail": [
+    [
+     50.141664,
+     14.345262
+    ],
+    [
+     50.141581,
+     14.345331
+    ],
+    [
+     50.141533,
+     14.345297
+    ],
+    [
+     50.141451,
+     14.345307
+    ],
+    [
+     50.141387,
+     14.345371
+    ],
+    [
+     50.141362,
+     14.345438
+    ],
+    [
+     50.141362,
+     14.345591
+    ],
+    [
+     50.14139,
+     14.345663
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.14139,
+     14.345663
+    ],
+    [
+     50.141368,
+     14.345835
+    ],
+    [
+     50.141346,
+     14.346007
+    ],
+    [
+     50.141272,
+     14.346241
+    ],
+    [
+     50.140765,
+     14.347857
+    ],
+    [
+     50.140041,
+     14.350247
+    ],
+    [
+     50.139966,
+     14.350577
+    ],
+    [
+     50.139923,
+     14.350874
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 3,
+   "ticks": 287,
+   "hasGeometry": true,
+   "minDistToNode": 16.26,
+   "instructions": "Turn left onto Papírenská",
+   "maneuver": "right",
+   "wireByte": "0x15",
+   "distanceToNextStep": 16.261980398521192,
+   "secondaryWireByte": "0x18",
+   "secondaryDistanceMeters": 940.3919803985212,
+   "prevPolyTail": [
+    [
+     50.127462,
+     14.39867
+    ],
+    [
+     50.126968,
+     14.398699
+    ],
+    [
+     50.126875,
+     14.398712
+    ],
+    [
+     50.12678,
+     14.398763
+    ],
+    [
+     50.126743,
+     14.398711
+    ],
+    [
+     50.126693,
+     14.398697
+    ],
+    [
+     50.126647,
+     14.398727
+    ],
+    [
+     50.126619,
+     14.398781
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.126619,
+     14.398781
+    ],
+    [
+     50.126485,
+     14.398704
+    ],
+    [
+     50.126095,
+     14.398497
+    ],
+    [
+     50.125854,
+     14.398322
+    ],
+    [
+     50.125138,
+     14.397734
+    ],
+    [
+     50.124781,
+     14.397428
+    ],
+    [
+     50.124548,
+     14.397211
+    ],
+    [
+     50.12439,
+     14.39705
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 4,
+   "ticks": 89,
+   "hasGeometry": true,
+   "minDistToNode": 7.11,
+   "instructions": "Turn right onto Mlýnská",
+   "maneuver": "slightLeft",
+   "wireByte": "0x18",
+   "distanceToNextStep": 7.10593268914807,
+   "secondaryWireByte": "0x15",
+   "secondaryDistanceMeters": 113.27593268914808,
+   "prevPolyTail": [
+    [
+     50.116093,
+     14.392499
+    ],
+    [
+     50.115848,
+     14.392807
+    ],
+    [
+     50.115603,
+     14.393048
+    ],
+    [
+     50.114391,
+     14.394037
+    ],
+    [
+     50.114326,
+     14.393985
+    ],
+    [
+     50.114134,
+     14.394075
+    ],
+    [
+     50.114061,
+     14.394169
+    ],
+    [
+     50.113988,
+     14.394262
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.113988,
+     14.394262
+    ],
+    [
+     50.113966,
+     14.394335
+    ],
+    [
+     50.113945,
+     14.394408
+    ],
+    [
+     50.113834,
+     14.394581
+    ],
+    [
+     50.11342,
+     14.395014
+    ],
+    [
+     50.113074,
+     14.395469
+    ],
+    [
+     50.112686,
+     14.396134
+    ],
+    [
+     50.112535,
+     14.396403
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 5,
+   "ticks": 74,
+   "hasGeometry": true,
+   "minDistToNode": 6.16,
+   "instructions": "Turn left onto Goetheho",
+   "maneuver": "right",
+   "wireByte": "0x15",
+   "distanceToNextStep": 6.155838193086053,
+   "secondaryWireByte": "0x09",
+   "secondaryDistanceMeters": 345.485838193086,
+   "prevPolyTail": [
+    [
+     50.112446,
+     14.396568
+    ],
+    [
+     50.112286,
+     14.396922
+    ],
+    [
+     50.112111,
+     14.397377
+    ],
+    [
+     50.111627,
+     14.398651
+    ],
+    [
+     50.109861,
+     14.401927
+    ],
+    [
+     50.109398,
+     14.402777
+    ],
+    [
+     50.109223,
+     14.402961
+    ],
+    [
+     50.108438,
+     14.403694
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.108438,
+     14.403694
+    ],
+    [
+     50.108355,
+     14.403485
+    ],
+    [
+     50.108257,
+     14.403293
+    ],
+    [
+     50.108095,
+     14.403093
+    ],
+    [
+     50.108054,
+     14.402815
+    ],
+    [
+     50.108024,
+     14.402865
+    ],
+    [
+     50.107749,
+     14.403322
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 6,
+   "ticks": 28,
+   "hasGeometry": true,
+   "minDistToNode": 6.19,
+   "instructions": "Turn right onto Sibiřské náměstí",
+   "maneuver": "straight",
+   "wireByte": "0x09",
+   "distanceToNextStep": 6.191072020605034,
+   "secondaryWireByte": "0x15",
+   "secondaryDistanceMeters": 93.10107202060503,
+   "prevPolyTail": [
+    [
+     50.108438,
+     14.403694
+    ],
+    [
+     50.108355,
+     14.403485
+    ],
+    [
+     50.108257,
+     14.403293
+    ],
+    [
+     50.108095,
+     14.403093
+    ],
+    [
+     50.108054,
+     14.402815
+    ],
+    [
+     50.108024,
+     14.402865
+    ],
+    [
+     50.107749,
+     14.403322
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.107749,
+     14.403322
+    ],
+    [
+     50.107183,
+     14.404438
+    ],
+    [
+     50.106934,
+     14.404955
+    ],
+    [
+     50.106695,
+     14.40551
+    ],
+    [
+     50.106631,
+     14.405599
+    ],
+    [
+     50.106485,
+     14.40573
+    ],
+    [
+     50.106339,
+     14.405862
+    ],
+    [
+     50.105755,
+     14.40639
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 7,
+   "ticks": 30,
+   "hasGeometry": true,
+   "minDistToNode": 5.98,
+   "instructions": "Turn left onto Sibiřské náměstí",
+   "maneuver": "right",
+   "wireByte": "0x15",
+   "distanceToNextStep": 5.976214431807211,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 1374.2162144318072,
+   "prevPolyTail": [
+    [
+     50.107749,
+     14.403322
+    ],
+    [
+     50.107183,
+     14.404438
+    ],
+    [
+     50.106934,
+     14.404955
+    ],
+    [
+     50.106695,
+     14.40551
+    ],
+    [
+     50.106631,
+     14.405599
+    ],
+    [
+     50.106485,
+     14.40573
+    ],
+    [
+     50.106339,
+     14.405862
+    ],
+    [
+     50.105755,
+     14.40639
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.105755,
+     14.40639
+    ],
+    [
+     50.105691,
+     14.40635
+    ],
+    [
+     50.104996,
+     14.406101
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 8,
+   "ticks": 11,
+   "hasGeometry": true,
+   "minDistToNode": 2.61,
+   "instructions": "Continue onto Letenský tunel",
+   "maneuver": "left",
+   "wireByte": "0x14",
+   "distanceToNextStep": 2.6118826409814746,
+   "secondaryWireByte": "0x19",
+   "secondaryDistanceMeters": 944.5518826409815,
+   "prevPolyTail": [
+    [
+     50.105755,
+     14.40639
+    ],
+    [
+     50.105691,
+     14.40635
+    ],
+    [
+     50.104996,
+     14.406101
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.104996,
+     14.406101
+    ],
+    [
+     50.104731,
+     14.406693
+    ],
+    [
+     50.104588,
+     14.407013
+    ],
+    [
+     50.104436,
+     14.407246
+    ],
+    [
+     50.103788,
+     14.408056
+    ],
+    [
+     50.103644,
+     14.408269
+    ],
+    [
+     50.103418,
+     14.408745
+    ],
+    [
+     50.103257,
+     14.409139
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 9,
+   "ticks": 200,
+   "hasGeometry": true,
+   "minDistToNode": 6.65,
+   "instructions": "Turn left onto Lannova",
+   "maneuver": "slightRight",
+   "wireByte": "0x19",
+   "distanceToNextStep": 6.652843173060528,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 84.59284317306053,
+   "prevPolyTail": [
+    [
+     50.102375,
+     14.415906
+    ],
+    [
+     50.102276,
+     14.416119
+    ],
+    [
+     50.101803,
+     14.416879
+    ],
+    [
+     50.101354,
+     14.417911
+    ],
+    [
+     50.100985,
+     14.418726
+    ],
+    [
+     50.100009,
+     14.421031
+    ],
+    [
+     50.099807,
+     14.421541
+    ],
+    [
+     50.099696,
+     14.421752
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.099696,
+     14.421752
+    ],
+    [
+     50.09942,
+     14.421935
+    ],
+    [
+     50.098836,
+     14.422215
+    ],
+    [
+     50.097778,
+     14.422746
+    ],
+    [
+     50.097677,
+     14.422831
+    ],
+    [
+     50.097529,
+     14.423011
+    ],
+    [
+     50.097361,
+     14.423265
+    ],
+    [
+     50.097236,
+     14.423502
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 10,
+   "ticks": 140,
+   "hasGeometry": true,
+   "minDistToNode": 53.87,
+   "instructions": "Turn left onto Nové mlýny",
+   "maneuver": "left",
+   "wireByte": "0x14",
+   "distanceToNextStep": 53.86718855364555,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 119.61718855364555,
+   "prevPolyTail": [
+    [
+     50.095986,
+     14.426555
+    ],
+    [
+     50.095872,
+     14.426606
+    ],
+    [
+     50.095593,
+     14.426669
+    ],
+    [
+     50.095237,
+     14.426754
+    ],
+    [
+     50.094526,
+     14.426931
+    ],
+    [
+     50.093435,
+     14.42719
+    ],
+    [
+     50.092904,
+     14.427315
+    ],
+    [
+     50.092627,
+     14.427393
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.092627,
+     14.427393
+    ],
+    [
+     50.09271,
+     14.428467
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 11,
+   "ticks": 10,
+   "hasGeometry": true,
+   "minDistToNode": 14.44,
+   "instructions": "Turn left onto Lannova",
+   "maneuver": "left",
+   "wireByte": "0x14",
+   "distanceToNextStep": 14.444108886023113,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 92.38410888602311,
+   "prevPolyTail": [
+    [
+     50.095149,
+     14.426775
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.095149,
+     14.426775
+    ],
+    [
+     50.093435,
+     14.42719
+    ],
+    [
+     50.092904,
+     14.427315
+    ],
+    [
+     50.092627,
+     14.427393
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 12,
+   "ticks": 8,
+   "hasGeometry": true,
+   "minDistToNode": 2.57,
+   "instructions": "Turn left onto Nové mlýny",
+   "maneuver": "left",
+   "wireByte": "0x14",
+   "distanceToNextStep": 2.571231972721621,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 68.32123197272162,
+   "prevPolyTail": [
+    [
+     50.095149,
+     14.426775
+    ],
+    [
+     50.093435,
+     14.42719
+    ],
+    [
+     50.092904,
+     14.427315
+    ],
+    [
+     50.092627,
+     14.427393
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.092627,
+     14.427393
+    ],
+    [
+     50.09271,
+     14.428467
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 13,
+   "ticks": 11,
+   "hasGeometry": true,
+   "minDistToNode": 2.38,
+   "instructions": "Turn right onto Ludvíka Svobody",
+   "maneuver": "left",
+   "wireByte": "0x14",
+   "distanceToNextStep": 2.3783225747999013,
+   "secondaryWireByte": "0x1A",
+   "secondaryDistanceMeters": 2102.3883225748,
+   "prevPolyTail": [
+    [
+     50.092627,
+     14.427393
+    ],
+    [
+     50.09271,
+     14.428467
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.09271,
+     14.428467
+    ],
+    [
+     50.092751,
+     14.428464
+    ],
+    [
+     50.093295,
+     14.428333
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 14,
+   "ticks": 23,
+   "hasGeometry": true,
+   "minDistToNode": 7.57,
+   "instructions": "Make a U-turn",
+   "maneuver": "uTurnRight",
+   "wireByte": "0x1A",
+   "distanceToNextStep": 7.565369366775858,
+   "secondaryWireByte": "0x14",
+   "secondaryDistanceMeters": 211.64536936677587,
+   "prevPolyTail": [
+    [
+     50.09271,
+     14.428467
+    ],
+    [
+     50.092751,
+     14.428464
+    ],
+    [
+     50.093295,
+     14.428333
+    ]
+   ],
+   "nextPolyHead": [
+    [
+     50.093295,
+     14.428333
+    ],
+    [
+     50.093305,
+     14.428697
+    ],
+    [
+     50.093359,
+     14.42991
+    ],
+    [
+     50.093484,
+     14.431808
+    ],
+    [
+     50.093455,
+     14.431928
+    ],
+    [
+     50.093489,
+     14.432561
+    ],
+    [
+     50.093731,
+     14.435509
+    ],
+    [
+     50.093908,
+     14.437886
+    ]
+   ],
+   "isRerouting": false
+  },
+  {
+   "segment": 15,
+   "instructions": "Take a slight right turn",
+   "ticks": 167,
+   "hasGeometry": false
+  }
+ ]
+}
