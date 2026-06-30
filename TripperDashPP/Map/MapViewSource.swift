@@ -1702,7 +1702,7 @@ extension MapViewSource {
 
     /// Outer diameter (px) of the speed-limit sign disc. Exposed as a
     /// constant so the weather pill can hop above it on a collision.
-    fileprivate static let speedLimitSignDiameter: CGFloat = 58
+    fileprivate static let speedLimitSignDiameter: CGFloat = 62
     /// Margin (px) from the frame edges, matched to the weather pill.
     fileprivate static let speedLimitSignMargin: CGFloat = 12
 
@@ -1751,15 +1751,27 @@ extension MapViewSource {
 
         ctx.restoreGState()
 
-        // Black number, centred in the white field. Size scales down for
-        // 3-digit limits (e.g. 130) so it still fits inside the ring.
-        let fontSize: CGFloat = label.count >= 3 ? d * 0.40 : d * 0.48
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        // Black number, centred in the white field. The glyphs must clear
+        // the red ring for ANY value — a wide 2-digit limit like "90" or a
+        // 3-digit "130" — so instead of a fixed font fraction (which scales
+        // WITH the disc and so always kept the same ring overlap) we
+        // width-fit: start from a comfortable size and shrink to the inner
+        // white field if the measured text would touch the ring. Fixes the
+        // "90 kisses the ring" report (rider feedback 6/2026).
+        let innerFieldD = d - 2 * ringW          // white field inside the ring
+        let maxTextWidth = innerFieldD * 0.72    // headroom for the round ring
+        var fontSize: CGFloat = d * 0.50
+        var font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        var textSize = (label as NSString).size(withAttributes: [.font: font])
+        if textSize.width > maxTextWidth {
+            fontSize *= maxTextWidth / textSize.width
+            font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+            textSize = (label as NSString).size(withAttributes: [.font: font])
+        }
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: UIColor.black,
         ]
-        let textSize = (label as NSString).size(withAttributes: attrs)
         let textOrigin = CGPoint(x: cx - textSize.width / 2,
                                  y: cy - textSize.height / 2)
         UIGraphicsPushContext(ctx)

@@ -333,3 +333,55 @@ def test_picker_in_settings_ui():
     src = _src("UI/StreamingView.swift")
     assert 'Picker("Speed limit"' in src
     assert "SpeedLimitDisplay.allCases" in src
+
+
+# --- Sign number fit (rider feedback: "90 leze do červeného kruhu") -------
+
+def _sign_number_corner_clears_ring(label: str, d: float) -> tuple[float, float]:
+    """Mirror of drawSpeedLimitSign's width-fit number sizing. Returns
+    (corner_radius_of_text_box, inner_white_field_radius). The number's
+    bounding-box corner must stay inside the white field (< field radius)
+    so the glyphs never touch the red ring, for any value.
+
+    SF Pro bold metrics as em fractions (predikce z typografie, ne HW
+    měření — the real glyph box is verified by the macOS xcodebuild CI).
+    """
+    ring_w = d * 0.16
+    inner_field_d = d - 2 * ring_w
+    max_text_w = inner_field_d * 0.72
+    font_size = d * 0.50
+
+    # Per-glyph advance: '1' is narrow, other digits ~0.58 em; cap height
+    # ~0.714 em for SF Pro bold.
+    def text_w(fs: float) -> float:
+        return sum((0.33 if ch == "1" else 0.58) * fs for ch in label)
+
+    w = text_w(font_size)
+    if w > max_text_w:               # width-fit shrink, mirrors the Swift
+        font_size *= max_text_w / w
+        w = text_w(font_size)
+    cap_h = 0.714 * font_size
+    corner = math.hypot(w / 2, cap_h / 2)
+    field_r = inner_field_d / 2
+    return corner, field_r
+
+
+@pytest.mark.parametrize("label", ["30", "50", "90", "120", "130", "31", "70"])
+def test_sign_number_stays_inside_ring(label):
+    # At the shipped diameter (62), every realistic limit's number box must
+    # clear the white field with a little margin — no kissing the red ring.
+    corner, field_r = _sign_number_corner_clears_ring(label, d=62)
+    assert corner < field_r, f"'{label}' number box ({corner:.1f}) overruns field ({field_r:.1f})"
+    assert field_r - corner >= 1.5, f"'{label}' too tight to the ring (gap {field_r - corner:.1f}px)"
+
+
+def test_sign_uses_width_fit_not_fixed_fraction():
+    """The renderer must width-fit the number to the inner field, not use
+    the old fixed `d * 0.48 / 0.40` fraction that scaled with the disc and
+    so always kept the same ring overlap (the '90 kisses the ring' bug)."""
+    src = mapsource_src()
+    assert "let innerFieldD = d - 2 * ringW" in src, "inner white-field width not derived"
+    assert "let maxTextWidth = innerFieldD" in src, "number not width-fit to the field"
+    assert "fontSize *= maxTextWidth / textSize.width" in src, "missing shrink-to-fit step"
+    # The old fixed-fraction sizing must be gone so it can't regress.
+    assert "label.count >= 3 ? d * 0.40 : d * 0.48" not in src, "old fixed-fraction sizing still present"
