@@ -87,31 +87,35 @@ final class ActiveNavLoop {
 
         // Snapshot — keep this synchronous so the values are consistent
         // across the wire packet and the overlay.
-        let step: MKRoute.Step? = nav.nextStep
-        let prevStep: MKRoute.Step? = nav.stepBeforeNext
+        //
+        // `nextStep` (departing) / `stepBeforeNext` (arriving) are kept for
+        // the geometry-replay diagnostics in the log; the maneuver the
+        // rider actually sees comes from the navigator's DERIVED model
+        // (`upcomingManeuver` / `upcomingInstructions` / `lookaheadManeuver`),
+        // which resolves Apple's end-of-polyline text convention in one
+        // place so the bubble text can't drift a maneuver ahead of the arrow.
+        let arrivingStep: MKRoute.Step? = nav.stepBeforeNext   // text + incoming leg
+        let departingStep: MKRoute.Step? = nav.nextStep        // outgoing leg
         let distNext: Double = nav.distanceToNextStep
         let distTotal: Double = nav.remainingDistance
         let etaSec: TimeInterval = nav.etaSeconds
         // F2c: secondary snapshot. Always read, decision-to-emit
         // happens below.
-        let secondStep: MKRoute.Step? = nav.secondNextStep
         let distSecond: Double = nav.distanceToSecondNextStep
         let isRerouting: Bool = nav.isRerouting
 
-        // Classify maneuver for the dash bubble (and burned-in glyph, if
-        // re-enabled). Direction comes from route geometry via the
-        // incoming `prevStep` leg; if there's no active step we fall back
-        // to "straight" so the rider sees a benign placeholder.
-        //
-        // While a reroute is in flight the upcoming step belongs to the
-        // STALE route (we're off it, waiting for MKDirections), so showing
-        // its arrow would point the rider the wrong way. Override the glyph
-        // with the dash's spinning-compass "recalculating" icon (0x1C)
-        // until the new route lands and isRerouting clears.
+        // The upcoming maneuver (text-family + geometry-direction) resolved
+        // by the navigator. While a reroute is in flight the upcoming step
+        // belongs to the STALE route (we're off it, waiting for
+        // MKDirections), so showing its arrow would point the rider the
+        // wrong way — override with the dash's spinning-compass
+        // "recalculating" icon (0x1C) until the new route lands. Falls back
+        // to `.straight` only in the brief pre-first-fix transient.
         let kind: ManeuverKind = {
             if isRerouting { return .recalculating }
-            return step.map { ManeuverKind.classify($0, previousStep: prevStep) } ?? .straight
+            return nav.upcomingManeuver ?? .straight
         }()
+        let upcomingInstructions: String? = nav.upcomingInstructions
 
         // Pre-compute wire values.
         //
@@ -130,24 +134,25 @@ final class ActiveNavLoop {
 
         // F2c: secondary wire values. Only attach the chevron when:
         //   1. The feature is enabled in settings (default: yes).
-        //   2. There IS a step after `nextStep` (we're not on the last leg).
+        //   2. There IS a maneuver after the upcoming one (look-ahead
+        //      exists — `nav.lookaheadManeuver != nil`; nil on the last leg).
         //   3. The primary maneuver is close enough that a look-ahead is
         //      actually useful — far enough out, the chevron is just noise.
         // Distance/unit follow the same magnitude-based logic as the
         // primary block so units stay consistent across both chips.
+        let lookahead: ManeuverKind? = nav.lookaheadManeuver
         let emitSecondary = settings.lookaheadEnabled
             && !isRerouting   // stale route during reroute → no look-ahead
-            && secondStep != nil
+            && lookahead != nil
             && distNext <= settings.lookaheadThresholdMeters
         let secondaryManeuverByte: UInt8?
         let secondaryDistanceMeters: UInt16?
         let secondaryUnitByte: UInt8?
-        if emitSecondary, let s2 = secondStep {
-            // The secondary maneuver's incoming leg is the PRIMARY step
-            // (the rider reaches s2 right after completing `step`).
-            // Bucket its distance the same way as the primary so the
-            // look-ahead chip's "in N m" doesn't twitch either.
-            let kind2 = ManeuverKind.classify(s2, previousStep: step)
+        if emitSecondary, let kind2 = lookahead {
+            // `distanceToSecondNextStep` is already the rider→secondary-node
+            // distance (distance-to-primary + the departing leg's length),
+            // resolved in the navigator. Bucket it the same way as the
+            // primary so the look-ahead chip's "in N m" doesn't twitch.
             let secondBucketed = settings.bucketedManeuverDistance(meters: distSecond)
             let unit2 = settings.primaryUnitWireByte(forMeters: secondBucketed)
             secondaryManeuverByte = kind2.wireByte
@@ -231,7 +236,11 @@ final class ActiveNavLoop {
             coordinate: nav.currentCoordinate,
             maneuver: kind,
             wireByte: kind.wireByte,
-            instructions: step?.instructions,
+            // Log the CORRECTED upcoming text (arriving step's
+            // instructions), so the recorded text matches the glyph and a
+            // replay over this log is a faithful regression fixture rather
+            // than re-capturing the old maneuver-ahead-of-arrow drift.
+            instructions: upcomingInstructions,
             distanceToNextStep: distNext,
             remainingDistance: distTotal,
             etaSeconds: etaSec,
@@ -243,10 +252,11 @@ final class ActiveNavLoop {
             secondaryDistanceMeters: emitSecondary ? distSecond : nil,
             // Polyline diagnostics: only near the maneuver (≤150 m) so the
             // log doesn't bloat. Lets a replay recompute ManeuverGeometry's
-            // exact angle and pinpoint the L/R flips (stepBeforeNext not
-            // adjacent to nextStep → incoming bearing off wrong leg).
-            prevPolyTail: distNext <= 150 ? Self.polyTail(prevStep?.polyline) : nil,
-            nextPolyHead: distNext <= 150 ? Self.polyHead(step?.polyline) : nil
+            // exact angle. `prevPolyTail` is the ARRIVING leg (ends at the
+            // node, incoming bearing); `nextPolyHead` is the DEPARTING leg
+            // (leaves the node, outgoing bearing).
+            prevPolyTail: distNext <= 150 ? Self.polyTail(arrivingStep?.polyline) : nil,
+            nextPolyHead: distNext <= 150 ? Self.polyHead(departingStep?.polyline) : nil
         )
     }
 

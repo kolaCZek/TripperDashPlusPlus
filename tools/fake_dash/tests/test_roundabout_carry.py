@@ -163,13 +163,15 @@ def test_swift_classify_carries_exit_from_previous_step():
         repo_root / "TripperDashPP" / "Navigation" / "Models" / "ManeuverIcon.swift"
     )
     src = swift.read_text(encoding="utf-8")
-    # Find the roundabout branch in classify(...).
+    # Find the roundabout branch in classify(...). The branch carries a
+    # long explanatory comment before the carry logic, so widen the slice
+    # enough to include the precedingStep carry path below it.
     idx = src.index("if Keywords.isRoundabout(s)")
-    branch = src[idx:idx + 1200]
-    # The carry path must: reference previousStep, re-check isRoundabout on
-    # it, and re-parse its instructions. We assert all three so a future
-    # refactor that drops the carry fails loudly here.
-    assert "previousStep" in branch, "roundabout branch no longer reads previousStep"
+    branch = src[idx:idx + 1600]
+    # The carry path must: reference the preceding step, re-check
+    # isRoundabout on it, and re-parse its instructions. We assert all
+    # three so a future refactor that drops the carry fails loudly here.
+    assert "precedingStep" in branch, "roundabout branch no longer reads precedingStep"
     assert "isRoundabout(prev" in branch, "carry no longer re-checks previous is a roundabout"
     assert branch.count("parseExitNumber") >= 2, (
         "carry no longer re-parses the previous step's ordinal "

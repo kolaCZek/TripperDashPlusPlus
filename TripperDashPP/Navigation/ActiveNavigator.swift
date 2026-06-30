@@ -73,16 +73,30 @@ final class ActiveNavigator {
     private let paceFactorMin: Double = 0.5
     private let paceFactorMax: Double = 2.0
 
-    /// The next maneuver step the rider should anticipate.
+    /// The DEPARTING step at the upcoming maneuver node — the step whose
+    /// polyline LEAVES the node. Supplies the OUTGOING heading for the
+    /// geometric turn-direction classifier (`ManeuverKind.classify` →
+    /// `ManeuverGeometry`). NOTE: despite the name this is NOT the step
+    /// whose `.instructions` describe the upcoming maneuver — Apple's
+    /// end-of-polyline convention puts that text on `stepBeforeNext` (the
+    /// step ENDING at the node). Read the upcoming maneuver via
+    /// `upcomingManeuver` / `upcomingInstructions`, never this directly.
     private(set) var nextStep: MKRoute.Step?
 
-    /// The step the rider is currently COMPLETING — the one whose polyline
-    /// ends at `nextStep`'s maneuver node. Supplies the incoming heading
-    /// for the geometric turn-direction classifier (`ManeuverKind.classify`
-    /// → `ManeuverGeometry`). `nil` when `nextStep` is the route's first
-    /// step (no incoming leg yet), in which case classification falls back
-    /// to text for direction.
+    /// The ARRIVING step the rider is currently COMPLETING — the one whose
+    /// polyline ENDS at the upcoming maneuver node. Two roles: (1) its
+    /// `.instructions` describe the upcoming maneuver (Apple puts the turn
+    /// text on the step that ends at the node), and (2) its polyline tail
+    /// supplies the INCOMING heading for the geometric turn classifier.
+    /// `nil` only in the brief transient before the first GPS fix maps the
+    /// rider onto a step, when classification falls back to text.
     private(set) var stepBeforeNext: MKRoute.Step?
+
+    /// The step BEFORE `stepBeforeNext`. Used only to carry a roundabout's
+    /// exit ordinal forward across MapKit's split entry/exit roundabout
+    /// steps (the exit step drops the ordinal — see `ManeuverKind.classify`).
+    /// `nil` when the arriving step is the route's first.
+    private(set) var precedingStep: MKRoute.Step?
 
     /// Distance from current position to the next maneuver.
     private(set) var distanceToNextStep: CLLocationDistance = 0
@@ -96,11 +110,54 @@ final class ActiveNavigator {
     private(set) var secondNextStep: MKRoute.Step?
 
     /// Distance from the *current position* to the secondary
-    /// maneuver. This is `distanceToNextStep + secondNextStep.distance`
-    /// — the next step's distance field is measured FROM the previous
-    /// maneuver TO this step's maneuver point, so it's also the
-    /// "between primary and secondary" leg length.
+    /// maneuver. This is `distanceToNextStep + nextStep.distance` — the
+    /// length of `nextStep`'s polyline IS the leg from the primary
+    /// maneuver node (its start) to the secondary maneuver node (its
+    /// end), so adding it to the distance-to-primary gives the
+    /// distance-to-secondary. (Previously this added `secondNextStep`'s
+    /// distance — the leg AFTER the secondary node — overshooting the
+    /// look-ahead chip by a whole extra step; field logs 6/2026.)
     private(set) var distanceToSecondNextStep: CLLocationDistance = 0
+
+    // MARK: - Derived maneuver model (single source of truth)
+    //
+    // Apple's `MKRoute.Step.instructions` describes the maneuver at the
+    // END of that step's polyline (the turn ONTO the next road), so the
+    // step whose `.instructions` name the UPCOMING maneuver is the one the
+    // rider is currently traversing — the ARRIVING step (`stepBeforeNext`),
+    // whose polyline ends at the upcoming node — NOT `nextStep` (whose
+    // polyline LEAVES the node and carries the maneuver AFTER next). These
+    // computed properties are the ONE place that pairing is resolved, so a
+    // consumer can never reintroduce the off-by-one by reading
+    // `nextStep?.instructions` directly.
+
+    /// The fully classified UPCOMING maneuver (text-family + geometry-
+    /// direction). Text/family from the arriving step's instructions;
+    /// direction from the angle between the arriving leg (into the node)
+    /// and the departing leg (`nextStep`, out of the node). `nil` only in
+    /// the pre-first-fix transient when no arriving step is known yet.
+    var upcomingManeuver: ManeuverKind? {
+        guard let arriving = stepBeforeNext else { return nil }
+        return ManeuverKind.classify(arrivingStep: arriving,
+                                     departingStep: nextStep,
+                                     precedingStep: precedingStep)
+    }
+
+    /// The localized instruction text for the UPCOMING maneuver — the
+    /// arriving step's `.instructions` (the turn at the end of the leg the
+    /// rider is on), NOT `nextStep`'s (which is one maneuver further on).
+    var upcomingInstructions: String? { stepBeforeNext?.instructions }
+
+    /// The fully classified LOOK-AHEAD (secondary) maneuver — the one
+    /// after `upcomingManeuver`. Its arriving step is `nextStep` (whose
+    /// polyline ends at the secondary node) and its departing step is
+    /// `secondNextStep`. `nil` when there's no step after next (last leg).
+    var lookaheadManeuver: ManeuverKind? {
+        guard let arriving = nextStep, let departing = secondNextStep else { return nil }
+        return ManeuverKind.classify(arrivingStep: arriving,
+                                     departingStep: departing,
+                                     precedingStep: stepBeforeNext)
+    }
 
     /// True if we're currently off-route. Reroute logic in 7h reads
     /// this together with the timestamps below.
@@ -285,10 +342,19 @@ final class ActiveNavigator {
         // Seed initial display values from the route itself.
         self.remainingDistance = route.distance
         self.etaSeconds = route.expectedTravelTime
-        self.nextStep = route.steps.first
-        self.stepBeforeNext = nil   // first step has no incoming leg
+        // Seed the maneuver model to the SAME shape ingest() produces on
+        // the first fix: the rider is about to traverse steps[0] (the
+        // ARRIVING step whose polyline ends at the first maneuver node and
+        // whose `.instructions` name that maneuver), departing via
+        // steps[1]. Reading text from the arriving step — not the
+        // departing one — is the off-by-one fix; see `upcomingManeuver`.
+        self.stepBeforeNext = route.steps.first          // arriving (text + incoming leg)
+        self.nextStep = route.steps.dropFirst().first    // departing (outgoing leg)
+        self.precedingStep = nil                         // nothing before the first step
         self.distanceToNextStep = route.steps.first?.distance ?? 0
-        self.secondNextStep = route.steps.dropFirst().first
+        self.secondNextStep = route.steps.dropFirst(2).first
+        // distance-to-secondary = distance-to-primary + the primary
+        // (departing) step's own length (primary node → secondary node).
         self.distanceToSecondNextStep = (route.steps.first?.distance ?? 0)
             + (route.steps.dropFirst().first?.distance ?? 0)
         // Refresh the overview caches. `plan`/`currentLegIndex` are
@@ -340,6 +406,7 @@ final class ActiveNavigator {
         self.etaSeconds = 0
         self.nextStep = nil
         self.stepBeforeNext = nil
+        self.precedingStep = nil
         self.distanceToNextStep = 0
         self.secondNextStep = nil
         self.distanceToSecondNextStep = 0
@@ -455,31 +522,46 @@ final class ActiveNavigator {
         }
         self.etaSeconds = computeEta(remaining: remaining, route: route)
 
-        // Next maneuver lookup.
+        // Maneuver lookup. `nextStepIndex` returns the step whose polyline
+        // STARTS at the upcoming maneuver node — the DEPARTING step
+        // (`nextStep`). The step the rider is currently traversing, whose
+        // polyline ENDS at that node, is the ARRIVING step
+        // (`stepBeforeNext`). Apple writes the maneuver text on the
+        // ARRIVING step (the turn at the END of its polyline), so the
+        // upcoming maneuver's text/family come from `stepBeforeNext` while
+        // its turn ANGLE comes from arriving→departing geometry. The
+        // derived `upcomingManeuver` / `upcomingInstructions` resolve that
+        // pairing — consumers must read those, never `nextStep.instructions`.
         if let stepIdx = PolylineMath.nextStepIndex(in: route, afterPolylineIndex: segIdx),
            stepIdx < route.steps.count {
-            let step = route.steps[stepIdx]
+            let step = route.steps[stepIdx]            // DEPARTING (leaves the node)
             self.nextStep = step
-            // The step the rider is completing = the one BEFORE the next
-            // maneuver. Supplies the incoming heading for the geometric
-            // turn classifier. nil when nextStep is the route's first step.
+            // ARRIVING step = the one BEFORE the departing step; its
+            // polyline ends at the node and its `.instructions` name the
+            // upcoming maneuver. nil only if the departing step is the
+            // route's first (no incoming leg yet).
             self.stepBeforeNext = stepIdx > 0 ? route.steps[stepIdx - 1] : nil
+            // PRECEDING step (before arriving) — only used to carry a
+            // roundabout's exit ordinal across MapKit's split entry/exit
+            // steps. nil when the arriving step is the route's first.
+            self.precedingStep = stepIdx > 1 ? route.steps[stepIdx - 2] : nil
             self.distanceToNextStep = PolylineMath.haversine(
                 coord,
                 step.polyline.points()[0].coordinate
             )
-            // F2c: secondary maneuver = step *after* the next one, if
-            // any. `step.distance` is the leg length from this step's
-            // start to the following maneuver — so the distance from
-            // the rider to the secondary turn is "distance to primary
-            // turn + distance the primary leg itself covers". That
-            // matches what the dash expects in the 0x05 TLV.
+            // F2c: secondary (look-ahead) maneuver = the step AFTER the
+            // departing one. The distance from the rider to the SECONDARY
+            // node is "distance to the primary node" plus the length of
+            // the DEPARTING step's own polyline (`step.distance`), which is
+            // exactly the primary-node → secondary-node leg. The previous
+            // code added `secondStep.distance` — the leg AFTER the
+            // secondary node — overshooting by a whole step (field logs
+            // 6/2026 measured ~+160 m on the first maneuver).
             let secondIdx = stepIdx + 1
             if secondIdx < route.steps.count {
-                let secondStep = route.steps[secondIdx]
-                self.secondNextStep = secondStep
+                self.secondNextStep = route.steps[secondIdx]
                 self.distanceToSecondNextStep = self.distanceToNextStep
-                    + secondStep.distance
+                    + step.distance
             } else {
                 self.secondNextStep = nil
                 self.distanceToSecondNextStep = 0
@@ -531,13 +613,22 @@ final class ActiveNavigator {
             // route's expectedTravelTime when we haven't gathered
             // enough samples yet.
             self.etaSeconds = computeEta(remaining: newRoute.distance, route: newRoute)
-            self.nextStep = newRoute.steps.first
-            self.stepBeforeNext = nil   // fresh route → next is first step
+            // Fresh route after a reroute: the rider sits at the new
+            // route's origin, traversing steps[0] (ARRIVING — its polyline
+            // ends at the first maneuver node and its `.instructions` name
+            // that maneuver), departing via steps[1]. Same shape as `seed`
+            // and as the first `ingest` tick, so the off-by-one fix holds
+            // across reroutes too.
+            self.stepBeforeNext = newRoute.steps.first        // arriving (text + incoming leg)
+            self.nextStep = newRoute.steps.dropFirst().first  // departing (outgoing leg)
+            self.precedingStep = nil                          // fresh route → nothing before
             self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
             // F2c: rebuild secondary too. Reroute usually keeps the
             // first step short (Apple Maps fences the next maneuver),
             // so the look-ahead is most useful right after a reroute.
-            self.secondNextStep = newRoute.steps.dropFirst().first
+            self.secondNextStep = newRoute.steps.dropFirst(2).first
+            // distance-to-secondary = distance-to-primary + the primary
+            // (departing) leg's own length (primary node → secondary node).
             self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
                 + (newRoute.steps.dropFirst().first?.distance ?? 0)
             // Fire the route-changed hook so Map UI repaints the new
@@ -610,6 +701,7 @@ final class ActiveNavigator {
 // removed here. It NLP-classified the instruction string with the same
 // substring approach (and the same left-before-right / road-name bug)
 // that this change replaced. The single source of truth is now
-// `ManeuverKind.classify(_:previousStep:)` → `ManeuverKind.sfSymbol`
+// `ManeuverKind.classify(arrivingStep:departingStep:precedingStep:)` →
+// `ManeuverKind.sfSymbol`
 // (geometry for direction, text for family), used by both the dash
 // bubble and the SwiftUI HUD.
