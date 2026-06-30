@@ -227,6 +227,16 @@ final class ActiveNavLoop {
         )
         mapSource?.setNavOverlay(overlay)
 
+        // Keep the speed-limit sign's policy in sync with settings every
+        // tick — a few cheap value writes, so flipping the display mode,
+        // the over-limit tolerance, or km/h ⇄ mph mid-ride re-evaluates the
+        // sign on the next frame without waiting for a route re-prefetch.
+        mapSource?.setSpeedLimitConfig(
+            mode: settings.speedLimitDisplay.rawValue,
+            toleranceKmh: settings.speedLimitOverToleranceKmh,
+            imperial: settings.units == .imperial
+        )
+
         // 3. Internal file-based debug log of this nav tick (GPS + glyph +
         //    distances + reroute + active-route identity). Non-blocking:
         //    `record` only snapshots these values and hands them to its own

@@ -116,6 +116,18 @@ struct StreamingView: View {
                 )) {
                     Text("Speed cameras")
                 }
+
+                Picker("Speed limit", selection: Binding(
+                    get: { status.dashNavSettings.speedLimitDisplay },
+                    set: { status.dashNavSettings.speedLimitDisplay = $0 }
+                )) {
+                    ForEach(DashNavSettings.SpeedLimitDisplay.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                Text("Shows the posted limit as a road sign in the bottom-right corner. From OpenStreetMap data — coverage varies and untagged roads show nothing, so treat a missing sign as unknown, not zero.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // Route preferences live ONLY in the planning panel's

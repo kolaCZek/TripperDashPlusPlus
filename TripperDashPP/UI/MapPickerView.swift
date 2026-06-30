@@ -752,6 +752,9 @@ struct MapPickerView: View {
         // disk-cached, gated on the Notifications → Speed cameras toggle).
         // Fire-and-forget: navigation must never wait on Overpass.
         status.prefetchSpeedCameras(for: route)
+        // Prefetch OSM speed-limit ways along the same corridor (best-
+        // effort, disk-cached, gated on the Speed limit display mode).
+        status.prefetchSpeedLimits(for: route)
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         prerenderProgress = 0
         prerenderActive = true

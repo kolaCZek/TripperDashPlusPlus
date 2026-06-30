@@ -67,6 +67,7 @@
 		A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */; };
 		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
 		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
+		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
 		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
 		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
@@ -145,6 +146,7 @@
 		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 			children = (
 				B1DEA1E700000000000000A0 /* WeatherAlertService.swift */,
 				B1DEA1E700000000000000B0 /* SpeedCameraService.swift */,
+				B1DEA1E700000000000000D0 /* SpeedLimitService.swift */,
 			);
 			path = RideAlerts;
 			sourceTree = "<group>";
@@ -484,6 +487,7 @@
 				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
 				B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */,
+				B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */,
 				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
 				F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */,
 				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,

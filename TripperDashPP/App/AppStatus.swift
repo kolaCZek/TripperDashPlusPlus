@@ -472,6 +472,7 @@ final class AppStatus {
     /// Guards against overlapping speed-camera prefetches when several
     /// route installs land close together (start + immediate reroute).
     @ObservationIgnored private var speedCameraPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var speedLimitPrefetchTask: Task<Void, Never>?
 
     /// Start observing system call state and forwarding it to the dash.
     /// Mirrors `km3.u()` in the stock app: call changes become K1G
@@ -649,6 +650,44 @@ final class AppStatus {
         }
     }
 
+    /// Prefetch OSM `maxspeed` ways along the freshly-installed route so
+    /// the renderer can map-match the rider's position to a posted limit.
+    /// Same lifecycle as `prefetchSpeedCameras`. No-op (and the sign
+    /// cleared) when the display mode is `.off`. Always pushes the current
+    /// display config first so the renderer's mode/units are fresh even if
+    /// the fetch returns nothing.
+    func prefetchSpeedLimits(for route: MKRoute) {
+        speedLimitPrefetchTask?.cancel()
+        pushSpeedLimitConfig()
+        guard dashNavSettings.speedLimitDisplay != .off else {
+            mapViewSource.setSpeedLimits([])
+            return
+        }
+        let coords = route.polyline.coordinateList()
+        guard coords.count >= 2 else { return }
+        speedLimitPrefetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let ways = await SpeedLimitService.shared.limitsAlong(route: coords)
+            guard !Task.isCancelled else { return }
+            // Re-check the mode after the network await.
+            self.mapViewSource.setSpeedLimits(
+                self.dashNavSettings.speedLimitDisplay != .off ? ways : []
+            )
+        }
+    }
+
+    /// Push the speed-limit display policy (mode + tolerance + units) to
+    /// the renderer. Cheap; safe to call on prefetch and whenever settings
+    /// change. Units are derived from the same `units` setting the camera
+    /// labels use.
+    func pushSpeedLimitConfig() {
+        mapViewSource.setSpeedLimitConfig(
+            mode: dashNavSettings.speedLimitDisplay.rawValue,
+            toleranceKmh: dashNavSettings.speedLimitOverToleranceKmh,
+            imperial: dashNavSettings.units == .imperial
+        )
+    }
+
     /// Watch the two ride-alert toggles so flipping either OFF mid-ride
     /// clears its overlay immediately (rather than waiting for the next
     /// fix / route install). Turning back ON does nothing here — the next
@@ -658,6 +697,7 @@ final class AppStatus {
     private func wireRideAlerts() {
         observeWeatherToggle()
         observeSpeedCameraToggle()
+        observeSpeedLimitMode()
     }
 
     private func observeWeatherToggle() {
@@ -683,13 +723,42 @@ final class AppStatus {
                 if self.dashNavSettings.speedCamerasEnabled == false {
                     self.speedCameraPrefetchTask?.cancel()
                     self.mapViewSource.setSpeedCameras([])
-                } else if self.activeNavigator.isNavigating,
+                } else if self.dashNavSettings.speedCamerasEnabled,
+                          self.activeNavigator.isNavigating,
                           let route = self.activeNavigator.activeRoute {
                     // Re-enabled mid-ride → backfill markers for the
                     // current route without waiting for the next reroute.
                     self.prefetchSpeedCameras(for: route)
                 }
                 self.observeSpeedCameraToggle()
+            }
+        }
+    }
+
+    /// Observe the speed-limit display mode + tolerance. Any change pushes
+    /// fresh config to the renderer. `.off` clears the sign + cancels the
+    /// fetch; flipping back to a visible mode mid-ride backfills the ways
+    /// for the current route. Self-re-registering, same idiom as the
+    /// camera toggle.
+    private func observeSpeedLimitMode() {
+        withObservationTracking {
+            _ = dashNavSettings.speedLimitDisplay
+            _ = dashNavSettings.speedLimitOverToleranceKmh
+            _ = dashNavSettings.units
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.pushSpeedLimitConfig()
+                if self.dashNavSettings.speedLimitDisplay == .off {
+                    self.speedLimitPrefetchTask?.cancel()
+                    self.mapViewSource.setSpeedLimits([])
+                } else if self.mapViewSource.speedLimitWaysEmpty,
+                          self.activeNavigator.isNavigating,
+                          let route = self.activeNavigator.activeRoute {
+                    // Turned on mid-ride with no ways loaded → backfill.
+                    self.prefetchSpeedLimits(for: route)
+                }
+                self.observeSpeedLimitMode()
             }
         }
     }
