@@ -151,6 +151,41 @@ final class MapViewSource: NSObject, FrameSource {
     /// constant-size, like a proper POI marker).
     var speedCameras: [SpeedCamera] = []
 
+    /// Speed-limit ways map-matched against the rider's position to derive
+    /// the posted limit for the current road. Fed by `AppStatus` after a
+    /// route install (same prefetch lifecycle as the cameras). Empty → no
+    /// sign. The map-match runs in `handleFix`, not per frame, so the
+    /// geometry loop happens at ~1 Hz GPS cadence, not 30 fps.
+    private var speedLimitWays: [SpeedLimitWay] = []
+
+    /// Whether no limit ways are currently loaded — lets `AppStatus` decide
+    /// if a mid-ride re-enable needs a backfill fetch.
+    var speedLimitWaysEmpty: Bool { speedLimitWays.isEmpty }
+
+    /// Currently map-matched posted limit (km/h), or `nil` when no way is
+    /// close enough. Derived in `handleFix`; read by `drawSpeedLimitSign`.
+    private var currentLimitKmh: Int?
+
+    /// Whether the rider is currently over `currentLimitKmh` by more than
+    /// the configured tolerance. Drives the `.overOnly` display mode.
+    private var isOverSpeedLimit: Bool = false
+
+    /// Display policy + tolerance + units for the limit sign, pushed from
+    /// settings (via `AppStatus` on prefetch and `ActiveNavLoop` per tick).
+    /// Stored as the raw enum string to avoid importing the settings type
+    /// into the renderer.
+    private var speedLimitMode: String = "always"   // off | always | overOnly
+    private var speedLimitToleranceKmh: Double = 3
+    private var speedLimitImperial: Bool = false
+
+    /// Snap + hysteresis thresholds (m) for the map-match. A way must come
+    /// within `snapMeters` to ACQUIRE the limit; once shown, the sign holds
+    /// until the nearest way is further than `releaseMeters` away, so it
+    /// doesn't blink off in the gaps between tagged segments or when GPS
+    /// jitter nudges the match distance across a single threshold.
+    private static let limitSnapMeters: Double = 35
+    private static let limitReleaseMeters: Double = 80
+
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
@@ -490,6 +525,7 @@ extension MapViewSource {
     private func handleFix(_ fix: Fix) {
         lastFix = fix
         recomputeHeading()
+        recomputeSpeedLimit(for: fix)
         let region = MKCoordinateRegion(
             center: fix.coordinate,
             latitudinalMeters: 400,
@@ -677,6 +713,13 @@ extension MapViewSource {
         // right where neither the forward-biased puck nor the route runs.
         // No-op when `weatherAlert == nil` (clear weather).
         drawWeatherAlert(into: ctx)
+
+        // Speed-limit sign — bottom-right corner, transform-independent
+        // like the weather pill. Drawn AFTER the weather pill so the sign
+        // owns the corner; when both are active the weather pill has
+        // already been lifted above the sign (see `drawWeatherAlert`).
+        // No-op unless a limit is map-matched and the display mode allows.
+        drawSpeedLimitSign(into: ctx)
 
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
@@ -1285,6 +1328,75 @@ extension MapViewSource {
         self.speedCameras = cameras
     }
 
+    // MARK: Speed-limit sign
+
+    /// Install the speed-limit ways to map-match against (prefetched along
+    /// the route). Pass `[]` to clear (also clears the current sign).
+    func setSpeedLimits(_ ways: [SpeedLimitWay]) {
+        self.speedLimitWays = ways
+        if ways.isEmpty {
+            currentLimitKmh = nil
+            isOverSpeedLimit = false
+        } else if let fix = lastFix {
+            recomputeSpeedLimit(for: fix)
+        }
+    }
+
+    /// Push the display policy from settings. `mode` is the raw
+    /// `SpeedLimitDisplay` value ("off" / "always" / "overOnly"). Cheap —
+    /// called on prefetch and every nav tick so a settings change takes
+    /// effect on the next frame without a re-fetch.
+    func setSpeedLimitConfig(mode: String, toleranceKmh: Double, imperial: Bool) {
+        self.speedLimitMode = mode
+        self.speedLimitToleranceKmh = toleranceKmh
+        self.speedLimitImperial = imperial
+    }
+
+    /// Map-match the current GPS fix to the nearest tagged way and update
+    /// `currentLimitKmh` / `isOverSpeedLimit` with snap + hysteresis. Runs
+    /// at GPS cadence (~1 Hz), not per render frame.
+    private func recomputeSpeedLimit(for fix: Fix) {
+        guard speedLimitMode != "off", !speedLimitWays.isEmpty else {
+            currentLimitKmh = nil
+            isOverSpeedLimit = false
+            return
+        }
+        guard let match = SpeedLimitService.nearestLimit(to: fix.coordinate,
+                                                         ways: speedLimitWays) else {
+            currentLimitKmh = nil
+            isOverSpeedLimit = false
+            return
+        }
+        // Hysteresis: acquire within snap, hold until beyond release.
+        let haveSign = currentLimitKmh != nil
+        let threshold = haveSign ? Self.limitReleaseMeters : Self.limitSnapMeters
+        if match.distanceMeters <= threshold {
+            currentLimitKmh = match.kmh
+            // Over-limit check using GPS speed (m/s → km/h). `fix.speed`
+            // is -1 when unknown; treat that as "not over".
+            if fix.speed >= 0 {
+                let speedKmh = fix.speed * 3.6
+                isOverSpeedLimit = speedKmh > Double(match.kmh) + speedLimitToleranceKmh
+            } else {
+                isOverSpeedLimit = false
+            }
+        } else {
+            currentLimitKmh = nil
+            isOverSpeedLimit = false
+        }
+    }
+
+    /// Whether the limit sign should draw this frame, given the mode and
+    /// the current match/over-limit state.
+    private var shouldDrawSpeedLimit: Bool {
+        guard let _ = currentLimitKmh else { return false }
+        switch speedLimitMode {
+        case "always":   return true
+        case "overOnly": return isOverSpeedLimit
+        default:         return false   // "off"
+        }
+    }
+
     // MARK: Weather pill
 
     fileprivate func drawWeatherAlert(into ctx: CGContext) {
@@ -1312,7 +1424,15 @@ extension MapViewSource {
         let pillW = padX + glyphSize + gap + textW + padX
         // Bottom-right anchor (Y-DOWN: bottom = large y).
         let originX = frameSize.width - margin - pillW
-        let originY = frameSize.height - margin - pillH
+        // Collision avoidance: the speed-limit sign owns the bottom-right
+        // corner (it's the more persistent element). When it's showing,
+        // lift the weather pill to sit ABOVE the sign instead of on top of
+        // it. The sign is a `signDiameter` disc at the same margin, so the
+        // pill's baseline moves up by the sign height + a small gap.
+        let signBump: CGFloat = shouldDrawSpeedLimit
+            ? Self.speedLimitSignDiameter + 8
+            : 0
+        let originY = frameSize.height - margin - pillH - signBump
         let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
 
         // Backdrop: 78% black, 1.5 px coloured border.
@@ -1534,6 +1654,75 @@ extension MapViewSource {
                           at: CGPoint(x: p.x - approxW / 2, y: p.y + r + 2),
                           width: approxW, fontSize: fontSize, bold: true)
         }
+    }
+
+    // MARK: Speed-limit sign
+
+    /// Outer diameter (px) of the speed-limit sign disc. Exposed as a
+    /// constant so the weather pill can hop above it on a collision.
+    fileprivate static let speedLimitSignDiameter: CGFloat = 58
+    /// Margin (px) from the frame edges, matched to the weather pill.
+    fileprivate static let speedLimitSignMargin: CGFloat = 12
+
+    /// Draw the posted speed-limit sign in the bottom-right corner: a
+    /// European circular sign — white field, thick red ring, black number.
+    /// Transform-independent (flat outer ctx) so it sits in a fixed screen
+    /// spot regardless of map rotation/zoom, exactly like the weather pill.
+    /// No-op unless `shouldDrawSpeedLimit`.
+    fileprivate func drawSpeedLimitSign(into ctx: CGContext) {
+        guard shouldDrawSpeedLimit, let kmh = currentLimitKmh else { return }
+
+        // Value + (no) unit. A real road sign carries no unit text — the
+        // disc shape IS the unit — so we show the bare number. Imperial
+        // riders see the mph-converted number (OSM maxspeed is km/h).
+        let value: Int = speedLimitImperial
+            ? Int((Double(kmh) / 1.609344).rounded())
+            : kmh
+        let label = "\(value)"
+
+        let d = Self.speedLimitSignDiameter
+        let margin = Self.speedLimitSignMargin
+        let r = d / 2
+        // Bottom-right anchor (Y-DOWN: bottom = large y).
+        let cx = frameSize.width - margin - r
+        let cy = frameSize.height - margin - r
+
+        ctx.saveGState()
+
+        // Soft drop shadow so the sign lifts off busy map tiles.
+        ctx.setShadow(offset: CGSize(width: 0, height: 1),
+                      blur: 3, color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
+
+        // White field (full disc).
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: d, height: d))
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)   // shadow only on the base disc
+
+        // Red ring: drawn as a stroked circle whose line width is the ring
+        // thickness (~16% of the diameter, like the real sign).
+        let ringW = d * 0.16
+        let ringR = r - ringW / 2 - 1   // inset so the stroke stays inside the disc
+        ctx.setStrokeColor(CGColor(red: 0.86, green: 0.12, blue: 0.12, alpha: 1.0))
+        ctx.setLineWidth(ringW)
+        ctx.strokeEllipse(in: CGRect(x: cx - ringR, y: cy - ringR,
+                                     width: ringR * 2, height: ringR * 2))
+
+        ctx.restoreGState()
+
+        // Black number, centred in the white field. Size scales down for
+        // 3-digit limits (e.g. 130) so it still fits inside the ring.
+        let fontSize: CGFloat = label.count >= 3 ? d * 0.40 : d * 0.48
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.black,
+        ]
+        let textSize = (label as NSString).size(withAttributes: attrs)
+        let textOrigin = CGPoint(x: cx - textSize.width / 2,
+                                 y: cy - textSize.height / 2)
+        UIGraphicsPushContext(ctx)
+        (label as NSString).draw(at: textOrigin, withAttributes: attrs)
+        UIGraphicsPopContext()
     }
 }
 

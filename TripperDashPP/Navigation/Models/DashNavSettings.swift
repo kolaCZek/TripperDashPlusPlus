@@ -95,6 +95,28 @@ final class DashNavSettings {
         }
     }
 
+    /// When to burn the posted-speed-limit sign (traffic-sign disc in the
+    /// bottom-right of the dash) into the stream.
+    ///   - `off`        → never drawn, no Overpass fetch.
+    ///   - `always`     → drawn whenever a limit is map-matched for the
+    ///                    current road.
+    ///   - `overOnly`   → drawn only while the rider is over the limit
+    ///                    (by more than `speedLimitOverToleranceKmh`), so
+    ///                    the sign acts as a "you're speeding" warning.
+    enum SpeedLimitDisplay: String, Codable, CaseIterable, Identifiable {
+        case off
+        case always
+        case overOnly
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .off:      return "Off"
+            case .always:   return "Always"
+            case .overOnly: return "Only when speeding"
+            }
+        }
+    }
+
     // MARK: - State
 
     var units: UnitSystem = .metric {
@@ -181,6 +203,21 @@ final class DashNavSettings {
     /// the `royal-enfield-tripper-dash` skill's open-items. For now this is
     /// purely the visual map layer.
     var speedCamerasEnabled: Bool = true {
+        didSet { persist() }
+    }
+
+    /// When to show the posted-speed-limit traffic sign. Defaults to
+    /// `.always` — most riders want the current limit visible at a glance.
+    /// `.off` skips the Overpass fetch entirely.
+    var speedLimitDisplay: SpeedLimitDisplay = .always {
+        didSet { persist() }
+    }
+
+    /// Tolerance (km/h) the rider must EXCEED the posted limit by before
+    /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
+    /// sign from flickering on/off as GPS speed jitters right at the limit
+    /// (and matches the unwritten "nobody gets booked for +3" reality).
+    var speedLimitOverToleranceKmh: Double = 3 {
         didSet { persist() }
     }
 
@@ -298,6 +335,8 @@ final class DashNavSettings {
         var messageNotifyEnabled: Bool?
         var weatherAlertsEnabled: Bool?
         var speedCamerasEnabled: Bool?
+        var speedLimitDisplay: SpeedLimitDisplay?
+        var speedLimitOverToleranceKmh: Double?
     }
 
     init() {
@@ -318,6 +357,8 @@ final class DashNavSettings {
         self.messageNotifyEnabled = p.messageNotifyEnabled ?? true
         self.weatherAlertsEnabled = p.weatherAlertsEnabled ?? true
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
+        self.speedLimitDisplay = p.speedLimitDisplay ?? .always
+        self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
     }
 
     private func persist() {
@@ -331,7 +372,9 @@ final class DashNavSettings {
             callStateEnabled: callStateEnabled,
             messageNotifyEnabled: messageNotifyEnabled,
             weatherAlertsEnabled: weatherAlertsEnabled,
-            speedCamerasEnabled: speedCamerasEnabled
+            speedCamerasEnabled: speedCamerasEnabled,
+            speedLimitDisplay: speedLimitDisplay,
+            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
