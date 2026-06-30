@@ -151,6 +151,14 @@ final class MapViewSource: NSObject, FrameSource {
     /// constant-size, like a proper POI marker).
     var speedCameras: [SpeedCamera] = []
 
+    /// Whether speed-limit numbers on camera markers render in imperial
+    /// (mph) instead of metric (km/h). Mirrors `DashNavSettings.units`.
+    /// OSM `maxspeed` is always km/h (the dataset is European), so we
+    /// convert at draw time. Held as a live flag — separate from the
+    /// camera list — so flipping the units toggle mid-ride re-labels the
+    /// existing markers on the very next frame with no network refetch.
+    private(set) var speedCameraImperial: Bool = false
+
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
     private var lastTileHintIndex: Int = 0
@@ -1285,6 +1293,13 @@ extension MapViewSource {
         self.speedCameras = cameras
     }
 
+    /// Update the units the camera speed-limit labels render in. Cheap and
+    /// independent of the camera list, so the units toggle re-labels the
+    /// already-plotted markers on the next frame without a re-fetch.
+    func setSpeedCameraImperial(_ imperial: Bool) {
+        self.speedCameraImperial = imperial
+    }
+
     // MARK: Weather pill
 
     fileprivate func drawWeatherAlert(into ctx: CGContext) {
@@ -1480,20 +1495,24 @@ extension MapViewSource {
             let sx = anchorX + rx
             let sy = anchorY + ry
 
-            // Cull off-frame markers (with a margin so a half-visible icon
-            // at the edge still appears).
-            guard sx > -24, sx < w + 24,
-                  sy > -24, sy < h + 24 else { continue }
+            // Cull off-frame markers. The margin must clear the enlarged
+            // disc (r=15) AND the speed pill that now extends to the RIGHT
+            // of it (~66 px), so a marker whose pill is still partly on
+            // screen isn't dropped early.
+            guard sx > -72, sx < w + 72,
+                  sy > -28, sy < h + 28 else { continue }
 
             drawCameraMarker(into: ctx, at: CGPoint(x: sx, y: sy), camera: cam)
         }
     }
 
     /// One upright camera marker centred at screen point `p` (Y-DOWN outer
-    /// ctx). A rounded teardrop pin in the camera's accent colour with a
-    /// little camera body cut into it, plus the speed limit beneath when
-    /// known. Section/average-speed cameras get a violet accent to set them
-    /// apart from spot cameras (red).
+    /// ctx). A disc in the camera's accent colour with a camera body cut
+    /// into it, plus the speed limit on a pill to its RIGHT when known.
+    /// Section/average-speed cameras get a violet accent to set them apart
+    /// from spot cameras (red). The speed number honours the user's
+    /// metric/imperial units toggle: OSM `maxspeed` is always km/h, so we
+    /// convert to mph for imperial riders and append the unit.
     private func drawCameraMarker(into ctx: CGContext, at p: CGPoint, camera: SpeedCamera) {
         let accent: CGColor = camera.isSection
             ? CGColor(red: 0.55, green: 0.30, blue: 0.85, alpha: 1.0)   // violet — section
@@ -1503,36 +1522,70 @@ extension MapViewSource {
         ctx.translateBy(x: p.x, y: p.y)
 
         // Marker disc (with white outline for contrast over any tile).
-        let r: CGFloat = 11
+        // Enlarged from r=11 to r=15 on rider feedback (6/2026: "make the
+        // icon bigger") — easier to spot at a glance on the dash.
+        let r: CGFloat = 15
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: -r - 1.5, y: -r - 1.5, width: (r + 1.5) * 2, height: (r + 1.5) * 2))
+        ctx.fillEllipse(in: CGRect(x: -r - 2, y: -r - 2, width: (r + 2) * 2, height: (r + 2) * 2))
         ctx.setFillColor(accent)
         ctx.fillEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2))
 
         // Camera body (white): a rounded rect + a lens circle + a small
-        // viewfinder bump, all inside the disc.
+        // viewfinder bump, all inside the disc. Scaled with the disc.
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        let body = CGRect(x: -7, y: -4.5, width: 14, height: 9)
-        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 2, cornerHeight: 2, transform: nil))
+        let body = CGRect(x: -10, y: -6.5, width: 20, height: 13)
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: 3, cornerHeight: 3, transform: nil))
         ctx.fillPath()
         // viewfinder bump on top-left
-        ctx.fill(CGRect(x: -5.5, y: -6.5, width: 4, height: 2.5))
+        ctx.fill(CGRect(x: -8, y: -9.5, width: 5.5, height: 3.5))
         // lens hole (accent shows through)
         ctx.setFillColor(accent)
-        ctx.fillEllipse(in: CGRect(x: -2.6, y: -2.6, width: 5.2, height: 5.2))
+        ctx.fillEllipse(in: CGRect(x: -3.8, y: -3.8, width: 7.6, height: 7.6))
 
         ctx.restoreGState()
 
-        // Speed limit badge beneath the marker, when mapped. Small but
-        // bold + stroked so it survives H.264. Skip for section cameras
-        // without a number to avoid clutter.
+        // Speed limit on a pill to the RIGHT of the marker, when mapped
+        // (moved from beneath the icon on rider feedback 6/2026). Honours
+        // the units toggle: OSM `maxspeed` is km/h, convert to mph for
+        // imperial. Skip for section cameras without a number to avoid
+        // clutter.
         if let limit = camera.maxspeedKmh {
-            let label = "\(limit)"
-            let fontSize: CGFloat = 11
-            let approxW = CGFloat(label.count) * fontSize * 0.62 + 6
+            let value: Int
+            let unit: String
+            if speedCameraImperial {
+                value = Int((Double(limit) / 1.609344).rounded())
+                unit = "mph"
+            } else {
+                value = limit
+                unit = "km/h"
+            }
+            let label = "\(value) \(unit)"
+            let fontSize: CGFloat = 13
+            let textW = CGFloat(label.count) * fontSize * 0.58
+            let padX: CGFloat = 5
+            let pillH: CGFloat = fontSize + 6
+            let pillW = textW + padX * 2
+            let gap: CGFloat = 4
+            let pillX = p.x + r + 2 + gap
+            let pillY = p.y - pillH / 2
+
+            // Accent pill background with a thin white outline so the
+            // number reads over any tile after H.264 subsampling.
+            ctx.saveGState()
+            let pillRect = CGRect(x: pillX, y: pillY, width: pillW, height: pillH)
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.addPath(CGPath(roundedRect: pillRect.insetBy(dx: -1.5, dy: -1.5),
+                               cornerWidth: pillH / 2 + 1.5, cornerHeight: pillH / 2 + 1.5,
+                               transform: nil))
+            ctx.fillPath()
+            ctx.setFillColor(accent)
+            ctx.addPath(CGPath(roundedRect: pillRect, cornerWidth: pillH / 2, cornerHeight: pillH / 2, transform: nil))
+            ctx.fillPath()
+            ctx.restoreGState()
+
             Self.drawText(label, in: ctx,
-                          at: CGPoint(x: p.x - approxW / 2, y: p.y + r + 2),
-                          width: approxW, fontSize: fontSize, bold: true)
+                          at: CGPoint(x: pillX + padX, y: pillY + 3),
+                          width: pillW, fontSize: fontSize, bold: true)
         }
     }
 }

@@ -646,6 +646,11 @@ final class AppStatus {
             self.mapViewSource.setSpeedCameras(
                 self.dashNavSettings.speedCamerasEnabled ? cams : []
             )
+            // Label the markers in the current units (live-updated per nav
+            // tick too, so a mid-ride toggle re-labels without a refetch).
+            self.mapViewSource.setSpeedCameraImperial(
+                self.dashNavSettings.units == .imperial
+            )
         }
     }
 

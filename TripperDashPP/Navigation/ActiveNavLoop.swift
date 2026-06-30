@@ -226,6 +226,10 @@ final class ActiveNavLoop {
             unitsImperial: settings.units == .imperial
         )
         mapSource?.setNavOverlay(overlay)
+        // Keep the speed-camera labels in sync with the units toggle every
+        // tick — a cheap flag write, so flipping km/h ⇄ mph mid-ride
+        // re-labels the markers next frame without re-fetching cameras.
+        mapSource?.setSpeedCameraImperial(settings.units == .imperial)
 
         // 3. Internal file-based debug log of this nav tick (GPS + glyph +
         //    distances + reroute + active-route identity). Non-blocking:
