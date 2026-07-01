@@ -158,6 +158,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// geometry loop happens at ~1 Hz GPS cadence, not 30 fps.
     private var speedLimitWays: [SpeedLimitWay] = []
 
+    /// Bare drivable-road geometry (tagged or not) for the shadow guard:
+    /// lets the map-match notice when the rider is actually on a closer,
+    /// untagged road than the nearest tagged way and suppress a false limit
+    /// (e.g. a 90 tertiary shadowing the 50 residential you're really on).
+    private var speedLimitRoads: [RoadShape] = []
+
     /// Whether no limit ways are currently loaded — lets `AppStatus` decide
     /// if a mid-ride re-enable needs a backfill fetch.
     var speedLimitWaysEmpty: Bool { speedLimitWays.isEmpty }
@@ -185,6 +191,17 @@ final class MapViewSource: NSObject, FrameSource {
     /// jitter nudges the match distance across a single threshold.
     private static let limitSnapMeters: Double = 35
     private static let limitReleaseMeters: Double = 80
+
+    /// Shadow guard thresholds. If the rider is sitting on a road that is
+    /// much closer than the nearest *tagged* way, they're on a different
+    /// (untagged) road and the tagged limit is a parallel-road artefact —
+    /// suppress it (better no sign than a wrong one). The match is rejected
+    /// only when BOTH hold: the closer road beats the tagged way by at
+    /// least `shadowAbsMeters` AND the tagged way is at least
+    /// `shadowRatio`× farther. Requiring both avoids nuking a legitimate
+    /// match where two roads merely run close together.
+    private static let shadowAbsMeters: Double = 12
+    private static let shadowRatio: Double = 2.0
 
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
@@ -1330,11 +1347,13 @@ extension MapViewSource {
 
     // MARK: Speed-limit sign
 
-    /// Install the speed-limit ways to map-match against (prefetched along
-    /// the route). Pass `[]` to clear (also clears the current sign).
-    func setSpeedLimits(_ ways: [SpeedLimitWay]) {
-        self.speedLimitWays = ways
-        if ways.isEmpty {
+    /// Install the speed-limit layer to map-match against (prefetched along
+    /// the route): the tagged limit ways AND the bare road geometry for the
+    /// shadow guard. Pass `.empty` to clear (also clears the current sign).
+    func setSpeedLimits(_ data: SpeedLimitData) {
+        self.speedLimitWays = data.limits
+        self.speedLimitRoads = data.roads
+        if data.limits.isEmpty {
             currentLimitKmh = nil
             isOverSpeedLimit = false
         } else if let fix = lastFix {
@@ -1367,6 +1386,16 @@ extension MapViewSource {
             isOverSpeedLimit = false
             return
         }
+        // Shadow guard: if the rider is on a road much closer than the
+        // matched tagged way, the limit belongs to a parallel road they're
+        // not on — drop it rather than show a wrong number.
+        let nearestRoad = SpeedLimitService.nearestRoadDistance(to: fix.coordinate,
+                                                                roads: speedLimitRoads)
+        if Self.isShadowed(matchDistance: match.distanceMeters, nearestRoad: nearestRoad) {
+            currentLimitKmh = nil
+            isOverSpeedLimit = false
+            return
+        }
         // Hysteresis: acquire within snap, hold until beyond release.
         let haveSign = currentLimitKmh != nil
         let threshold = haveSign ? Self.limitReleaseMeters : Self.limitSnapMeters
@@ -1384,6 +1413,21 @@ extension MapViewSource {
             currentLimitKmh = nil
             isOverSpeedLimit = false
         }
+    }
+
+    /// Pure shadow-guard decision: is the tagged match a parallel-road
+    /// artefact? True when there's a road meaningfully closer than the
+    /// matched way — closer by at least `shadowAbsMeters` AND by a factor
+    /// of at least `shadowRatio`. Both conditions guard against false
+    /// positives: a tiny absolute gap (roads running side by side) or a big
+    /// ratio at trivial distances (0.1 m vs 0.3 m) won't trip it. `nil`
+    /// nearestRoad (no road geometry loaded) never shadows. `nonisolated
+    /// static` so it mirrors 1:1 in the Python test.
+    nonisolated static func isShadowed(matchDistance: Double,
+                                       nearestRoad: Double?) -> Bool {
+        guard let road = nearestRoad else { return false }
+        guard road < matchDistance - shadowAbsMeters else { return false }
+        return matchDistance >= road * shadowRatio
     }
 
     /// Whether the limit sign should draw this frame, given the mode and
