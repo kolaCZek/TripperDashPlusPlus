@@ -395,4 +395,48 @@ actor SpeedLimitService {
             try? raw.write(to: cacheURL(key: key))
         }
     }
+
+    // MARK: - Cache maintenance (Settings)
+
+    /// (fileCount, totalBytes) for the on-disk speed-limit cache. Used by
+    /// Settings so "Clear cache" can show a real footprint and disable
+    /// itself when there's nothing to clear.
+    func diskCacheStats() -> (count: Int, bytes: Int) {
+        Self.dirStats(cacheDir)
+    }
+
+    /// Nuke the whole speed-limit disk cache, then recreate the empty
+    /// directory so the next fetch can write straight into it. Called from
+    /// Settings → "Clear cache". Also fixes the stale-schema case: an old
+    /// cache file predating the shadow guard has no road geometry, so the
+    /// guard no-ops and a parallel-road limit (the phantom 90) keeps
+    /// showing until the file is gone — clearing forces a fresh fetch that
+    /// includes the roads.
+    func clearDiskCache() {
+        let fm = FileManager.default
+        do {
+            try fm.removeItem(at: cacheDir)
+            try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            log.info("Speed-limit disk cache CLEARED")
+        } catch {
+            log.warning("Speed-limit cache clear failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// (count, bytes) of the `.json` cache files directly in `dir`.
+    /// `nonisolated static` so it's a pure filesystem walk with no actor
+    /// state — cheap enough to call on demand from the Settings sheet.
+    nonisolated static func dirStats(_ dir: URL) -> (count: Int, bytes: Int) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.fileSizeKey]
+        ) else { return (0, 0) }
+        var count = 0
+        var total = 0
+        for url in items where url.pathExtension == "json" {
+            count += 1
+            total += (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        }
+        return (count, total)
+    }
 }
