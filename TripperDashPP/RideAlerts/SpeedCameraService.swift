@@ -281,6 +281,29 @@ actor SpeedCameraService {
             try? data.write(to: cacheURL(key: key), options: .atomic)
         }
     }
+
+    // MARK: - Cache maintenance (Settings)
+
+    /// (fileCount, totalBytes) for the on-disk speed-camera cache. Reuses
+    /// `SpeedLimitService.dirStats` so the two RideAlerts caches count
+    /// their `.json` files the exact same way.
+    func diskCacheStats() -> (count: Int, bytes: Int) {
+        SpeedLimitService.dirStats(cacheDir)
+    }
+
+    /// Nuke the whole speed-camera disk cache, then recreate the empty
+    /// directory. Called from Settings → "Clear cache" so a rider who
+    /// wants a clean slate clears cameras too, not just map tiles.
+    func clearDiskCache() {
+        let fm = FileManager.default
+        do {
+            try fm.removeItem(at: cacheDir)
+            try fm.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+            log.info("Speed-camera disk cache CLEARED")
+        } catch {
+            log.warning("Speed-camera cache clear failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
 
 // MARK: - Helpers

@@ -176,33 +176,40 @@ struct StreamingView: View {
     }
 }
 
-/// Settings cell that shows the on-disk map tile cache size and offers a
-/// clear button. Kept as its own `View` (not inlined) so the `@State` for
-/// the stats stays scoped — the parent Form re-renders constantly when
-/// other settings change and we don't want every keystroke to trigger
-/// another disk walk.
+/// Settings cell that shows the total on-disk cache footprint (map tiles
+/// + speed-limit + speed-camera data) and offers a single "Clear cache"
+/// button that wipes all three. Kept as its own `View` (not inlined) so
+/// the `@State` for the stats stays scoped — the parent Form re-renders
+/// constantly when other settings change and we don't want every
+/// keystroke to trigger another disk walk.
 private struct MapCacheSection: View {
     @State private var stats: (count: Int, bytes: Int) = (0, 0)
     @State private var isClearing = false
 
     var body: some View {
-        Section("Map cache") {
-            // One shared OSM tile cache for both palettes: light and dark
-            // render from the SAME raster tiles (dark is a composite-time
-            // recolour), so there's a single on-disk namespace and a
-            // single row — no per-palette split anymore.
-            LabeledContent("Map tiles") {
+        Section("Cache") {
+            // One row for the whole on-disk footprint: OSM tiles plus the
+            // RideAlerts JSON caches (speed limits + cameras). They all
+            // live under Caches/ and are all safe to drop — the app just
+            // re-fetches on the next ride.
+            LabeledContent("Cached data") {
                 statsView(stats)
             }
             Button(role: .destructive) {
                 Task {
                     isClearing = true
+                    // Clear all three caches. Map tiles are the bulk;
+                    // clearing the speed-limit cache is also what fixes a
+                    // stale pre-shadow-guard entry still showing a phantom
+                    // limit (e.g. a 90 on a 50 street).
                     await TileDiskCache.shared.clearAll()
+                    await SpeedLimitService.shared.clearDiskCache()
+                    await SpeedCameraService.shared.clearDiskCache()
                     await refresh()
                     isClearing = false
                 }
             } label: {
-                Label("Clear map cache", systemImage: "trash")
+                Label("Clear cache", systemImage: "trash")
             }
             .disabled(isClearing || stats.bytes == 0)
         }
@@ -225,8 +232,14 @@ private struct MapCacheSection: View {
     }
 
     private func refresh() async {
-        // Single shared namespace → aggregate stats is the whole cache.
-        stats = await TileDiskCache.shared.statsAll()
+        // Sum all three on-disk caches so the row reflects the true
+        // footprint and the button enables whenever ANY cache has data
+        // (not just map tiles).
+        let tiles = await TileDiskCache.shared.statsAll()
+        let limits = await SpeedLimitService.shared.diskCacheStats()
+        let cameras = await SpeedCameraService.shared.diskCacheStats()
+        stats = (count: tiles.count + limits.count + cameras.count,
+                 bytes: tiles.bytes + limits.bytes + cameras.bytes)
     }
 
     private func formatStats(_ s: (count: Int, bytes: Int)) -> String {
@@ -234,7 +247,8 @@ private struct MapCacheSection: View {
         let fmt = ByteCountFormatter()
         fmt.allowedUnits = [.useKB, .useMB]
         fmt.countStyle = .file
-        return "\(s.count) tiles • \(fmt.string(fromByteCount: Int64(s.bytes)))"
+        let files = s.count == 1 ? "1 file" : "\(s.count) files"
+        return "\(files) • \(fmt.string(fromByteCount: Int64(s.bytes)))"
     }
 }
 
