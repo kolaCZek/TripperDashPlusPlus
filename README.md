@@ -33,7 +33,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 - **Light / Dark / Auto map.** One OSM Carto basemap, two palettes; dark is a CPU recolour of the *same* tile (water stays blue, not orange), so both share one cache. Auto follows sunrise/sunset from your GPS fix.
 - **Saved routes from GPX.** Import a `.gpx`, preview it, prune/reorder points, then navigate it through the same engine — reroute, ETA, and dash glyphs all apply.
 - **Mirrors OEM ride cards.** Incoming call and message cards and live phone status (battery, charging, GPS, signal) are mirrored onto the dash, just like the factory app.
-- **Ride-aware alerts.** A conservative, keyless weather pill (rain/ice/storms/gusts/fog via Open-Meteo) and a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map.
+- **Ride-aware alerts.** A conservative, keyless weather pill (rain/ice/storms/gusts/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map.
 - **No keys, no SDK, no paid account.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies, free Apple Developer account is enough.
 
 Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full glyph catalog.
