@@ -2,14 +2,15 @@
 //  RideStatsPanel.swift
 //  TripperDashPP
 //
-//  On-phone live trip-computer card. Reads the observable RideStatsService
-//  and renders the running ride totals through RideStatsFormatting,
-//  honouring the rider's metric/imperial unit choice. Phone-side only —
-//  none of this is sent to the dash.
+//  On-phone ride summary card. Reads the observable RideStatsService and
+//  renders the ride totals through RideStatsFormatting, honouring the
+//  rider's metric/imperial unit choice. Phone-side only — none of this is
+//  sent to the dash.
 //
-//  Shown on the streaming screen when `tripComputerEnabled` is on; the
-//  service keeps accumulating regardless, so toggling the panel back on
-//  mid-ride shows the true running totals, not a reset.
+//  Shown back on the picker AFTER a ride (gated on `stats.startedAt` in
+//  MapPickerView), holding the frozen totals until the session ends (the
+//  bike link goes fully down → RideStatsService.reset()) or a new route
+//  resumes folding. Always shown — there is no enable toggle.
 //
 
 import SwiftUI

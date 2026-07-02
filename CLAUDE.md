@@ -105,7 +105,7 @@ TripperDashPP/                           # App source
 ├── Map/          # OSM raster tile pipeline + BG-safe CGContext frame source
 │   #              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock)
 ├── RideAlerts/   # keyless ride enrichment — WeatherAlertService (Open-Meteo), SpeedCameraService (OSM/Overpass)
-├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live + persist). Phone-side only, no dash TLV
+├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live, in-memory session). Phone-side only, no dash TLV
 └── Navigation/   # routing, search, active-nav loop, on-route geometry, GPX import, saved routes, ManeuverLog
     └── Models/   # Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings
 tools/

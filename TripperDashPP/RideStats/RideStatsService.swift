@@ -4,13 +4,25 @@
 //
 //  Live half of the GPS trip computer. A @MainActor @Observable service
 //  that folds the shared LocationService fix stream into a running
-//  RideStats, owns start/pause/reset lifecycle, and persists the
-//  in-progress ride so an OS kill mid-ride resumes the same numbers.
+//  RideStats and owns the ride lifecycle.
 //
 //  No second CLLocationManager — it subscribes to the same fix stream the
 //  map, nav, and telemetry already share (LocationService.subscribeFixes),
 //  so there's no authorization race and no extra battery draw. The pure
-//  math lives in RideStats; this type is just wiring + persistence.
+//  math lives in RideStats; this type is just wiring.
+//
+//  Session lifetime (rider-confirmed model):
+//    • Totals accumulate across back-to-back rides — arriving and then
+//      planning a fresh route KEEPS folding onto the same numbers, so a
+//      multi-leg day reads as one ride.
+//    • Totals are held frozen on screen after arrival until the rider
+//      starts moving again (a new route) or the session ends.
+//    • The accumulator is in-memory ONLY. Killing the app zeroes it —
+//      there is deliberately no cross-launch persistence, so a fresh
+//      launch always starts a fresh ride.
+//    • reset() zeroes mid-session; AppStatus calls it when the bike link
+//      goes fully down (user disconnect, or auto-reconnect gives up after
+//      the 10-min budget = motorcycle switched off).
 //
 
 import Foundation
@@ -27,24 +39,20 @@ final class RideStatsService {
 
     private weak var location: LocationService?
     private var sub: LocationSubscription?
-    private var lastPersistAt: Date?
 
-    private let store: UserDefaults
-    private static let key = "rideStats.inProgress.v1"
-
-    /// Max age of a persisted ride we'll silently resume on launch.
-    static let resumeWindowSeconds: TimeInterval = 6 * 3600
-
-    init(location: LocationService, store: UserDefaults = .standard) {
+    init(location: LocationService) {
         self.location = location
-        self.store = store
-        restore()
     }
 
     // MARK: - Lifecycle
 
     /// Begin folding fixes into the accumulator. Called when streaming
     /// starts. Idempotent — a second call while running is a no-op.
+    ///
+    /// Deliberately does NOT reset: starting a new route after an arrival
+    /// resumes onto the existing totals (the held, frozen numbers), so a
+    /// day of back-to-back legs reads as one continuous ride. Zeroing is
+    /// reset()'s job and only happens when the whole session ends.
     func begin() {
         guard state != .running else { return }
         state = .running
@@ -69,13 +77,19 @@ final class RideStatsService {
         state = .running
     }
 
-    /// Zero the ride (rider-facing "Reset").
+    /// Zero the ride. Called when the session ends — the bike link goes
+    /// fully down (user disconnect, or auto-reconnect exhausts its budget
+    /// = motorcycle off). Drops any live subscription and returns to idle
+    /// so the post-arrival panel (gated on `stats.startedAt`) disappears.
     func reset() {
+        sub = nil
         stats = RideStats()
-        persist(force: true)
+        state = .idle
     }
 
     /// Streaming stopped — drop the subscription, keep totals on screen.
+    /// The frozen numbers stay visible (via the post-arrival panel) until
+    /// the next ride resumes folding or reset() ends the session.
     func end() {
         sub = nil
         if state == .running { state = .paused }
@@ -86,35 +100,5 @@ final class RideStatsService {
     private func ingest(_ fix: Fix) {
         guard state == .running else { return }
         stats = stats.folding(fix)
-        persist(force: false)
-    }
-
-    // MARK: - Persistence
-
-    private func persist(force: Bool) {
-        let now = Date()
-        if !force, let last = lastPersistAt,
-           now.timeIntervalSince(last) < 5 { return } // throttle flash writes
-        lastPersistAt = now
-        if let data = try? JSONEncoder().encode(stats) {
-            store.set(data, forKey: Self.key)
-        }
-    }
-
-    private func restore() {
-        guard let data = store.data(forKey: Self.key),
-              let saved = try? JSONDecoder().decode(RideStats.self, from: data),
-              Self.isResumable(lastFixAt: saved.lastFixAt, now: Date()) else { return }
-        stats = saved
-        state = .paused // resume on next begin(); rider can Reset
-    }
-
-    /// A persisted ride is resumable only if its last fix is recent
-    /// (< resumeWindowSeconds old). `nonisolated static` + pure so the
-    /// 6 h boundary is unit-testable without the actor or UserDefaults.
-    nonisolated static func isResumable(lastFixAt: Date?, now: Date) -> Bool {
-        guard let last = lastFixAt else { return false }
-        let age = now.timeIntervalSince(last)
-        return age >= 0 && age < resumeWindowSeconds
     }
 }

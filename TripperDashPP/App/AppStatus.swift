@@ -144,6 +144,24 @@ final class AppStatus {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 let state = self.bikeLink.state
+                // Session teardown detector: the link reached a terminal
+                // down-state. `.idle` = user disconnect; `.error` =
+                // auto-reconnect gave up after its 10-min budget (motorcycle
+                // switched off). Both end the ride session.
+                let sessionEnded: Bool
+                switch state {
+                case .idle, .error: sessionEnded = true
+                case .connecting, .handshaking, .reconnecting, .connected: sessionEnded = false
+                }
+                if sessionEnded && self.rideStats.stats.startedAt != nil {
+                    // Zero the trip computer so the next connected ride starts
+                    // fresh and the post-arrival panel stops showing stale
+                    // totals. (App kill also resets — RideStats is in-memory
+                    // only.) Frozen totals from a plain arrival are kept: this
+                    // fires only on a real teardown, not on stopStreaming() at
+                    // a waypoint.
+                    self.rideStats.reset()
+                }
                 if self.isStreaming && state != .connected {
                     // Link left .connected (dropped → reconnecting) while
                     // streaming — kill the RTP pipeline; RtpStreamer doesn't
