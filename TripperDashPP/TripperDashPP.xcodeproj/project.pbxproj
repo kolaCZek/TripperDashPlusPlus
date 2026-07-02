@@ -83,6 +83,8 @@
 		FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000E0 /* SavedRouteDetailView.swift */; };
 		FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */; };
 		FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000000000000000000B0 /* RouteProgressMap.swift */; };
+		7E57000000000000000000A1 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A0 /* SmokeTests.swift */; };
+		7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -164,10 +166,20 @@
 		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
 		FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutePreviewMap.swift; sourceTree = "<group>"; };
 		FEA0000000000000000000B0 /* RouteProgressMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProgressMap.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A0 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000B0 /* TripperDashPPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TripperDashPPTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlongRouteTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A41A9C4A2FE20258009BF005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E57000000000000000000E1 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -189,6 +201,7 @@
 				A55E7000000000000A55E701 /* Assets.xcassets */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
+				7E57000000000000000000C0 /* TripperDashPPTests */,
 				A41A9C4E2FE20258009BF005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -197,6 +210,7 @@
 			isa = PBXGroup;
 			children = (
 				A41A9C4D2FE20258009BF005 /* TripperDashPP.app */,
+				7E57000000000000000000B0 /* TripperDashPPTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -341,6 +355,15 @@
 			path = Navigation;
 			sourceTree = "<group>";
 		};
+		7E57000000000000000000C0 /* TripperDashPPTests */ = {
+			isa = PBXGroup;
+			children = (
+				7E57000000000000000000A0 /* SmokeTests.swift */,
+				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
+			);
+			path = TripperDashPPTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -364,6 +387,26 @@
 			productReference = A41A9C4D2FE20258009BF005 /* TripperDashPP.app */;
 			productType = "com.apple.product-type.application";
 		};
+		7E57000000000000000000D0 /* TripperDashPPTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E57000000000000000000F0 /* Build configuration list for PBXNativeTarget "TripperDashPPTests" */;
+			buildPhases = (
+				7E57000000000000000000E0 /* Sources */,
+				7E57000000000000000000E1 /* Frameworks */,
+				7E57000000000000000000E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7E5700000000000000000101 /* PBXTargetDependency */,
+			);
+			name = TripperDashPPTests;
+			packageProductDependencies = (
+			);
+			productName = TripperDashPPTests;
+			productReference = 7E57000000000000000000B0 /* TripperDashPPTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -376,6 +419,10 @@
 				TargetAttributes = {
 					A41A9C4C2FE20258009BF005 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					7E57000000000000000000D0 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A41A9C4C2FE20258009BF005;
 					};
 				};
 			};
@@ -396,6 +443,7 @@
 			projectRoot = "";
 			targets = (
 				A41A9C4C2FE20258009BF005 /* TripperDashPP */,
+				7E57000000000000000000D0 /* TripperDashPPTests */,
 			);
 		};
 /* End PBXProject section */
@@ -406,6 +454,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				A55E7000000000000A55E702 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E57000000000000000000E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -512,7 +567,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7E57000000000000000000E0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E57000000000000000000A1 /* SmokeTests.swift in Sources */,
+				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7E5700000000000000000101 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A41A9C4C2FE20258009BF005 /* TripperDashPP */;
+			targetProxy = 7E5700000000000000000102 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXContainerItemProxy section */
+		7E5700000000000000000102 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A41A9C4C2FE20258009BF005;
+			remoteInfo = TripperDashPP;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin XCBuildConfiguration section */
 		A41A9C562FE2025A009BF005 /* Debug */ = {
@@ -714,6 +796,50 @@
 			};
 			name = Release;
 		};
+		7E57000000000000000000F1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
+			};
+			name = Debug;
+		};
+		7E57000000000000000000F2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -731,6 +857,15 @@
 			buildConfigurations = (
 				A41A9C592FE2025A009BF005 /* Debug */,
 				A41A9C5A2FE2025A009BF005 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7E57000000000000000000F0 /* Build configuration list for PBXNativeTarget "TripperDashPPTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E57000000000000000000F1 /* Debug */,
+				7E57000000000000000000F2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

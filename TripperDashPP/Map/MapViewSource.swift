@@ -184,6 +184,11 @@ final class MapViewSource: NSObject, FrameSource {
     private var speedLimitToleranceKmh: Double = 3
     private var speedLimitImperial: Bool = false
 
+    /// Units for the weather pill's along-route distance suffix ("Rain
+    /// 15 km" vs "Rain 9 mi"). Pushed alongside the alert from the nav
+    /// pump so it tracks the same `units` setting the speed labels use.
+    private var weatherImperial: Bool = false
+
     /// Snap + hysteresis thresholds (m) for the map-match. A way must come
     /// within `snapMeters` to ACQUIRE the limit; once shown, the sign holds
     /// until the nearest way is further than `releaseMeters` away, so it
@@ -1277,6 +1282,34 @@ extension MapViewSource {
         }
     }
 
+    /// Compact along-route distance for the weather pill's suffix, e.g.
+    /// "15 km" / "9 mi". Deliberately COARSER than `formatDistance`: a
+    /// weather sample is only accurate to its ~10 km spacing, so showing
+    /// "14.7 km" would fake precision and cost pill width. Rounds to whole
+    /// km/mi above the sub-unit threshold, and to the nearest 100 m / 500 ft
+    /// only when the hazard is very close (so a hazard 300 m ahead doesn't
+    /// collapse to "0 km"). `nonisolated static` so the unit tests can pin
+    /// the formatting synchronously without hopping onto the main actor
+    /// (the type is `@MainActor`; this pure helper has no reason to be).
+    nonisolated static func formatAheadDistance(meters m: Double, imperial: Bool) -> String {
+        if imperial {
+            let mi = m / 1609.344
+            if mi < 0.5 {
+                // Round to the nearest 500 ft when very close.
+                let ft = Int(((m * 3.280839895) / 500).rounded() * 500)
+                return "\(max(500, ft)) ft"
+            }
+            return "\(Int(mi.rounded())) mi"
+        } else {
+            if m < 1000 {
+                // Round to the nearest 100 m when under a km.
+                let hundreds = Int((m / 100).rounded()) * 100
+                return "\(max(100, hundreds)) m"
+            }
+            return "\(Int((m / 1000).rounded())) km"
+        }
+    }
+
     private static func drawText(
         _ text: String,
         in ctx: CGContext,
@@ -1335,8 +1368,11 @@ extension MapViewSource {
 
     /// Push the latest weather alert (or `nil` to clear). Mirrors
     /// `setNavOverlay`'s shape so the nav pump drives both the same way.
-    func setWeatherAlert(_ alert: WeatherAlert?) {
+    /// `imperial` sets the distance-suffix units for the pill; it's
+    /// irrelevant on a clear (`nil`) so it defaults to the metric case.
+    func setWeatherAlert(_ alert: WeatherAlert?, imperial: Bool = false) {
         self.weatherAlert = alert
+        self.weatherImperial = imperial
     }
 
     /// Install the speed cameras to plot (prefetched along the route).
@@ -1459,10 +1495,20 @@ extension MapViewSource {
         let fontSize: CGFloat = 15
         let pillH: CGFloat = 34
 
-        // Measure the title so the pill hugs the text.
+        // Compose the pill text: bare hazard noun, plus the along-route
+        // distance when the hazard is ahead (not at the rider). e.g.
+        // "Rain 15 km"; at the rider it's just "Rain". Decision #4.
+        let label: String
+        if let dist = alert.distanceAhead {
+            label = "\(alert.title) \(Self.formatAheadDistance(meters: dist, imperial: weatherImperial))"
+        } else {
+            label = alert.title
+        }
+
+        // Measure the composed label so the pill hugs the text.
         let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
         let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
-        let textW = (alert.title as NSString)
+        let textW = (label as NSString)
             .size(withAttributes: textAttrs).width.rounded(.up)
 
         let pillW = padX + glyphSize + gap + textW + padX
@@ -1498,11 +1544,12 @@ extension MapViewSource {
         drawWeatherGlyph(alert.glyph, in: ctx, size: glyphSize, tint: accent)
         ctx.restoreGState()
 
-        // Title text, vertically centred. Reuse the same CoreText helper
-        // the maneuver overlay uses (white + black stroke for contrast).
+        // Label text (title + optional distance), vertically centred.
+        // Reuse the same CoreText helper the maneuver overlay uses (white +
+        // black stroke for contrast).
         let textOrigin = CGPoint(x: pill.minX + padX + glyphSize + gap,
                                  y: pill.midY - fontSize / 2 - 1)
-        Self.drawText(alert.title, in: ctx, at: textOrigin,
+        Self.drawText(label, in: ctx, at: textOrigin,
                       width: textW + 4, fontSize: fontSize, bold: true)
     }
 

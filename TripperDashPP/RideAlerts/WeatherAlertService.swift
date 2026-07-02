@@ -5,11 +5,12 @@
 //  Ride-relevant weather alerting for the dash. Mirrors the OEM Royal
 //  Enfield app's "Weather Alerts" notification, but keyless and
 //  phone-side: we fetch the current conditions at the rider's position
-//  (and a look-ahead point further along the route) and, when something
-//  a motorcyclist actually cares about is happening — rain, ice,
-//  thunderstorms, strong gusts, fog — we surface a compact pill burned
-//  into the bottom-right of the streamed map frame (see
-//  `MapViewSource.drawWeatherAlert`).
+//  AND at several points sampled along the route ahead, then — when
+//  something a motorcyclist actually cares about is happening — rain,
+//  ice, thunderstorms, strong gusts, fog — we surface a compact pill
+//  burned into the bottom-right of the streamed map frame, reporting how
+//  far along the route the next hazard sits ("Rain 15 km"). See
+//  `MapViewSource.drawWeatherAlert`.
 //
 //  Why Open-Meteo (not WeatherKit):
 //    - WeatherKit needs a PAID Apple Developer membership + a signed
@@ -19,9 +20,9 @@
 //    - Open-Meteo is keyless, free for non-commercial use, returns WMO
 //      weather codes + wind gusts + visibility + precipitation in one
 //      GET, and supports MULTI-POINT queries (comma-separated lat/lon)
-//      so the rider-position sample and the look-ahead sample cost a
-//      single request. Verified shape (6/2026):
-//        GET /v1/forecast?latitude=A,B&longitude=A,B
+//      so the rider-position sample and EVERY along-route look-ahead
+//      sample cost a single request. Verified shape (6/2026):
+//        GET /v1/forecast?latitude=A,B,C&longitude=A,B,C
 //            &current=weather_code,temperature_2m,precipitation,
 //                     wind_gusts_10m,visibility&timezone=UTC
 //        → top-level ARRAY (one object per point), each with
@@ -59,22 +60,32 @@ struct WeatherAlert: Equatable, Sendable {
         }
     }
 
-    /// Short, glanceable label for the pill (≤ ~14 chars so it fits the
-    /// 526-px-wide frame's bottom-right corner without truncation).
+    /// Short, glanceable label for the pill — the bare hazard noun
+    /// ("Rain", "Storm", "Ice"). The renderer appends the distance
+    /// ("Rain 15 km") from `distanceAhead`, so the label itself stays
+    /// free of "ahead" wording. Kept ≤ ~10 chars so label + distance
+    /// still fits the 526-px-wide frame's bottom-right corner.
     let title: String
 
     let severity: Severity
 
-    /// True when the condition was detected at the LOOK-AHEAD sample
-    /// (further along the route) rather than at the rider's current
-    /// position. The pill prefixes an "↑" so the rider reads it as
-    /// "coming up", not "right now".
+    /// True when the condition was detected further along the route
+    /// rather than at the rider's current position. Equivalent to
+    /// `distanceAhead != nil`; kept as the cheap boolean the pipeline
+    /// already threads.
     let isAhead: Bool
 
     /// SF-Symbol-free glyph selector for `MapViewSource` to draw the
     /// matching pictograph (rain/storm/snow/ice/fog/wind) via CGContext
     /// paths — no asset catalog, consistent with the maneuver glyphs.
     let glyph: Glyph
+
+    /// How far along the route the hazard sits, in metres, or `nil` when
+    /// it's at the rider's current position. Drives the pill's distance
+    /// suffix ("Rain 15 km"). Defaults to `nil` so the classifier can
+    /// stay position-agnostic and only the along-route picker stamps a
+    /// real distance.
+    var distanceAhead: CLLocationDistance? = nil
 
     enum Glyph: Sendable {
         case rain
@@ -89,10 +100,11 @@ struct WeatherAlert: Equatable, Sendable {
 // MARK: - Service
 
 /// Polls Open-Meteo for ride-relevant weather at the rider's position
-/// plus a look-ahead point, and publishes the worst current `WeatherAlert`
-/// (or `nil`). MainActor-isolated so the published value can be read
-/// straight by `AppStatus` / the nav pump without a hop; the network call
-/// itself is `async` and off the main thread inside `URLSession`.
+/// plus a series of look-ahead points along the route, and publishes the
+/// hazard to surface (or `nil`). MainActor-isolated so the published
+/// value can be read straight by `AppStatus` / the nav pump without a
+/// hop; the network call itself is `async` and off the main thread inside
+/// `URLSession`.
 @MainActor
 final class WeatherAlertService {
 
@@ -106,11 +118,14 @@ final class WeatherAlertService {
     /// and Open-Meteo asks for courteous use; 5 min is plenty for a ride.
     private static let pollInterval: TimeInterval = 300
 
-    /// How far along the route to sample the look-ahead point. ~20 km is
-    /// roughly 10–12 min ahead at regional speeds — enough warning to pull
-    /// over before a storm front without alerting for weather two counties
-    /// away.
-    private static let lookaheadMeters: Double = 20_000
+    /// How far along the route to look, and how densely. Every point
+    /// rides in the SAME single Open-Meteo GET (comma-separated lat/lon),
+    /// so density is cheap in requests — it's the request COUNT that's
+    /// rate-limited, not the point count. 10 km spacing out to 100 km ≈
+    /// 10 look-ahead points + the rider position, once per `pollInterval`.
+    /// Rider-confirmed (Martin, 7/2026): "up to 100 km, every 10 km".
+    private static let sampleSpacingMeters: Double = 10_000
+    private static let sampleRangeMeters: Double   = 100_000
 
     private var lastPollAt: Date?
     private var lastPollKey: String?
@@ -127,16 +142,17 @@ final class WeatherAlertService {
         return URLSession(configuration: cfg)
     }()
 
-    /// Evaluate weather at `position` (+ a look-ahead point taken
-    /// `lookaheadMeters` along `routeAhead`, if supplied). Throttled to
-    /// `pollInterval` and to ~1 km of movement, so it's safe to call from
-    /// the 1 Hz nav pump every tick — the actual fetch only fires when the
-    /// throttle opens. Updates `current` in place; returns the new value.
+    /// Evaluate weather at `position` plus a series of points sampled
+    /// along `routeAhead` (every `sampleSpacingMeters` out to
+    /// `sampleRangeMeters`). Throttled to `pollInterval` and to ~1 km of
+    /// movement, so it's safe to call from the 1 Hz nav pump every tick —
+    /// the actual fetch only fires when the throttle opens. Updates
+    /// `current` in place; returns the new value.
     @discardableResult
     func refresh(position: CLLocationCoordinate2D,
                  routeAhead: [CLLocationCoordinate2D] = []) async -> WeatherAlert? {
-        // Throttle: time AND a coarse position grid (3 decimal places ≈
-        // 100 m) so a stationary rider doesn't re-poll, but crossing into
+        // Throttle: time AND a coarse position grid (2 decimal places ≈
+        // 1 km) so a stationary rider doesn't re-poll, but crossing into
         // a new neighbourhood does.
         let key = String(format: "%.2f,%.2f", position.latitude, position.longitude)
         if let last = lastPollAt,
@@ -147,15 +163,17 @@ final class WeatherAlertService {
         lastPollAt = Date()
         lastPollKey = key
 
-        let ahead = Self.pointAlong(routeAhead, from: position, meters: Self.lookaheadMeters)
+        // Rider position is sample 0 (distance 0), followed by the
+        // along-route look-ahead points. All in one GET.
+        let aheadSamples = Self.samplesAlong(
+            routeAhead, from: position,
+            everyMeters: Self.sampleSpacingMeters, maxMeters: Self.sampleRangeMeters)
+        let points: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)] =
+            [(coord: position, distanceM: 0)] + aheadSamples
         do {
-            let samples = try await fetch(points: [position] + (ahead.map { [$0] } ?? []))
-            let here = samples.first.flatMap { Self.classify($0, isAhead: false) }
-            let upcoming = samples.count > 1 ? Self.classify(samples[1], isAhead: true) : nil
-            // Worst wins; a current-position warning outranks a milder
-            // look-ahead and vice-versa.
-            current = [here, upcoming].compactMap { $0 }.max(by: { $0.severity < $1.severity })
-            log.info("Weather refresh: \(self.current.map { "\($0.title) sev=\($0.severity.rawValue) ahead=\($0.isAhead)" } ?? "clear", privacy: .public)")
+            let samples = try await fetch(points: points)
+            current = Self.pickAlongRoute(samples)
+            log.info("Weather refresh: \(self.current.map { "\($0.title) sev=\($0.severity.rawValue) dist=\($0.distanceAhead.map { "\(Int($0 / 1000))km" } ?? "here")" } ?? "clear", privacy: .public)")
         } catch {
             // Soft failure — keep the previous value rather than blanking a
             // valid warning on one flaky fetch. (Don't null `current`.)
@@ -175,13 +193,17 @@ final class WeatherAlertService {
     // MARK: - Network
 
     /// Raw decoded sample for one geographic point — only the fields the
-    /// classifier consumes.
+    /// classifier consumes, plus the along-route distance the caller
+    /// tagged the point with.
     struct Sample: Sendable, Equatable {
         var weatherCode: Int
         var gustsKmh: Double
         var visibilityM: Double
         var precipitationMm: Double
         var isAhead: Bool
+        /// Distance from the rider along the route, in metres. `0` for the
+        /// rider's own position sample.
+        var distanceM: CLLocationDistance
     }
 
     private struct OMResponse: Decodable {
@@ -194,10 +216,14 @@ final class WeatherAlertService {
         let current: Current
     }
 
-    private func fetch(points: [CLLocationCoordinate2D]) async throws -> [Sample] {
+    /// Fetch weather for every `(coord, distanceM)` point in one
+    /// multi-point Open-Meteo GET. The returned `Sample`s carry each
+    /// point's along-route distance straight through, so the picker can
+    /// report "how far".
+    private func fetch(points: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)]) async throws -> [Sample] {
         guard !points.isEmpty else { return [] }
-        let lats = points.map { String(format: "%.4f", $0.latitude) }.joined(separator: ",")
-        let lons = points.map { String(format: "%.4f", $0.longitude) }.joined(separator: ",")
+        let lats = points.map { String(format: "%.4f", $0.coord.latitude) }.joined(separator: ",")
+        let lons = points.map { String(format: "%.4f", $0.coord.longitude) }.joined(separator: ",")
         var comp = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         comp.queryItems = [
             .init(name: "latitude", value: lats),
@@ -224,9 +250,48 @@ final class WeatherAlertService {
                 gustsKmh: r.current.wind_gusts_10m ?? 0,
                 visibilityM: r.current.visibility ?? .greatestFiniteMagnitude,
                 precipitationMm: r.current.precipitation ?? 0,
-                isAhead: idx > 0
+                isAhead: idx > 0,
+                distanceM: idx < points.count ? points[idx].distanceM : 0
             )
         }
+    }
+
+    // MARK: - Along-route hazard selection (pure, testable)
+
+    /// Choose the single hazard to surface from a position + look-ahead
+    /// sample set, and stamp its along-route distance. Policy
+    /// (motorcycle-biased):
+    ///   1. Classify every sample; drop the clears.
+    ///   2. A `.warning` anywhere in range outranks any `.caution` (the
+    ///      storm matters more than the nearby drizzle).
+    ///   3. Within one severity, the NEAREST hazard wins (you hit it first).
+    ///   4. A hazard at the rider's position (`distanceM == 0`) reports
+    ///      with no "ahead" flag and no distance suffix.
+    /// Returns `nil` when nothing ride-relevant is anywhere on the sampled
+    /// route. Pure and `nonisolated` so it unit-tests without the network
+    /// or the main actor.
+    nonisolated static func pickAlongRoute(_ samples: [Sample]) -> WeatherAlert? {
+        let hazards: [(alert: WeatherAlert, dist: CLLocationDistance)] = samples.compactMap {
+            guard let a = classify($0, isAhead: $0.distanceM > 0) else { return nil }
+            return (a, $0.distanceM)
+        }
+        guard !hazards.isEmpty else { return nil }
+        // Highest severity first, then nearest. `max(by:)` returns the
+        // element no other compares "greater" than.
+        let best = hazards.max { lhs, rhs in
+            if lhs.alert.severity != rhs.alert.severity {
+                return lhs.alert.severity < rhs.alert.severity   // higher severity wins
+            }
+            return lhs.dist > rhs.dist                            // nearer wins
+        }!
+        let atRider = best.dist == 0
+        return WeatherAlert(
+            title: best.alert.title,
+            severity: best.alert.severity,
+            isAhead: !atRider,
+            glyph: best.alert.glyph,
+            distanceAhead: atRider ? nil : best.dist
+        )
     }
 
     // MARK: - Classification (pure, testable)
@@ -236,6 +301,10 @@ final class WeatherAlertService {
     /// light wind, good visibility). Pure and `nonisolated` so the logic
     /// tests can pin the exact truth table without the network or the main
     /// actor — same pattern as `CallStateObserver.callState`.
+    ///
+    /// The title is the bare hazard noun ("Rain", "Storm"); the pill's
+    /// renderer composes the distance suffix from `distanceAhead`. `isAhead`
+    /// is threaded onto the alert but no longer bakes into the title.
     ///
     /// WMO code reference (Open-Meteo `weather_code`):
     ///   0 clear · 1–3 clouds · 45/48 fog · 51/53/55 drizzle ·
@@ -255,65 +324,55 @@ final class WeatherAlertService {
         // 1. Ice — freezing rain/drizzle. Catastrophic on two wheels;
         //    always a WARNING regardless of anything else.
         if [56, 57, 66, 67].contains(code) {
-            return WeatherAlert(title: isAhead ? "Ice ahead" : "Ice / freezing",
-                                severity: .warning, isAhead: isAhead, glyph: .ice)
+            return WeatherAlert(title: "Ice", severity: .warning, isAhead: isAhead, glyph: .ice)
         }
 
         // 2. Thunderstorm (with or without hail).
         if [95, 96, 99].contains(code) {
-            return WeatherAlert(title: isAhead ? "Storm ahead" : "Thunderstorm",
-                                severity: .warning, isAhead: isAhead, glyph: .storm)
+            return WeatherAlert(title: "Storm", severity: .warning, isAhead: isAhead, glyph: .storm)
         }
 
         // 3. Heavy rain / violent showers, or any rain with strong gusts.
         if [65, 82].contains(code) {
-            return WeatherAlert(title: isAhead ? "Heavy rain ahead" : "Heavy rain",
-                                severity: .warning, isAhead: isAhead, glyph: .rain)
+            return WeatherAlert(title: "Heavy rain", severity: .warning, isAhead: isAhead, glyph: .rain)
         }
 
         // 4. Heavy snow / snow showers.
         if [75, 86].contains(code) {
-            return WeatherAlert(title: isAhead ? "Snow ahead" : "Heavy snow",
-                                severity: .warning, isAhead: isAhead, glyph: .snow)
+            return WeatherAlert(title: "Heavy snow", severity: .warning, isAhead: isAhead, glyph: .snow)
         }
 
         // 5. Strong gusts — independent of precip. >65 km/h is a genuine
         //    hazard for a motorcycle (lane-keeping, crosswinds on bridges).
         if s.gustsKmh >= 65 {
-            return WeatherAlert(title: isAhead ? "Wind ahead" : "Strong wind",
-                                severity: .warning, isAhead: isAhead, glyph: .wind)
+            return WeatherAlert(title: "Strong wind", severity: .warning, isAhead: isAhead, glyph: .wind)
         }
 
         // 6. Very low visibility (dense fog) — WARNING under 500 m.
         if s.visibilityM < 500 {
-            return WeatherAlert(title: isAhead ? "Dense fog ahead" : "Dense fog",
-                                severity: .warning, isAhead: isAhead, glyph: .fog)
+            return WeatherAlert(title: "Dense fog", severity: .warning, isAhead: isAhead, glyph: .fog)
         }
 
         // ── CAUTION tier ──────────────────────────────────────────────
 
         // 7. Ordinary rain / drizzle / showers.
         if [51, 53, 55, 61, 63, 80, 81].contains(code) {
-            return WeatherAlert(title: isAhead ? "Rain ahead" : "Rain",
-                                severity: .caution, isAhead: isAhead, glyph: .rain)
+            return WeatherAlert(title: "Rain", severity: .caution, isAhead: isAhead, glyph: .rain)
         }
 
         // 8. Ordinary snow / snow grains.
         if [71, 73, 77, 85].contains(code) {
-            return WeatherAlert(title: isAhead ? "Snow ahead" : "Snow",
-                                severity: .caution, isAhead: isAhead, glyph: .snow)
+            return WeatherAlert(title: "Snow", severity: .caution, isAhead: isAhead, glyph: .snow)
         }
 
         // 9. Fog (45/48) or moderate low visibility.
         if [45, 48].contains(code) || s.visibilityM < 2000 {
-            return WeatherAlert(title: isAhead ? "Fog ahead" : "Fog",
-                                severity: .caution, isAhead: isAhead, glyph: .fog)
+            return WeatherAlert(title: "Fog", severity: .caution, isAhead: isAhead, glyph: .fog)
         }
 
         // 10. Moderate gusts.
         if s.gustsKmh >= 50 {
-            return WeatherAlert(title: isAhead ? "Wind ahead" : "Gusty wind",
-                                severity: .caution, isAhead: isAhead, glyph: .wind)
+            return WeatherAlert(title: "Gusty wind", severity: .caution, isAhead: isAhead, glyph: .wind)
         }
 
         // Clear / cloudy / light wind → nothing to show.
@@ -321,6 +380,36 @@ final class WeatherAlertService {
     }
 
     // MARK: - Route geometry
+
+    /// Sample the polyline `coords` ahead of `from`, one point every
+    /// `everyMeters`, out to `maxMeters` total, returning each point with
+    /// its along-route distance from the rider. Walks from the vertex
+    /// nearest `from` (so we measure ahead of the rider, not from the route
+    /// origin), reusing the same walk `pointAlong` performs. Empty / too
+    /// short a route → fewer (or zero) points.
+    nonisolated static func samplesAlong(
+        _ coords: [CLLocationCoordinate2D],
+        from: CLLocationCoordinate2D,
+        everyMeters: Double,
+        maxMeters: Double
+    ) -> [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)] {
+        guard coords.count >= 2, everyMeters > 0 else { return [] }
+        var out: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)] = []
+        var target = everyMeters
+        while target <= maxMeters {
+            guard let p = pointAlong(coords, from: from, meters: target) else { break }
+            // `pointAlong` clamps to `coords.last` when the route is shorter
+            // than `target`; if this point coincides with the previous one
+            // we've run off the end — stop rather than emit duplicates.
+            if let last = out.last, haversine(last.coord, p) < 1 { break }
+            out.append((coord: p, distanceM: target))
+            // If we've reached the physical end of the route, there's
+            // nothing further to sample.
+            if let end = coords.last, haversine(p, end) < 1 { break }
+            target += everyMeters
+        }
+        return out
+    }
 
     /// Walk `meters` along the polyline `coords` starting from the vertex
     /// nearest `from`, returning the coordinate reached (or the last vertex
