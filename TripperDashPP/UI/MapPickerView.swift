@@ -344,6 +344,17 @@ struct MapPickerView: View {
                             .padding(.trailing, 14)
                     }
                 }
+                // Post-arrival ride summary. Shown ONLY back on the picker
+                // once a ride has actually happened (`startedAt != nil`) and
+                // we're not selecting a new destination. It stays frozen on
+                // the last totals until the session ends (link fully down →
+                // RideStatsService.reset() zeroes `startedAt` and it vanishes)
+                // or a new route resumes folding. Hidden while a destination
+                // card is up so the two don't fight for the bottom region.
+                if status.rideStats.stats.startedAt != nil, selectedDestination == nil {
+                    RideStatsPanel()
+                        .padding(.horizontal, 10)
+                }
                 if let dest = selectedDestination {
                     DestinationPreviewCard(
                         destination: dest,
@@ -365,6 +376,7 @@ struct MapPickerView: View {
             .padding(.bottom, 8)
             .animation(.easeInOut(duration: 0.2), value: selectedDestination)
             .animation(.easeInOut(duration: 0.2), value: showRecenterButton)
+            .animation(.easeInOut(duration: 0.2), value: status.rideStats.stats.startedAt)
         }
     }
 

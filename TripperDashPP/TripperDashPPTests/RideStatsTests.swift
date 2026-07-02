@@ -182,35 +182,39 @@ struct RideStatsTests {
         #expect(abs(s.elevationGainMeters - 2) < 0.01)
     }
 
-    // MARK: - Resume-after-kill predicate (Wave 2)
+    // MARK: - Session lifecycle signals (post-arrival panel gating)
 
-    @Test func resumableWithinWindow() {
-        let now = Date(timeIntervalSince1970: 10_000)
-        let recent = now.addingTimeInterval(-3600) // 1 h ago
-        #expect(RideStatsService.isResumable(lastFixAt: recent, now: now))
+    @Test func startedAtNilBeforeFirstFix() {
+        // The post-arrival panel is gated on `stats.startedAt != nil`, so a
+        // never-ridden accumulator must read as "no ride yet".
+        let s = RideStats()
+        #expect(s.startedAt == nil)
+        #expect(s.distanceMeters == 0)
     }
 
-    @Test func notResumableBeyondWindow() {
-        let now = Date(timeIntervalSince1970: 100_000)
-        let old = now.addingTimeInterval(-6 * 3600 - 1) // just past 6 h
-        #expect(!RideStatsService.isResumable(lastFixAt: old, now: now))
+    @Test func startedAtSetOnFirstAcceptedFix() {
+        // First accepted fix seeds startedAt → the panel becomes eligible.
+        var s = RideStats()
+        s = s.folding(fix(0, 0, alt: 100, t: 0))
+        #expect(s.startedAt != nil)
     }
 
-    @Test func notResumableAtExactWindowEdge() {
-        let now = Date(timeIntervalSince1970: 100_000)
-        let edge = now.addingTimeInterval(-6 * 3600) // exactly 6 h → excluded (< is strict)
-        #expect(!RideStatsService.isResumable(lastFixAt: edge, now: now))
-    }
-
-    @Test func notResumableWithNoFix() {
-        #expect(!RideStatsService.isResumable(lastFixAt: nil, now: Date()))
-    }
-
-    @Test func notResumableWithFutureTimestamp() {
-        // A persisted fix newer than "now" (clock moved back) is not a
-        // valid ride to resume — negative age is rejected.
-        let now = Date(timeIntervalSince1970: 10_000)
-        let future = now.addingTimeInterval(120)
-        #expect(!RideStatsService.isResumable(lastFixAt: future, now: now))
+    @Test func foldingContinuesAcrossRides() {
+        // The rider-confirmed model: arriving and starting a fresh route
+        // KEEPS accumulating onto the same totals (a multi-leg day reads as
+        // one ride). The accumulator has no per-ride boundary — only a full
+        // reset() zeroes it — so simply continuing to fold must grow both
+        // the distance and keep the original startedAt.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, alt: 100, t: 0))
+        s = s.folding(fix(0, 0.010, alt: 100, t: 30)) // leg 1
+        let afterLeg1 = s.distanceMeters
+        let started = s.startedAt
+        #expect(afterLeg1 > 0)
+        // …arrival, a pause, then a second route resumes onto the SAME value.
+        s = s.folding(fix(0, 0.020, alt: 100, t: 600)) // leg 2, later
+        #expect(s.distanceMeters > afterLeg1)
+        #expect(s.startedAt == started) // origin unchanged → one continuous ride
     }
 }
+

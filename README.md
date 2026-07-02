@@ -11,13 +11,13 @@
 
 ## What is this?
 
-The factory **Royal Enfield Tripper Dash** — the rectangular TFT fitted to the **Himalayan 450** and **Guerrilla 450** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy map-via-RTP to it, and the moment you lock your phone the stream dies.
+The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Himalayan 450**, **Guerrilla 450**, and **Bear 650** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy map-via-RTP to it, and the moment you lock your phone the stream dies.
 
 This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **6 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
 
 **What it does today:** open app → search a destination (or pick a favorite, or import a GPX) → preview alternative routes → start nav → put the phone in your pocket → ride. The dash shows the moving map, the route polyline, the next-maneuver glyph, distance/ETA, a whole-route progress overview, plus live phone status, mirrored incoming call/message cards, a weather pill, and speed-camera marks. Native turn-by-turn (TLV maneuver stream + burned-in glyph) is implemented and **validated on a Guerrilla 450 (June 2026).** On the phone itself, a live trip panel tracks the ride (distance, moving time, average/max speed, elevation gain).
 
-> Not to be confused with the smaller round **Tripper Navigation Pod** on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650 — that one's a tiny arrow-only display with a different protocol. This project targets the *big* rectangular Tripper Dash.
+> Not to be confused with the smaller **Tripper Navigation Pod** on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650 — that one's a tiny arrow-only display with a different protocol. This project targets the *big*, map-capable Tripper Dash.
 
 ## Why?
 
@@ -34,7 +34,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 - **Saved routes from GPX.** Import a `.gpx`, preview it, prune/reorder points, then navigate it through the same engine — reroute, ETA, and dash glyphs all apply.
 - **Mirrors OEM ride cards.** Incoming call and message cards and live phone status (battery, charging, GPS, signal) are mirrored onto the dash, just like the factory app.
 - **Ride-aware alerts.** A conservative, keyless weather pill (rain/ice/storms/gusts/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map.
-- **GPS trip computer.** A live ride panel on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw), and resumed intact if iOS kills the app mid-ride. Phone-side only; it's never sent to the dash.
+- **GPS trip computer.** A ride summary on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw). It shows back on the map after you arrive and accumulates across a multi-leg day, zeroing when the session ends (you disconnect, the bike powers off, or the app is killed). Phone-side only; it's never sent to the dash.
 - **No keys, no SDK, no paid account.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies, free Apple Developer account is enough.
 
 Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full glyph catalog.
@@ -82,12 +82,13 @@ make fake-dash-down    # stop
 
 ## Compatibility
 
-The Tripper Dash (big rectangular TFT) ships on:
+The Tripper Dash (big round map-capable TFT) ships on:
 
 - ✅ **Royal Enfield Guerrilla 450** (2024+) — primary dev bike (@kolaCZek), field-validated
 - ❓ **Royal Enfield Himalayan 450** (2023+) — same dash hardware in theory, untested
+- ❓ **Royal Enfield Bear 650** (2024+) — same Tripper Dash hardware, untested
 
-**Not compatible:** the small round Tripper Navigation Pod on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650. Different display, different protocol — this app won't talk to it.
+**Not compatible:** the small arrow-only Tripper Navigation Pod on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650. Different display, different protocol — this app won't talk to it.
 
 ## Legal / safety
 

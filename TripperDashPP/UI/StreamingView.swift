@@ -27,14 +27,6 @@ struct StreamingView: View {
 
     var body: some View {
         Form {
-            if status.dashNavSettings.tripComputerEnabled {
-                Section {
-                    RideStatsPanel()
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-            }
-
             Section("Connection") {
                 LabeledContent("State", value: status.connectionState.rawValue)
                 if isEditableState {
@@ -144,18 +136,6 @@ struct StreamingView: View {
                     )
                 }
                 Text("Shows the posted limit as a road sign in the bottom-right corner. From OpenStreetMap data — coverage varies and untagged roads show nothing, so treat a missing sign as unknown, not zero.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Trip computer") {
-                Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.tripComputerEnabled },
-                    set: { status.dashNavSettings.tripComputerEnabled = $0 }
-                )) {
-                    Text("Show trip panel")
-                }
-                Text("A GPS-only ride summary — distance, moving time, average and max speed, and approximate elevation gain — shown on this screen. Phone-side only; nothing is sent to the dash.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
