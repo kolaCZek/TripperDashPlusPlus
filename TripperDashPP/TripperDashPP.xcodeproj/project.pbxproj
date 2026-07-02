@@ -87,6 +87,8 @@
 		7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */; };
 		7E5700000000000000000A52 /* RideStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A51 /* RideStats.swift */; };
 		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
+		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
+		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -173,6 +175,8 @@
 		7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlongRouteTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A51 /* RideStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStats.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -197,6 +201,7 @@
 			isa = PBXGroup;
 			children = (
 				7E5700000000000000000A51 /* RideStats.swift */,
+				7E5700000000000000000A53 /* RideStatsFormatting.swift */,
 			);
 			path = RideStats;
 			sourceTree = "<group>";
@@ -374,6 +379,7 @@
 				7E57000000000000000000A0 /* SmokeTests.swift */,
 				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
+				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -558,6 +564,7 @@
 				6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */,
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
 				7E5700000000000000000A52 /* RideStats.swift in Sources */,
+				7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
@@ -589,6 +596,7 @@
 				7E57000000000000000000A1 /* SmokeTests.swift in Sources */,
 				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
+				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
