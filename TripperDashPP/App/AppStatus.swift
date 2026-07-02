@@ -140,12 +140,23 @@ final class AppStatus {
                     self.stopStreaming()
                 } else if state == .connected
                             && self.activeNavigator.isNavigating
+                            && !self.activeNavigator.hasArrived
                             && !self.isStreaming {
                     // Reconnected mid-ride → bring the dash projection back
                     // automatically so navigation reappears without the
                     // rider touching the phone (e.g. walked back from the
                     // petrol-station till). The tile cache survived the drop
                     // (never released on stop), so there's no re-bake.
+                    //
+                    // The `!hasArrived` guard is load-bearing: on final
+                    // arrival `onArrived` deliberately tears the stream down
+                    // AND drops the tile cache + route polyline, but leaves
+                    // `isNavigating == true` for the HUD's ~4 s dismiss beat.
+                    // Without this guard, a link flap inside that window would
+                    // re-arm the stream onto a now-empty map (no route, no
+                    // maneuver) — a bare map with no navigation, exactly what
+                    // we just stopped. `hasArrived` resets on the next
+                    // start()/stop(), so legitimate reconnects still fire.
                     self.startStreaming()
                 } else {
                     self.applyKeepAwake()
