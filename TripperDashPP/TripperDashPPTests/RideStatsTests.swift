@@ -181,4 +181,36 @@ struct RideStatsTests {
         s = s.folding(fix(0, 0.003, alt: 102, t: 15)) // +1 m, buffer=2 → counts
         #expect(abs(s.elevationGainMeters - 2) < 0.01)
     }
+
+    // MARK: - Resume-after-kill predicate (Wave 2)
+
+    @Test func resumableWithinWindow() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let recent = now.addingTimeInterval(-3600) // 1 h ago
+        #expect(RideStatsService.isResumable(lastFixAt: recent, now: now))
+    }
+
+    @Test func notResumableBeyondWindow() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let old = now.addingTimeInterval(-6 * 3600 - 1) // just past 6 h
+        #expect(!RideStatsService.isResumable(lastFixAt: old, now: now))
+    }
+
+    @Test func notResumableAtExactWindowEdge() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let edge = now.addingTimeInterval(-6 * 3600) // exactly 6 h → excluded (< is strict)
+        #expect(!RideStatsService.isResumable(lastFixAt: edge, now: now))
+    }
+
+    @Test func notResumableWithNoFix() {
+        #expect(!RideStatsService.isResumable(lastFixAt: nil, now: Date()))
+    }
+
+    @Test func notResumableWithFutureTimestamp() {
+        // A persisted fix newer than "now" (clock moved back) is not a
+        // valid ride to resume — negative age is rejected.
+        let now = Date(timeIntervalSince1970: 10_000)
+        let future = now.addingTimeInterval(120)
+        #expect(!RideStatsService.isResumable(lastFixAt: future, now: now))
+    }
 }
