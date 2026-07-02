@@ -234,3 +234,48 @@ struct SamplesAlongTests {
         #expect(s[0].coord.longitude > rider.longitude)
     }
 }
+
+// MARK: - formatAheadDistance (pill distance suffix)
+
+struct FormatAheadDistanceTests {
+
+    private func fmt(_ m: Double, imperial: Bool = false) -> String {
+        MapViewSource.formatAheadDistance(meters: m, imperial: imperial)
+    }
+
+    @Test func wholeKilometresNoFakePrecision() {
+        // 14.7 km must not render as "14.7 km" — weather is only accurate
+        // to the ~10 km sample spacing, so we round to whole km (decision #4).
+        #expect(fmt(14_700) == "15 km")
+        #expect(fmt(15_000) == "15 km")
+        #expect(fmt(100_000) == "100 km")
+        #expect(fmt(1_000) == "1 km")
+    }
+
+    @Test func subKilometreRoundsToHundredMetres() {
+        #expect(fmt(300) == "300 m")
+        #expect(fmt(349) == "300 m")
+        #expect(fmt(350) == "400 m")
+        #expect(fmt(940) == "900 m")   // rounds to nearest 100, stays < 1 km
+    }
+
+    @Test func neverCollapsesToZero() {
+        // A very-close hazard must show a floor, not "0 m" / "0 km".
+        #expect(fmt(40) == "100 m")
+        #expect(fmt(10) == "100 m")
+    }
+
+    @Test func imperialWholeMiles() {
+        // 15 km ≈ 9.32 mi → "9 mi"
+        #expect(fmt(15_000, imperial: true) == "9 mi")
+        #expect(fmt(100_000, imperial: true) == "62 mi")
+    }
+
+    @Test func imperialShortDistanceUsesFeet() {
+        // < 0.5 mi → feet, rounded to 500 ft, floored so it never hits 0.
+        let close = fmt(200, imperial: true)   // ~656 ft → 500 ft
+        #expect(close.hasSuffix(" ft"))
+        #expect(fmt(20, imperial: true) == "500 ft")   // floor
+    }
+}
+

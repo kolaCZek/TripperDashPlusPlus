@@ -621,7 +621,8 @@ final class AppStatus {
             // Re-check the toggle: the rider may have flipped it OFF during
             // the await, in which case we must NOT paint a stale pill.
             self.mapViewSource.setWeatherAlert(
-                self.dashNavSettings.weatherAlertsEnabled ? alert : nil
+                self.dashNavSettings.weatherAlertsEnabled ? alert : nil,
+                imperial: self.dashNavSettings.units == .imperial
             )
         }
     }
