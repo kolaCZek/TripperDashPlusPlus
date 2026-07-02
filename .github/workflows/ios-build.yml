@@ -1,10 +1,14 @@
 name: iOS build
 
-# Build-only sanity check: does the app still compile?
-# Runs on every push. The app is a UIKit/MapKit/VideoToolbox iOS target,
-# so it must build on a macOS runner with Xcode — it cannot be built on
-# Linux. No code signing (simulator build), no tests (there is no test
-# target yet), just `xcodebuild build`.
+# Build + unit-test sanity check on every push. The app is a
+# UIKit/MapKit/VideoToolbox iOS target, so it must build on a macOS runner
+# with Xcode — it cannot be built on Linux. No code signing (simulator).
+#
+# The pure ride-logic (weather-along-route sampling/classification,
+# distance formatting) is covered by the TripperDashPPTests unit-test
+# target (Swift Testing). Unit tests need a CONCRETE simulator destination
+# (a generic destination builds but cannot `test`), so we resolve one
+# booted iPhone runtime and run `xcodebuild test` against it.
 #
 # Only `push` is wired up (not `pull_request`): a push run's check is
 # attached to the head commit, so it already surfaces on any PR for that
@@ -20,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    name: xcodebuild (iOS Simulator)
+    name: xcodebuild test (iOS Simulator)
     runs-on: macos-15
     timeout-minutes: 30
 
@@ -38,21 +42,25 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Show available simulators
-        run: xcrun simctl list devicetypes | grep -i iphone || true
-
-      - name: Resolve an iOS Simulator destination
+      - name: Resolve a concrete iOS Simulator destination
         id: dest
         run: |
-          # Pick a generic iOS Simulator destination for the build. Using a
-          # generic destination avoids pinning to a runtime/device that the
-          # runner image may drop in a future update.
-          echo "destination=generic/platform=iOS Simulator" >> "$GITHUB_OUTPUT"
+          # `xcodebuild test` (unlike `build`) needs a CONCRETE destination,
+          # not `generic/platform=iOS Simulator`. Pick the newest available
+          # iPhone simulator by id so we don't pin a name the runner image
+          # might drop.
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
+                 devs=[x for r in d.values() for x in r if 'iPhone' in x['name']]; \
+                 print(devs[-1]['udid'] if devs else '')")
+          if [ -z "$UDID" ]; then echo "No iPhone simulator available" >&2; exit 1; fi
+          echo "Using simulator $UDID"
+          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Build
+      - name: Build & test
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -configuration Debug \
