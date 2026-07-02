@@ -117,7 +117,9 @@ struct RideStats: Sendable, Equatable, Codable {
             s.distanceMeters += d
         }
 
-        // Moving time.
+        // Moving time. A teleport glitch's implied speed is bogus, so we
+        // drop it and fall back to the (possibly unknown) Doppler speed —
+        // a glitch must never fabricate moving time.
         let effectiveSpeed = max(fix.speed, glitch ? 0 : impliedSpeed)
         if effectiveSpeed >= Self.movingThresholdMps {
             s.movingSeconds += min(dt, Self.maxStepSeconds)
@@ -132,7 +134,7 @@ struct RideStats: Sendable, Equatable, Codable {
                 s.ascentBuffer = 0
             }
         } else if rise < 0 {
-            s.ascentBuffer = 0 // reset on any descent
+            s.ascentBuffer = 0 // reset on descent; a flat fix holds it
         }
 
         // Advance bookkeeping.

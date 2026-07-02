@@ -132,4 +132,53 @@ struct RideStatsTests {
         #expect(RideStats.maxStepSeconds == 10)
         #expect(RideStats.ascentHysteresisMeters == 2)
     }
+
+    // MARK: - Gating coverage (review hardening)
+
+    @Test func rejectsNonMonotonicTimestamp() {
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, t: 10))
+        s = s.folding(fix(0, 0.001, t: 5)) // earlier than last → rejected
+        #expect(s.acceptedFixCount == 1)
+        #expect(s.distanceMeters == 0)
+    }
+
+    @Test func rejectsDuplicateTimestamp() {
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, t: 10))
+        s = s.folding(fix(0, 0.001, t: 10)) // equal timestamp → rejected
+        #expect(s.acceptedFixCount == 1)
+    }
+
+    @Test func rejectsNegativeAccuracy() {
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, acc: 5, t: 0))
+        s = s.folding(fix(0, 0.001, acc: -1, t: 5)) // invalid accuracy → rejected
+        #expect(s.acceptedFixCount == 1)
+        #expect(s.distanceMeters == 0)
+    }
+
+    @Test func teleportWithUnknownSpeedAddsNoMovingTime() {
+        // A GPS position jump (glitch) with unknown Doppler speed must not
+        // accrue moving time off the bogus implied speed — the blessed
+        // refinement of rule 3 (zero the implied term on a glitch).
+        var s = RideStats()
+        s = s.folding(fix(0, 0, speed: 10, t: 0))
+        s = s.folding(fix(0, 0.01, speed: -1, acc: 5, t: 1)) // ~1113 m/s implied → glitch, speed unknown
+        #expect(s.distanceMeters == 0)
+        #expect(s.movingSeconds == 0)
+        #expect(s.acceptedFixCount == 2)
+    }
+
+    @Test func flatSegmentHoldsAscentBuffer() {
+        // Sub-hysteresis rise, then a FLAT fix, then more rise: the flat
+        // fix must NOT wipe the accumulated buffer (reset is strict-descent
+        // -only), so +1 (flat) +1 crosses the 2 m hysteresis and counts.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, alt: 100, t: 0))
+        s = s.folding(fix(0, 0.001, alt: 101, t: 5))  // +1 m, buffer=1 (<2)
+        s = s.folding(fix(0, 0.002, alt: 101, t: 10)) // flat, buffer stays 1
+        s = s.folding(fix(0, 0.003, alt: 102, t: 15)) // +1 m, buffer=2 → counts
+        #expect(abs(s.elevationGainMeters - 2) < 0.01)
+    }
 }
