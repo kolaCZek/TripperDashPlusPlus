@@ -98,10 +98,22 @@ final class AppStatus {
     /// two managers for the same authorization + indicator pill.
     let locationService = LocationService()
 
+    /// GPS trip computer — folds the shared location fix stream into live
+    /// ride totals (distance / moving time / avg+max speed / ascent). Same
+    /// fix stream as the map/nav/telemetry; no second manager. Phone-side
+    /// only — not wired to any K1G dash TLV.
+    let rideStats: RideStatsService
+
     private let audioKeeper = SilentAudioKeeper()
     private var wakelockToken: UUID?
 
     init() {
+        // The trip computer shares the one LocationService (already
+        // initialised as an inline stored property). Assigned here rather
+        // than inline because a stored-property default can't reference
+        // another property (`self` isn't available yet at that point).
+        rideStats = RideStatsService(location: locationService)
+
         // Wire BikeLink → DashNavSettings so the wire-encoding helpers
         // (units, decimal separator, clock format, bottom-line mutex)
         // are reachable from inside the connection flow. Both objects
@@ -214,6 +226,7 @@ final class AppStatus {
         )
         loop.start()
         activeNavLoop = loop
+        rideStats.begin()   // start folding GPS fixes into the trip computer
         applyKeepAwake()
     }
 
@@ -227,6 +240,7 @@ final class AppStatus {
         Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
+        rideStats.end()   // drop the fix subscription; totals stay on screen
         // mapViewSource is intentionally NOT released — its tile cache
         // + location subscription should survive stop/start cycles so
         // the next ride doesn't have to re-bake.

@@ -85,6 +85,12 @@
 		FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000000000000000000B0 /* RouteProgressMap.swift */; };
 		7E57000000000000000000A1 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A0 /* SmokeTests.swift */; };
 		7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */; };
+		7E5700000000000000000A52 /* RideStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A51 /* RideStats.swift */; };
+		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
+		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
+		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
+		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
+		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -169,6 +175,12 @@
 		7E57000000000000000000A0 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
 		7E57000000000000000000B0 /* TripperDashPPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TripperDashPPTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlongRouteTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A51 /* RideStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStats.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +201,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		7E5700000000000000000A50 /* RideStats */ = {
+			isa = PBXGroup;
+			children = (
+				7E5700000000000000000A51 /* RideStats.swift */,
+				7E5700000000000000000A53 /* RideStatsFormatting.swift */,
+				7E5700000000000000000A55 /* RideStatsService.swift */,
+			);
+			path = RideStats;
+			sourceTree = "<group>";
+		};
 		A41A9C442FE20258009BF005 = {
 			isa = PBXGroup;
 			children = (
@@ -197,6 +219,7 @@
 				A4F0FFFF000000000000A001 /* Navigation */,
 				A486F0652FE2DD0800AA36C3 /* Tripper */,
 				B1DEA1E700000000000000C0 /* RideAlerts */,
+				7E5700000000000000000A50 /* RideStats */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A55E7000000000000A55E701 /* Assets.xcassets */,
 				A486F0432FE2034700AA36C3 /* App */,
@@ -234,6 +257,7 @@
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
+				7E5700000000000000000A57 /* RideStatsPanel.swift */,
 				A4F0FFFF000000000000A003 /* Navigation */,
 			);
 			path = UI;
@@ -360,6 +384,8 @@
 			children = (
 				7E57000000000000000000A0 /* SmokeTests.swift */,
 				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
+				7E57000000000000000000A4 /* RideStatsTests.swift */,
+				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -543,7 +569,11 @@
 				29F33008B35290915EF1ACD9 /* MapPreviewView.swift in Sources */,
 				6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */,
 				A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */,
+				7E5700000000000000000A52 /* RideStats.swift in Sources */,
+				7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */,
+				7E5700000000000000000A56 /* RideStatsService.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
+				7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
 				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
@@ -573,6 +603,8 @@
 			files = (
 				7E57000000000000000000A1 /* SmokeTests.swift in Sources */,
 				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
+				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
+				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -97,7 +97,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 TripperDashPP/TripperDashPP.xcodeproj/   # Xcode project (committed; xcuserdata gitignored)
 TripperDashPP/                           # App source
 ├── App/          # @main, AppStatus (shared observable state), LocationService, SilentAudioKeeper
-├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, InteractiveMapView)
+├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, RideStatsPanel, InteractiveMapView)
 │   └── Navigation/   # search / preview / favorites / saved-routes sheets, NavigationHUD, RouteProgressMap, QuickAccessTiles, PrerenderProgressView
 ├── Tripper/      # K1G control plane (BikeLink, DashSocket, K1GPacket, RsaHandshake, HeartbeatLoop, K1GConstants),
 │   #              plus DeviceTelemetry (phone status), CallStateObserver, MessageNotification (OEM call/message mirror)
@@ -105,6 +105,7 @@ TripperDashPP/                           # App source
 ├── Map/          # OSM raster tile pipeline + BG-safe CGContext frame source
 │   #              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock)
 ├── RideAlerts/   # keyless ride enrichment — WeatherAlertService (Open-Meteo), SpeedCameraService (OSM/Overpass)
+├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live + persist). Phone-side only, no dash TLV
 └── Navigation/   # routing, search, active-nav loop, on-route geometry, GPX import, saved routes, ManeuverLog
     └── Models/   # Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings
 tools/

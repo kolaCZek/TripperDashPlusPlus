@@ -221,6 +221,16 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// GPS trip computer: show the live ride panel (distance / moving time
+    /// / avg + max speed / ascent) on the streaming screen. Defaults ON.
+    /// Phone-side only — this gates the on-phone panel, nothing on the
+    /// wire (the trip computer is never sent to the dash). When OFF the
+    /// RideStatsService still accumulates (cheap, shares the fix stream);
+    /// only the panel is hidden.
+    var tripComputerEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     /// The same tolerance EXPRESSED IN THE RIDER'S DISPLAY UNIT, for the
     /// settings stepper. The canonical store above stays km/h — the
     /// over-limit comparison in `MapViewSource` is km/h end-to-end and
@@ -373,7 +383,7 @@ final class DashNavSettings {
     // (message notify ON, call-state card ON, lookahead ON, threshold 300 m).
     // Phone-status telemetry is no longer a setting — it's always reported
     // (a dropped `deviceTelemetryEnabled` key in an old blob is simply ignored).
-    private static let storeKey = "dashNavSettings.v7"
+    private static let storeKey = "dashNavSettings.v8"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -391,6 +401,7 @@ final class DashNavSettings {
         var speedCamerasEnabled: Bool?
         var speedLimitDisplay: SpeedLimitDisplay?
         var speedLimitOverToleranceKmh: Double?
+        var tripComputerEnabled: Bool?
     }
 
     init() {
@@ -413,6 +424,7 @@ final class DashNavSettings {
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
         self.speedLimitDisplay = p.speedLimitDisplay ?? .always
         self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
+        self.tripComputerEnabled = p.tripComputerEnabled ?? true
     }
 
     private func persist() {
@@ -428,7 +440,8 @@ final class DashNavSettings {
             weatherAlertsEnabled: weatherAlertsEnabled,
             speedCamerasEnabled: speedCamerasEnabled,
             speedLimitDisplay: speedLimitDisplay,
-            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh
+            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh,
+            tripComputerEnabled: tripComputerEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
