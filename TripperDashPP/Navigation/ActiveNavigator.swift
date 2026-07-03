@@ -52,6 +52,29 @@ final class ActiveNavigator {
     /// light because it divided by current speed instead of long-run pace.
     private(set) var etaSeconds: TimeInterval = 0
 
+    /// ETA to the FINAL destination of the whole plan, in seconds from
+    /// now. For a single-destination route (`plan == nil`) this is
+    /// identical to `etaSeconds` — the current leg IS the destination.
+    /// For a multi-stop plan it's `etaSeconds` (the current leg's live,
+    /// pace-corrected estimate) plus the PLANNED `travelTime` of every
+    /// leg still ahead — those haven't been ridden yet, so there's no
+    /// live pace signal for them; only the leg in progress gets the
+    /// pace correction. Computed (not cached) so it always reflects the
+    /// latest `etaSeconds`/`currentLegIndex` with no extra update sites
+    /// to wire through seed/ingest/reroute/leg-advance.
+    ///
+    /// Used by: `NavigationHUD`'s final-ETA pill (phone shows both this
+    /// AND the per-leg `etaSeconds`) and `ActiveNavLoop`, which sends
+    /// ONLY this value to the dash (Martin, 6/2026 — the dash has no
+    /// room to show two ETAs, and the whole-trip arrival is more useful
+    /// than the next-stop one while riding a multi-stop plan).
+    var finalDestinationEtaSeconds: TimeInterval {
+        guard let plan, currentLegIndex < plan.legs.count else { return etaSeconds }
+        let remainingLegsTime = plan.legs[(currentLegIndex + 1)...]
+            .reduce(0.0) { $0 + ($1.selected?.travelTime ?? 0) }
+        return etaSeconds + remainingLegsTime
+    }
+
     /// EWMA of (actual ground speed / planned route speed). 1.0 = exactly
     /// Apple's assumed pace; >1 = rider faster than plan (ETA shrinks);
     /// <1 = slower (ETA grows). Only folded while genuinely moving, so a
