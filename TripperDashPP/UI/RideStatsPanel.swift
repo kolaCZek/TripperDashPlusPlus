@@ -10,13 +10,22 @@
 //  Shown back on the picker AFTER a ride (gated on `stats.startedAt` in
 //  MapPickerView), holding the frozen totals until the session ends (the
 //  bike link goes fully down → RideStatsService.reset()) or a new route
-//  resumes folding. Always shown — there is no enable toggle.
+//  resumes folding. There is no enable toggle, but the rider can dismiss
+//  this instance via the close button — it covers a lot of the map on
+//  smaller phones, so MapPickerView tracks the dismissal as transient
+//  `@State` and clears it the moment the next leg starts folding
+//  (`RideStatsService.state == .running`), so the summary is back for
+//  the next arrival instead of staying hidden for the rest of the ride.
 //
 
 import SwiftUI
 
 struct RideStatsPanel: View {
     @Environment(AppStatus.self) private var status
+
+    /// Dismiss this panel instance. MapPickerView owns the actual
+    /// hidden/shown `@State` — this view just reports the tap.
+    let onClose: () -> Void
 
     private var stats: RideStats { status.rideStats.stats }
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
@@ -32,6 +41,15 @@ struct RideStatsPanel: View {
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide trip summary")
             }
 
             // Hero: distance ridden.
