@@ -65,6 +65,13 @@ struct MapPickerView: View {
     /// is tapped. A plain map tap deliberately does NOT set it, so the
     /// camera holds still while the rider drops pins around.
     @State private var focusRequest: MapFocusRequest?
+    /// Rider dismissed the post-arrival RideStatsPanel via its close
+    /// button. It covers a lot of the map on smaller phones, so this is a
+    /// transient per-instance override on top of the `startedAt` gate —
+    /// cleared the moment the next leg starts folding again (see the
+    /// `status.rideStats.state` onChange below), so the summary comes
+    /// back for the NEXT arrival instead of staying hidden all ride.
+    @State private var rideStatsDismissed = false
     /// Whether the "center on me" button should be shown — reported by
     /// the map when the user puck drifts out of the central region.
     @State private var showRecenterButton = false
@@ -207,6 +214,16 @@ struct MapPickerView: View {
         }
         .onChange(of: status.bikeLink.state) { _, newState in
             handleLinkStateForAutoStart(newState)
+        }
+        .onChange(of: status.rideStats.state) { _, newState in
+            // A new leg started folding again (begin() after a paused
+            // post-arrival freeze) — clear a prior manual dismissal so
+            // the summary panel is back on screen for the NEXT arrival,
+            // rather than staying hidden for the rest of the ride. Safe
+            // to flip while navigating: RideStatsPanel only mounts in
+            // `.picking` mode, so this has no visible effect until the
+            // rider is back on the picker.
+            if newState == .running { rideStatsDismissed = false }
         }
         .onChange(of: status.plannedRoute?.isComputed) { _, _ in
             // The plan just finished (re)computing. If the rider armed
@@ -351,8 +368,12 @@ struct MapPickerView: View {
                 // RideStatsService.reset() zeroes `startedAt` and it vanishes)
                 // or a new route resumes folding. Hidden while a destination
                 // card is up so the two don't fight for the bottom region.
-                if status.rideStats.stats.startedAt != nil, selectedDestination == nil {
-                    RideStatsPanel()
+                // Also hidden if the rider dismissed it via its close button
+                // (`rideStatsDismissed`, cleared on the next leg's onChange
+                // below) — it covers a lot of the map on smaller phones and
+                // must be closeable without waiting out the whole session.
+                if status.rideStats.stats.startedAt != nil, selectedDestination == nil, !rideStatsDismissed {
+                    RideStatsPanel(onClose: { rideStatsDismissed = true })
                         .padding(.horizontal, 10)
                 }
                 if let dest = selectedDestination {
@@ -377,6 +398,7 @@ struct MapPickerView: View {
             .animation(.easeInOut(duration: 0.2), value: selectedDestination)
             .animation(.easeInOut(duration: 0.2), value: showRecenterButton)
             .animation(.easeInOut(duration: 0.2), value: status.rideStats.stats.startedAt)
+            .animation(.easeInOut(duration: 0.2), value: rideStatsDismissed)
         }
     }
 
