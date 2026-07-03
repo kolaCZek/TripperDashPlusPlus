@@ -186,8 +186,19 @@ final class ActiveNavLoop {
         // TLVs — the likely lever is the still-undecoded `05 0C` "extra
         // counter" field (see the skill's open-questions list); do NOT guess
         // it blind against the real dash.
-        let etaDate: Date? = etaSec > 0 ? Date(timeIntervalSinceNow: etaSec) : nil
-        let remainingSecs: TimeInterval? = etaSec > 0 ? etaSec : nil
+        // The dash gets ONLY the FINAL-destination ETA, never the
+        // per-leg one — `etaSec`/`nav.etaSeconds` is scoped to the
+        // CURRENT LEG (see ActiveNavigator), which on a multi-stop plan
+        // would make the bike's ETA field jump backward at every
+        // intermediate waypoint. The phone HUD shows BOTH (etaCard's
+        // per-leg ETA + the final-ETA pill); the dash bubble has no room
+        // for two numbers, so it only ever shows the whole-trip arrival.
+        // (Martin, 6/2026.) `etaSec` itself is untouched and still feeds
+        // the ManeuverLog line below, so the debug trail keeps recording
+        // the per-leg estimate alongside the other leg-scoped fields.
+        let finalEtaSec: TimeInterval = nav.finalDestinationEtaSeconds
+        let etaDate: Date? = finalEtaSec > 0 ? Date(timeIntervalSinceNow: finalEtaSec) : nil
+        let remainingSecs: TimeInterval? = finalEtaSec > 0 ? finalEtaSec : nil
 
         let roadName: String? = {
             // MKRoute.Step doesn't expose the road name directly. Apple

@@ -40,6 +40,9 @@ struct NavigationHUD: View {
                     stopProgressPill(plan: plan)
                 }
                 etaCard
+                if let plan = nav.plan, plan.legs.count > 1 {
+                    finalEtaPill
+                }
                 routeOverview
             }
             Spacer()
@@ -165,6 +168,29 @@ struct NavigationHUD: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Final-destination ETA — distinct from `etaCard`'s "ETA" slot,
+    /// which is scoped to the CURRENT LEG (next stop). Only shown for a
+    /// genuine multi-stop plan (`legs.count > 1`, same gate as
+    /// `stopProgressPill`); for a single-destination route the leg IS
+    /// the destination, so a second identical number would just be
+    /// clutter. This is the one field the dash does NOT get a matching
+    /// per-leg counterpart for — the bike only ever shows this
+    /// whole-trip arrival, not the per-leg one (see `ActiveNavLoop.tick()`).
+    private var finalEtaPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "flag.checkered.circle.fill")
+                .foregroundStyle(.green)
+            Text("Final ETA \(finalArrivalTime)")
+                .font(.subheadline.weight(.semibold))
+            Text("· \(finalTimeRemaining) left")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+    }
+
     /// Static "progress bar" overview of the whole planned route: the
     /// travelled trace (grey) + the route ahead (blue) + a position puck,
     /// reusing the same snapshot recipe as the editor's saved-route
@@ -213,6 +239,25 @@ struct NavigationHUD: View {
 
     private var arrivalTime: String {
         let arr = Date().addingTimeInterval(nav.etaSeconds)
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f.string(from: arr)
+    }
+
+    /// Same formatting as `timeRemaining`, but for the FINAL destination
+    /// (`nav.finalDestinationEtaSeconds`) instead of the current leg.
+    private var finalTimeRemaining: String {
+        let total = Int(nav.finalDestinationEtaSeconds)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m) min"
+    }
+
+    /// Same formatting as `arrivalTime`, but for the FINAL destination.
+    private var finalArrivalTime: String {
+        let arr = Date().addingTimeInterval(nav.finalDestinationEtaSeconds)
         let f = DateFormatter()
         f.dateStyle = .none
         f.timeStyle = .short
