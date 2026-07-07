@@ -89,6 +89,7 @@
 		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
+		7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A8 /* NextWaypointLabelTests.swift */; };
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
 /* End PBXBuildFile section */
@@ -179,6 +180,7 @@
 		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A8 /* NextWaypointLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWaypointLabelTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -386,6 +388,7 @@
 				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
+				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -605,6 +608,7 @@
 				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
+				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
