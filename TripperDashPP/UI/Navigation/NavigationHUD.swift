@@ -147,16 +147,31 @@ struct NavigationHUD: View {
         }
     }
 
+    /// F6: wrapped in a 1 Hz `TimelineView` because `etaSeconds` /
+    /// `finalDestinationEtaSeconds` are now computed against `Date.now`
+    /// from a `legArrivalDate` that only CHANGES on a GPS fix landing,
+    /// a periodic Apple re-fetch, or seed/reroute/leg-advance — NOT
+    /// every second. SwiftUI's `@Observable` tracking only re-renders a
+    /// view when a tracked property it read actually changes value, so
+    /// without this the countdown would visually freeze between those
+    /// events (most noticeably while stopped, when GPS fixes can thin
+    /// out or stop under `LocationService`'s `distanceFilter`). The
+    /// dash doesn't have this problem — `ActiveNavLoop`'s own 1 Hz
+    /// `Task` re-reads the computed property directly every second with
+    /// no Observation dependency — so this keeps the phone HUD's
+    /// countdown just as smooth as the dash's.
     private var etaCard: some View {
-        HStack(spacing: 0) {
-            etaSlot(title: "ETA", value: arrivalTime, icon: "flag.checkered")
-            Divider().frame(height: 32)
-            etaSlot(title: "Remaining", value: timeRemaining, icon: "clock")
-            Divider().frame(height: 32)
-            etaSlot(title: "Distance", value: distanceRemaining, icon: "ruler")
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 0) {
+                etaSlot(title: "ETA", value: arrivalTime, icon: "flag.checkered")
+                Divider().frame(height: 32)
+                etaSlot(title: "Remaining", value: timeRemaining, icon: "clock")
+                Divider().frame(height: 32)
+                etaSlot(title: "Distance", value: distanceRemaining, icon: "ruler")
+            }
+            .padding(12)
+            .background(.background, in: RoundedRectangle(cornerRadius: 14))
         }
-        .padding(12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private func etaSlot(title: String, value: String, icon: String) -> some View {
@@ -176,19 +191,24 @@ struct NavigationHUD: View {
     /// clutter. This is the one field the dash does NOT get a matching
     /// per-leg counterpart for — the bike only ever shows this
     /// whole-trip arrival, not the per-leg one (see `ActiveNavLoop.tick()`).
+    /// See `etaCard`'s doc-comment for why this needs the same 1 Hz
+    /// `TimelineView` wrapper (F6: `finalDestinationEtaSeconds` is
+    /// computed against `Date.now` too, via the same `legArrivalDate`).
     private var finalEtaPill: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "flag.checkered.circle.fill")
-                .foregroundStyle(.green)
-            Text("Final ETA \(finalArrivalTime)")
-                .font(.subheadline.weight(.semibold))
-            Text("· \(finalTimeRemaining) left")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 8) {
+                Image(systemName: "flag.checkered.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Final ETA \(finalArrivalTime)")
+                    .font(.subheadline.weight(.semibold))
+                Text("· \(finalTimeRemaining) left")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
     }
 
     /// Static "progress bar" overview of the whole planned route: the
