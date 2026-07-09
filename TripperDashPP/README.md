@@ -16,13 +16,18 @@ Map/         OSM raster tile pipeline + BG-safe CGContext frame source
 Navigation/  routing + search + active-nav loop + on-route geometry (ActiveNavigator, ActiveNavLoop,
              RoutingService, LocalSearchService, NavigationStore, PolylineMath, GPXParser, SavedRoutesStore, ManeuverLog)
   Models/    Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings
-RideAlerts/  keyless ride enrichment — WeatherAlertService (Open-Meteo), SpeedCameraService (OSM/Overpass)
+RideAlerts/  keyless ride enrichment — WeatherAlertService (Open-Meteo, whole-route look-ahead),
+             SpeedLimitService + MaxspeedParser (OSM maxspeed → posted-limit sign), SpeedCameraService (OSM/Overpass)
+RideStats/   GPS-only trip computer — RideStats (accumulator), RideStatsFormatting, RideStatsService (live session). Phone-side only
 Info.plist
+TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride-stats formatting, next-waypoint label)
 ```
 
-Background keep-alive (CoreLocation Always + silent audio + AVKit PiP anchor) and the
+Background keep-alive (CoreLocation Always + silent audio via `SilentAudioKeeper`) and the
 H.264 session auto-rebuild live in `App/` (`AppStatus`, `SilentAudioKeeper`) and
 `Stream/H264Encoder.swift` respectively — there is no separate `Background/` group.
+(An AVKit PiP anchor was a third wakelock until Phase 8d, when it was removed — the
+tile-cache + CGContext path is background-safe without it.)
 
 ## Build prerequisites
 

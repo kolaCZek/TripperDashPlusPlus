@@ -22,9 +22,11 @@
 //
 //  Output:
 //  -------
-//  526×300 BGRA pixel buffer at 6 fps emitted to the encoder. PiP keeps
-//  the encoder pipeline + Swift Concurrency executor alive on lock
-//  screen; the tile cache supplies the visual content.
+//  526×300 BGRA pixel buffer at 6 fps emitted to the encoder. The
+//  silent-audio wakelock (SilentAudioKeeper) keeps the encoder pipeline
+//  + Swift Concurrency executor alive on lock screen; the tile cache
+//  supplies the visual content. (PiP was the old keep-alive; removed in
+//  Phase 8d — the tile + CGContext path is BG-safe without it.)
 
 import CoreLocation
 import CoreMedia
@@ -606,7 +608,7 @@ extension MapViewSource {
 extension MapViewSource {
     /// Render loop via Swift Concurrency Task + Task.sleep.
     /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
-    /// keeps ticking on locked screen with PiP active.
+    /// keeps ticking on the locked screen under the silent-audio wakelock.
     private func startTimer() {
         renderTask?.cancel()
         let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)

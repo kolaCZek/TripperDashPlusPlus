@@ -1,8 +1,10 @@
 # Tripper Dash — Maneuver Glyph Catalog
 
-Empirical glyph rendering for every byte value `0x00..0x81` of the
-**maneuver TLV** sent to the Royal Enfield Tripper Dash (model "K1G",
-bike: Guerrilla 450 / Himalayan 450).
+Empirical glyph rendering for the **maneuver TLV** sent to the Royal
+Enfield Tripper Dash (model "K1G", bike: Guerrilla 450 / Himalayan 450).
+The scan walked the full 8-bit range `0x00..0xFF`; bytes `0x00..0x59`
+render a visible bubble glyph (the 90 entries catalogued here) and
+`0x5A..0xFF` are hidden (overlay suppressed) — see Coverage below.
 
 The dashboard receives a single-byte maneuver code in the K1G TLV:
 

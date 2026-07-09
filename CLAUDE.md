@@ -26,7 +26,7 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 - **Bundle ID**: `eu.kolaczek.TripperDashPP`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
 - **Maps**: **OSM Carto raster basemap** (keyless XYZ, `tile.openstreetmap.org/{z}/{x}/{y}.png` — note: no `{s}` subdomain shard, so `subdomains` is empty and URL-building must not substitute `{s}`), fetched over cellular and cached on disk. One basemap, two palettes via a user **Light / Dark / Auto** setting: **Light** is the raw OSM raster; **Dark** is the *same* tile recoloured at composite time — a CPU-side `invert ∘ hue-rotate(180°)` colour matrix (`TileColorTransform.swift`, vImage/Accelerate so it survives the screen locking), which keeps OSM's semantics (water blue, parks green) instead of the orange/magenta a plain invert gives. Attribution is `© OpenStreetMap contributors`. Auto follows local sunrise/sunset from the GPS fix (see `SolarClock` / `MapStyleResolver`). Because dark is a recolour of the light raster, both palettes share **one** disk cache namespace (`RouteTiles/osm/…`) — one fetch, one cached PNG serves both (half the traffic, half the disk; the raw tile is kept so the filter can be retuned without re-fetching). The provider is a one-line table swap in `MapStyle.swift`; **no third-party map SDK, no API key.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
-- **Apple frameworks in use**: `Network`, `VideoToolbox`, `CryptoKit`, `Security`, `CoreLocation`, `MapKit`, `AVFoundation`, `AVKit` (PiP keep-alive), `BackgroundTasks`, `UIKit` (CGContext frame composition + battery state), `CallKit` (incoming-call mirror), `SwiftUI`
+- **Apple frameworks in use**: `Network`, `VideoToolbox`, `Security` (RSA via SecKey), `CommonCrypto` (AES-CBC field crypto in `K1GCrypto`), `CoreLocation`, `MapKit`, `Accelerate`/vImage (`TileColorTransform` dark recolour), `AVFoundation` (silent-audio wakelock), `CoreGraphics`/`ImageIO` (CGContext frame composition), `UIKit` (battery state), `CallKit` (incoming-call mirror), `SwiftUI`. **Not** used despite being obvious guesses: `CryptoKit` (we use `Security`+`CommonCrypto` for the RSA/AES the dash expects) and `BackgroundTasks`/`BGTaskScheduler` (the wakelock is location+audio, not a scheduled BG task).
 - **Keyless ride-data services (cellular, no account)**: Open-Meteo (weather pill — samples the route ahead every 10 km out to 100 km in one multi-point request, reports the nearest hazard's along-route distance) and OpenStreetMap Overpass (speed-camera overlay) — both keyless, consistent with the free-account stance.
 
 ## Architecture summary (one screen)
@@ -43,7 +43,7 @@ iPhone ──(Wi-Fi)─────► 192.168.1.1:5000         RTP H.264 video 
 
 **UDP transport (see `references/network-transport.md` in the `royal-enfield-tripper-dash` skill before touching this):** the dash **listens on 2000** and **replies to 2002**, regardless of the phone's source port. The phone must therefore send to `:2000` AND bind its local socket to `:2002`, or the dash's replies hit an unbound port and the firmware state machine stalls (`rx=0`). `DashSocket` uses a single BSD POSIX socket (not `NWConnection` — Apple's connected-UDP semantics drop datagrams arriving from a different source port than we sent to).
 
-**Background execution**: the app is designed to run with the screen locked / phone in a pocket. The map frame source pre-renders OSM tiles while the app is foregrounded (GPU awake), then in the background does **CPU-only CGContext composition** (crop tile around current GPS fix, rotate heading-up, draw polyline + heading chevron) — CGContext is background-safe where MapKit's Metal renderer and `MKMapSnapshotter` are not. The render loop is kept alive via `CoreLocation` Always updates + a silent audio loop + an AVKit PiP anchor as belt-and-braces wakelocks.
+**Background execution**: the app is designed to run with the screen locked / phone in a pocket. The map frame source pre-renders OSM tiles while the app is foregrounded (GPU awake), then in the background does **CPU-only CGContext composition** (crop tile around current GPS fix, rotate heading-up, draw polyline + heading chevron) — CGContext is background-safe where MapKit's Metal renderer and `MKMapSnapshotter` are not. The render loop is kept alive via `CoreLocation` Always updates + a silent audio loop (`SilentAudioKeeper`). (An AVKit Picture-in-Picture anchor was a third wakelock through Phase 8b but was **removed in Phase 8d** — the pre-rendered-tile + CGContext path is BG-safe on its own, so PiP/AVKit is no longer used.)
 
 ## fake_dash test harness
 
@@ -62,7 +62,7 @@ make fake-dash-down       # stop
 
 **The harness is the plumbing regression net for everything in `TripperDashPP/Tripper/` and `TripperDashPP/Stream/`.** It is intentionally permissive — it will accept packets the real dash rejects. **It is NOT authority on the wire format.** Byte-level protocol correctness is verified against `better-dash` (see the `scripts/verify_initial_burst.py` workflow). When adding Swift code that touches the wire format, add a matching Python test that drives `fake_dash`, but also byte-compare against the better-dash reference.
 
-**CI runs the Python tests + a Docker image build on every PR.** See `.github/workflows/fake_dash.yml`.
+**CI runs on every push/PR:** the fake_dash Python tests + a Docker image build (`.github/workflows/fake_dash.yml`), and an `xcodebuild test` of the app + Swift unit-test target on a macOS runner (`.github/workflows/ios-build.yml`).
 
 ## K1G control plane (`TripperDashPP/Tripper/`)
 
@@ -73,6 +73,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 | `K1GConstants.swift` | `protocol.py` (constants) | magic, ports (txPort 2000 / rxPort 2002), segment types |
 | `K1GPacket.swift` | `protocol.py` (encode/decode) | TLV envelope, RollingSeq, initial-burst + status builders |
 | `RsaHandshake.swift` | `rsa_handshake.py` (inverse) | PKCS1v1.5 encrypt session key via SecKey |
+| `K1GCrypto.swift` | `field_crypto.py` (inverse) | AES-256-CBC/PKCS7 field crypto (`edk.g()` port) for caller-name / message fields, under the RSA-shipped session key |
 | `DashSocket.swift` | (transport — n/a in Python) | single BSD POSIX UDP socket, sends to :2000, bound to :2002 |
 | `BikeLink.swift` | `server.py` (mirror direction) | state machine: idle→connecting→handshaking→connected, initial burst, nav kicks |
 | `HeartbeatLoop.swift` | (n/a — bike is passive) | 1 Hz `0044` + `0030` status pair once connected |
@@ -104,10 +105,11 @@ TripperDashPP/                           # App source
 ├── Stream/       # VideoToolbox H.264 encoder + RTP packetizer (FrameSource, H264Encoder, RtpStreamer, RtpPacketizer)
 ├── Map/          # OSM raster tile pipeline + BG-safe CGContext frame source
 │   #              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock)
-├── RideAlerts/   # keyless ride enrichment — WeatherAlertService (Open-Meteo), SpeedCameraService (OSM/Overpass)
+├── RideAlerts/   # keyless ride enrichment — WeatherAlertService (Open-Meteo, whole-route look-ahead), SpeedLimitService + MaxspeedParser (OSM maxspeed, map-matched posted-limit sign), SpeedCameraService (OSM/Overpass)
 ├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live, in-memory session). Phone-side only, no dash TLV
 └── Navigation/   # routing, search, active-nav loop, on-route geometry, GPX import, saved routes, ManeuverLog
     └── Models/   # Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings
+TripperDashPP/TripperDashPPTests/         # Swift Testing unit-test target (ride logic: weather-along-route, ride-stats formatting, next-waypoint label)
 tools/
 └── fake_dash/    # Python harness — simulates the Tripper for development on a laptop
 docs/             # maneuver-glyph catalog + field-test reference material
@@ -133,7 +135,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 5. **No internet on the Wi-Fi interface.** The Tripper AP has no internet. Always verify that `URLSession` tile/route traffic goes via cellular. If a tile request goes via Wi-Fi it will time out, the user gets blank tiles, and they'll think the app is broken.
 
-6. **Background execution: location + audio + PiP.** Not one alone. Location gets culled on stationary periods (red lights); audio alone is fragile; the AVKit PiP anchor backstops both. Together they survive the lock screen.
+6. **Background execution: location + audio.** Not one alone. Location gets culled on stationary periods (red lights); audio alone is fragile; together (`CoreLocation` Always + `SilentAudioKeeper`) they survive the lock screen. (The old AVKit PiP anchor was removed in Phase 8d — don't reintroduce it; the tile-cache + CGContext path is BG-safe without it.)
 
 7. **Frame rate is 6 fps, not 12 or 30.** For static map/nav content, 6 fps at 450 kbps spends double the bits per frame vs 12 fps — noticeably sharper road labels after H.264. The dash decoder blinks above ~12 fps anyway. Don't bump it.
 
@@ -160,6 +162,7 @@ No API keys, no service accounts, no SDK token plumbing — OSM tiles and MapKit
 ## Tests
 
 - **fake_dash Python suite** (`tools/fake_dash/tests/`): K1G packet builders, RTP FU-A reassembly, RSA handshake, ETA pipeline, rolling-window tile prefetch, reroute lifecycle, maneuver catalog, roundabout parser. Run `make fake-dash-test` or `cd tools/fake_dash && pytest -v`.
+- **Swift unit tests** (`TripperDashPP/TripperDashPPTests/`, Swift Testing): pure ride logic that doesn't need the bike — weather-along-route sampling/classification, ride-stats formatting, next-waypoint ETA label. Run via `xcodebuild test` on a Mac (needs a concrete simulator destination); CI does this on every push (`.github/workflows/ios-build.yml`).
 - **Byte-verification scripts** (`scripts/` in the `royal-enfield-tripper-dash` skill): assert the Swift wire builders match `better-dash` byte-for-byte.
 - **Manual on-bike tests**: the real regression net for anything touching background rendering, the projection lifecycle, or maneuver glyphs. fake_dash is blind to sequencing and rendering bugs.
 
