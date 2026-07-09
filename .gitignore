@@ -108,3 +108,15 @@ captures/
 tools/fake_dash/captures/
 tools/fake_dash/keys/
 docs/maneuver-glyphs/glyphs_old/
+
+# ----- ad-hoc research scratch (Reddit/forum scrapes for the engine-
+# noise investigation etc.) — these get dumped in the repo root during
+# research sessions and must never be committed. -----
+/guerilla_*.json
+/guerrilla_*.json
+/guerrilla450_*.json
+/himalayan_*.json
+/himalayan450_*.json
+/loving_it_*.json
+/search_*.json
+/sub_*.json
