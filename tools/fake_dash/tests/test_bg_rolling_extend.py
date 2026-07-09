@@ -11,12 +11,16 @@ phone is locked in a pocket for the WHOLE ride, so `.active` never
 happens after pull-away. The 8 km fast-start window ran out and the
 window never grew.
 
-Unlike `scheduleTileCacheRebuild` (full-route bake, GPU-bound when it
-used MKMapSnapshotter — correctly deferred in BG, see
-test_reroute_lifecycle.py), the rolling extend is pure URLSession +
-CGContext: BG-safe AND mandatory in BG. This file pins that extend
-bakes in every app state and that the only gate is throttle + already-
-baked idempotency. Mirrors the Swift after the BG guard removal.
+Both this rolling extend AND `scheduleTileCacheRebuild` (the reroute /
+leg-advance full-corridor bake) are pure URLSession + CGContext since
+the OSM migration, so BOTH are BG-safe and BOTH bake in EVERY app state
+— neither may gate on `applicationState == .active`. (This used to be a
+contrast: the reroute bake was `.active`-deferred back when it used
+MKMapSnapshotter; PR #52 removed that gate — see test_reroute_lifecycle.py,
+which pins the reroute side.) This file pins the extend side: it bakes in
+every app state and the only gate is throttle + already-baked
+idempotency. Mirrors the Swift after the BG guard removal (PR #30 for the
+extend, PR #52 for the reroute bake).
 """
 
 from __future__ import annotations
