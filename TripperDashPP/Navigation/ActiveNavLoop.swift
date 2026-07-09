@@ -220,7 +220,7 @@ final class ActiveNavLoop {
         // ETA/remaining-time fields already render.
         //
         // `nav.destination` / `etaSec` (== `nav.etaSeconds`) are already
-        // scoped to the CURRENT LEG (see ActiveNavigator's F5 doc-comment
+        // scoped to the CURRENT LEG (see ActiveNavigator's F6 doc-comment
         // and the k1g-active-nav-tlv-chain skill reference), so this is
         // exactly "time to the next waypoint", never the whole-trip ETA
         // the dash gets separately via `finalDestinationEtaSeconds`.

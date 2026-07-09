@@ -41,33 +41,47 @@ final class ActiveNavigator {
     /// Meters remaining to the destination along the current route.
     private(set) var remainingDistance: CLLocationDistance = 0
 
-    /// Live ETA in seconds. F5 hybrid: a ratio backbone
-    /// (`expectedTravelTime * remaining/distance`) corrected by a slowly
-    /// tracked pace factor (actual/planned ground speed). The backbone
-    /// reacts to POSITION — at a stop `remaining` freezes so the arrival
-    /// time only ticks forward, never jumps — while the pace factor bends
-    /// the estimate for a rider who sustains a faster/slower pace than
-    /// Apple assumed. eta = ratioEta / paceFactor. Replaces F4's
-    /// `remaining / instantaneousSpeed`, which whipsawed at every traffic
-    /// light because it divided by current speed instead of long-run pace.
-    private(set) var etaSeconds: TimeInterval = 0
+    /// Live ETA in seconds to the CURRENT LEG's destination. F6: pure
+    /// Apple estimate, no pace/ratio correction of any kind. COMPUTED,
+    /// not stored — reads `legArrivalDate` (an absolute wall-clock
+    /// arrival time seeded from `MKRoute.expectedTravelTime` at start/
+    /// reroute/leg-advance and refreshed every `etaRefreshInterval` by a
+    /// live MKDirections re-fetch from the rider's current position)
+    /// against `Date.now` on every access — so it "ticks down" purely
+    /// from wall clock elapsing between re-fetches, with zero local
+    /// correction math anywhere. `ActiveNavLoop`'s independent 1 Hz pump
+    /// reads this every second regardless of GPS fix cadence, so the
+    /// dash sees a smooth per-second countdown even if fixes are sparse.
+    /// Trade-off accepted deliberately: if the rider is stopped for
+    /// longer than `etaRefreshInterval`, the countdown can run down past
+    /// the true remaining time before the next re-fetch corrects it back
+    /// up — bounded drift, not a bug (Martin, 7/2026: wanted the simplest
+    /// possible model, no home-grown correction to compensate for this).
+    /// Replaces F5's pace-factor/ratio hybrid outright.
+    var etaSeconds: TimeInterval {
+        guard let legArrivalDate else { return 0 }
+        return max(0, legArrivalDate.timeIntervalSince(.now))
+    }
 
     /// ETA to the FINAL destination of the whole plan, in seconds from
     /// now. For a single-destination route (`plan == nil`) this is
     /// identical to `etaSeconds` — the current leg IS the destination.
     /// For a multi-stop plan it's `etaSeconds` (the current leg's live,
-    /// pace-corrected estimate) plus the PLANNED `travelTime` of every
+    /// Apple-refreshed estimate) plus the PLANNED `travelTime` of every
     /// leg still ahead — those haven't been ridden yet, so there's no
-    /// live pace signal for them; only the leg in progress gets the
-    /// pace correction. Computed (not cached) so it always reflects the
+    /// live re-fetch signal for them; only the leg in progress gets the
+    /// periodic refresh. Computed (not cached) so it always reflects the
     /// latest `etaSeconds`/`currentLegIndex` with no extra update sites
     /// to wire through seed/ingest/reroute/leg-advance.
     ///
     /// Used by: `NavigationHUD`'s final-ETA pill (phone shows both this
-    /// AND the per-leg `etaSeconds`) and `ActiveNavLoop`, which sends
-    /// ONLY this value to the dash (Martin, 6/2026 — the dash has no
-    /// room to show two ETAs, and the whole-trip arrival is more useful
-    /// than the next-stop one while riding a multi-stop plan).
+    /// AND the per-leg `etaSeconds` — i.e. ETA to the final destination
+    /// AND ETA to the next waypoint, side by side) and `ActiveNavLoop`,
+    /// which sends ONLY this value to the dash as the primary ETA/
+    /// remaining-time TLVs (Martin, 6/2026 — the dash has no room to
+    /// show two ETAs), while the per-leg `etaSeconds` still reaches the
+    /// dash separately via the multi-stop "next waypoint" text label
+    /// (`ActiveNavLoop.nextWaypointLabel`).
     var finalDestinationEtaSeconds: TimeInterval {
         guard let plan, currentLegIndex < plan.legs.count else { return etaSeconds }
         let remainingLegsTime = plan.legs[(currentLegIndex + 1)...]
@@ -75,26 +89,25 @@ final class ActiveNavigator {
         return etaSeconds + remainingLegsTime
     }
 
-    /// EWMA of (actual ground speed / planned route speed). 1.0 = exactly
-    /// Apple's assumed pace; >1 = rider faster than plan (ETA shrinks);
-    /// <1 = slower (ETA grows). Only folded while genuinely moving, so a
-    /// red light freezes it rather than dragging it toward zero. Starts at
-    /// 1.0 = "assume Apple's pace until proven otherwise".
-    private var paceFactor: Double = 1.0
-    /// Count of moving samples folded into `paceFactor`. Require a few
-    /// before trusting it so one noisy fix doesn't bend the ETA.
-    private var paceSamples: Int = 0
-    /// EWMA alpha for the pace factor. ~100 s time constant at 1 Hz fix
-    /// rate (1/alpha = 100 samples): a sustained road-type change (90 km/h
-    /// stretch, slow village crawl) bends ETA over a minute or two; a stop
-    /// or a gear change is averaged out instead of jolting the display.
-    private let paceEwmaAlpha: Double = 0.01
-    /// Below this the rider is stopped/crawling: don't fold pace (freeze)
-    /// and don't trust live correction. 3 m/s ≈ 11 km/h.
-    private let paceMinMovingMps: Double = 3.0
-    /// Clamp so a wild GPS burst can't more than double or halve ETA.
-    private let paceFactorMin: Double = 0.5
-    private let paceFactorMax: Double = 2.0
+    /// Absolute wall-clock arrival time for the CURRENT LEG — the single
+    /// source of truth `etaSeconds` reads from. Set from a real
+    /// `MKRoute.expectedTravelTime` in `seed()` (start/leg-advance) and
+    /// in `requestReroute()`, and kept fresh mid-leg by
+    /// `refreshEtaFromApple()` on the `etaRefreshInterval` timer. `nil`
+    /// only before the first route is seeded.
+    private var legArrivalDate: Date?
+
+    /// How often to re-query MKDirections for a fresh traffic-aware
+    /// `expectedTravelTime` to the current leg's destination, from the
+    /// rider's live position. 3 min balances staying current against
+    /// hammering MapKit / burning cellular + battery on a long ride.
+    private let etaRefreshInterval: TimeInterval = 180
+
+    /// Owns the periodic ETA re-fetch pump — started in `start()`/
+    /// `start(plan:)`, cancelled in `stop()`. Separate from
+    /// `ActiveNavLoop`'s 1 Hz dash-push pump; this one only talks to
+    /// MKDirections, on its own slower cadence.
+    private var etaRefreshTask: Task<Void, Never>?
 
     /// The DEPARTING step at the upcoming maneuver node — the step whose
     /// polyline LEAVES the node. Supplies the OUTGOING heading for the
@@ -284,9 +297,20 @@ final class ActiveNavigator {
     private var lastSegmentIndex: Int = 0
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ActiveNavigator")
 
-    /// Caller hook for when we lose the route and want a new one.
-    /// Set by AppStatus / RootView so the navigator can call back into
+    /// Caller hook for when we lose the route and want a new one. Set by
+    /// AppStatus / RootView so the navigator can call back into
     /// RoutingService without owning a reference to it.
+    ///
+    /// DUAL PURPOSE (F6, Martin 7/2026): also used by
+    /// `refreshEtaFromApple()` for the periodic ETA-only re-fetch — same
+    /// (origin, destination) → MKRoute? shape, so there's nothing
+    /// reroute-specific about the signature. The two callers just do
+    /// different things with the result: `requestReroute` swaps in the
+    /// WHOLE route (polyline, tile cache, `onActiveRouteChanged`);
+    /// `refreshEtaFromApple` only reads `route.expectedTravelTime` and
+    /// discards the rest. Reusing the hook (rather than adding a second
+    /// one) means there's only one place to wire in `AppStatus` and no
+    /// second hook to forget.
     var onRerouteRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> MKRoute?))?
 
     /// Caller hook fired whenever the active route is replaced —
@@ -364,7 +388,7 @@ final class ActiveNavigator {
         self.isOffRoute = false
         // Seed initial display values from the route itself.
         self.remainingDistance = route.distance
-        self.etaSeconds = route.expectedTravelTime
+        self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
         // Seed the maneuver model to the SAME shape ingest() produces on
         // the first fix: the rider is about to traverse steps[0] (the
         // ARRIVING step whose polyline ends at the first maneuver node and
@@ -384,6 +408,12 @@ final class ActiveNavigator {
         // already set by the caller (start/leg-advance) before seed runs,
         // so this picks up the right "subsequent legs" set.
         refreshOverviewCaches()
+        // F6: (re)start the periodic Apple ETA re-fetch pump. Called
+        // from the ONE place all three lifecycle entry points
+        // (start/start-plan/leg-advance) funnel through, so there's no
+        // extra call site to remember. Safe to "restart the clock" on a
+        // leg-advance — `legArrivalDate` was just set fresh above anyway.
+        startEtaRefreshLoop()
     }
 
     /// Recompute the cached overview geometry — the current route's
@@ -426,17 +456,19 @@ final class ActiveNavigator {
         self.activeRoute = nil
         self.destination = nil
         self.remainingDistance = 0
-        self.etaSeconds = 0
         self.nextStep = nil
         self.stepBeforeNext = nil
         self.precedingStep = nil
         self.distanceToNextStep = 0
         self.secondNextStep = nil
         self.distanceToSecondNextStep = 0
-        // F5: drop the pace history so the next route starts cold
-        // (pure ratio) and doesn't inherit yesterday's tempo.
-        self.paceFactor = 1.0
-        self.paceSamples = 0
+        // F6: stop the periodic Apple re-fetch pump and drop the
+        // countdown target so the next route starts with no stale
+        // arrival time hanging around (`etaSeconds` reads back as 0
+        // automatically once `legArrivalDate` is nil).
+        etaRefreshTask?.cancel()
+        etaRefreshTask = nil
+        self.legArrivalDate = nil
         self.isOffRoute = false
         self.offRouteSince = nil
         // Multi-stop: drop the plan so the next session starts fresh.
@@ -524,26 +556,13 @@ final class ActiveNavigator {
             return
         }
 
-        // F5: hybrid live ETA. Ratio backbone tracks position (and
-        // freezes at a stop); pace factor bends it toward the rider's
-        // sustained tempo. Fold actual/planned pace into a slow EWMA, but
-        // ONLY while genuinely moving — at a stop we freeze the factor so
-        // waiting at a light bends nothing. plannedSpeed is the route's
-        // own average (distance/expectedTravelTime); paceFactor>1 means
-        // the rider beats Apple's plan, so ETA shrinks (and vice versa).
-        if fix.speed >= paceMinMovingMps, route.expectedTravelTime > 0 {
-            let plannedSpeed = route.distance / route.expectedTravelTime
-            if plannedSpeed > 0 {
-                let sample = max(paceFactorMin, min(paceFactorMax, fix.speed / plannedSpeed))
-                if paceSamples == 0 {
-                    paceFactor = sample
-                } else {
-                    paceFactor = (1 - paceEwmaAlpha) * paceFactor + paceEwmaAlpha * sample
-                }
-                paceSamples += 1
-            }
-        }
-        self.etaSeconds = computeEta(remaining: remaining, route: route)
+        // F6: no per-fix ETA recompute — `etaSeconds` is a computed
+        // property reading `legArrivalDate` against wall-clock `.now`
+        // (see its doc-comment). The countdown updates itself on every
+        // access; `ingest(fix:)` no longer touches ETA at all. The
+        // periodic `refreshEtaFromApple()` pump (started in `seed()`) is
+        // the ONLY thing that moves `legArrivalDate`, aside from the
+        // seed/reroute/leg-advance lifecycle hooks.
 
         // Maneuver lookup. `nextStepIndex` returns the step whose polyline
         // STARTS at the upcoming maneuver node — the DEPARTING step
@@ -630,12 +649,14 @@ final class ActiveNavigator {
             // history (the grey trace) and only the blue line ahead
             // changes shape.
             refreshOverviewCaches()
-            // F4: reroute keeps the smoothed-speed history so ETA
-            // reflects how the rider was actually moving, not the
-            // route's untouched expected average. Falls back to the
-            // route's expectedTravelTime when we haven't gathered
-            // enough samples yet.
-            self.etaSeconds = computeEta(remaining: newRoute.distance, route: newRoute)
+            // F6: a successful reroute hands us a brand-new MKRoute with
+            // its own fresh `expectedTravelTime` from the rider's actual
+            // current position — feed that into `legArrivalDate` exactly
+            // like `seed()` does. A reroute IS itself an Apple re-fetch,
+            // so this keeps reroute-driven and periodic-driven ETA
+            // updates as the same single mechanism rather than two
+            // sources that could disagree.
+            self.legArrivalDate = Date(timeIntervalSinceNow: newRoute.expectedTravelTime)
             // Fresh route after a reroute: the rider sits at the new
             // route's origin, traversing steps[0] (ARRIVING — its polyline
             // ends at the first maneuver node and its `.instructions` name
@@ -684,27 +705,66 @@ final class ActiveNavigator {
         log.info("Leg advance \(self.currentLegIndex + 1)→\(next + 1) of \(plan.legs.count) — now to \(destWp.name, privacy: .public)")
         currentLegIndex = next
         remainingWaypoints = plan.legs.count - next
-        // Keep the smoothed-speed history across legs — the rider's
-        // pace doesn't reset at a waypoint, so ETA on the new leg
-        // should start from how they were actually moving.
+        // seed() reseeds `legArrivalDate` from the NEW leg's own fresh
+        // `expectedTravelTime` and restarts the periodic re-fetch pump —
+        // same as a brand-new `start()`, just without flipping
+        // `isNavigating` (already true) or firing `onActiveRouteChanged`
+        // (the caller below does that once seed() returns).
         seed(route: route, destination: destWp.asDestination)
         await onActiveRouteChanged?(route)
     }
 
-    // MARK: - ETA helper
+    // MARK: - ETA refresh (F6 — periodic Apple re-fetch)
 
-    /// F5: hybrid ETA. Backbone is the ratio estimate
-    /// (`expectedTravelTime * remaining/distance`) — it tracks position so
-    /// it descends smoothly while rolling and freezes at a stop. We then
-    /// divide by `paceFactor` so a rider holding a steady pace above/below
-    /// Apple's plan sees the arrival bend the right way over a minute or
-    /// two. paceFactor stays 1.0 (and is ignored) until a few moving
-    /// samples land, so cold start == pure ratio.
-    private func computeEta(remaining: CLLocationDistance, route: MKRoute) -> TimeInterval {
-        let ratio = route.distance > 0 ? remaining / route.distance : 0
-        let ratioEta = route.expectedTravelTime * ratio
-        guard paceSamples >= 5 else { return ratioEta }
-        return ratioEta / paceFactor
+    /// (Re)start the periodic MKDirections re-fetch pump for the
+    /// CURRENT leg's ETA. Called from `seed()`, so it runs exactly once
+    /// per active-route swap (start / start-plan / leg-advance) — always
+    /// cancels any prior pump first, so there's never more than one
+    /// running. First beat is the sleep, not an immediate re-fetch:
+    /// `seed()` just set `legArrivalDate` from a brand-new `MKRoute` a
+    /// few lines above, so firing a re-fetch immediately would be a
+    /// redundant MKDirections call back-to-back with the one that
+    /// produced the route the rider is currently starting on.
+    private func startEtaRefreshLoop() {
+        etaRefreshTask?.cancel()
+        etaRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(self.etaRefreshInterval * 1_000_000_000))
+                if Task.isCancelled { break }
+                await self.refreshEtaFromApple()
+            }
+        }
+    }
+
+    /// Re-query MKDirections from the rider's current position to the
+    /// current leg's destination, and fold ONLY the fresh
+    /// `expectedTravelTime` into `legArrivalDate` — no polyline swap, no
+    /// `onActiveRouteChanged`, no tile re-bake, no touching
+    /// `isRerouting`. Deliberately narrower than `requestReroute`: the
+    /// rider is still ON the route (this isn't recovery from going
+    /// off-route), we just want Apple's latest traffic-aware
+    /// time-to-arrival. Reuses `onRerouteRequested` rather than adding a
+    /// second hook — see that property's doc-comment for why the shared
+    /// signature is a good fit.
+    ///
+    /// No-ops quietly (leaves the existing countdown running
+    /// undisturbed) if we don't have a GPS fix yet, aren't navigating,
+    /// or the MKDirections call fails/throws — a missed refresh just
+    /// means the countdown free-runs on wall-clock a bit longer until
+    /// the next scheduled attempt `etaRefreshInterval` later. There's no
+    /// user-visible error path for a background ETA refresh; a reroute
+    /// (triggered separately by going off-route) would correct things
+    /// sooner anyway if the rider's actual position has drifted from plan.
+    private func refreshEtaFromApple() async {
+        guard isNavigating,
+              let coord = currentCoordinate,
+              let dest = destination,
+              let cb = onRerouteRequested
+        else { return }
+        if let route = await cb(coord, dest) {
+            self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
+        }
     }
 
     // MARK: - Formatting helpers
