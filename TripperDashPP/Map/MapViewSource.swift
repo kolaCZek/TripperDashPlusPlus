@@ -220,6 +220,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// we want to re-evaluate the bake window.
     private var lastTileExtendAt: Date?
 
+    /// Timestamp of the most recent `ensurePositionFallbackTile(near:)`
+    /// call. Throttles the off-corridor rescue-tile check the same way
+    /// `lastTileExtendAt` throttles the rolling window. Nil until the
+    /// first off-corridor frame.
+    private var lastPositionFallbackAt: Date?
+
     /// Minimum interval between rolling-extend evaluations. At 130
     /// km/h that's ~72 m between calls — fine granularity given the
     /// rolling lookahead is 5 km.
@@ -357,6 +363,7 @@ final class MapViewSource: NSObject, FrameSource {
         routeTileCache = cache
         lastTileHintIndex = 0
         lastTileExtendAt = nil
+        lastPositionFallbackAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
     }
 
@@ -408,6 +415,7 @@ final class MapViewSource: NSObject, FrameSource {
         routeTileCache = fresh   // atomic swap; old cache was visible until now
         lastTileHintIndex = 0
         lastTileExtendAt = nil
+        lastPositionFallbackAt = nil
         log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
     }
 
@@ -442,6 +450,30 @@ final class MapViewSource: NSObject, FrameSource {
         lastTileExtendAt = now
         Task { @MainActor in
             await cache.extend(near: coord)
+        }
+    }
+
+    /// Ensure an off-corridor position-fallback tile is baked around the
+    /// rider. Throttled twin of `extendTileCache`, but for the rescue
+    /// tile used when the rider is OFF the route corridor entirely.
+    ///
+    /// Called only from `drawOffCorridorFallbackFrame`, i.e. only while
+    /// off-corridor — on-route it never fires, so it adds zero fetches to
+    /// normal navigation. The cache's `ensurePositionFallback` is itself
+    /// idempotent (no-op when a covering tile already exists) and coalesces
+    /// concurrent bakes; this throttle just caps how often we re-evaluate
+    /// so a stuck-off-route rider at ~30 fps doesn't spin up the check
+    /// every frame. BG-safe (URLSession + CGContext), fire-and-forget.
+    func ensurePositionFallbackTile(near coord: CLLocationCoordinate2D) {
+        guard let cache = routeTileCache else { return }
+        let now = Date()
+        if let last = lastPositionFallbackAt,
+           now.timeIntervalSince(last) < Self.tileExtendThrottle {
+            return
+        }
+        lastPositionFallbackAt = now
+        Task { @MainActor in
+            await cache.ensurePositionFallback(near: coord)
         }
     }
 
@@ -788,8 +820,11 @@ extension MapViewSource {
     private func drawTileCacheFrame(into ctx: CGContext) {
         guard let cache = routeTileCache, let fix = lastFix else { return }
         guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
-            // Off-route / re-routing — fall back to vector-only.
-            drawVectorOnlyFrame(into: ctx)
+            // Off the baked route corridor (wrong turn + reroute pending,
+            // or a deliberate detour). Don't drop straight to the bare
+            // vector fallback — try a position-anchored rescue tile first
+            // so the rider keeps real map context under the route line.
+            drawOffCorridorFallbackFrame(into: ctx)
             return
         }
         lastTileHintIndex = idx
@@ -834,27 +869,76 @@ extension MapViewSource {
         // tile span = ~3.9 km → ~82 % overlap) and stack on top with
         // slightly different lat-dependent pxPerDeg → visible seams
         // and a smeared composite. Single-tile draw is correct here.
-        var tilesToDraw: [(RouteTile, CGImage)] = []
-        let t = cache.tiles[idx]
-        if let img = cache.image(for: t, atIndex: idx)?.cgImage {
-            tilesToDraw.append((t, img))
+        guard let cg = cache.image(for: refTile, atIndex: idx)?.cgImage else {
+            // Decode failed — better a vector frame than a blank one.
+            drawVectorOnlyFrame(into: ctx)
+            return
         }
-        guard let refTile = tilesToDraw.first?.0 else { return }
+        drawProjectedTile(refTile, image: cg, riderCoord: fix.coordinate, into: ctx)
+    }
 
-        // Pixels-per-degree — MEASURED from snap.point(for:) probes during
-        // bake, NOT computed from region.span. MKMapSnapshotter renders
-        // at the nearest tile zoom level which may cover 2-3× more area
-        // than the requested region, so the naive ratio
-        // `pixelSize / region.span` over-estimates scale and makes the
-        // entire composite render zoomed in. The measured value is the
-        // ground truth: how many ctx-pixels span 1 degree on this bitmap.
-        let pxPerDegLon = refTile.pxPerDegLon
-        let pxPerDegLat = refTile.pxPerDegLat
+    /// Off-corridor rescue frame. Reached when the rider has left the
+    /// baked route corridor (`nearestTile` missed) — after a wrong turn
+    /// while a reroute is still computing (or failed), or on a deliberate
+    /// detour. Instead of dropping straight to the bare vector fallback,
+    /// draw a real OSM map baked around the rider's raw GPS position, so
+    /// they keep genuine map context under the route line.
+    ///
+    /// Degradation ladder: this sits BETWEEN the corridor tile and the
+    /// vector-only frame —
+    ///   1. corridor tile   (drawTileCacheFrame → nearestTile hit)
+    ///   2. position tile    (THIS — off-corridor, map still available)
+    ///   3. vector-only      (drawVectorOnlyFrame — no covering tile yet
+    ///                        or fully offline)
+    ///
+    /// The bake is fire-and-forget: if no covering position tile exists
+    /// yet we kick one off and draw vector-only THIS frame; the tile
+    /// appears on a later frame once it's baked. No blank wait, no
+    /// blocking the render loop. On-route this whole path is dormant, so
+    /// it costs zero extra OSM fetches during normal navigation.
+    private func drawOffCorridorFallbackFrame(into ctx: CGContext) {
+        guard let cache = routeTileCache, let fix = lastFix else {
+            drawVectorOnlyFrame(into: ctx)
+            return
+        }
+        // Kick a bake if we have no covering tile yet (throttled +
+        // coalesced inside the cache; no-op when already covered).
+        ensurePositionFallbackTile(near: fix.coordinate)
+
+        // Draw the covering position tile if we have one, else vector.
+        guard let tile = cache.coveringPositionFallbackTile(for: fix.coordinate),
+              let cg = cache.positionFallbackDecodedImage()?.cgImage else {
+            drawVectorOnlyFrame(into: ctx)
+            return
+        }
+        drawProjectedTile(tile, image: cg, riderCoord: fix.coordinate, into: ctx)
+    }
+
+    /// Shared projection + composite for a SINGLE stitched tile centred
+    /// near the rider. Used by BOTH the on-corridor path
+    /// (`drawTileCacheFrame`) and the off-corridor rescue path
+    /// (`drawOffCorridorFallbackFrame`) so the heading-up rotation, route
+    /// polyline, speed cameras and puck are drawn identically in either
+    /// case — only the source tile differs.
+    ///
+    /// `riderCoord` is the projection origin (the rider sits at the puck);
+    /// `tile.center` is where the bitmap's midpoint lands geographically.
+    private func drawProjectedTile(
+        _ tile: RouteTile,
+        image cg: CGImage,
+        riderCoord: CLLocationCoordinate2D,
+        into ctx: CGContext
+    ) {
+        // Pixels-per-degree — analytic Web Mercator values baked into the
+        // tile (no probe/measure since the OSM migration). Ground truth
+        // for how many ctx-pixels span 1 degree on this bitmap.
+        let pxPerDegLon = tile.pxPerDegLon
+        let pxPerDegLat = tile.pxPerDegLat
 
         // Anchor coordinate space on the user — they sit at the origin
-        // after rotation; neighbouring tiles draw offset from that.
-        let centerLon = fix.coordinate.longitude
-        let centerLat = fix.coordinate.latitude
+        // after rotation; the tile draws offset from that.
+        let centerLon = riderCoord.longitude
+        let centerLat = riderCoord.latitude
 
         // ─────────────────────────────────────────────────────────────
         // COORDINATE SYSTEM (Y-DOWN, UIKit convention):
@@ -889,31 +973,26 @@ extension MapViewSource {
         // Applied AFTER rotation so the origin sits at the puck.
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
-        // Draw every overlapping tile shifted by the delta from its
-        // own centre to the user's position. Use `t.center` (the
-        // requested centre — and the geographic centre of the
-        // rendered image), not `t.region.center`. MKMapSnapshotter
-        // can adjust the region span but the centre stays put.
-        for (t, cg) in tilesToDraw {
-            let dx =  (t.center.longitude - centerLon) * pxPerDegLon
-            let dy = -(t.center.latitude  - centerLat) * pxPerDegLat   // Y-DOWN: north = -y
-            let tw = t.pixelSize.width
-            let th = t.pixelSize.height
-            // MKMapSnapshotter clamps the region, so the actual pixel
-            // location of `t.center` is `t.centerPixel` — NOT (tw/2, th/2).
-            // Compensate by shifting the tile rect so the centerPixel
-            // lands at (dx, dy) instead of the bitmap midpoint.
-            // In Y-DOWN, centerPixel.y is row count from TOP, so the
-            // shift sign matches the X axis.
-            let mpX = tw / 2 - t.centerPixel.x
-            let mpY = th / 2 - t.centerPixel.y
-            let rect = CGRect(x: CGFloat(dx) - tw / 2 + mpX,
-                              y: CGFloat(dy) - th / 2 + mpY,
-                              width: tw, height: th)
-            drawImageUIKit(cg, in: rect, ctx: ctx)
-        }
+        // Draw the tile shifted by the delta from its own centre to the
+        // user's position. Use `tile.center` (the requested centre — and
+        // the geographic centre of the rendered image).
+        let dx =  (tile.center.longitude - centerLon) * pxPerDegLon
+        let dy = -(tile.center.latitude  - centerLat) * pxPerDegLat   // Y-DOWN: north = -y
+        let tw = tile.pixelSize.width
+        let th = tile.pixelSize.height
+        // For OSM stitches `centerPixel` is the exact bitmap midpoint, so
+        // mpX/mpY are 0; kept general for backward-compat with any tile
+        // whose centre isn't pixel-aligned.
+        let mpX = tw / 2 - tile.centerPixel.x
+        let mpY = th / 2 - tile.centerPixel.y
+        let rect = CGRect(x: CGFloat(dx) - tw / 2 + mpX,
+                          y: CGFloat(dy) - th / 2 + mpY,
+                          width: tw, height: th)
+        drawImageUIKit(cg, in: rect, ctx: ctx)
 
         // Draw the route polyline in the same Y-DOWN coordinate space.
+        // Off-corridor this still draws the (now-distant) route line so
+        // the rider can see which way to get back to it.
         if !routePolylineCoords.isEmpty {
             ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
             // The line is stroked INSIDE the currentZoom scale, so a fixed

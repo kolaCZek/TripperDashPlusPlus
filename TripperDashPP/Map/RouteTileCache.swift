@@ -182,6 +182,23 @@ final class RouteTileCache {
     /// a future eviction policy.
     static let rollingTrailMeters: CLLocationDistance = 500
 
+    // MARK: - Position-fallback tunables
+
+    /// How far the rider can move from the position-fallback tile's
+    /// centre before we bake a fresh one. The composite covers ~3.9 km
+    /// on a side (see the `gridSide` coverage note), so 800 m keeps the
+    /// rider well inside the painted area — never near the edge where a
+    /// black wedge could show — while making re-bakes rare: a straight
+    /// off-corridor ride re-bakes roughly every 800 m, not every fix.
+    ///
+    /// This is deliberately SMALLER than `nearestTile`'s 2.5 km miss
+    /// guardrail. The two don't overlap in purpose: `nearestTile` decides
+    /// "am I still on the baked ROUTE corridor?", this decides "does my
+    /// one-off rescue tile still cover me?". A rider 1 km off-route misses
+    /// the corridor (→ fallback path) yet stays inside a fresh position
+    /// tile (→ no re-bake) until they drift 800 m from where it was baked.
+    static let positionFallbackValidRadius: CLLocationDistance = 800
+
     // MARK: - Stored state
 
     // MARK: - Rolling-window state
@@ -260,6 +277,38 @@ final class RouteTileCache {
     /// closest main anchor. We extend `[snapped, snapped + lookahead]`
     /// and the lateral wings of every main in that range.
     private var lastRiderRouteOffset: CLLocationDistance = 0
+
+    // MARK: - Position-fallback state
+    //
+    // A SINGLE rescue tile, baked around the rider's raw GPS position
+    // (NOT the route), used only when the rider has left the baked route
+    // corridor entirely — the case `nearestTile(to:)` returns nil for.
+    // Without it the renderer drops straight to `drawVectorOnlyFrame`
+    // (bare polyline on a flat background); with it the rider keeps real
+    // map context under them even while off-route.
+    //
+    // Kept deliberately OUT of `tiles[]` / `bakedTileByIndex` because it
+    // has no `routeOffsetMeters` — it isn't on the polyline. Splicing it
+    // into the route-ordered arrays would break the `nearestTile`
+    // hint-index locality invariant and the index-keyed `imageCache`
+    // (see the reorder note in `bakeAnchors`). One standalone slot avoids
+    // all of that.
+
+    /// The current position-fallback tile, or nil if none is baked yet
+    /// (or the last bake failed / went fully offline).
+    private(set) var positionFallbackTile: RouteTile?
+
+    /// Decoded image for `positionFallbackTile`, memoised so the
+    /// off-corridor render path (which runs at ~30 fps while it's active)
+    /// doesn't re-decode a 300-500 KB PNG every frame. Invalidated (set
+    /// to nil) whenever a fresh position tile is installed — the standalone
+    /// slot can't use the index-keyed `imageCache` (it has no array
+    /// index), and a stale decode would paint the old off-route location.
+    private var positionFallbackImage: UIImage?
+
+    /// Guards against overlapping position-fallback bakes when several
+    /// off-corridor frames render before the first bake finishes.
+    private var positionFallbackInFlight = false
 
     private let imageCache = NSCache<NSNumber, UIImage>()
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RouteTileCache")
@@ -630,6 +679,68 @@ final class RouteTileCache {
         return (tiles[bestIdx], bestIdx)
     }
 
+    // MARK: - Position fallback (off-corridor rescue tile)
+
+    /// Return the position-fallback tile IF it currently covers `coord`
+    /// (rider within `positionFallbackValidRadius` of its centre), else
+    /// nil. Pure query — never triggers a bake. Call this from the
+    /// off-corridor render path AFTER `nearestTile` has already missed.
+    ///
+    /// "Covers" uses the same conservative radius as the re-bake trigger
+    /// so the answer is stable: a tile that says it covers you now won't
+    /// flip to "stale" one fix later unless you actually moved.
+    func coveringPositionFallbackTile(for coord: CLLocationCoordinate2D) -> RouteTile? {
+        guard let tile = positionFallbackTile else { return nil }
+        let d = PolylineMath.haversine(coord, tile.center)
+        return d <= Self.positionFallbackValidRadius ? tile : nil
+    }
+
+    /// Ensure a position-fallback tile exists that covers `coord`, baking
+    /// a fresh one around the rider's raw GPS position if the current
+    /// slot is missing or the rider has drifted more than
+    /// `positionFallbackValidRadius` from it.
+    ///
+    /// This is the ONLY producer of position-fallback tiles, and the
+    /// render path calls it ONLY when off the route corridor. So when the
+    /// rider is on-route (the overwhelmingly common case) this never runs
+    /// and never fetches a byte — the whole feature is dormant until an
+    /// actual off-corridor moment (bad turn + failed/slow reroute, or a
+    /// deliberate detour). That keeps the OSM tile budget spent on the
+    /// route, exactly as before, and only adds fetches in the situation
+    /// that today shows a blank vector fallback.
+    ///
+    /// Idempotent + self-throttling: a valid covering tile is a no-op,
+    /// and an in-flight bake blocks a second concurrent one. BG-safe
+    /// (reuses `composite`, pure URLSession + CGContext). Fire-and-forget
+    /// from the caller — the freshly baked tile shows on the NEXT frame,
+    /// and until then the render path keeps using vector-only, so there's
+    /// never a blank wait.
+    func ensurePositionFallback(near coord: CLLocationCoordinate2D) async {
+        // Already covered by the current slot → nothing to do.
+        if let tile = positionFallbackTile,
+           PolylineMath.haversine(coord, tile.center) <= Self.positionFallbackValidRadius {
+            return
+        }
+        // A bake is already running; it'll install a tile shortly. Don't
+        // start a second one — the rider isn't moving 800 m in the ~1 s a
+        // composite takes, so the in-flight bake will cover them.
+        guard !positionFallbackInFlight else { return }
+        positionFallbackInFlight = true
+        defer { positionFallbackInFlight = false }
+        log.info("Baking position-fallback tile (off-corridor) around rider")
+        let baked = await Self.composite(center: coord, style: style)
+        if let baked = baked {
+            positionFallbackTile = baked
+            positionFallbackImage = nil   // invalidate stale decode
+            log.info("Position-fallback tile installed")
+        } else {
+            // Fully offline / all 25 tiles missed. Leave the slot as-is
+            // (a stale-but-nearby tile still beats nothing; a nil slot
+            // means the renderer stays on vector-only). Don't thrash.
+            log.warning("Position-fallback bake produced no tile (offline?) — keeping previous slot")
+        }
+    }
+
     /// Decoded UIImage for `tile`. Cached; safe to call every frame.
     func image(for tile: RouteTile, atIndex idx: Int) -> UIImage? {
         let key = NSNumber(value: idx)
@@ -638,6 +749,18 @@ final class RouteTileCache {
         }
         guard let img = UIImage(data: tile.jpeg) else { return nil }
         imageCache.setObject(img, forKey: key)
+        return img
+    }
+
+    /// Decoded UIImage for the standalone `positionFallbackTile`. Memoised
+    /// in its own slot (not the index-keyed `imageCache`) and invalidated
+    /// on re-bake. Returns nil when no fallback tile is baked. Safe to
+    /// call every frame.
+    func positionFallbackDecodedImage() -> UIImage? {
+        guard let tile = positionFallbackTile else { return nil }
+        if let cached = positionFallbackImage { return cached }
+        guard let img = UIImage(data: tile.jpeg) else { return nil }
+        positionFallbackImage = img
         return img
     }
 
