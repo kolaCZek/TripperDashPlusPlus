@@ -445,42 +445,47 @@ final class MapViewSource: NSObject, FrameSource {
         }
     }
 
-    /// Request a fresh tile cache for `route`. If the app is `.active`
-    /// (foreground, screen on), the bake runs immediately and replaces
-    /// the current cache when done. Otherwise the route is parked in
-    /// `pendingRebakeRoute` and the bake fires on the next
-    /// `didBecomeActiveNotification` — preserving the OLD cache in the
-    /// meantime so the rider keeps seeing real map tiles (just stale
-    /// ones) instead of a vector-only black-on-grey fallback while
-    /// the lock screen is on.
+    /// Request a fresh tile cache for `route` (nav start, reroute, or
+    /// multi-stop leg advance). The bake runs immediately regardless of
+    /// app state, replacing the current cache when done. The OLD cache
+    /// stays installed and visible until the swap, so the dash never
+    /// flashes to the vector-only fallback mid-bake.
     ///
-    /// Calling twice quickly (e.g. two reroutes in 30 s) coalesces:
-    /// only the latest `route` is baked when the app wakes.
+    /// This bakes in `.background` too — and that is the WHOLE POINT for
+    /// reroutes. Since the OSM migration the bake is pure URLSession +
+    /// CGContext (no `MKMapSnapshotter`/Metal — see `RouteTileCache.swift`
+    /// header), so it is BG-safe. A motorbike rider has the phone locked
+    /// in a pocket for the entire ride, so `.background` is the ONLY state
+    /// that ever runs mid-ride. The old `applicationState == .active` gate
+    /// meant a reroute corridor NEVER baked until the rider pulled the
+    /// phone out — leaving the dash on `drawVectorOnlyFrame` (bare route
+    /// line on a blank ground) for the rest of the trip after a single
+    /// wrong turn. Same lesson as the rolling `extendTileCache` guard
+    /// removed in PR #30: CPU/network ride-critical work must NOT gate on
+    /// `.active`; only cosmetic/GPU work (the Auto style re-bake) does.
+    ///
+    /// Calling twice quickly (e.g. two reroutes in 30 s) coalesces via
+    /// `pendingRebakeInFlight`: a reroute that lands mid-bake just updates
+    /// `pendingRebakeRoute`, and the in-flight bake re-runs with the
+    /// latest route when it finishes — only the newest corridor is kept.
     func scheduleTileCacheRebuild(for route: MKRoute) {
         pendingRebakeRoute = route
-        let state = UIApplication.shared.applicationState
-        if state == .active {
-            log.info("Tile re-bake triggered immediately (app .active)")
-            Task { @MainActor in await performPendingRebake() }
-        } else {
-            log.info("Tile re-bake deferred — app state=\(state.rawValue, privacy: .public); will run on next didBecomeActive")
-            // Keep the existing cache intact. The polyline already
-            // got updated by setRoutePolyline; the vector fallback
-            // and the stale (but still partially valid) tile cache
-            // overlap to keep the dash usable.
+        if pendingRebakeInFlight {
+            // A bake is already running; it will pick up this newer route
+            // when it finishes (recursion in performPendingRebake). Don't
+            // start a second concurrent bake.
+            log.info("Tile re-bake requested while a bake is in flight — coalescing to latest")
+            return
         }
+        log.info("Tile re-bake triggered (app state=\(UIApplication.shared.applicationState.rawValue, privacy: .public))")
+        Task { @MainActor in await performPendingRebake() }
     }
 
     /// Bake `pendingRebakeRoute` (if any) and atomically swap the
-    /// cache. MUST run on main and only when app is `.active`.
+    /// cache. MUST run on main. BG-safe (URLSession + CGContext) — no
+    /// app-state guard, by design (see `scheduleTileCacheRebuild`).
     private func performPendingRebake() async {
         guard let route = pendingRebakeRoute else { return }
-        // Re-check state — between schedule time and now the app may
-        // have re-backgrounded (user tapped lock during bake start).
-        guard UIApplication.shared.applicationState == .active else {
-            log.warning("performPendingRebake aborted — app no longer .active")
-            return
-        }
         // Take a local snapshot of the route id we're baking so we can
         // tell whether a newer route landed mid-bake.
         let bakingFor = ObjectIdentifier(route)
@@ -500,9 +505,18 @@ final class MapViewSource: NSObject, FrameSource {
         setTileCache(fresh)
     }
 
-    /// Wire up the `didBecomeActiveNotification` observer that fires
-    /// any deferred bake when the user unlocks / returns to fg.
+    /// Wire up the `didBecomeActiveNotification` observer that drains a
+    /// deferred STYLE re-bake when the user unlocks / returns to fg.
     /// Called once from init.
+    ///
+    /// Note: reroute tile re-bakes are NO LONGER deferred here — since the
+    /// bake is BG-safe (URLSession + CGContext) they run immediately in
+    /// `scheduleTileCacheRebuild` regardless of app state. Only the Auto
+    /// style re-bake (cosmetic Light/Dark flip) is deferred to `.active`.
+    /// The reroute drain below is kept purely as a belt-and-braces net:
+    /// `performPendingRebake` is idempotent (no-ops when nothing pending),
+    /// so it harmlessly catches any `pendingRebakeRoute` that somehow
+    /// outlived its bake Task (e.g. a cancelled task).
     private func installAppStateObserver() {
         let center = NotificationCenter.default
         appStateObserver = center.addObserver(
@@ -512,7 +526,8 @@ final class MapViewSource: NSObject, FrameSource {
         ) { [weak self] _ in
             guard let self else { return }
             // Drain a deferred style re-bake first (most recent style
-            // wins). Independent of the reroute re-bake below.
+            // wins). This IS still deferred — it's cosmetic, so there's
+            // no point recolouring a map on the lock screen.
             if let pending = self.pendingStyleRebake {
                 self.pendingStyleRebake = nil
                 if let fix = self.lastFix {
@@ -524,9 +539,11 @@ final class MapViewSource: NSObject, FrameSource {
                     }
                 }
             }
-            // Then any deferred reroute tile re-bake.
+            // Belt-and-braces: reroute bakes fire immediately now (even in
+            // BG), so this normally finds nothing. Kept as a safety net for
+            // a pendingRebakeRoute that outlived its bake Task.
             guard self.pendingRebakeRoute != nil, !self.pendingRebakeInFlight else { return }
-            self.log.info("App became active — draining pending tile re-bake")
+            self.log.info("App became active — draining a stray pending tile re-bake")
             Task { @MainActor in await self.performPendingRebake() }
         }
     }
