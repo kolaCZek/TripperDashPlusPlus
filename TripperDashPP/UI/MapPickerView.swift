@@ -806,8 +806,9 @@ struct MapPickerView: View {
             guard let status else { return }
             // (1) Polyline first — pure CPU CGContext path, BG/lock safe.
             status.mapViewSource.setRoutePolyline(newRoute.polyline)
-            // (2) Tile re-bake — scheduled so it runs on the next
-            //     foreground tick (MKMapSnapshotter is GPU-bound).
+            // (2) Tile re-bake — also BG/lock safe since the OSM migration
+            //     (URLSession + CGContext, no MKMapSnapshotter/Metal), so
+            //     it fires immediately even with the phone pocketed.
             status.mapViewSource.scheduleTileCacheRebuild(for: newRoute)
         }
     }
