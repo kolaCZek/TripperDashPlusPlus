@@ -27,10 +27,10 @@ struct RideStatsPanel: View {
     /// hidden/shown `@State` — this view just reports the tap.
     let onClose: () -> Void
 
-    /// The exported GPX temp-file URL, built on appear (and on retry) so
-    /// `ShareLink` has a ready `item`. Nil until built / after a failed
-    /// export.
-    @State private var gpxURL: URL?
+    /// Tracks the post-ride "Save ride" action: nil = not yet saved,
+    /// non-nil = the id of the SavedRoute we created (so the button flips
+    /// to a "Saved ✓" confirmation and won't double-save the same ride).
+    @State private var savedRouteId: UUID?
 
     private var stats: RideStats { status.rideStats.stats }
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
@@ -79,50 +79,40 @@ struct RideStatsPanel: View {
                 }
             }
 
-            // Save the recorded ride to a GPX file. Only shown when the
-            // trip computer captured a track (`hasRecordedTrack`) — an
-            // empty ride has nothing to export. The GPX is written to a
-            // temp file on demand and handed to the system share sheet, so
-            // the rider can drop it into Files, Strava, Kurviger, etc.
+            // Save the recorded ride into the Saved routes library. Only
+            // shown when the trip computer captured a track
+            // (`hasRecordedTrack`) — an empty ride has nothing to save.
+            // Saving builds a `.track` SavedRoute (same shape as a GPX
+            // import), so the ride then lives in Saved routes where it can
+            // be navigated again or exported to a GPX file. Once saved the
+            // button flips to a confirmation and disables, so a ride can't
+            // be double-added.
             if status.rideStats.hasRecordedTrack {
-                if let url = gpxURL {
-                    ShareLink(item: url) {
-                        Label("Save ride as GPX", systemImage: "square.and.arrow.up")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.accentColor.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .accessibilityLabel("Save this ride as a GPX file")
-                } else {
-                    // Export produced no file (write error / empty) — offer
-                    // a retry rather than silently hiding the option.
-                    Button {
-                        gpxURL = status.rideStats.exportGPXToTemporaryFile()
-                    } label: {
-                        Label("Save ride as GPX", systemImage: "square.and.arrow.up")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(Color.accentColor.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
+                Button {
+                    guard savedRouteId == nil,
+                          let route = status.rideStats.makeSavedRoute() else { return }
+                    status.savedRoutesStore.add(route)
+                    savedRouteId = route.id
+                } label: {
+                    Label(savedRouteId == nil ? "Save ride" : "Saved to routes",
+                          systemImage: savedRouteId == nil ? "bookmark" : "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background((savedRouteId == nil ? Color.accentColor : Color.green).opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+                .buttonStyle(.plain)
+                .disabled(savedRouteId != nil)
+                .accessibilityLabel(savedRouteId == nil
+                                    ? "Save this ride to your routes"
+                                    : "Ride saved to your routes")
             }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .onAppear {
-            // Build the GPX file once when the panel appears (post-ride),
-            // so ShareLink has a ready item. Rebuilt lazily on retry.
-            if status.rideStats.hasRecordedTrack, gpxURL == nil {
-                gpxURL = status.rideStats.exportGPXToTemporaryFile()
-            }
-        }
     }
 
     /// A small labelled figure: caption on top, value below.

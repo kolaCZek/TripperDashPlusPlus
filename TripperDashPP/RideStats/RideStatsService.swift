@@ -102,33 +102,49 @@ final class RideStatsService {
         stats = stats.folding(fix)
     }
 
-    // MARK: - GPX export
+    // MARK: - Save ride to the route library
 
-    /// True when there is a recorded track worth exporting. The UI gates
-    /// the "Save ride as GPX" affordance on this so an empty ride never
-    /// offers a share sheet.
+    /// True when there is a recorded track worth saving. The UI gates the
+    /// "Save ride" affordance on this so an empty ride never creates a
+    /// route.
     var hasRecordedTrack: Bool { !stats.trackPoints.isEmpty }
 
-    /// Serialise the current recorded track to a temporary `.gpx` file and
-    /// return its URL, ready to hand to a `UIActivityViewController` /
-    /// SwiftUI `ShareLink`. Returns `nil` when there is nothing recorded.
+    /// Build a `.track` `SavedRoute` from the recorded ride, ready to hand
+    /// to `SavedRoutesStore.add(_:)`. Returns `nil` when nothing was
+    /// recorded.
     ///
-    /// The file is written under the app's temp directory with a
-    /// slugified, ride-timestamped name (e.g. `Ride-2026-07-27-09-41.gpx`).
-    /// Temp files are reaped by iOS; the caller doesn't own cleanup.
-    func exportGPXToTemporaryFile() -> URL? {
-        let name = GPXExporter.defaultTrackName(start: stats.startedAt)
-        guard let xml = GPXExporter.gpx(from: stats, trackName: name) else {
-            return nil
+    /// Mirrors `GPXParser`'s track import so a saved ride behaves exactly
+    /// like an imported GPX track: the dense breadcrumb is reduced to
+    /// ≤`RoutePoint.navigableCap` via-points with Douglas–Peucker (so
+    /// MKDirections has a sane number of legs), while `totalDistanceMeters`
+    /// is measured along the FULL trace so the saved length matches the
+    /// real ride, not the simplified line.
+    func makeSavedRoute(name: String? = nil, now: Date = Date()) -> SavedRoute? {
+        let track = stats.trackPoints
+        guard !track.isEmpty else { return nil }
+
+        let rawPoints = track.map {
+            RoutePoint(latitude: $0.latitude, longitude: $0.longitude)
         }
-        let base = GPXExporter.fileBaseName(for: name)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(base).gpx")
-        do {
-            try xml.data(using: .utf8)?.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
-        }
+        let fullDistance = GPXGeometry.pathLength(rawPoints.map(\.coordinate))
+        let reduced = GPXGeometry.reduce(rawPoints, cap: RoutePoint.navigableCap)
+
+        return SavedRoute(
+            name: name ?? Self.defaultRideName(start: stats.startedAt ?? now),
+            kind: .track,
+            points: reduced,
+            totalDistanceMeters: fullDistance,
+            sourceFilename: nil
+        )
+    }
+
+    /// A default, human-readable ride name derived from the start time,
+    /// e.g. "Ride 2026-07-27 09:41".
+    static func defaultRideName(start: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return "Ride \(f.string(from: start))"
     }
 }
