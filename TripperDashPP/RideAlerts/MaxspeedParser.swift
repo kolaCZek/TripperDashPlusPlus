@@ -34,7 +34,7 @@
 
 import Foundation
 
-enum MaxspeedParser {
+nonisolated enum MaxspeedParser {
 
     private static let mphToKmh = 1.609344
 

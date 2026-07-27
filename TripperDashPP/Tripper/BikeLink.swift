@@ -569,7 +569,7 @@ final class BikeLink {
         guard !pathMonitorStarted else { return }
         pathMonitorStarted = true
         pathMonitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 let satisfied = path.status == .satisfied
                 defer { self.lastWifiSatisfied = satisfied }
