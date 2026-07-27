@@ -172,7 +172,7 @@ final class RouteTileCache {
     /// at 130 km/h (highway top of guerrilla) that's ~2.3 minutes
     /// of buffer, far longer than any conceivable bake latency
     /// even on dodgy mobile data.
-    static let rollingLookaheadMeters: CLLocationDistance = 5000
+    nonisolated static let rollingLookaheadMeters: CLLocationDistance = 5000
 
     /// How far BEHIND the rider position we keep extending. Small
     /// margin so a temporary stop or u-turn doesn't immediately

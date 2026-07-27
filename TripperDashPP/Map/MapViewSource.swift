@@ -207,8 +207,10 @@ final class MapViewSource: NSObject, FrameSource {
     /// least `shadowAbsMeters` AND the tagged way is at least
     /// `shadowRatio`× farther. Requiring both avoids nuking a legitimate
     /// match where two roads merely run close together.
-    private static let shadowAbsMeters: Double = 12
-    private static let shadowRatio: Double = 2.0
+    // `nonisolated` so `isShadowed` (a nonisolated static func mirrored 1:1 in
+    // the Python test) can read them under default MainActor isolation.
+    nonisolated private static let shadowAbsMeters: Double = 12
+    nonisolated private static let shadowRatio: Double = 2.0
 
     /// Pre-rendered tile cache — built from the active route in FG.
     private var routeTileCache: RouteTileCache?
@@ -556,27 +558,33 @@ final class MapViewSource: NSObject, FrameSource {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            // Drain a deferred style re-bake first (most recent style
-            // wins). This IS still deferred — it's cosmetic, so there's
-            // no point recolouring a map on the lock screen.
-            if let pending = self.pendingStyleRebake {
-                self.pendingStyleRebake = nil
-                if let fix = self.lastFix {
-                    self.log.info("App became active — draining pending style re-bake")
-                    Task { @MainActor in
-                        await self.performStyleRebake(route: pending.route,
-                                                      style: pending.style,
-                                                      around: fix.coordinate)
+            // Registered with `queue: .main`, so this block always runs on the
+            // main thread. Under `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`
+            // the observer closure is nonisolated, so hop back onto the main
+            // actor explicitly to touch main-actor state (safe: main queue).
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // Drain a deferred style re-bake first (most recent style
+                // wins). This IS still deferred — it's cosmetic, so there's
+                // no point recolouring a map on the lock screen.
+                if let pending = self.pendingStyleRebake {
+                    self.pendingStyleRebake = nil
+                    if let fix = self.lastFix {
+                        self.log.info("App became active — draining pending style re-bake")
+                        Task { @MainActor in
+                            await self.performStyleRebake(route: pending.route,
+                                                          style: pending.style,
+                                                          around: fix.coordinate)
+                        }
                     }
                 }
+                // Belt-and-braces: reroute bakes fire immediately now (even in
+                // BG), so this normally finds nothing. Kept as a safety net for
+                // a pendingRebakeRoute that outlived its bake Task.
+                guard self.pendingRebakeRoute != nil, !self.pendingRebakeInFlight else { return }
+                self.log.info("App became active — draining a stray pending tile re-bake")
+                Task { @MainActor in await self.performPendingRebake() }
             }
-            // Belt-and-braces: reroute bakes fire immediately now (even in
-            // BG), so this normally finds nothing. Kept as a safety net for
-            // a pendingRebakeRoute that outlived its bake Task.
-            guard self.pendingRebakeRoute != nil, !self.pendingRebakeInFlight else { return }
-            self.log.info("App became active — draining a stray pending tile re-bake")
-            Task { @MainActor in await self.performPendingRebake() }
         }
     }
 }

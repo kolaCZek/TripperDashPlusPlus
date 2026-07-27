@@ -309,7 +309,7 @@ actor SpeedCameraService {
 // MARK: - Helpers
 
 private extension URLSessionConfiguration {
-    func makeSession() -> URLSession { URLSession(configuration: self) }
+    nonisolated func makeSession() -> URLSession { URLSession(configuration: self) }
 }
 
 extension CharacterSet {

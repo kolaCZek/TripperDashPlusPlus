@@ -15,7 +15,10 @@
 
 import Foundation
 
-enum K1G {
+// Pure compile-time constant namespace. Marked `nonisolated` so these values
+// stay readable from nonisolated contexts (e.g. `RtpStreamer.init` default
+// args, `deinit`) under `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
+nonisolated enum K1G {
 
     // MARK: - Network endpoints
 

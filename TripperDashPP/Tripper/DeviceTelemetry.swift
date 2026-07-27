@@ -71,7 +71,7 @@ struct PhoneTelemetry: Sendable, Equatable {
     /// Chosen to look like "a sane phone client" to the dash so the link
     /// never drops just because we withheld real data — the OEM dash
     /// keys its keep-alive on the frame ARRIVING, not on its contents.
-    static let placeholder = PhoneTelemetry(
+    nonisolated static let placeholder = PhoneTelemetry(
         cellSignal0to255: 160,
         batteryPct0to100: 80,
         gpsOn: true,
