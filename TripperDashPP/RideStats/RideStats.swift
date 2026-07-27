@@ -39,6 +39,22 @@ import Foundation
 /// actor, no I/O — unit-tested in `RideStatsTests`.
 struct RideStats: Sendable, Equatable, Codable {
 
+    /// One recorded point of the live ride track — the raw material a
+    /// GPX `<trkpt>` is serialised from (`GPXExporter`). Captured for
+    /// every GATE-PASSING fix (accuracy + monotonic-time), i.e. the same
+    /// fixes the totals fold, so the exported trace matches the on-screen
+    /// distance. Jitter-floor / teleport fixes are still recorded — a GPX
+    /// track is the raw path, not the distance-gated subset — but bad-
+    /// accuracy / out-of-order fixes never enter either the totals or the
+    /// track. Plain `Codable` value so `RideStats` stays `Sendable`.
+    struct TrackPoint: Sendable, Equatable, Codable {
+        let latitude: Double
+        let longitude: Double
+        let altitude: Double          // metres, GPS ellipsoidal (coarse)
+        let timestamp: Date
+        let speedMps: Double          // Doppler GPS speed, -1 if unknown
+    }
+
     // Running totals
     private(set) var distanceMeters: Double = 0
     private(set) var movingSeconds: Double = 0
@@ -47,6 +63,11 @@ struct RideStats: Sendable, Equatable, Codable {
     private(set) var acceptedFixCount: Int = 0
     private(set) var startedAt: Date?
     private(set) var lastFixAt: Date?
+
+    /// Ordered recorded track — one entry per gate-passing fix. Feeds the
+    /// GPX export (`GPXExporter.gpx(from:)`). In-memory only, like the
+    /// rest of `RideStats`: an app kill or `reset()` drops it.
+    private(set) var trackPoints: [TrackPoint] = []
 
     // Bookkeeping for the next fold (not part of the public readout)
     private var lastLat: Double?
@@ -99,6 +120,7 @@ struct RideStats: Sendable, Equatable, Codable {
             s.lastFixAt = fix.timestamp
             s.acceptedFixCount += 1
             s.startedAt = fix.timestamp
+            s.recordTrackPoint(fix)
             return s
         }
 
@@ -143,8 +165,28 @@ struct RideStats: Sendable, Equatable, Codable {
         s.lastAlt = fix.altitude
         s.lastFixAt = fix.timestamp
         s.acceptedFixCount += 1
+        s.recordTrackPoint(fix)
 
         return s
+    }
+
+    /// Append a gate-passing fix to the recorded track. Called from
+    /// `folding(_:)` AFTER the accuracy + monotonic-time gates (and only
+    /// for fixes that seed or advance the accumulator), so the track never
+    /// contains a bad-accuracy or out-of-order point. Deliberately keeps
+    /// jitter-floor / teleport fixes: those are dropped from the DISTANCE
+    /// total (chord noise / GPS glitch) but a raw GPX trace still wants the
+    /// point — a rider stopped at lights should show as a dense cluster,
+    /// not a gap, and one teleport spike is better carried and smoothed by
+    /// a downstream tool than silently swallowed.
+    private mutating func recordTrackPoint(_ fix: Fix) {
+        trackPoints.append(TrackPoint(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            altitude: fix.altitude,
+            timestamp: fix.timestamp,
+            speedMps: fix.speed
+        ))
     }
 
     /// Great-circle metres. Private copy so the accumulator has no

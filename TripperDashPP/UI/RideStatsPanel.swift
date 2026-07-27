@@ -27,6 +27,11 @@ struct RideStatsPanel: View {
     /// hidden/shown `@State` — this view just reports the tap.
     let onClose: () -> Void
 
+    /// The exported GPX temp-file URL, built on appear (and on retry) so
+    /// `ShareLink` has a ready `item`. Nil until built / after a failed
+    /// export.
+    @State private var gpxURL: URL?
+
     private var stats: RideStats { status.rideStats.stats }
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
 
@@ -73,11 +78,51 @@ struct RideStatsPanel: View {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                 }
             }
+
+            // Save the recorded ride to a GPX file. Only shown when the
+            // trip computer captured a track (`hasRecordedTrack`) — an
+            // empty ride has nothing to export. The GPX is written to a
+            // temp file on demand and handed to the system share sheet, so
+            // the rider can drop it into Files, Strava, Kurviger, etc.
+            if status.rideStats.hasRecordedTrack {
+                if let url = gpxURL {
+                    ShareLink(item: url) {
+                        Label("Save ride as GPX", systemImage: "square.and.arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .accessibilityLabel("Save this ride as a GPX file")
+                } else {
+                    // Export produced no file (write error / empty) — offer
+                    // a retry rather than silently hiding the option.
+                    Button {
+                        gpxURL = status.rideStats.exportGPXToTemporaryFile()
+                    } label: {
+                        Label("Save ride as GPX", systemImage: "square.and.arrow.up")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .onAppear {
+            // Build the GPX file once when the panel appears (post-ride),
+            // so ShareLink has a ready item. Rebuilt lazily on retry.
+            if status.rideStats.hasRecordedTrack, gpxURL == nil {
+                gpxURL = status.rideStats.exportGPXToTemporaryFile()
+            }
+        }
     }
 
     /// A small labelled figure: caption on top, value below.

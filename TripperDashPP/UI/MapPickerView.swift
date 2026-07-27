@@ -89,10 +89,12 @@ struct MapPickerView: View {
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
 
-    private enum DisplayMode { case picking, navigating, transitioning }
+    private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
     private var mode: DisplayMode {
         if transitioning { return .transitioning }
-        return status.activeNavigator.isNavigating ? .navigating : .picking
+        if status.activeNavigator.isNavigating { return .navigating }
+        if status.isFreeRiding { return .freeRiding }
+        return .picking
     }
 
     /// Whether the picking phase should show the multi-stop planning UI.
@@ -116,6 +118,7 @@ struct MapPickerView: View {
                 switch mode {
                 case .picking:       pickingBody
                 case .navigating:    navigatingBody
+                case .freeRiding:    freeRidingBody
                 case .transitioning: transitioningBody
                 }
 
@@ -577,6 +580,35 @@ struct MapPickerView: View {
         }
     }
 
+    /// Free-ride phase: the live map is projecting to the dash with no
+    /// route. The interactive map is intentionally NOT mounted here (the
+    /// streamed MapViewSource owns the render pool while streaming, same
+    /// rule as `.navigating`), so we show a status card + the live ride
+    /// trip computer instead.
+    @ViewBuilder
+    private var freeRidingBody: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "map.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.tint)
+            Text("Free ride")
+                .font(.title2.weight(.semibold))
+            Text("The map is projecting to your dash — no route, just the road around you. Ride stats are recording and can be saved as a GPX when you stop.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            if status.rideStats.stats.startedAt != nil {
+                RideStatsPanel(onClose: {})
+                    .environment(status)
+                    .padding(.horizontal, 16)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     // MARK: - Control button
 
     @ViewBuilder
@@ -591,6 +623,14 @@ struct MapPickerView: View {
         case (.navigating, _):
             Button(role: .destructive) { stopNavigation() } label: {
                 Label("Stop navigation", systemImage: "stop.circle.fill")
+                    .frame(maxWidth: .infinity).padding()
+                    .background(Color.red.opacity(0.15))
+            }
+            .buttonStyle(.plain)
+
+        case (.freeRiding, _):
+            Button(role: .destructive) { status.stopFreeRide() } label: {
+                Label("Stop free ride", systemImage: "stop.circle.fill")
                     .frame(maxWidth: .infinity).padding()
                     .background(Color.red.opacity(0.15))
             }
@@ -679,7 +719,10 @@ struct MapPickerView: View {
         }
     }
 
-    /// Connected but idle (no plan yet) — prompt to pick + Disconnect.
+    /// Connected but idle (no plan yet) — prompt to pick + Start free
+    /// ride + Disconnect. "Start free ride" projects the map to the dash
+    /// without any route (no destination, no navigation), for a rider who
+    /// just wants the moving map on the bike.
     @ViewBuilder
     private var connectedIdleControl: some View {
         VStack(spacing: 6) {
@@ -689,6 +732,14 @@ struct MapPickerView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .background(Color.green.opacity(0.12))
+
+            Button { status.startFreeRide() } label: {
+                Label("Start free ride (map only)", systemImage: "map.fill")
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(Color.accentColor.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
 
             Button(role: .destructive) { status.bikeLink.disconnect() } label: {
                 Text("Disconnect")

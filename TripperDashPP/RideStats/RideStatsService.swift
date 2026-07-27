@@ -101,4 +101,34 @@ final class RideStatsService {
         guard state == .running else { return }
         stats = stats.folding(fix)
     }
+
+    // MARK: - GPX export
+
+    /// True when there is a recorded track worth exporting. The UI gates
+    /// the "Save ride as GPX" affordance on this so an empty ride never
+    /// offers a share sheet.
+    var hasRecordedTrack: Bool { !stats.trackPoints.isEmpty }
+
+    /// Serialise the current recorded track to a temporary `.gpx` file and
+    /// return its URL, ready to hand to a `UIActivityViewController` /
+    /// SwiftUI `ShareLink`. Returns `nil` when there is nothing recorded.
+    ///
+    /// The file is written under the app's temp directory with a
+    /// slugified, ride-timestamped name (e.g. `Ride-2026-07-27-09-41.gpx`).
+    /// Temp files are reaped by iOS; the caller doesn't own cleanup.
+    func exportGPXToTemporaryFile() -> URL? {
+        let name = GPXExporter.defaultTrackName(start: stats.startedAt)
+        guard let xml = GPXExporter.gpx(from: stats, trackName: name) else {
+            return nil
+        }
+        let base = GPXExporter.fileBaseName(for: name)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(base).gpx")
+        do {
+            try xml.data(using: .utf8)?.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
 }
