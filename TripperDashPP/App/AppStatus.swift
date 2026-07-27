@@ -472,9 +472,19 @@ final class AppStatus {
     func beginPlanningFromSavedRoute(_ route: SavedRoute,
                                      mode: RouteStartMode,
                                      nearestIndex: Int) {
-        let navPoints = RouteStartPlanner.navigablePoints(route.points,
-                                                          mode: mode,
-                                                          nearestIndex: nearestIndex)
+        let selected = RouteStartPlanner.navigablePoints(route.points,
+                                                         mode: mode,
+                                                         nearestIndex: nearestIndex)
+        // A `.track` route carries its FULL precise geometry (potentially
+        // thousands of points). MKDirections is one call per leg and Apple
+        // rate-limits it, so reduce a track to ≤navigableCap significant
+        // via-points HERE, at navigation time, with Douglas–Peucker. The
+        // saved route's own `points` stay untouched (preview map + GPX keep
+        // full precision). `.waypoints` routes are already sparse real
+        // stops — never reduced.
+        let navPoints = route.kind == .track
+            ? GPXGeometry.reduce(selected, cap: RoutePoint.navigableCap)
+            : selected
         guard navPoints.count >= 1 else { return }
 
         let originCoord = locationService.lastFix?.coordinate
@@ -493,6 +503,8 @@ final class AppStatus {
         }
 
         let plan = PlannedRoute(waypoints: [origin] + routeWaypoints)
+        // Track via-points are shape, not stops → HUD presents start→finish.
+        plan.isTrack = (route.kind == .track)
         plannedRoute = plan
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }

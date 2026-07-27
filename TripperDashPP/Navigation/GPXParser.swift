@@ -85,18 +85,15 @@ enum GPXImporter {
         // Distance is always measured on the FULL trace, before reduction.
         let fullDistance = GPXGeometry.pathLength(parsed.rawPoints.map(\.coordinate))
 
-        let points: [RoutePoint]
-        switch parsed.kind {
-        case .waypoints:
-            // Sparse named stops — keep them all.
-            points = parsed.rawPoints
-        case .track:
-            // Dense trace — simplify to ≤cap via-points, preserving the
-            // most significant vertices (and always the endpoints).
-            points = GPXGeometry.reduce(parsed.rawPoints, cap: RoutePoint.navigableCap)
-        }
+        // Both kinds keep their FULL point set now: sparse `<wpt>` stops
+        // are all real destinations, and a dense `<trk>` trace is preserved
+        // at full precision so the preview map + GPX round-trip reproduce
+        // the original ride. The Douglas–Peucker reduction to ≤navigableCap
+        // is applied transiently at navigation time
+        // (`beginPlanningFromSavedRoute`), NOT at import time.
+        let points = parsed.rawPoints
 
-        log.info("Imported GPX '\(parsed.name, privacy: .public)' kind=\(parsed.kind.rawValue, privacy: .public) raw=\(parsed.rawPoints.count) reduced=\(points.count) dist=\(Int(fullDistance))m")
+        log.info("Imported GPX '\(parsed.name, privacy: .public)' kind=\(parsed.kind.rawValue, privacy: .public) points=\(points.count) dist=\(Int(fullDistance))m")
 
         return SavedRoute(name: parsed.name,
                           kind: parsed.kind,

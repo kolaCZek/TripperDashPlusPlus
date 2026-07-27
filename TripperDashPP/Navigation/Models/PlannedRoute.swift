@@ -81,6 +81,15 @@ final class PlannedRoute {
     private(set) var waypoints: [Waypoint]
     private(set) var legs: [RouteLeg]
 
+    /// True when this plan came from a recorded/imported `.track` route —
+    /// its intermediate waypoints are shape (pass-through via-points), NOT
+    /// meaningful stops. The navigation HUD uses this to present the ride
+    /// as a single start→finish leg: ETA/remaining scoped to the FINAL
+    /// destination and the multi-stop "Stop X of Y / next …" + per-leg
+    /// pills suppressed. Defaults false (manual multi-stop planning, where
+    /// every waypoint is a real stop the rider chose).
+    var isTrack: Bool = false
+
     // MARK: - Init
 
     /// Build from an ordered list of waypoints. Legs start empty —

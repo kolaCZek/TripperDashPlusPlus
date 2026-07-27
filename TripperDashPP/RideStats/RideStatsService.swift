@@ -113,26 +113,26 @@ final class RideStatsService {
     /// to `SavedRoutesStore.add(_:)`. Returns `nil` when nothing was
     /// recorded.
     ///
-    /// Mirrors `GPXParser`'s track import so a saved ride behaves exactly
-    /// like an imported GPX track: the dense breadcrumb is reduced to
-    /// ≤`RoutePoint.navigableCap` via-points with Douglas–Peucker (so
-    /// MKDirections has a sane number of legs), while `totalDistanceMeters`
-    /// is measured along the FULL trace so the saved length matches the
-    /// real ride, not the simplified line.
+    /// The FULL, precise breadcrumb is stored verbatim in `points` — no
+    /// Douglas–Peucker reduction here (a 2-hour ride keeps its thousands of
+    /// points) so the preview map and GPX export reproduce the real ride
+    /// exactly. The reduction to ≤`RoutePoint.navigableCap` via-points is
+    /// applied transiently at navigation time (`beginPlanningFromSavedRoute`),
+    /// where MKDirections needs a sane number of legs. `totalDistanceMeters`
+    /// is measured along the full trace.
     func makeSavedRoute(name: String? = nil, now: Date = Date()) -> SavedRoute? {
         let track = stats.trackPoints
         guard !track.isEmpty else { return nil }
 
-        let rawPoints = track.map {
+        let points = track.map {
             RoutePoint(latitude: $0.latitude, longitude: $0.longitude)
         }
-        let fullDistance = GPXGeometry.pathLength(rawPoints.map(\.coordinate))
-        let reduced = GPXGeometry.reduce(rawPoints, cap: RoutePoint.navigableCap)
+        let fullDistance = GPXGeometry.pathLength(points.map(\.coordinate))
 
         return SavedRoute(
             name: name ?? Self.defaultRideName(start: stats.startedAt ?? now),
             kind: .track,
-            points: reduced,
+            points: points,
             totalDistanceMeters: fullDistance,
             sourceFilename: nil
         )

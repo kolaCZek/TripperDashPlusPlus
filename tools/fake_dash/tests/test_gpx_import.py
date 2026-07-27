@@ -40,6 +40,7 @@ from tests.gpx_geometry_mirror import (
     parse,
     path_length,
     perpendicular_distance,
+    planned_navigable_points,
     reduce,
     swiftui_row_rerenders,
 )
@@ -309,7 +310,11 @@ class TestImportRoute:
         assert r["kind"] == "waypoints"
         assert len(r["points"]) == 40  # NOT reduced
 
-    def test_track_reduced_to_cap(self):
+    def test_track_kept_at_full_precision_on_import(self):
+        # Import NO LONGER reduces — a dense track keeps every point so the
+        # preview map + GPX export reproduce the real ride. The reduction to
+        # NAVIGABLE_CAP now happens at navigation time (see
+        # test_navigable_points_reduces_track below / beginPlanningFromSavedRoute).
         body = (
             "<trk><trkseg>"
             + "".join(
@@ -320,11 +325,11 @@ class TestImportRoute:
         )
         r = import_route(gpx(body))
         assert r["kind"] == "track"
-        assert len(r["points"]) <= NAVIGABLE_CAP
+        assert len(r["points"]) == 400  # full precision, NOT reduced
 
     def test_distance_measured_on_full_trace(self):
-        # Build a wiggly 400-pt track; the reduced point list is much
-        # shorter but the reported distance must reflect the FULL trace.
+        # Distance reflects the full trace; since import keeps all points,
+        # the stored point list length matches the full trace exactly.
         pts = [Pt(50.0 + (0.01 if i % 2 else -0.01), 14.0 + i * 0.001) for i in range(400)]
         full = path_length(pts)
         body = (
@@ -334,9 +339,8 @@ class TestImportRoute:
         )
         r = import_route(gpx(body))
         assert r["total_distance_m"] == pytest.approx(full, rel=1e-9)
-        # And the reduced path is strictly shorter (sawtooth collapsed).
-        reduced_len = path_length(r["points"])
-        assert reduced_len < full
+        # Full precision retained → stored path length equals the full trace.
+        assert path_length(r["points"]) == pytest.approx(full, rel=1e-9)
 
     def test_empty_raises(self):
         with pytest.raises(ValueError):
@@ -416,6 +420,47 @@ class TestNavigablePoints:
     def test_unknown_mode_raises(self):
         with pytest.raises(ValueError):
             navigable_points(_route_line(), "sideways", 0)
+
+
+class TestPlannedNavigablePoints:
+    """Nav-time reduction (beginPlanningFromSavedRoute): a track is reduced
+    to <= NAVIGABLE_CAP via-points only when navigation starts; waypoints
+    are never reduced; the stored route is unaffected."""
+
+    def _dense_track(self, n=400):
+        return [Pt(50.0 + (0.01 if i % 2 else -0.01), 14.0 + i * 0.001) for i in range(n)]
+
+    def test_track_reduced_at_nav_start(self):
+        route = self._dense_track(400)
+        out = planned_navigable_points(route, "from_first", 0, "track")
+        assert len(out) <= NAVIGABLE_CAP
+        # Endpoints preserved so the ride still starts/ends where recorded.
+        assert out[0] is route[0]
+        assert out[-1] is route[-1]
+
+    def test_track_under_cap_unchanged(self):
+        route = self._dense_track(10)
+        out = planned_navigable_points(route, "from_first", 0, "track")
+        assert out == route
+
+    def test_waypoints_never_reduced(self):
+        # 50 sparse stops (> cap) stay intact — every one is a real stop.
+        route = [Pt(50.0 + i * 0.01, 14.0, name=f"Stop {i}") for i in range(50)]
+        out = planned_navigable_points(route, "from_first", 0, "waypoints")
+        assert len(out) == 50
+
+    def test_from_nearest_then_reduced(self):
+        route = self._dense_track(400)
+        out = planned_navigable_points(route, "from_nearest", 100, "track")
+        assert len(out) <= NAVIGABLE_CAP
+        # First kept point is the nearest-index slice start, not route[0].
+        assert out[0] is route[100]
+        assert out[-1] is route[-1]
+
+    def test_stored_route_untouched(self):
+        route = self._dense_track(400)
+        _ = planned_navigable_points(route, "from_first", 0, "track")
+        assert len(route) == 400  # transient reduction, source intact
 
 
 # ───────────────────── preview-map bounding span ─────────────────────

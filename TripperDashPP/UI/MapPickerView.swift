@@ -467,8 +467,16 @@ struct MapPickerView: View {
 
     /// The multi-stop planning UI: PlanningMapView (top) + waypoint list
     /// (bottom). Lives in .picking with the stream off.
+    ///
+    /// The waypoint list is hidden for a large plan (a track staged for
+    /// navigation carries up to `navigableCap` via-points, plus manual
+    /// plans could in theory grow past the threshold): the map already
+    /// shows start→finish and the list would be an un-scrollable wall of
+    /// pass-through points. Below the threshold the editable Stops list
+    /// shows as before.
     @ViewBuilder
     private func planningBody(plan: PlannedRoute) -> some View {
+        let showStops = plan.waypoints.count <= RoutePoint.editableListThreshold && !plan.isTrack
         VStack(spacing: 0) {
             PlanningMapView(
                 plan: plan,
@@ -488,20 +496,25 @@ struct MapPickerView: View {
             .frame(maxHeight: .infinity)
             .overlay(alignment: .top) { planningBanner }
 
-            Divider()
+            if showStops {
+                Divider()
 
-            WaypointListView(
-                plan: plan,
-                onRecompute: { dirty in
-                    Task { await status.recomputeDirtyLegs(dirty, in: plan) }
-                },
-                onAddStop: {
-                    addingStopToPlan = true
-                    showSearch = true
-                },
-                recomputingLegs: status.recomputingLegs
-            )
-            .frame(maxHeight: 260)
+                WaypointListView(
+                    plan: plan,
+                    onRecompute: { dirty in
+                        Task { await status.recomputeDirtyLegs(dirty, in: plan) }
+                    },
+                    onAddStop: {
+                        addingStopToPlan = true
+                        showSearch = true
+                    },
+                    recomputingLegs: status.recomputingLegs
+                )
+                .frame(maxHeight: 260)
+            } else {
+                Divider()
+                largePlanSummary(plan: plan)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -515,6 +528,42 @@ struct MapPickerView: View {
                 }
             }
         }
+    }
+
+    /// Compact start→finish summary shown in place of the Stops list for a
+    /// large / track plan. Start + end labels + total distance/time; the
+    /// actual "Start navigation" CTA lives in the bottom control bar as
+    /// usual (connect-first). No per-stop editing.
+    @ViewBuilder
+    private func largePlanSummary(plan: PlannedRoute) -> some View {
+        let origin = plan.waypoints.first
+        let dest = plan.waypoints.last
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "location.fill").foregroundStyle(.green).frame(width: 18)
+                Text(origin?.name ?? "Start").lineLimit(1)
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "flag.checkered").foregroundStyle(.red).frame(width: 18)
+                Text(dest?.name ?? "Destination").lineLimit(1)
+            }
+            Divider()
+            HStack {
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .foregroundStyle(.blue)
+                Text("\(plan.waypoints.count - 1) via-points")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if plan.isComputed {
+                    Text("\(plan.totalDistanceDisplay) · \(plan.totalTravelTimeDisplay)")
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+            .font(.footnote)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: 260)
     }
 
     @ViewBuilder

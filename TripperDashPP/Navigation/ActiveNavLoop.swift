@@ -256,7 +256,11 @@ final class ActiveNavLoop {
         // gets cut — the ETA a rider actually glances at can never be
         // pushed off-screen by a long name.
         let roadName: String? = {
-            guard nav.remainingWaypoints > 1,
+            // Suppress the multi-stop "next waypoint" label for track routes:
+            // their via-points are pass-through shape, not stops, so the dash
+            // reads as a single start→finish leg (matches the phone HUD).
+            guard nav.plan?.isTrack != true,
+                  nav.remainingWaypoints > 1,
                   let nextName = nav.destination?.name,
                   etaSec > 0
             else { return nil }

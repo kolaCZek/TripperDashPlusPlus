@@ -178,6 +178,28 @@ struct SavedRouteDetailView: View {
 
     @ViewBuilder
     private func pointsSection(_ route: SavedRoute) -> some View {
+        if route.points.count > RoutePoint.editableListThreshold {
+            // Too many points to edit meaningfully (a recorded/imported
+            // track has hundreds–thousands). The preview map at the top
+            // already shows the shape; editing individual points here would
+            // be an un-scrollable wall and, for a track, the points ARE the
+            // shape, not editable stops. Just show a count + explanation.
+            Section {
+                Label("\(route.points.count) points",
+                      systemImage: route.kind == .track ? "point.topleft.down.curvedto.point.bottomright.up" : "list.bullet")
+                    .foregroundStyle(.secondary)
+            } footer: {
+                Text(route.kind == .track
+                     ? "This route has too many points to edit individually — it's a recorded track, shown on the map above. It'll navigate as a single start→finish ride."
+                     : "This route has too many points to edit individually. It's shown on the map above.")
+            }
+        } else {
+            editablePointsSection(route)
+        }
+    }
+
+    @ViewBuilder
+    private func editablePointsSection(_ route: SavedRoute) -> some View {
         // Reorder only makes sense for waypoint routes; a recorded track's
         // order IS its shape. nil disables the drag handles entirely.
         // Explicitly typed so the ternary infers Optional, not a concrete
