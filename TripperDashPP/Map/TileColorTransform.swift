@@ -36,7 +36,7 @@ import CoreGraphics
 /// the only instance is `.darkInvert`; `.light` uses `nil` (no transform,
 /// no work). Parameterised as a vImage integer matrix so it stays on the
 /// CPU and runs while the device is locked.
-struct TileColorTransform: Sendable {
+nonisolated struct TileColorTransform: Sendable {
 
     /// 4×4 Int16 coefficients for `vImageMatrixMultiply_ARGB8888`, in the
     /// **column-major layout that function actually consumes**. This is a

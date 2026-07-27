@@ -15,7 +15,7 @@
 
 import Foundation
 
-enum RideStatsFormatting {
+nonisolated enum RideStatsFormatting {
 
     private static let metersPerMile = 1609.344
     private static let feetPerMeter = 3.280839895013123
