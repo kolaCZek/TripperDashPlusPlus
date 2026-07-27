@@ -58,7 +58,7 @@ import Foundation
 /// The side of the road traffic drives on at a location. Right-hand
 /// traffic is the global default; left-hand is looked up from a coarse
 /// region table.
-enum DrivingSide: Equatable, Sendable {
+nonisolated enum DrivingSide: Equatable, Sendable {
     case right
     case left
 

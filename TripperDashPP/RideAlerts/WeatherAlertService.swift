@@ -51,7 +51,7 @@ struct WeatherAlert: Equatable, Sendable {
     /// Three-step severity ladder. Drives the pill's accent colour and,
     /// when there are competing conditions, which one wins (`>` by
     /// `rawValue`).
-    enum Severity: Int, Comparable, Sendable {
+    nonisolated enum Severity: Int, Comparable, Sendable {
         case caution = 1   // amber  — rain, fog, snow, moderate gusts
         case warning = 2   // red    — storm, ice, heavy rain, strong gusts
 

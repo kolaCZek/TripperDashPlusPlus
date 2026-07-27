@@ -37,7 +37,7 @@ import os.log
 
 /// Snapshot the map source / nav engine consume. Plain value type so
 /// we can hand it to background queues without actor hops.
-struct Fix: Sendable, Equatable {
+nonisolated struct Fix: Sendable, Equatable {
     let coordinate: CLLocationCoordinate2D
     let altitude: CLLocationDistance
     let horizontalAccuracy: CLLocationAccuracy
@@ -69,7 +69,7 @@ struct Fix: Sendable, Equatable {
 
 /// Heading (true / magnetic north). Phase 5 uses this for the camera
 /// bearing so the map rotates with the bike.
-struct Heading: Sendable, Equatable {
+nonisolated struct Heading: Sendable, Equatable {
     let trueHeading: CLLocationDirection      // degrees, -1 if invalid
     let magneticHeading: CLLocationDirection  // degrees
     let accuracy: CLLocationDirectionAccuracy // degrees, negative if invalid
