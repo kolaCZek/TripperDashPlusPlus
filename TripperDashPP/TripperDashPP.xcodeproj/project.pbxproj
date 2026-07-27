@@ -93,6 +93,7 @@
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
 		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
+		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -185,6 +186,7 @@
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -380,6 +382,7 @@
 				FE70000000000000000000E0 /* SavedRouteDetailView.swift */,
 				FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */,
 				FEA0000000000000000000B0 /* RouteProgressMap.swift */,
+				7E5700000000000000000A71 /* FreeRideHUD.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -601,6 +604,7 @@
 				FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */,
 				FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */,
 				7E5700000000000000000A62 /* GPXExporter.swift in Sources */,
+				7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

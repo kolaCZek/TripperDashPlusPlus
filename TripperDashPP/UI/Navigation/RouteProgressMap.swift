@@ -117,8 +117,21 @@ struct RouteProgressMap: View {
         // slides along the route this union stays ~constant (the route's
         // extremes are always present), so the key is stable and we don't
         // re-snapshot every fix.
+        //
+        // Free-ride / position-only fallback: with no route geometry at
+        // all (both lists empty) there is nothing to frame a box around,
+        // so centre a fixed ~1.2 km span on the rider's position instead.
+        // This is what powers the free-ride HUD's "just where I am now"
+        // map — a clean basemap + position puck, no route line.
         let framing = traveled + ahead
-        guard let span = GPXGeometry.boundingSpan(framing) else { return }
+        let span: (center: CLLocationCoordinate2D, latDelta: Double, lonDelta: Double)
+        if let s = GPXGeometry.boundingSpan(framing) {
+            span = s
+        } else if let p = position {
+            span = (center: p, latDelta: 0.012, lonDelta: 0.012)
+        } else {
+            return
+        }
 
         let key = framingKey(span: span, size: size)
         if key == framedKey, let snap = snapshot {

@@ -583,30 +583,21 @@ struct MapPickerView: View {
     /// Free-ride phase: the live map is projecting to the dash with no
     /// route. The interactive map is intentionally NOT mounted here (the
     /// streamed MapViewSource owns the render pool while streaming, same
-    /// rule as `.navigating`), so we show a status card + the live ride
-    /// trip computer instead.
+    /// rule as `.navigating`), so we show the same status page as
+    /// navigation — `FreeRideHUD` — with the maneuver/ETA slots swapped
+    /// for a "Free ride" card + Duration/Distance + a position-only map.
+    ///
+    /// No GPX affordance here: like navigation, "Save ride as GPX" lives
+    /// only on the post-ride "Trip" card once the ride has ENDED (surfaced
+    /// via `rideStatsPanel` in `pickingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: "map.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
-            Text("Free ride")
-                .font(.title2.weight(.semibold))
-            Text("The map is projecting to your dash — no route, just the road around you. Ride stats are recording and can be saved as a GPX when you stop.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            if status.rideStats.stats.startedAt != nil {
-                RideStatsPanel(onClose: {})
-                    .environment(status)
-                    .padding(.horizontal, 16)
-            }
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        FreeRideHUD(
+            stats: status.rideStats.stats,
+            imperial: status.dashNavSettings.units == .imperial,
+            position: status.locationService.lastFix?.coordinate
+        )
+        .padding(.horizontal, 12)
     }
 
     // MARK: - Control button
