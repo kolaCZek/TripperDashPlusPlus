@@ -48,7 +48,7 @@ import Foundation
 /// cache, composite) is parameterised on this. Each case is bound to a
 /// provider URL, an optional composite-time colour transform, and a set
 /// of style-aware chrome colours.
-enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable {
+nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable {
     case light
     case dark
 

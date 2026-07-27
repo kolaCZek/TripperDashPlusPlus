@@ -44,7 +44,7 @@ struct SpeedLimitWay: Equatable, Sendable, Identifiable {
 /// limit plus how far (m) the rider is from that road segment. The caller
 /// applies snap/hysteresis thresholds so the sign doesn't flicker in the
 /// gaps between tagged segments.
-struct SpeedLimitMatch: Equatable, Sendable {
+nonisolated struct SpeedLimitMatch: Equatable, Sendable {
     let kmh: Int
     let distanceMeters: Double
 }
@@ -68,7 +68,7 @@ struct SpeedLimitData: Sendable {
     let limits: [SpeedLimitWay]
     let roads: [RoadShape]
 
-    static let empty = SpeedLimitData(limits: [], roads: [])
+    nonisolated static let empty = SpeedLimitData(limits: [], roads: [])
 }
 
 // MARK: - Service

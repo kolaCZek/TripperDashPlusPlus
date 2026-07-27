@@ -112,7 +112,7 @@ final class RtpStreamer {
         let params = NWParameters.udp
         let conn = NWConnection(to: endpoint, using: params)
         conn.stateUpdateHandler = { [weak self] s in
-            Task { @MainActor in self?.handleConnectionState(s) }
+            Task { @MainActor [weak self] in self?.handleConnectionState(s) }
         }
         conn.start(queue: sendQueue)
         self.connection = conn
@@ -138,7 +138,7 @@ final class RtpStreamer {
 
         // 4. Metrics tick — once per second on main
         metricsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.flushMetrics() }
+            Task { @MainActor [weak self] in self?.flushMetrics() }
         }
 
         state = .running
@@ -230,7 +230,7 @@ final class RtpStreamer {
         }
         bytesAccumulator += UInt64(datagram.bytes.count)
         connection.send(content: datagram.bytes, completion: .contentProcessed { [weak self] err in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 if let err {
                     self.metrics.packetsDropped += 1

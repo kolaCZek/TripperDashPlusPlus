@@ -309,14 +309,14 @@ actor SpeedCameraService {
 // MARK: - Helpers
 
 private extension URLSessionConfiguration {
-    func makeSession() -> URLSession { URLSession(configuration: self) }
+    nonisolated func makeSession() -> URLSession { URLSession(configuration: self) }
 }
 
 extension CharacterSet {
     /// Percent-encoding set for an x-www-form-urlencoded VALUE — stricter
     /// than `.urlQueryAllowed`, which leaves `+`, `&`, `=` unescaped and
     /// would corrupt the Overpass query.
-    static let urlQueryValueAllowed: CharacterSet = {
+    nonisolated static let urlQueryValueAllowed: CharacterSet = {
         var set = CharacterSet.alphanumerics
         set.insert(charactersIn: "-._~")
         return set

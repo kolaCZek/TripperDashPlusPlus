@@ -408,7 +408,7 @@ final class ManeuverLog: @unchecked Sendable {
     }
 
     /// Lowercase-free 2-digit hex, e.g. `0x15`.
-    private static func hex(_ byte: UInt8) -> String {
+    nonisolated private static func hex(_ byte: UInt8) -> String {
         String(format: "0x%02X", byte)
     }
 }
