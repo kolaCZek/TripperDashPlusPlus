@@ -36,11 +36,11 @@ struct NavigationHUD: View {
                 arrivedCard
             } else {
                 maneuverCard
-                if let plan = nav.plan, plan.legs.count > 1 {
-                    stopProgressPill(plan: plan)
+                if showsStopPills(nav.plan) {
+                    stopProgressPill(plan: nav.plan!)
                 }
                 etaCard
-                if let plan = nav.plan, plan.legs.count > 1 {
+                if showsStopPills(nav.plan) {
                     finalEtaPill
                 }
                 routeOverview
@@ -53,6 +53,25 @@ struct NavigationHUD: View {
     }
 
     // MARK: - Subviews
+
+    /// Whether to show the multi-stop pills (per-leg "Stop X of Y · next …"
+    /// and the separate final-ETA pill). Only for a genuine multi-STOP plan
+    /// the rider built by hand (`legs.count > 1` AND not a track). A track
+    /// route's intermediate waypoints are shape, not stops, so it reads as
+    /// a single start→finish leg with no per-stop chrome.
+    private func showsStopPills(_ plan: PlannedRoute?) -> Bool {
+        guard let plan else { return false }
+        return plan.legs.count > 1 && !plan.isTrack
+    }
+
+    /// True when the ETA card should be scoped to the FINAL destination
+    /// rather than the current leg: single-destination plans (leg IS the
+    /// destination) and track plans (via-points are pass-through). Only a
+    /// hand-built multi-stop plan scopes the card to the next stop.
+    private var etaScopedToFinal: Bool {
+        guard let plan = nav.plan else { return true }
+        return plan.isTrack || plan.legs.count <= 1
+    }
 
     /// Shown when BikeLink is auto-reconnecting after a mid-ride drop.
     /// The dash is dark during the drop, so this is the rider's only
@@ -244,13 +263,20 @@ struct NavigationHUD: View {
     }
 
     private var distanceRemaining: String {
-        let m = nav.remainingDistance
+        let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance
         if m < 1000 { return String(format: "%.0f m", m) }
         return String(format: "%.1f km", m / 1000)
     }
 
+    /// Seconds the ETA card should display: final-destination ETA when the
+    /// card is final-scoped (single-destination + track), else the current
+    /// leg's ETA (hand-built multi-stop → counts down to the next stop).
+    private var etaCardSeconds: TimeInterval {
+        etaScopedToFinal ? nav.finalDestinationEtaSeconds : nav.etaSeconds
+    }
+
     private var timeRemaining: String {
-        let total = Int(nav.etaSeconds)
+        let total = Int(etaCardSeconds)
         let h = total / 3600
         let m = (total % 3600) / 60
         if h > 0 { return "\(h)h \(m)m" }
@@ -258,7 +284,7 @@ struct NavigationHUD: View {
     }
 
     private var arrivalTime: String {
-        let arr = Date().addingTimeInterval(nav.etaSeconds)
+        let arr = Date().addingTimeInterval(etaCardSeconds)
         let f = DateFormatter()
         f.dateStyle = .none
         f.timeStyle = .short

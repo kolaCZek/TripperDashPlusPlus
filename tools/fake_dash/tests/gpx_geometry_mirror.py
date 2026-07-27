@@ -31,7 +31,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 # ── Mirror of RoutePoint.navigableCap + RouteStartPlanner constants ──
-NAVIGABLE_CAP = 24
+# Applied at navigation time (beginPlanningFromSavedRoute), NOT at import.
+NAVIGABLE_CAP = 40
+EDITABLE_LIST_THRESHOLD = 20
 PROMPT_THRESHOLD_M = 300.0
 
 EARTH_R = 6_371_000.0
@@ -350,16 +352,35 @@ def _first_named_child(root, parent_tag: str) -> Optional[str]:
     return None
 
 
+def planned_navigable_points(points, mode, nearest_index, kind):
+    """Mirror AppStatus.beginPlanningFromSavedRoute point selection.
+
+    Select the start-mode slice, then — for a `.track` route only — reduce
+    to <= NAVIGABLE_CAP significant via-points (Douglas–Peucker) so
+    MKDirections stays within Apple's per-leg rate limit. `.waypoints`
+    routes are sparse real stops and are never reduced. The saved route's
+    own stored points are untouched (this is transient nav-time geometry).
+    """
+    selected = navigable_points(points, mode, nearest_index)
+    if kind == "track":
+        return reduce(selected, NAVIGABLE_CAP)
+    return selected
+
+
 def import_route(gpx_text: str, filename: Optional[str] = None):
-    """Mirror GPXImporter.importRoute: parse → measure full trace → reduce."""
+    """Mirror GPXImporter.importRoute: parse → measure full trace → keep all points.
+
+    Both kinds now keep their FULL point set at import (the Douglas–Peucker
+    reduction to NAVIGABLE_CAP moved to navigation time, in
+    beginPlanningFromSavedRoute — see reduce()/navigable_points, still
+    exercised by the planner tests). So a track round-trips at full
+    precision through import/export.
+    """
     parsed = parse(gpx_text, filename)
     if not parsed.raw_points:
         raise ValueError("no usable points")
     full_distance = path_length(parsed.raw_points)
-    if parsed.kind == "waypoints":
-        pts = parsed.raw_points
-    else:
-        pts = reduce(parsed.raw_points, NAVIGABLE_CAP)
+    pts = parsed.raw_points
     return {
         "name": parsed.name,
         "kind": parsed.kind,

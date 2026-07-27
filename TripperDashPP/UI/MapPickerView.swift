@@ -89,10 +89,12 @@ struct MapPickerView: View {
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
 
-    private enum DisplayMode { case picking, navigating, transitioning }
+    private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
     private var mode: DisplayMode {
         if transitioning { return .transitioning }
-        return status.activeNavigator.isNavigating ? .navigating : .picking
+        if status.activeNavigator.isNavigating { return .navigating }
+        if status.isFreeRiding { return .freeRiding }
+        return .picking
     }
 
     /// Whether the picking phase should show the multi-stop planning UI.
@@ -116,6 +118,7 @@ struct MapPickerView: View {
                 switch mode {
                 case .picking:       pickingBody
                 case .navigating:    navigatingBody
+                case .freeRiding:    freeRidingBody
                 case .transitioning: transitioningBody
                 }
 
@@ -464,8 +467,16 @@ struct MapPickerView: View {
 
     /// The multi-stop planning UI: PlanningMapView (top) + waypoint list
     /// (bottom). Lives in .picking with the stream off.
+    ///
+    /// The waypoint list is hidden for a large plan (a track staged for
+    /// navigation carries up to `navigableCap` via-points, plus manual
+    /// plans could in theory grow past the threshold): the map already
+    /// shows start→finish and the list would be an un-scrollable wall of
+    /// pass-through points. Below the threshold the editable Stops list
+    /// shows as before.
     @ViewBuilder
     private func planningBody(plan: PlannedRoute) -> some View {
+        let showStops = plan.waypoints.count <= RoutePoint.editableListThreshold && !plan.isTrack
         VStack(spacing: 0) {
             PlanningMapView(
                 plan: plan,
@@ -485,20 +496,25 @@ struct MapPickerView: View {
             .frame(maxHeight: .infinity)
             .overlay(alignment: .top) { planningBanner }
 
-            Divider()
+            if showStops {
+                Divider()
 
-            WaypointListView(
-                plan: plan,
-                onRecompute: { dirty in
-                    Task { await status.recomputeDirtyLegs(dirty, in: plan) }
-                },
-                onAddStop: {
-                    addingStopToPlan = true
-                    showSearch = true
-                },
-                recomputingLegs: status.recomputingLegs
-            )
-            .frame(maxHeight: 260)
+                WaypointListView(
+                    plan: plan,
+                    onRecompute: { dirty in
+                        Task { await status.recomputeDirtyLegs(dirty, in: plan) }
+                    },
+                    onAddStop: {
+                        addingStopToPlan = true
+                        showSearch = true
+                    },
+                    recomputingLegs: status.recomputingLegs
+                )
+                .frame(maxHeight: 260)
+            } else {
+                Divider()
+                largePlanSummary(plan: plan)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -512,6 +528,42 @@ struct MapPickerView: View {
                 }
             }
         }
+    }
+
+    /// Compact start→finish summary shown in place of the Stops list for a
+    /// large / track plan. Start + end labels + total distance/time; the
+    /// actual "Start navigation" CTA lives in the bottom control bar as
+    /// usual (connect-first). No per-stop editing.
+    @ViewBuilder
+    private func largePlanSummary(plan: PlannedRoute) -> some View {
+        let origin = plan.waypoints.first
+        let dest = plan.waypoints.last
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "location.fill").foregroundStyle(.green).frame(width: 18)
+                Text(origin?.name ?? "Start").lineLimit(1)
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "flag.checkered").foregroundStyle(.red).frame(width: 18)
+                Text(dest?.name ?? "Destination").lineLimit(1)
+            }
+            Divider()
+            HStack {
+                Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    .foregroundStyle(.blue)
+                Text("\(plan.waypoints.count - 1) via-points")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if plan.isComputed {
+                    Text("\(plan.totalDistanceDisplay) · \(plan.totalTravelTimeDisplay)")
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+            .font(.footnote)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: 260)
     }
 
     @ViewBuilder
@@ -577,6 +629,26 @@ struct MapPickerView: View {
         }
     }
 
+    /// Free-ride phase: the live map is projecting to the dash with no
+    /// route. The interactive map is intentionally NOT mounted here (the
+    /// streamed MapViewSource owns the render pool while streaming, same
+    /// rule as `.navigating`), so we show the same status page as
+    /// navigation — `FreeRideHUD` — with the maneuver/ETA slots swapped
+    /// for a "Free ride" card + Duration/Distance + a position-only map.
+    ///
+    /// No GPX affordance here: like navigation, "Save ride as GPX" lives
+    /// only on the post-ride "Trip" card once the ride has ENDED (surfaced
+    /// via `rideStatsPanel` in `pickingBody` after `stopFreeRide()`).
+    @ViewBuilder
+    private var freeRidingBody: some View {
+        FreeRideHUD(
+            stats: status.rideStats.stats,
+            imperial: status.dashNavSettings.units == .imperial,
+            position: status.locationService.lastFix?.coordinate
+        )
+        .padding(.horizontal, 12)
+    }
+
     // MARK: - Control button
 
     @ViewBuilder
@@ -591,6 +663,14 @@ struct MapPickerView: View {
         case (.navigating, _):
             Button(role: .destructive) { stopNavigation() } label: {
                 Label("Stop navigation", systemImage: "stop.circle.fill")
+                    .frame(maxWidth: .infinity).padding()
+                    .background(Color.red.opacity(0.15))
+            }
+            .buttonStyle(.plain)
+
+        case (.freeRiding, _):
+            Button(role: .destructive) { status.stopFreeRide() } label: {
+                Label("Stop free ride", systemImage: "stop.circle.fill")
                     .frame(maxWidth: .infinity).padding()
                     .background(Color.red.opacity(0.15))
             }
@@ -679,7 +759,10 @@ struct MapPickerView: View {
         }
     }
 
-    /// Connected but idle (no plan yet) — prompt to pick + Disconnect.
+    /// Connected but idle (no plan yet) — prompt to pick + Start free
+    /// ride + Disconnect. "Start free ride" projects the map to the dash
+    /// without any route (no destination, no navigation), for a rider who
+    /// just wants the moving map on the bike.
     @ViewBuilder
     private var connectedIdleControl: some View {
         VStack(spacing: 6) {
@@ -689,6 +772,14 @@ struct MapPickerView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .background(Color.green.opacity(0.12))
+
+            Button { status.startFreeRide() } label: {
+                Label("Start free ride (map only)", systemImage: "map.fill")
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .background(Color.accentColor.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
 
             Button(role: .destructive) { status.bikeLink.disconnect() } label: {
                 Text("Disconnect")

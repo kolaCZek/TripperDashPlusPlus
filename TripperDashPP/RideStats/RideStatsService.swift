@@ -101,4 +101,50 @@ final class RideStatsService {
         guard state == .running else { return }
         stats = stats.folding(fix)
     }
+
+    // MARK: - Save ride to the route library
+
+    /// True when there is a recorded track worth saving. The UI gates the
+    /// "Save ride" affordance on this so an empty ride never creates a
+    /// route.
+    var hasRecordedTrack: Bool { !stats.trackPoints.isEmpty }
+
+    /// Build a `.track` `SavedRoute` from the recorded ride, ready to hand
+    /// to `SavedRoutesStore.add(_:)`. Returns `nil` when nothing was
+    /// recorded.
+    ///
+    /// The FULL, precise breadcrumb is stored verbatim in `points` — no
+    /// Douglas–Peucker reduction here (a 2-hour ride keeps its thousands of
+    /// points) so the preview map and GPX export reproduce the real ride
+    /// exactly. The reduction to ≤`RoutePoint.navigableCap` via-points is
+    /// applied transiently at navigation time (`beginPlanningFromSavedRoute`),
+    /// where MKDirections needs a sane number of legs. `totalDistanceMeters`
+    /// is measured along the full trace.
+    func makeSavedRoute(name: String? = nil, now: Date = Date()) -> SavedRoute? {
+        let track = stats.trackPoints
+        guard !track.isEmpty else { return nil }
+
+        let points = track.map {
+            RoutePoint(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        let fullDistance = GPXGeometry.pathLength(points.map(\.coordinate))
+
+        return SavedRoute(
+            name: name ?? Self.defaultRideName(start: stats.startedAt ?? now),
+            kind: .track,
+            points: points,
+            totalDistanceMeters: fullDistance,
+            sourceFilename: nil
+        )
+    }
+
+    /// A default, human-readable ride name derived from the start time,
+    /// e.g. "Ride 2026-07-27 09:41".
+    static func defaultRideName(start: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return "Ride \(f.string(from: start))"
+    }
 }

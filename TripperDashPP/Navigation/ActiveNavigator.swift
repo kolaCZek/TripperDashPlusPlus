@@ -89,6 +89,20 @@ final class ActiveNavigator {
         return etaSeconds + remainingLegsTime
     }
 
+    /// Metres remaining to the FINAL destination of the whole plan: the
+    /// current leg's `remainingDistance` plus the full length of every
+    /// subsequent selected leg. Falls back to `remainingDistance` for a
+    /// single-destination session. Used by the HUD when the ETA card is
+    /// scoped to the final destination (single-destination + track plans),
+    /// so "Distance" counts down to the end of the ride, not to the next
+    /// pass-through via-point.
+    var finalDestinationRemainingDistance: CLLocationDistance {
+        guard let plan, currentLegIndex < plan.legs.count else { return remainingDistance }
+        let remainingLegsDist = plan.legs[(currentLegIndex + 1)...]
+            .reduce(0.0) { $0 + ($1.selected?.distanceMeters ?? 0) }
+        return remainingDistance + remainingLegsDist
+    }
+
     /// Absolute wall-clock arrival time for the CURRENT LEG — the single
     /// source of truth `etaSeconds` reads from. Set from a real
     /// `MKRoute.expectedTravelTime` in `seed()` (start/leg-advance) and

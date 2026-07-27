@@ -45,6 +45,9 @@ struct SavedRouteDetailView: View {
     @State private var pendingDecision: RouteStartDecision?
     @State private var nameCommitted = false
     @State private var editMode: EditMode = .inactive
+    /// GPX export temp-file URL, built on demand when the rider taps
+    /// "Export as GPX". Nil until built / after a failed write.
+    @State private var exportURL: URL?
 
     /// Current value from the store (so rename/delete/edit reflect live).
     private var route: SavedRoute? { store.route(id: routeId) }
@@ -104,6 +107,24 @@ struct SavedRouteDetailView: View {
             }
 
             Section {
+                if let url = exportURL {
+                    ShareLink(item: url) {
+                        Label("Export as GPX", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    Button {
+                        exportURL = writeGPX(route)
+                    } label: {
+                        Label("Export as GPX", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            } footer: {
+                Text("Write this route to a GPX file you can share or save to Files.")
+            }
+
+            Section {
                 Button(role: .destructive) {
                     showDeleteConfirm = true
                 } label: {
@@ -122,6 +143,11 @@ struct SavedRouteDetailView: View {
         .environment(\.editMode, $editMode)
         .onAppear {
             if !nameCommitted { draftName = route.name }
+        }
+        .onChange(of: route.points) { _, _ in
+            // Points edited (delete / reorder) — a previously built GPX is
+            // now stale, so drop it and make the rider re-tap Export.
+            exportURL = nil
         }
         .onDisappear { commitName() }
         .confirmationDialog("Delete this route?",
@@ -152,6 +178,28 @@ struct SavedRouteDetailView: View {
 
     @ViewBuilder
     private func pointsSection(_ route: SavedRoute) -> some View {
+        if route.points.count > RoutePoint.editableListThreshold {
+            // Too many points to edit meaningfully (a recorded/imported
+            // track has hundreds–thousands). The preview map at the top
+            // already shows the shape; editing individual points here would
+            // be an un-scrollable wall and, for a track, the points ARE the
+            // shape, not editable stops. Just show a count + explanation.
+            Section {
+                Label("\(route.points.count) points",
+                      systemImage: route.kind == .track ? "point.topleft.down.curvedto.point.bottomright.up" : "list.bullet")
+                    .foregroundStyle(.secondary)
+            } footer: {
+                Text(route.kind == .track
+                     ? "This route has too many points to edit individually — it's a recorded track, shown on the map above. It'll navigate as a single start→finish ride."
+                     : "This route has too many points to edit individually. It's shown on the map above.")
+            }
+        } else {
+            editablePointsSection(route)
+        }
+    }
+
+    @ViewBuilder
+    private func editablePointsSection(_ route: SavedRoute) -> some View {
         // Reorder only makes sense for waypoint routes; a recorded track's
         // order IS its shape. nil disables the drag handles entirely.
         // Explicitly typed so the ternary infers Optional, not a concrete
@@ -272,6 +320,24 @@ struct SavedRouteDetailView: View {
         let first = formatDistance(d.distanceToFirst)
         let nearest = formatDistance(d.distanceToNearest)
         return "The route's first point is \(first) away; the nearest point on the route is \(nearest) away. Start from the first point to ride the whole route, or from the nearest point to skip the part you've already passed."
+    }
+
+    // MARK: - GPX export
+
+    /// Serialise the route to a temp `.gpx` file and return its URL for a
+    /// ShareLink. Nil on write failure. The filename is the route's
+    /// slugified name (e.g. `Alps-day2.gpx`).
+    private func writeGPX(_ route: SavedRoute) -> URL? {
+        guard let xml = GPXExporter.gpx(from: route) else { return nil }
+        let base = GPXExporter.fileBaseName(for: route.name)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(base).gpx")
+        do {
+            try xml.data(using: .utf8)?.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     private func formatDistance(_ meters: Double) -> String {

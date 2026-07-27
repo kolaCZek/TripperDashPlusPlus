@@ -27,6 +27,11 @@ struct RideStatsPanel: View {
     /// hidden/shown `@State` — this view just reports the tap.
     let onClose: () -> Void
 
+    /// Tracks the post-ride "Save ride" action: nil = not yet saved,
+    /// non-nil = the id of the SavedRoute we created (so the button flips
+    /// to a "Saved ✓" confirmation and won't double-save the same ride).
+    @State private var savedRouteId: UUID?
+
     private var stats: RideStats { status.rideStats.stats }
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
 
@@ -72,6 +77,36 @@ struct RideStatsPanel: View {
                     stat("Ascent", "≈ " + RideStatsFormatting.elevation(stats.elevationGainMeters, imperial: imperial))
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                 }
+            }
+
+            // Save the recorded ride into the Saved routes library. Only
+            // shown when the trip computer captured a track
+            // (`hasRecordedTrack`) — an empty ride has nothing to save.
+            // Saving builds a `.track` SavedRoute (same shape as a GPX
+            // import), so the ride then lives in Saved routes where it can
+            // be navigated again or exported to a GPX file. Once saved the
+            // button flips to a confirmation and disables, so a ride can't
+            // be double-added.
+            if status.rideStats.hasRecordedTrack {
+                Button {
+                    guard savedRouteId == nil,
+                          let route = status.rideStats.makeSavedRoute() else { return }
+                    status.savedRoutesStore.add(route)
+                    savedRouteId = route.id
+                } label: {
+                    Label(savedRouteId == nil ? "Save ride" : "Saved to routes",
+                          systemImage: savedRouteId == nil ? "bookmark" : "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background((savedRouteId == nil ? Color.accentColor : Color.green).opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .disabled(savedRouteId != nil)
+                .accessibilityLabel(savedRouteId == nil
+                                    ? "Save this ride to your routes"
+                                    : "Ride saved to your routes")
             }
         }
         .padding()

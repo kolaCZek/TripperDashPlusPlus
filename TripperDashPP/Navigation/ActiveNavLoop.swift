@@ -85,6 +85,25 @@ final class ActiveNavLoop {
               let nav = navigator
         else { return }
 
+        // Free-ride / no-route heartbeat: while streaming WITHOUT active
+        // navigation (AppStatus.startFreeRide), there is no maneuver to
+        // show. The dash keeps its projection latch open purely from the
+        // RTP streamer's per-frame `sendProjectionFrame`, so the map keeps
+        // flowing — we just must NOT push an active-nav bubble packet
+        // (that would draw a bogus "straight ahead, 0 m" turn card on the
+        // dash) and must clear any stale video overlay so the composited
+        // frame is a clean map. Speed-limit config is still refreshed so
+        // the limit sign / camera pills keep tracking the rider's settings.
+        guard nav.isNavigating else {
+            mapSource?.setNavOverlay(nil)
+            mapSource?.setSpeedLimitConfig(
+                mode: settings.speedLimitDisplay.rawValue,
+                toleranceKmh: settings.speedLimitOverToleranceKmh,
+                imperial: settings.units == .imperial
+            )
+            return
+        }
+
         // Snapshot — keep this synchronous so the values are consistent
         // across the wire packet and the overlay.
         //
@@ -237,7 +256,11 @@ final class ActiveNavLoop {
         // gets cut — the ETA a rider actually glances at can never be
         // pushed off-screen by a long name.
         let roadName: String? = {
-            guard nav.remainingWaypoints > 1,
+            // Suppress the multi-stop "next waypoint" label for track routes:
+            // their via-points are pass-through shape, not stops, so the dash
+            // reads as a single start→finish leg (matches the phone HUD).
+            guard nav.plan?.isTrack != true,
+                  nav.remainingWaypoints > 1,
                   let nextName = nav.destination?.name,
                   etaSec > 0
             else { return nil }

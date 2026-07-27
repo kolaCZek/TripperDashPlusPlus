@@ -277,6 +277,68 @@ final class AppStatus {
         applyKeepAwake()
     }
 
+    // MARK: - Free ride (map projection without a planned route)
+
+    /// True while a free-ride session is projecting the map to the dash
+    /// with NO planned route and NO active navigation — just a live,
+    /// heading-up map baked around the rider's GPS position. Drives the
+    /// picker's display mode (the live MKMapView must be unmounted while
+    /// we stream, same GPU-pool rule as navigation) and the control
+    /// button's "Stop free ride" state.
+    private(set) var isFreeRiding: Bool = false
+
+    /// Start projecting the map to the dash WITHOUT a route. Mirrors the
+    /// route-start path (`startStreaming` + the nav-mode kick + the 1 Hz
+    /// ActiveNavLoop heartbeat), but installs an EMPTY `RouteTileCache`
+    /// instead of a baked corridor.
+    ///
+    /// The empty cache is the whole trick: the BG renderer's
+    /// `drawTileCacheFrame` calls `nearestTile`, which misses on an empty
+    /// tile list, so every frame falls through to the position-fallback
+    /// path — which bakes a live OSM tile around the rider's raw GPS and
+    /// keeps it fresh as they move (`ensurePositionFallback` +
+    /// `positionFallbackValidRadius`). That path already exists for the
+    /// off-corridor rescue case during navigation; free-ride just makes it
+    /// the ONLY source, so we get a real heading-up map with zero route
+    /// geometry.
+    ///
+    /// `ActiveNavLoop` already handles the "streaming but not navigating"
+    /// case: with `activeNavigator.isNavigating == false` it sends a
+    /// no-maneuver heartbeat every second so the dash keeps its projection
+    /// latch open without drawing a bogus turn arrow.
+    ///
+    /// No-op if not connected, already streaming, or already free-riding.
+    func startFreeRide() {
+        guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
+        isFreeRiding = true
+
+        // Resolve Light/Dark/Auto for the current position+time before the
+        // first bake, so free-ride opens in the right palette (same as the
+        // navigation start path).
+        primeMapStyleForStart()
+
+        // Install an EMPTY tile cache in the renderer's current style. With
+        // no baked corridor, the render path routes every frame through the
+        // position-fallback bake around the rider's GPS. Clear any stale
+        // route polyline so no old route line ghosts onto the free-ride map.
+        let emptyCache = RouteTileCache(style: mapViewSource.currentStyle)
+        mapViewSource.setRoutePolyline(nil)
+        mapViewSource.setCurrentRoute(nil)
+        mapViewSource.setTileCache(emptyCache)
+
+        startStreaming()
+    }
+
+    /// Tear down a free-ride projection: stop the stream (which sends the
+    /// dash's nav-stop sequence, stops the ActiveNavLoop, and freezes the
+    /// ride totals for the post-ride GPX export panel) and clear the
+    /// free-ride flag so the picker remounts the live map.
+    func stopFreeRide() {
+        guard isFreeRiding else { return }
+        isFreeRiding = false
+        stopStreaming()
+    }
+
     /// Re-evaluate whether the wakelocks should be active. Called any
     /// time `keepAwakeWhileStreaming` toggles, the streaming state
     /// changes, or `bikeLink.state` flips. The keepers only burn
@@ -410,9 +472,19 @@ final class AppStatus {
     func beginPlanningFromSavedRoute(_ route: SavedRoute,
                                      mode: RouteStartMode,
                                      nearestIndex: Int) {
-        let navPoints = RouteStartPlanner.navigablePoints(route.points,
-                                                          mode: mode,
-                                                          nearestIndex: nearestIndex)
+        let selected = RouteStartPlanner.navigablePoints(route.points,
+                                                         mode: mode,
+                                                         nearestIndex: nearestIndex)
+        // A `.track` route carries its FULL precise geometry (potentially
+        // thousands of points). MKDirections is one call per leg and Apple
+        // rate-limits it, so reduce a track to ≤navigableCap significant
+        // via-points HERE, at navigation time, with Douglas–Peucker. The
+        // saved route's own `points` stay untouched (preview map + GPX keep
+        // full precision). `.waypoints` routes are already sparse real
+        // stops — never reduced.
+        let navPoints = route.kind == .track
+            ? GPXGeometry.reduce(selected, cap: RoutePoint.navigableCap)
+            : selected
         guard navPoints.count >= 1 else { return }
 
         let originCoord = locationService.lastFix?.coordinate
@@ -431,6 +503,8 @@ final class AppStatus {
         }
 
         let plan = PlannedRoute(waypoints: [origin] + routeWaypoints)
+        // Track via-points are shape, not stops → HUD presents start→finish.
+        plan.isTrack = (route.kind == .track)
         plannedRoute = plan
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }

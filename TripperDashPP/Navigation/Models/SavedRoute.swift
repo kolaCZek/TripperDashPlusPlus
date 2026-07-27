@@ -15,11 +15,11 @@
 //    - `.waypoints` — a handful of standalone <wpt> stops. Every point
 //      is kept; MKDirections routes between them.
 //    - `.track` — a dense <trk>/<rte> trace (potentially thousands of
-//      points). Reduced to ≤`RoutePoint.navigableCap` via-points with
-//      Douglas–Peucker BEFORE saving, so MKDirections has a sane number
-//      of legs. `totalDistanceMeters` is measured along the ORIGINAL
-//      (pre-reduction) trace so the displayed length matches the real
-//      GPX, not the simplified one.
+//      points). Kept at FULL precision in `points` so the preview map and
+//      GPX export reproduce the real ride; the Douglas–Peucker reduction
+//      to ≤`RoutePoint.navigableCap` via-points is applied transiently at
+//      navigation time (`beginPlanningFromSavedRoute`), NOT at save time.
+//      `totalDistanceMeters` is measured along the trace.
 //
 
 import CoreLocation
@@ -159,7 +159,19 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
 extension RoutePoint {
     /// Hard cap on navigable via-points for a `.track` route. MKDirections
     /// is called once per leg (point→point), so this bounds the network /
-    /// recompute cost. 24 legs is already a long tour; the geometry is
-    /// preserved by Douglas–Peucker choosing the most significant points.
-    static let navigableCap = 24
+    /// recompute cost. A recorded/imported track keeps its FULL precise
+    /// geometry in `SavedRoute.points` (for the preview map + GPX export);
+    /// this cap is applied only transiently when a track is handed to the
+    /// planner (`beginPlanningFromSavedRoute`), where Douglas–Peucker picks
+    /// the 40 most significant points so MKDirections stays within Apple's
+    /// rate limits while still hugging the original line.
+    static let navigableCap = 40
+
+    /// Above this many points a route's point list is no longer offered
+    /// for inline editing (reorder/delete) in the detail view, and its
+    /// plan's stop list is hidden during planning — the list would be too
+    /// long to scroll and, for a recorded track, the points are shape, not
+    /// editable stops. At/below it (a handful of imported `<wpt>` stops)
+    /// the editable list is shown. See SavedRouteDetailView / planning UI.
+    static let editableListThreshold = 20
 }
