@@ -297,8 +297,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// map returns to fully-automatic framing on its own.
     private var lastZoomBiasNudge: Date?
 
-    /// Multiplicative step per LEFT/RIGHT press (~15% per nudge).
-    private let zoomBiasStep: CGFloat = 1.15
+    /// Multiplicative step per LEFT/RIGHT press (~40% per nudge) so a
+    /// couple of clicks visibly changes the zoom.
+    private let zoomBiasStep: CGFloat = 1.4
     /// How far the rider can bias the autozoom in each direction.
     private let zoomBiasRange: ClosedRange<CGFloat> = 0.5...2.5
     /// Idle time before the bias starts easing back to neutral.
