@@ -1216,49 +1216,49 @@ extension MapViewSource {
     }
 
     /// One upright map-pin marker whose TIP sits at `p` (Y-DOWN outer ctx):
-    /// a teardrop body (route-blue with a white outline) rising above the
-    /// anchor point, with a white centre hole. Constant on-screen size.
+    /// a round head sitting above the anchor with a triangular spike down to
+    /// the tip, route-blue with a white outline and a white centre hole.
+    /// Constant on-screen size. Built from two simple filled primitives
+    /// (circle + triangle) rather than a hand-rolled teardrop arc path,
+    /// which rendered as a broken "V" glyph (rider feedback 2026-08).
     private func drawWaypointPin(into ctx: CGContext, at p: CGPoint) {
         let fill = currentStyle.waypointDotColor
-        let outline = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
 
-        // Pin geometry (Y-DOWN): tip at p, body bulges upward (−y). A
-        // teardrop = a circle centred `bodyR` above the tip with two
-        // tangent lines running down to the tip.
-        let bodyR: CGFloat = 8      // radius of the round head
-        let tipDrop: CGFloat = 20   // distance from head centre down to tip
+        // Geometry (Y-DOWN: tip at p, head bulges UP = smaller y).
+        let headR: CGFloat = 8       // head radius
+        let tipDrop: CGFloat = 22    // tip is this far below the head centre
         let cx = p.x
-        let cy = p.y - tipDrop      // head centre (above the tip)
+        let cy = p.y - tipDrop       // head centre, above the tip
 
-        // Teardrop outline path: start at tip, curve up the right side,
-        // around the head, down the left side back to the tip.
-        func teardrop(_ scale: CGFloat) -> CGPath {
+        // Triangular spike: from the tip up to two points on the lower rim
+        // of the head. Half-width set so the spike blends flush into the
+        // circle (slightly less than the radius).
+        let spikeHalfW: CGFloat = headR * 0.62
+        func spike(_ grow: CGFloat) -> CGPath {
             let path = CGMutablePath()
-            let r = bodyR * scale
-            let ccy = p.y - tipDrop
-            // Tip
-            path.move(to: CGPoint(x: p.x, y: p.y))
-            // Right tangent up to the head, then arc over the top and down
-            // the left side back toward the tip.
-            path.addLine(to: CGPoint(x: cx + r, y: ccy + r * 0.35))
-            path.addArc(center: CGPoint(x: cx, y: ccy), radius: r,
-                        startAngle: -0.35, endAngle: .pi + 0.35, clockwise: false)
-            path.addLine(to: CGPoint(x: p.x, y: p.y))
+            path.move(to: CGPoint(x: p.x, y: p.y + grow))                 // tip
+            path.addLine(to: CGPoint(x: cx - spikeHalfW - grow, y: cy))   // left rim
+            path.addLine(to: CGPoint(x: cx + spikeHalfW + grow, y: cy))   // right rim
             path.closeSubpath()
             return path
         }
 
         ctx.saveGState()
-        // White outline (slightly larger teardrop behind the fill).
-        ctx.addPath(teardrop(1.28))
-        ctx.setFillColor(outline)
+        // 1. White outline: a slightly larger head + spike behind the fill.
+        ctx.setFillColor(white)
+        ctx.addPath(spike(2))
         ctx.fillPath()
-        // Blue body.
-        ctx.addPath(teardrop(1.0))
+        ctx.fillEllipse(in: CGRect(x: cx - headR - 2, y: cy - headR - 2,
+                                   width: (headR + 2) * 2, height: (headR + 2) * 2))
+        // 2. Blue fill: head + spike.
         ctx.setFillColor(fill)
+        ctx.addPath(spike(0))
         ctx.fillPath()
-        // White centre hole in the head.
-        ctx.setFillColor(outline)
+        ctx.fillEllipse(in: CGRect(x: cx - headR, y: cy - headR,
+                                   width: headR * 2, height: headR * 2))
+        // 3. White centre hole in the head.
+        ctx.setFillColor(white)
         let holeR: CGFloat = 3.2
         ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR,
                                    width: holeR * 2, height: holeR * 2))
