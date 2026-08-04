@@ -236,7 +236,81 @@ final class MapViewSource: NSObject, FrameSource {
     nonisolated private static let shadowRatio: Double = 2.0
 
     /// Pre-rendered tile cache — built from the active route in FG.
+    /// This is the BASE layer (OSM z=15). Two optional sibling layers
+    /// give better quality at the extremes of the manual zoom range:
+    ///   - `coarseTileCache` (z=12): wide overview when zoomed way out,
+    ///     so the frame corners stay covered instead of going black.
+    ///   - `fineTileCache` (z=16): sharp streets when zoomed way in,
+    ///     instead of a blurry upscaled z=15 stitch.
+    /// The renderer is zoom-agnostic (it reads pxPerDeg from each tile),
+    /// so switching layer is purely a matter of which cache we ask for a
+    /// covering tile. `activeTileCache(for:)` picks the layer from the
+    /// current effective zoom with hysteresis to avoid boundary flicker.
     private var routeTileCache: RouteTileCache?
+    private var coarseTileCache: RouteTileCache?
+    private var fineTileCache: RouteTileCache?
+
+    /// Which quality layer the renderer last selected. Sticky: switching
+    /// requires crossing the band edge PLUS a hysteresis margin, so a
+    /// zoom hovering on a threshold doesn't thrash between layers.
+    private var activeLayer: TileLayer = .base
+
+    /// OSM zoom levels for the three quality layers. All gridSides stay
+    /// ODD (Pitfall 11). Coarse trades detail for area; fine the reverse.
+    static let coarseLayerZoom = 12
+    static let baseLayerZoom = 15
+    static let fineLayerZoom = 16
+
+    enum TileLayer { case coarse, base, fine }
+
+    /// Pick the quality layer for an effective zoom (currentZoom ×
+    /// userZoomBias), with hysteresis around the band edges so a zoom
+    /// parked on a threshold doesn't flip-flop every frame. Falls back to
+    /// `.base` when the chosen sibling layer isn't baked yet.
+    private func selectLayer(forEffectiveZoom z: CGFloat) -> TileLayer {
+        // Nominal band edges. Chosen so each layer FULLY covers the dash
+        // frame across its whole band (verified in test_composite_coverage
+        // per layer): coarse z=12 covers the wide zoom-out AND overlaps up
+        // into the base band (base z=15 only fully covers the frame from
+        // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
+        // cover); fine z=16 (gridSide 5) only fully covers from ~1.82× in,
+        // so its edge sits at 1.9 where base still fully covers too.
+        let coarseEdge: CGFloat = 0.85
+        let fineEdge: CGFloat = 1.9
+        let margin: CGFloat = 0.08   // hysteresis half-width
+
+        switch activeLayer {
+        case .coarse:
+            // Stay coarse until we climb well past the edge.
+            if z > coarseEdge + margin { activeLayer = (z >= fineEdge ? .fine : .base) }
+        case .base:
+            if z < coarseEdge - margin { activeLayer = .coarse }
+            else if z > fineEdge + margin { activeLayer = .fine }
+        case .fine:
+            if z < fineEdge - margin { activeLayer = (z <= coarseEdge ? .coarse : .base) }
+        }
+        return activeLayer
+    }
+
+    /// The cache instance to render from for the current effective zoom.
+    /// Falls back to the base layer whenever the preferred sibling layer
+    /// hasn't been built yet (or its bake is still in flight), so the
+    /// rider never loses the map while a layer warms up.
+    private func activeTileCache(forEffectiveZoom z: CGFloat) -> RouteTileCache? {
+        switch selectLayer(forEffectiveZoom: z) {
+        case .coarse: return coarseTileCache ?? routeTileCache
+        case .base:   return routeTileCache
+        case .fine:   return fineTileCache ?? routeTileCache
+        }
+    }
+
+    /// Current effective zoom for layer selection. `currentZoom` already
+    /// folds in the manual bias (it lerps toward `targetZoom = speedZoom ×
+    /// maneuverBoost × userZoomBias`), so we must NOT multiply by
+    /// userZoomBias again here — that would double-count the bias and pick
+    /// the wrong layer.
+    private var effectiveZoom: CGFloat { currentZoom }
+
     private var lastTileHintIndex: Int = 0
 
     /// Timestamp of the most recent `extendTileCache(near:)` invocation
@@ -453,12 +527,68 @@ final class MapViewSource: NSObject, FrameSource {
     /// Install a pre-rendered tile cache produced by `RouteTileCache.prerender`.
     /// Once installed, the BG render path will composite from these tiles
     /// instead of asking MapKit to draw anything.
-    func setTileCache(_ cache: RouteTileCache?) {
+    ///
+    /// When `buildLayers` is true and a route is known, this also kicks
+    /// off (fire-and-forget) the coarse overview (z=12) and fine detail
+    /// (z=16) sibling layers around the rider's current position, so the
+    /// map quality scales with the manual zoom. The base layer is usable
+    /// immediately; the siblings appear a few seconds later once their
+    /// (much smaller) bake windows finish, and until then
+    /// `activeTileCache` transparently falls back to base.
+    func setTileCache(_ cache: RouteTileCache?, buildLayers: Bool = true) {
         routeTileCache = cache
+        coarseTileCache = nil
+        fineTileCache = nil
+        activeLayer = .base
         lastTileHintIndex = 0
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
+        if buildLayers, cache != nil, let route = currentRoute {
+            buildQualityLayers(route: route, around: lastFix?.coordinate)
+        }
+    }
+
+    /// Build the coarse (z=12) + fine (z=16) sibling quality layers for
+    /// `route`, baked around `coord` (or the route start if nil). Runs
+    /// each bake in its own Task and swaps the finished layer in
+    /// atomically. The layers use a SHORT bake-ahead window (they only
+    /// need to cover the immediate surroundings for their zoom band), so
+    /// the extra tile fetches are modest versus the base layer.
+    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+        let style = currentStyle
+        let coarse = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.coarseLayerZoom,
+            gridSide: 5,
+            bakeAheadMeters: 3000
+        )
+        let fine = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.fineLayerZoom,
+            gridSide: 5,
+            bakeAheadMeters: 2000
+        )
+        Task { @MainActor in
+            if let coord {
+                await coarse.prerender(route: route, around: coord) { _ in }
+            } else {
+                await coarse.prerender(route: route) { _ in }
+            }
+            guard style == currentStyle, currentRoute === route else { return }
+            coarseTileCache = coarse
+            log.info("Coarse overview layer installed: \(coarse.tiles.count, privacy: .public) tiles")
+        }
+        Task { @MainActor in
+            if let coord {
+                await fine.prerender(route: route, around: coord) { _ in }
+            } else {
+                await fine.prerender(route: route) { _ in }
+            }
+            guard style == currentStyle, currentRoute === route else { return }
+            fineTileCache = fine
+            log.info("Fine detail layer installed: \(fine.tiles.count, privacy: .public) tiles")
+        }
     }
 
     /// Remember the active route so a mid-ride style switch can re-bake
@@ -507,10 +637,17 @@ final class MapViewSource: NSObject, FrameSource {
         // Re-check: a newer style switch may have landed during the bake.
         guard style == currentStyle else { return }
         routeTileCache = fresh   // atomic swap; old cache was visible until now
+        // Drop the old-palette sibling layers and rebuild them in the new
+        // style around the rider, so coarse/fine quality layers don't show
+        // a stale palette after a Light/Dark switch.
+        coarseTileCache = nil
+        fineTileCache = nil
+        activeLayer = .base
         lastTileHintIndex = 0
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
+        buildQualityLayers(route: route, around: coord)
     }
 
     /// Extend the rolling tile-bake window around `coord`. Called from
@@ -542,8 +679,16 @@ final class MapViewSource: NSObject, FrameSource {
             return
         }
         lastTileExtendAt = now
+        // Extend the base layer plus whichever sibling quality layers are
+        // baked. Each cache's `extend` is idempotent + coalesced, so a
+        // sibling that isn't relevant to the current zoom still just keeps
+        // its rolling window warm cheaply (short bake-ahead window).
+        let coarse = coarseTileCache
+        let fine = fineTileCache
         Task { @MainActor in
             await cache.extend(near: coord)
+            if let coarse { await coarse.extend(near: coord) }
+            if let fine { await fine.extend(near: coord) }
         }
     }
 
@@ -918,7 +1063,16 @@ extension MapViewSource {
     /// Steps: pick nearest tile → rotate context to heading-up →
     /// draw cropped tile → polyline → user dot in the center.
     private func drawTileCacheFrame(into ctx: CGContext) {
-        guard let cache = routeTileCache, let fix = lastFix else { return }
+        guard lastFix != nil else { return }
+        // Pick the quality layer for the current effective zoom. Falls
+        // back to base if the preferred sibling layer isn't baked yet.
+        let layerBefore = activeLayer
+        guard let cache = activeTileCache(forEffectiveZoom: effectiveZoom),
+              let fix = lastFix else { return }
+        // A layer switch invalidates the hint index (it points into the
+        // previous cache's tiles[]). Reset so nearestTile does a fresh
+        // full scan on the new layer rather than trusting a stale hint.
+        if activeLayer != layerBefore { lastTileHintIndex = 0 }
         guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
             // Off the baked route corridor (wrong turn + reroute pending,
             // or a deliberate detour). Don't drop straight to the bare
@@ -1071,7 +1225,16 @@ extension MapViewSource {
         ctx.rotate(by: -lastHeading * .pi / 180)
         // Speed-adaptive zoom (slow lerp; see targetZoom/updateZoom).
         // Applied AFTER rotation so the origin sits at the puck.
-        ctx.scaleBy(x: currentZoom, y: currentZoom)
+        //
+        // Layer compensation: `currentZoom` is calibrated for the BASE
+        // OSM level (z=15). A coarse (z=12) or fine (z=16) tile has a
+        // different pixel-per-metre density, so drawing it at the raw
+        // `currentZoom` would render it too small (coarse) or too large
+        // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
+        // ground scale is identical whichever layer supplied the tile.
+        let layerScale = pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))
+        let drawZoom = currentZoom * layerScale
+        ctx.scaleBy(x: drawZoom, y: drawZoom)
 
         // Draw the tile shifted by the delta from its own centre to the
         // user's position. Use `tile.center` (the requested centre — and
