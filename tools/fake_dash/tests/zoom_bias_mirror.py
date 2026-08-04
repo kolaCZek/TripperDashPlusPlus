@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 # --- Constants mirrored from MapViewSource.swift ------------------------
 ZOOM_BIAS_STEP = 1.4
-ZOOM_BIAS_MIN = 0.5
+ZOOM_BIAS_MIN = 0.28
 ZOOM_BIAS_MAX = 2.5
 ZOOM_BIAS_HOLD_SECONDS = 15.0
 ZOOM_BIAS_REVERT_FACTOR = 0.04
