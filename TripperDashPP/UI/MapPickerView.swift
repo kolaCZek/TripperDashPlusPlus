@@ -890,6 +890,43 @@ struct MapPickerView: View {
         prerenderActive = false
     }
 
+    /// Concatenate every leg's selected-option polyline into one full-trip
+    /// coordinate array and collect the intermediate via-stops, then push
+    /// both into the renderer so the dash draws the whole route + a dot at
+    /// each stop. Origin (index 0) and final destination (last) are
+    /// excluded from the dots — the puck marks the origin and the line's
+    /// end marks the destination. A single-destination plan (n=2) yields
+    /// no dots, so this is a no-op visual-wise beyond the full line (which
+    /// equals the single leg anyway).
+    private func installFullRouteContext(plan: PlannedRoute) {
+        var full: [CLLocationCoordinate2D] = []
+        for leg in plan.legs {
+            guard let route = leg.selected?.route else { continue }
+            let poly = route.polyline
+            let n = poly.pointCount
+            let pts = poly.points()
+            for i in 0..<n {
+                let c = pts[i].coordinate
+                // Skip a duplicate join point between consecutive legs
+                // (leg i ends where leg i+1 begins).
+                if let last = full.last,
+                   last.latitude == c.latitude, last.longitude == c.longitude {
+                    continue
+                }
+                full.append(c)
+            }
+        }
+        // Intermediate via-stops only (drop origin + final destination).
+        let wps = plan.waypoints
+        let dots: [CLLocationCoordinate2D]
+        if wps.count > 2 {
+            dots = wps[1..<(wps.count - 1)].map { $0.coordinate }
+        } else {
+            dots = []
+        }
+        status.mapViewSource.setFullRoute(coords: full, waypoints: dots)
+    }
+
     /// Wire the shared route-changed hook (covers initial bake, reroute,
     /// AND multi-stop leg advance — all funnel through here).
     private func installRouteChangedHook() {
@@ -901,7 +938,46 @@ struct MapPickerView: View {
             //     (URLSession + CGContext, no MKMapSnapshotter/Metal), so
             //     it fires immediately even with the phone pocketed.
             status.mapViewSource.scheduleTileCacheRebuild(for: newRoute)
+            // (3) Refresh the FULL trip geometry + via-dots. A leg-advance
+            //     or an auto-switch onto an alternative changes which leg
+            //     option is selected, so the whole-route line must be
+            //     rebuilt from the (mutated) plan — otherwise the dash
+            //     keeps drawing the pre-switch shape.
+            if let plan = status.activeNavigator.plan {
+                self.installFullRouteContext(plan: plan)
+            }
         }
+        // F3: whenever the navigator's alternatives change (leg swap,
+        // auto-switch, reroute, clear) rebuild the render models and push
+        // them into the dash — thin grey lines + ETA-delta bubbles.
+        status.activeNavigator.onAlternativesChanged = { [weak status] alts in
+            guard let status else { return }
+            self.pushAlternativeRenders(alts)
+        }
+    }
+
+    /// Convert the navigator's alternative `MKRoute`s into dash render
+    /// models (coords + ETA delta vs the active route + a bubble anchor)
+    /// and push them into MapViewSource. The active route's travel time
+    /// comes from the navigator's current leg selection.
+    private func pushAlternativeRenders(_ alts: [MKRoute]) {
+        let activeTime = status.activeNavigator.activeRoute?.expectedTravelTime ?? 0
+        let renders: [AlternativeRouteRender] = alts.map { route in
+            let coords = route.polyline.coordinateList()
+            // Anchor the ETA bubble at the alt's geometric midpoint — a
+            // reasonable, always-on-the-line spot that rarely collides
+            // with the active route's own labels.
+            let anchor = coords.isEmpty
+                ? route.polyline.coordinate
+                : coords[coords.count / 2]
+            return AlternativeRouteRender(
+                id: UUID(),
+                coords: coords,
+                etaDeltaSeconds: route.expectedTravelTime - activeTime,
+                bubbleAnchor: anchor
+            )
+        }
+        status.mapViewSource.setAlternativeRoutes(renders)
     }
 
     /// Start navigation from a multi-stop plan. Bakes the first leg's
@@ -924,6 +1000,11 @@ struct MapPickerView: View {
             // the first bake, so the ride opens in the right palette.
             status.primeMapStyleForStart()
             await installRouteGeometry(firstLeg)
+            // Push the FULL trip geometry + via-stops so the dash shows
+            // the whole route (blue line spanning every leg) with a dot at
+            // each intermediate waypoint — not just the active leg up to
+            // the next stop (rider feedback 2026-08).
+            installFullRouteContext(plan: plan)
             await status.activeNavigator.start(plan: plan)
             // Planning UI is consumed — drop it so picking returns to
             // browsing after navigation ends.
@@ -949,6 +1030,8 @@ struct MapPickerView: View {
         // Drop the tile cache + polyline so the next route gets a fresh build.
         status.mapViewSource.setTileCache(nil)
         status.mapViewSource.setRoutePolyline(nil)
+        status.mapViewSource.setFullRoute(coords: [], waypoints: [])
+        status.mapViewSource.setAlternativeRoutes([])
         status.stagedDestination = nil
         status.plannedRoute = nil
         selectedDestination = nil

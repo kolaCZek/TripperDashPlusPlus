@@ -191,4 +191,62 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
         case .dark:  return CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.55)
         }
     }
+
+    // MARK: - Route-line colours (drawn by MapViewSource at the polyline
+    // draw site, INSIDE the composite? No — the route line is stroked by
+    // the renderer OUTSIDE the tile composite recolour, so these are the
+    // FINAL on-screen colours per palette.)
+
+    /// Fill colour of the navigation route polyline. Bright blue on both
+    /// palettes — legible over light OSM stone and over the dark recolour.
+    var routeLineColor: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.90)
+        case .dark:  return CGColor(red: 0.0, green: 0.62, blue: 1.0, alpha: 0.95)
+        }
+    }
+
+    /// Casing (outline) stroked UNDER the route line so the blue pops
+    /// against busy map content. Thin dark line on Light, thin white line
+    /// on Dark — the classic "map app" route casing convention, flipped
+    /// for night legibility (rider feedback 2026-08).
+    var routeCasingColor: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.55)
+        case .dark:  return CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.70)
+        }
+    }
+
+    /// Fill of the intermediate-waypoint dot drawn on the route line.
+    /// Same blue as the route; a contrasting casing ring is drawn around
+    /// it (`routeCasingColor`) so it reads as a distinct marker.
+    var waypointDotColor: CGColor { routeLineColor }
+
+    /// Colour of an ALTERNATIVE (not-currently-navigated) route line,
+    /// drawn thin + grey so it's visibly secondary to the blue active
+    /// route. Slightly lighter on Dark for legibility over the recolour.
+    var alternativeLineColor: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.45, green: 0.47, blue: 0.50, alpha: 0.85)
+        case .dark:  return CGColor(red: 0.62, green: 0.65, blue: 0.70, alpha: 0.85)
+        }
+    }
+
+    /// Backing colour of the ETA-delta bubble pinned to an alternative
+    /// route ("+5 min" / "similar"). Dark pill on Light, light pill on
+    /// Dark, mirroring the attribution treatment.
+    var alternativeBubbleFill: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 0.88)
+        case .dark:  return CGColor(red: 0.92, green: 0.93, blue: 0.95, alpha: 0.90)
+        }
+    }
+
+    /// Ink of the ETA-delta bubble text — inverse of its fill.
+    var alternativeBubbleInk: CGColor {
+        switch self {
+        case .light: return CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+        case .dark:  return CGColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1.0)
+        }
+    }
 }

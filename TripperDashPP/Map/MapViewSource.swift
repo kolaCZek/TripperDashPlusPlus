@@ -136,6 +136,29 @@ final class MapViewSource: NSObject, FrameSource {
     private var routePolyline: MKPolyline?
     private var routePolylineCoords: [CLLocationCoordinate2D] = []
 
+    /// The ENTIRE multi-stop route geometry (every leg's selected option,
+    /// concatenated) drawn as the blue line on the dash. Set once at
+    /// navigation start (and refreshed on reroute) so the rider sees the
+    /// whole trip, not just the polyline up to the next waypoint. When
+    /// non-empty this is what the route-line draw uses; when empty the
+    /// draw falls back to `routePolylineCoords` (the active leg only), so
+    /// single-destination / legacy paths keep working unchanged.
+    private var fullRouteCoords: [CLLocationCoordinate2D] = []
+
+    /// Intermediate waypoint coordinates (via-stops between origin and
+    /// final destination) rendered as blue dots on top of the route line.
+    /// Origin and final destination are intentionally excluded — the puck
+    /// marks the origin and the destination reads from the line's end.
+    private var waypointDots: [CLLocationCoordinate2D] = []
+
+    /// Alternative routes for the CURRENT leg, drawn thin/grey with an
+    /// ETA-delta bubble ("+5 min" / "similar"). The rider physically
+    /// turning onto one of these makes ActiveNavigator swap to it (see
+    /// `AlternativeRouteMonitor`). Empty when there are no alternatives or
+    /// the setting is off. NOT the same as `fullRouteCoords` (the active
+    /// route) — these are the roads NOT currently being navigated.
+    fileprivate var alternativeRoutes: [AlternativeRouteRender] = []
+
     /// Latest active-nav overlay state pushed in by ActiveNavLoop.
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
@@ -289,6 +312,14 @@ final class MapViewSource: NSObject, FrameSource {
     /// the old fixed width 8 that rendered "as thick as the road" at city
     /// zoom, but with a clearer, more legible track.
     private let routeLineScreenPx: CGFloat = 7.0
+
+    /// On-screen width (px) of the dark/white casing stroked UNDER the
+    /// route line, EACH SIDE. Total casing width = routeLineScreenPx +
+    /// routeCasingScreenPx. Also divided by `currentZoom` at the draw site
+    /// so it stays constant on screen. 4.0 → ~2 px of casing peeking out
+    /// on each side of the blue line (rider feedback 2026-08: "obtáhnout
+    /// tenkou černou linkou aby víc vynikla").
+    private let routeCasingScreenPx: CGFloat = 4.0
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
@@ -998,33 +1029,79 @@ extension MapViewSource {
                           width: tw, height: th)
         drawImageUIKit(cg, in: rect, ctx: ctx)
 
+        // Alternative routes (thin grey), drawn BEFORE the active blue
+        // line so the active route always sits on top. Same Y-DOWN
+        // projection as the active line below. The ETA bubbles are drawn
+        // separately, upright, after restoreGState (see below).
+        if !alternativeRoutes.isEmpty {
+            let projAlt: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let px =  (c.longitude - centerLon) * pxPerDegLon
+                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(currentStyle.alternativeLineColor)
+            // Slightly thinner than the active route so it reads secondary.
+            ctx.setLineWidth((routeLineScreenPx - 1.5) / currentZoom)
+            for alt in alternativeRoutes {
+                guard alt.coords.count > 1 else { continue }
+                let ap = CGMutablePath()
+                var firstA = true
+                for c in alt.coords {
+                    let pt = projAlt(c)
+                    if firstA { ap.move(to: pt); firstA = false }
+                    else { ap.addLine(to: pt) }
+                }
+                ctx.addPath(ap)
+                ctx.strokePath()
+            }
+        }
+
         // Draw the route polyline in the same Y-DOWN coordinate space.
         // Off-corridor this still draws the (now-distant) route line so
-        // the rider can see which way to get back to it.
-        if !routePolylineCoords.isEmpty {
-            ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
+        // the rider can see which way to get back to it. Uses the FULL
+        // trip geometry when available (setFullRoute) so the line spans
+        // the whole route, not just the leg up to the next waypoint.
+        let drawCoords = routeDrawCoords
+        if !drawCoords.isEmpty {
+            // Project a coord into this frame's Y-DOWN pixel space.
+            let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let px =  (c.longitude - centerLon) * pxPerDegLon
+                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+            }
+            // Build the path once, reuse for casing + fill.
+            let path = CGMutablePath()
+            var first = true
+            for c in drawCoords {
+                let pt = project(c)
+                if first { path.move(to: pt); first = false }
+                else { path.addLine(to: pt) }
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
             // The line is stroked INSIDE the currentZoom scale, so a fixed
             // lineWidth would grow with zoom (a city-zoom 2.9× made it as
             // thick as a road — rider feedback 6/2026). Divide by zoom so
-            // the route reads at a constant ~5 px on screen regardless of
+            // the route reads at a constant on-screen width regardless of
             // zoom level.
-            ctx.setLineWidth(routeLineScreenPx / currentZoom)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.beginPath()
-            var first = true
-            for c in routePolylineCoords {
-                let dx =  (c.longitude - centerLon) * pxPerDegLon
-                let dy = -(c.latitude  - centerLat) * pxPerDegLat       // Y-DOWN: north = -y
-                let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
-                if first {
-                    ctx.move(to: pt)
-                    first = false
-                } else {
-                    ctx.addLine(to: pt)
-                }
-            }
+            let lineW = routeLineScreenPx / currentZoom
+            // 1. Casing UNDER the line — dark on Light, white on Dark —
+            //    so the blue route pops against busy map content (rider
+            //    feedback 2026-08). ~4 px wider on screen than the fill.
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeCasingColor)
+            ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
             ctx.strokePath()
+            // 3. Blue route fill on top.
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeLineColor)
+            ctx.setLineWidth(lineW)
+            ctx.strokePath()
+            // Via-stop pins are NOT drawn here — they must be upright +
+            // constant-size, so they're rendered geo-anchored in the outer
+            // (un-rotated) ctx below, same as the speed cameras.
         }
 
         ctx.restoreGState()
@@ -1038,6 +1115,20 @@ extension MapViewSource {
         drawSpeedCameras(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
                          pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+
+        // Via-stop waypoint pins — geo-anchored like the cameras but drawn
+        // upright + constant-size in the outer ctx so the pin glyph always
+        // stands vertical regardless of map rotation/zoom.
+        drawWaypointPins(into: ctx,
+                         centerLat: centerLat, centerLon: centerLon,
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+
+        // ETA-delta bubbles for the alternative routes — geo-anchored to
+        // each alt's `bubbleAnchor` but drawn upright + constant size in
+        // the flat outer ctx (same projection trick as the cameras).
+        drawAlternativeBubbles(into: ctx,
+                               centerLat: centerLat, centerLon: centerLon,
+                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
 
         // Draw user direction arrow in the center. The map is rotated
         // heading-up, so the arrow always points toward the top of the
@@ -1092,6 +1183,95 @@ extension MapViewSource {
         ctx.closePath()
         ctx.fillPath()
 
+        ctx.restoreGState()
+    }
+
+    /// Project each via-stop into the outer (un-rotated) Y-DOWN ctx and
+    /// draw an upright, constant-size map pin. Same geo→screen math as
+    /// `drawSpeedCameras` so the pin tip sits exactly on the route line.
+    /// No-op when there are no via-stops (single-destination trips).
+    private func drawWaypointPins(into ctx: CGContext,
+                                  centerLat: Double, centerLon: Double,
+                                  pxPerDegLon: Double, pxPerDegLat: Double) {
+        guard !waypointDots.isEmpty else { return }
+        let theta = -lastHeading * .pi / 180.0
+        let cosT = cos(theta), sinT = sin(theta)
+        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
+        let anchorX = Double(frameSize.width) / 2
+        let anchorY = Double(frameSize.height) / 2 + biasPx
+        let z = Double(currentZoom)
+        let w = Double(frameSize.width), h = Double(frameSize.height)
+        for wp in waypointDots {
+            let dx = (wp.longitude - centerLon) * pxPerDegLon
+            let dy = -(wp.latitude - centerLat) * pxPerDegLat  // Y-DOWN
+            let zx = dx * z, zy = dy * z
+            let rx = zx * cosT - zy * sinT
+            let ry = zx * sinT + zy * cosT
+            let sx = anchorX + rx
+            let sy = anchorY + ry
+            // Cull off-frame pins (margin clears the pin body + tip).
+            guard sx > -28, sx < w + 28, sy > -48, sy < h + 16 else { continue }
+            drawWaypointPin(into: ctx, at: CGPoint(x: sx, y: sy))
+        }
+    }
+
+    /// One upright map-pin marker whose TIP sits at `p` (Y-DOWN outer ctx):
+    /// a round head above the anchor with a spike down to the tip whose
+    /// sides are TANGENT to the head, so it reads as a clean teardrop
+    /// (rider reference 2026-08). Route-blue with a white outline and a
+    /// white centre hole. Constant on-screen size. Built from a filled
+    /// circle + a filled tangent triangle (both always closed/filled) —
+    /// the earlier hand-rolled arc path rendered as a broken "V".
+    private func drawWaypointPin(into ctx: CGContext, at p: CGPoint) {
+        let fill = currentStyle.waypointDotColor
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        // Geometry (Y-DOWN: tip at p, head bulges UP = smaller y).
+        let headR: CGFloat = 10      // head radius (enlarged per feedback)
+        let tipDrop: CGFloat = 27    // tip is this far below the head centre
+        let cx = p.x
+        let cy = p.y - tipDrop       // head centre, above the tip
+
+        // Build the pin shape for a given head radius `r` (the tip stays at
+        // `p`). The spike is the triangle from the tip to the two points
+        // where lines from the tip are TANGENT to the head circle — this is
+        // what makes the spike flow smoothly into the head instead of
+        // cutting a flat chord. Tangent contact angle from the tip→centre
+        // (straight-up) direction is acos(r/d).
+        func pinPath(_ r: CGFloat) -> CGPath {
+            let d = tipDrop                         // tip→centre distance
+            let path = CGMutablePath()
+            // Head circle.
+            path.addEllipse(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
+            // Tangent spike (skip if geometry degenerates, r >= d).
+            if d > r {
+                let a = acos(r / d)                 // angle at centre to each contact pt
+                let sinA = sin(a), cosA = cos(a)
+                // Contact points on the LOWER arc (cos positive = below centre).
+                let lx = cx - r * sinA, rx = cx + r * sinA
+                let cyC = cy + r * cosA
+                path.move(to: CGPoint(x: p.x, y: p.y))   // tip
+                path.addLine(to: CGPoint(x: lx, y: cyC)) // left tangent contact
+                path.addLine(to: CGPoint(x: rx, y: cyC)) // right tangent contact
+                path.closeSubpath()
+            }
+            return path
+        }
+
+        ctx.saveGState()
+        // 1. White outline: the same shape, 2 px larger head, drawn behind.
+        ctx.setFillColor(white)
+        ctx.addPath(pinPath(headR + 2))
+        ctx.fillPath()
+        // 2. Blue fill.
+        ctx.setFillColor(fill)
+        ctx.addPath(pinPath(headR))
+        ctx.fillPath()
+        // 3. White centre hole in the head.
+        ctx.setFillColor(white)
+        let holeR: CGFloat = 4.0
+        ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR,
+                                   width: holeR * 2, height: holeR * 2))
         ctx.restoreGState()
     }
 
@@ -1183,7 +1363,7 @@ extension MapViewSource {
         ctx.setFillColor(currentStyle.vectorBackground)
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
-        guard let fix = lastFix, !routePolylineCoords.isEmpty else {
+        guard let fix = lastFix, !routeDrawCoords.isEmpty else {
             // Nothing useful to draw.
             return
         }
@@ -1203,28 +1383,57 @@ extension MapViewSource {
         ctx.rotate(by: -lastHeading * .pi / 180)
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
-        ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
-        // Constant on-screen thickness regardless of zoom (see the tile
-        // path's note). Divide by currentZoom since we stroke inside the
-        // zoom scale.
-        ctx.setLineWidth(routeLineScreenPx / currentZoom)
+        // Project a coord into this frame's Y-DOWN pixel space (meters/px).
+        let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+            let dxM =  (c.longitude - centerLon) * mPerDegLon
+            let dyM = -(c.latitude  - centerLat) * mPerDegLat   // Y-DOWN
+            return CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
+        }
+        // Build the full route path once, reuse for casing + fill.
+        let path = CGMutablePath()
+        var first = true
+        for c in routeDrawCoords {
+            let pt = project(c)
+            if first { path.move(to: pt); first = false }
+            else { path.addLine(to: pt) }
+        }
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
-        ctx.beginPath()
-        var first = true
-        for c in routePolylineCoords {
-            let dxM =  (c.longitude - centerLon) * mPerDegLon
-            let dyM = -(c.latitude  - centerLat) * mPerDegLat       // Y-DOWN: north = -y
-            let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
-            if first {
-                ctx.move(to: pt)
-                first = false
-            } else {
-                ctx.addLine(to: pt)
-            }
-        }
+        // Constant on-screen thickness regardless of zoom (see the tile
+        // path's note). Divide by currentZoom since we stroke inside the
+        // zoom scale. Casing under the blue line + via-stop dots, matching
+        // the tile-cache path.
+        let lineW = routeLineScreenPx / currentZoom
+        ctx.addPath(path)
+        ctx.setStrokeColor(currentStyle.routeCasingColor)
+        ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
+        ctx.strokePath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(currentStyle.routeLineColor)
+        ctx.setLineWidth(lineW)
         ctx.strokePath()
         ctx.restoreGState()
+
+        // Via-stop pins upright + constant-size in the OUTER ctx (after the
+        // rotated CTM is popped), same as the tile-cache path. Reproduce
+        // the rotate·scale·translate the CTM applied so the pin lands where
+        // the in-CTM line does, but draws vertical.
+        if !waypointDots.isEmpty {
+            let theta = -Double(lastHeading) * .pi / 180.0
+            let cosT = cos(theta), sinT = sin(theta)
+            let z = Double(currentZoom)
+            let anchorX = Double(frameSize.width) / 2
+            let anchorY = Double(frameSize.height) / 2 + Double(biasPx)
+            for wp in waypointDots {
+                let dxM =  (wp.longitude - centerLon) * mPerDegLon
+                let dyM = -(wp.latitude  - centerLat) * mPerDegLat  // Y-DOWN
+                let px = dxM / metersPerPx, py = dyM / metersPerPx
+                let zx = px * z, zy = py * z
+                let rx = zx * cosT - zy * sinT
+                let ry = zx * sinT + zy * cosT
+                drawWaypointPin(into: ctx, at: CGPoint(x: anchorX + rx, y: anchorY + ry))
+            }
+        }
 
         // User direction arrow in the centre (same chevron as the
         // tile-cache path; map is heading-up so arrow always points up).
@@ -1287,6 +1496,55 @@ extension MapViewSource {
         } else {
             routePolylineCoords = []
         }
+    }
+
+    /// Push the ENTIRE trip geometry + the intermediate via-stops so the
+    /// dash shows the whole planned route (not just the leg up to the next
+    /// waypoint) with a blue dot at each via-stop. Pass `full` = the
+    /// concatenated coordinates of every leg's selected option, and
+    /// `waypoints` = the intermediate stops only (exclude origin + final
+    /// destination). Pass empty arrays to clear (single-destination /
+    /// legacy paths fall back to `routePolylineCoords`).
+    func setFullRoute(coords full: [CLLocationCoordinate2D],
+                      waypoints: [CLLocationCoordinate2D]) {
+        fullRouteCoords = full
+        waypointDots = waypoints
+    }
+
+    /// The coordinates the route-line draw should stroke: the full trip if
+    /// available, else the active-leg polyline (legacy / single-dest).
+    fileprivate var routeDrawCoords: [CLLocationCoordinate2D] {
+        fullRouteCoords.isEmpty ? routePolylineCoords : fullRouteCoords
+    }
+
+    /// Push the alternative routes for the current leg (thin grey lines +
+    /// ETA-delta bubbles). Pass an empty array to clear (no alternatives,
+    /// or the feature is off). Called from ActiveNavLoop / AppStatus as the
+    /// active leg's alternatives change.
+    func setAlternativeRoutes(_ alts: [AlternativeRouteRender]) {
+        alternativeRoutes = alts
+    }
+}
+
+/// A single alternative route to draw on the dash: its geometry plus a
+/// short ETA-delta label ("+5 min", "−2 min", "similar") and the anchor
+/// coordinate the bubble is pinned to (the fork point where it diverges
+/// from the active route reads best; the midpoint is a safe default).
+struct AlternativeRouteRender: Identifiable {
+    let id: UUID
+    /// Full coordinate list of this alternative.
+    let coords: [CLLocationCoordinate2D]
+    /// ETA delta vs the active route, seconds (positive = slower).
+    let etaDeltaSeconds: TimeInterval
+    /// Coordinate the ETA bubble is anchored to.
+    let bubbleAnchor: CLLocationCoordinate2D
+
+    /// "+5 min" / "−2 min" / "similar" (|delta| < 60 s reads "similar").
+    var etaDeltaLabel: String {
+        let mins = Int((etaDeltaSeconds / 60).rounded())
+        if abs(mins) < 1 { return "similar" }
+        let sign = mins > 0 ? "+" : "−"
+        return "\(sign)\(abs(mins)) min"
     }
 }
 
@@ -1757,6 +2015,73 @@ extension MapViewSource {
                          control2: CGPoint(x: s * 0.66, y: s * 0.86))
             ctx.strokePath()
         }
+    }
+
+    // MARK: Alternative-route ETA bubbles
+
+    /// Draw an ETA-delta bubble ("+5 min" / "similar") for each alternative
+    /// route, geo-anchored to its `bubbleAnchor` but rendered UPRIGHT and
+    /// constant-size in the flat outer ctx — same hand-rolled projection as
+    /// `drawSpeedCameras` (forward bias → heading rotation → zoom → geo
+    /// delta). Bubbles whose anchor projects off-frame are culled.
+    fileprivate func drawAlternativeBubbles(into ctx: CGContext,
+                                            centerLat: Double, centerLon: Double,
+                                            pxPerDegLon: Double, pxPerDegLat: Double) {
+        guard !alternativeRoutes.isEmpty else { return }
+        let theta = -lastHeading * .pi / 180.0
+        let cosT = cos(theta), sinT = sin(theta)
+        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
+        let anchorX = Double(frameSize.width) / 2
+        let anchorY = Double(frameSize.height) / 2 + biasPx
+        let z = Double(currentZoom)
+        let w = Double(frameSize.width), h = Double(frameSize.height)
+
+        for alt in alternativeRoutes {
+            let c = alt.bubbleAnchor
+            let dx = (c.longitude - centerLon) * pxPerDegLon
+            let dy = -(c.latitude - centerLat) * pxPerDegLat   // Y-DOWN
+            let zx = dx * z, zy = dy * z
+            let rx = zx * cosT - zy * sinT
+            let ry = zx * sinT + zy * cosT
+            let sx = anchorX + rx
+            let sy = anchorY + ry
+            guard sx > -80, sx < w + 80, sy > -32, sy < h + 32 else { continue }
+            drawEtaBubble(into: ctx, at: CGPoint(x: sx, y: sy), label: alt.etaDeltaLabel)
+        }
+    }
+
+    /// One upright rounded pill centred at `p` carrying the ETA-delta text.
+    private func drawEtaBubble(into ctx: CGContext, at p: CGPoint, label: String) {
+        let fontSize: CGFloat = 15
+        let ink = UIColor(cgColor: currentStyle.alternativeBubbleInk)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: ink,
+        ]
+        let attr = NSAttributedString(string: label, attributes: attrs)
+        let line = CTLineCreateWithAttributedString(attr)
+        let textBounds = CTLineGetImageBounds(line, ctx)
+        let padX: CGFloat = 9, padY: CGFloat = 5
+        let pillW = textBounds.width + padX * 2
+        let pillH = fontSize + padY * 2
+        let pill = CGRect(x: p.x - pillW / 2, y: p.y - pillH / 2,
+                          width: pillW, height: pillH)
+
+        ctx.saveGState()
+        // Pill background.
+        ctx.setFillColor(currentStyle.alternativeBubbleFill)
+        ctx.addPath(CGPath(roundedRect: pill, cornerWidth: pillH / 2,
+                           cornerHeight: pillH / 2, transform: nil))
+        ctx.fillPath()
+        // Text baseline-centred inside the pill. The outer buffer is
+        // Y-DOWN; flip locally so CoreText draws upright.
+        ctx.textMatrix = .identity
+        ctx.translateBy(x: p.x - textBounds.width / 2 - textBounds.minX,
+                        y: p.y + fontSize / 2 - 1)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
     }
 
     // MARK: Speed cameras

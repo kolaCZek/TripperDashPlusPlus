@@ -323,6 +323,8 @@ final class AppStatus {
         // route polyline so no old route line ghosts onto the free-ride map.
         let emptyCache = RouteTileCache(style: mapViewSource.currentStyle)
         mapViewSource.setRoutePolyline(nil)
+        mapViewSource.setFullRoute(coords: [], waypoints: [])
+        mapViewSource.setAlternativeRoutes([])
         mapViewSource.setCurrentRoute(nil)
         mapViewSource.setTileCache(emptyCache)
 
@@ -565,6 +567,8 @@ final class AppStatus {
             if self.isStreaming { self.stopStreaming() }
             self.mapViewSource.setTileCache(nil)
             self.mapViewSource.setRoutePolyline(nil)
+            self.mapViewSource.setFullRoute(coords: [], waypoints: [])
+            self.mapViewSource.setAlternativeRoutes([])
             self.activeNavigator.onActiveRouteChanged = nil
             self.stagedDestination = nil
             self.plannedRoute = nil
