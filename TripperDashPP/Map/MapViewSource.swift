@@ -283,6 +283,62 @@ final class MapViewSource: NSObject, FrameSource {
     /// transitions smoothly between speed regimes (no flicker).
     private var currentZoom: CGFloat = 1.0
 
+    // MARK: - Manual zoom bias (dash LEFT/RIGHT buttons)
+
+    /// Rider-controlled multiplier layered ON TOP of the automatic
+    /// speed/maneuver zoom. RIGHT nudges it up (zoom in), LEFT down (zoom
+    /// out). The autozoom keeps breathing underneath — this only biases
+    /// its target — so the two cooperate instead of fighting. 1.0 = no
+    /// bias (pure autozoom). Clamped to `zoomBiasRange`.
+    private var userZoomBias: CGFloat = 1.0
+
+    /// Wall-clock time of the last manual zoom nudge. After
+    /// `zoomBiasHoldSeconds` of no input the bias eases back to 1.0 so the
+    /// map returns to fully-automatic framing on its own.
+    private var lastZoomBiasNudge: Date?
+
+    /// Multiplicative step per LEFT/RIGHT press (~15% per nudge).
+    private let zoomBiasStep: CGFloat = 1.15
+    /// How far the rider can bias the autozoom in each direction.
+    private let zoomBiasRange: ClosedRange<CGFloat> = 0.5...2.5
+    /// Idle time before the bias starts easing back to neutral.
+    private let zoomBiasHoldSeconds: TimeInterval = 15
+    /// Once easing starts, fraction of the way back to 1.0 per frame.
+    private let zoomBiasRevertFactor: CGFloat = 0.04
+
+    /// A transient on-screen zoom indicator ("＋" / "－"), shown for a
+    /// moment after a manual nudge so the rider gets feedback that the
+    /// press registered. `nil` = nothing to draw.
+    private(set) var zoomOsd: (symbol: String, until: Date)?
+
+    /// Apply a manual zoom nudge from the dash joystick. `zoomIn` true =
+    /// RIGHT (magnify), false = LEFT (widen). Bumps the bias one step,
+    /// clamps it, resets the auto-revert timer, and flashes the OSD.
+    /// Called on the main actor from AppStatus's button hook.
+    func applyZoomButton(zoomIn: Bool) {
+        let factor = zoomIn ? zoomBiasStep : 1.0 / zoomBiasStep
+        userZoomBias = min(max(userZoomBias * factor, zoomBiasRange.lowerBound),
+                           zoomBiasRange.upperBound)
+        lastZoomBiasNudge = Date()
+        zoomOsd = (symbol: zoomIn ? "＋" : "－",
+                   until: Date().addingTimeInterval(1.2))
+    }
+
+    /// Ease the manual bias back toward 1.0 once the rider has stopped
+    /// nudging for `zoomBiasHoldSeconds`. Called once per frame from
+    /// `updateZoom()`. A no-op while the hold window is still open or the
+    /// bias is already neutral.
+    private func decayZoomBias() {
+        guard let nudged = lastZoomBiasNudge else { return }
+        guard Date().timeIntervalSince(nudged) >= zoomBiasHoldSeconds else { return }
+        if abs(userZoomBias - 1.0) < 0.01 {
+            userZoomBias = 1.0
+            lastZoomBiasNudge = nil
+            return
+        }
+        userZoomBias += (1.0 - userZoomBias) * zoomBiasRevertFactor
+    }
+
     /// Vertical offset of the user puck from the geometric centre of
     /// the frame, expressed as a fraction of the frame height. Positive
     /// values push the puck *down* on the dash screen, which exposes
@@ -1138,6 +1194,7 @@ extension MapViewSource {
         // bottom-left vs top-left origin (CVPixelBuffer rows go top→
         // bottom, so we flip locally to draw in intuitive "tip = +y").
         drawHeadingArrow(into: ctx)
+        drawZoomOsd(into: ctx)
     }
 
     /// Apple Maps navigation-mode user puck: blue circle with a white
@@ -1184,6 +1241,48 @@ extension MapViewSource {
         ctx.fillPath()
 
         ctx.restoreGState()
+    }
+
+    /// Transient zoom feedback badge: a small dark disc with a white "+"
+    /// (zoom in) or "−" (zoom out) bar glyph, flashed bottom-left for a
+    /// moment after a manual LEFT/RIGHT nudge so the rider sees the press
+    /// registered. Drawn in the outer Y-DOWN ctx, un-rotated, constant
+    /// size. No-op once the flash window has elapsed.
+    ///
+    /// Glyph is drawn from filled rects (not SF Symbol / text) so it's
+    /// deterministic across iOS versions — same discipline as the other
+    /// CGContext overlays in this file.
+    private func drawZoomOsd(into ctx: CGContext) {
+        guard let osd = zoomOsd else { return }
+        guard Date() < osd.until else {
+            zoomOsd = nil
+            return
+        }
+        let isPlus = osd.symbol == "＋"
+        let r: CGFloat = 15
+        let cx: CGFloat = r + 10
+        let cy: CGFloat = frameSize.height - r - 10   // bottom-left (Y-DOWN)
+
+        // Dark translucent disc with a thin white ring for contrast on
+        // both light and dark map palettes.
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
+        ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+        ctx.setLineWidth(1.5)
+        ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+
+        // White glyph bars.
+        let barLen: CGFloat = 14
+        let barThick: CGFloat = 2.6
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        // Horizontal bar (present for both + and −).
+        ctx.fill(CGRect(x: cx - barLen / 2, y: cy - barThick / 2,
+                        width: barLen, height: barThick))
+        if isPlus {
+            // Vertical bar completes the "+".
+            ctx.fill(CGRect(x: cx - barThick / 2, y: cy - barLen / 2,
+                            width: barThick, height: barLen))
+        }
     }
 
     /// Project each via-stop into the outer (un-rotated) Y-DOWN ctx and
@@ -1292,7 +1391,7 @@ extension MapViewSource {
         // slope: (0.8 - 2.0) / 130 = -0.00923 per km/h
         let raw = 2.0 - CGFloat(kmh) * 0.00923
         let speedZoom = min(max(raw, 0.8), 2.0)
-        return speedZoom * maneuverZoomBoost()
+        return speedZoom * maneuverZoomBoost() * userZoomBias
     }
 
     /// Extra zoom-in as a maneuver approaches, so the rider can see
@@ -1323,6 +1422,7 @@ extension MapViewSource {
     /// we lerp ~3× faster. Zooming back out after the turn stays slow so
     /// the map doesn't lurch.
     private func updateZoom() {
+        decayZoomBias()
         let target = targetZoom(forSpeedMPS: lastFix?.speed ?? -1)
         let zoomingIn = target > currentZoom
         let factor: CGFloat = zoomingIn ? 0.15 : 0.05
@@ -1438,6 +1538,7 @@ extension MapViewSource {
         // User direction arrow in the centre (same chevron as the
         // tile-cache path; map is heading-up so arrow always points up).
         drawHeadingArrow(into: ctx)
+        drawZoomOsd(into: ctx)
     }
 
     private func preparePool() {

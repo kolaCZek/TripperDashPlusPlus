@@ -132,6 +132,7 @@ final class AppStatus {
         wireDeviceTelemetry()
         wireMessageFeed()
         wireRideAlerts()
+        wireDashButtons()
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -653,6 +654,30 @@ final class AppStatus {
         bikeLink.telemetryProvider = { @Sendable [weak tele] in
             guard let tele else { return .placeholder }
             return await tele.snapshot()
+        }
+    }
+
+    /// Route decoded dash joystick events to app behaviour. Runs once at
+    /// launch; `BikeLink` invokes `onButton` on the main actor after it has
+    /// already sent the wire ack.
+    ///
+    /// Phase 1+2 mapping:
+    ///   RIGHT → zoom the map in     (bias over autozoom, auto-reverts)
+    ///   LEFT  → zoom the map out
+    ///   DOWN  → reserved (unused for now)
+    ///   CLICK → reserved (Phase 3: on-map menu — kept in reserve)
+    private func wireDashButtons() {
+        bikeLink.onButton = { [weak self] button in
+            guard let self else { return }
+            switch button {
+            case .right:
+                self.mapViewSource.applyZoomButton(zoomIn: true)
+            case .left:
+                self.mapViewSource.applyZoomButton(zoomIn: false)
+            case .down, .click:
+                // Reserved — no action yet (see Phase 3 menu idea).
+                break
+            }
         }
     }
 
