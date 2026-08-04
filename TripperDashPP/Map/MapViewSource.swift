@@ -301,11 +301,11 @@ final class MapViewSource: NSObject, FrameSource {
     /// couple of clicks visibly changes the zoom.
     private let zoomBiasStep: CGFloat = 1.4
     /// How far the rider can bias the autozoom in each direction. The
-    /// lower bound is deliberately generous (0.28) so a few LEFT presses
-    /// pull the map way out — far enough to see the next town on the
-    /// route. Affects ONLY the manual bias; the autozoom's own 0.8–2.0
-    /// speed band is unchanged.
-    private let zoomBiasRange: ClosedRange<CGFloat> = 0.28...2.5
+    /// lower bound is deliberately generous (0.15) so a few LEFT presses
+    /// pull the map way out — far enough to see the next town or two on
+    /// the route. Affects ONLY the manual bias; the autozoom's own
+    /// 0.8–2.0 speed band is unchanged.
+    private let zoomBiasRange: ClosedRange<CGFloat> = 0.15...2.5
     /// Idle time before the bias starts easing back to neutral.
     private let zoomBiasHoldSeconds: TimeInterval = 15
     /// Once easing starts, fraction of the way back to 1.0 per frame.
