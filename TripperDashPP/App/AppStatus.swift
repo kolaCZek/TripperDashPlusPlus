@@ -324,6 +324,7 @@ final class AppStatus {
         let emptyCache = RouteTileCache(style: mapViewSource.currentStyle)
         mapViewSource.setRoutePolyline(nil)
         mapViewSource.setFullRoute(coords: [], waypoints: [])
+        mapViewSource.setAlternativeRoutes([])
         mapViewSource.setCurrentRoute(nil)
         mapViewSource.setTileCache(emptyCache)
 
@@ -567,6 +568,7 @@ final class AppStatus {
             self.mapViewSource.setTileCache(nil)
             self.mapViewSource.setRoutePolyline(nil)
             self.mapViewSource.setFullRoute(coords: [], waypoints: [])
+            self.mapViewSource.setAlternativeRoutes([])
             self.activeNavigator.onActiveRouteChanged = nil
             self.stagedDestination = nil
             self.plannedRoute = nil

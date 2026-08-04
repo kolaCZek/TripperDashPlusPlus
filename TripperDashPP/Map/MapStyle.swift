@@ -221,4 +221,32 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
     /// Same blue as the route; a contrasting casing ring is drawn around
     /// it (`routeCasingColor`) so it reads as a distinct marker.
     var waypointDotColor: CGColor { routeLineColor }
+
+    /// Colour of an ALTERNATIVE (not-currently-navigated) route line,
+    /// drawn thin + grey so it's visibly secondary to the blue active
+    /// route. Slightly lighter on Dark for legibility over the recolour.
+    var alternativeLineColor: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.45, green: 0.47, blue: 0.50, alpha: 0.85)
+        case .dark:  return CGColor(red: 0.62, green: 0.65, blue: 0.70, alpha: 0.85)
+        }
+    }
+
+    /// Backing colour of the ETA-delta bubble pinned to an alternative
+    /// route ("+5 min" / "similar"). Dark pill on Light, light pill on
+    /// Dark, mirroring the attribution treatment.
+    var alternativeBubbleFill: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 0.88)
+        case .dark:  return CGColor(red: 0.92, green: 0.93, blue: 0.95, alpha: 0.90)
+        }
+    }
+
+    /// Ink of the ETA-delta bubble text — inverse of its fill.
+    var alternativeBubbleInk: CGColor {
+        switch self {
+        case .light: return CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+        case .dark:  return CGColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1.0)
+        }
+    }
 }

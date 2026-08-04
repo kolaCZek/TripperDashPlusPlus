@@ -306,6 +306,39 @@ final class ActiveNavigator {
     private let offRouteDurationThreshold: TimeInterval = 5          // s
     private let rerouteCooldown: TimeInterval = 30                   // s
 
+    // MARK: - Alternative-route auto-switch (F3, 2026-08)
+
+    /// Alternatives for the CURRENT leg, held alongside `activeRoute` so
+    /// the rider can physically turn onto one and we swap navigation to it
+    /// (rider request 2026-08 "Volba 2"). Refreshed on every active-route
+    /// swap (`seed`): the selected option is the active route, the OTHER
+    /// options of the current leg become the alternatives. Empty for a
+    /// single-destination reroute leg with no alternatives.
+    private(set) var currentAlternatives: [MKRoute] = []
+
+    /// Distance (m) the rider must be from the ACTIVE route AND within of
+    /// an ALTERNATIVE before we consider them to have chosen that
+    /// alternative. Must exceed typical GPS jitter but stay under the
+    /// reroute threshold so an intentional fork is caught before a reroute
+    /// fires. 25 m: a lane-width fork is enough to disambiguate.
+    private let altSwitchProximityThreshold: CLLocationDistance = 25
+
+    /// Consecutive fixes the rider must be committed to an alternative
+    /// before we swap. Guards against a momentary GPS excursion onto a
+    /// parallel road. ~3 fixes ≈ a few seconds at nav update rate.
+    private let altSwitchConfirmFixes: Int = 3
+
+    /// Per-alternative run of consecutive "rider is on this alt, off the
+    /// active route" fixes. Keyed by the alt's index in
+    /// `currentAlternatives`. Reset whenever the rider is back on the
+    /// active route or the alternatives change.
+    private var altCommitStreak: [Int: Int] = [:]
+
+    /// Fired whenever `currentAlternatives` changes (leg swap, reroute,
+    /// clear) so AppStatus can push the render models into MapViewSource.
+    /// The navigator itself never touches MapViewSource.
+    var onAlternativesChanged: (@MainActor ([MKRoute]) -> Void)?
+
     // MARK: - Internals
 
     private var lastSegmentIndex: Int = 0
@@ -428,6 +461,9 @@ final class ActiveNavigator {
         // extra call site to remember. Safe to "restart the clock" on a
         // leg-advance — `legArrivalDate` was just set fresh above anyway.
         startEtaRefreshLoop()
+        // F3: recompute this leg's alternatives (non-selected options) so
+        // the dash draws them grey and the rider can fork onto one.
+        refreshAlternatives()
     }
 
     /// Recompute the cached overview geometry — the current route's
@@ -449,6 +485,98 @@ final class ActiveNavigator {
             tail.append(contentsOf: route.polyline.coordinateList())
         }
         subsequentLegsCoordsCache = tail
+    }
+
+    /// Recompute `currentAlternatives` = the NON-selected route options of
+    /// the current leg (single-destination nav with a plan == nil leg has
+    /// no options, so this clears). Resets the per-alt commit streaks and
+    /// notifies `onAlternativesChanged` so the dash re-renders the grey
+    /// lines + ETA bubbles.
+    private func refreshAlternatives() {
+        var alts: [MKRoute] = []
+        if let plan, plan.legs.indices.contains(currentLegIndex) {
+            let leg = plan.legs[currentLegIndex]
+            let selIdx = leg.selectedOptionIndex
+            for (i, opt) in leg.options.enumerated() where i != selIdx {
+                alts.append(opt.route)
+            }
+        }
+        currentAlternatives = alts
+        altCommitStreak = [:]
+        onAlternativesChanged?(alts)
+    }
+
+    /// F3 auto-switch: if the rider has physically committed to one of the
+    /// current leg's alternatives — clearly OFF the active route AND ON an
+    /// alternative for `altSwitchConfirmFixes` consecutive fixes — swap
+    /// navigation onto that alternative (select it in the plan, reseed).
+    /// Returns true if a swap happened (caller returns early — the next
+    /// tick ingests against the new active route). Runs BEFORE the
+    /// off-route/reroute logic so an intentional fork is caught before a
+    /// reroute would fire. No-op when there are no alternatives.
+    private func maybeSwitchToAlternative(at coord: CLLocationCoordinate2D,
+                                          distFromActive: CLLocationDistance) async -> Bool {
+        guard !currentAlternatives.isEmpty,
+              let plan,
+              plan.legs.indices.contains(currentLegIndex) else { return false }
+
+        // Only consider a switch once the rider is meaningfully OFF the
+        // active route — otherwise overlapping geometry near a fork would
+        // ping-pong. One lane-width clears typical GPS jitter.
+        guard distFromActive > altSwitchProximityThreshold else {
+            altCommitStreak = [:]
+            return false
+        }
+
+        // Find the alternative the rider is closest to AND within the
+        // proximity threshold of.
+        var bestAlt: Int? = nil
+        var bestDist = altSwitchProximityThreshold
+        for (i, route) in currentAlternatives.enumerated() {
+            let (d, _) = PolylineMath.nearestSegment(on: route.polyline, from: 0, to: coord)
+            if d <= bestDist {
+                bestDist = d
+                bestAlt = i
+            }
+        }
+
+        guard let chosen = bestAlt else {
+            // Off the active route but not on any alternative — let the
+            // normal reroute path handle it. Clear streaks.
+            altCommitStreak = [:]
+            return false
+        }
+
+        // Confirm commitment across consecutive fixes; reset every other
+        // alt's streak so a wobble between two alts doesn't accumulate.
+        let streak = (altCommitStreak[chosen] ?? 0) + 1
+        altCommitStreak = [chosen: streak]
+        guard streak >= altSwitchConfirmFixes else { return false }
+
+        // Map the chosen alternative (index among NON-selected options)
+        // back to its absolute option index on the leg, then select it.
+        let leg = plan.legs[currentLegIndex]
+        let selIdx = leg.selectedOptionIndex
+        let nonSelected = leg.options.indices.filter { $0 != selIdx }
+        guard nonSelected.indices.contains(chosen) else { return false }
+        let newOptionIndex = nonSelected[chosen]
+        guard leg.options.indices.contains(newOptionIndex) else { return false }
+        let newRoute = leg.options[newOptionIndex].route
+        // Keep the leg's end waypoint as the destination — an alternative
+        // is just a different road to the SAME leg endpoint.
+        let dest = plan.waypoint(id: leg.toWaypointId)?.asDestination
+            ?? destination
+
+        log.info("Auto-switch: rider forked onto alternative \(chosen) of leg \(self.currentLegIndex + 1) — swapping active route")
+        plan.setSelectedOption(legIndex: currentLegIndex, optionIndex: newOptionIndex)
+        // Reseed the leg's display/geometry state to the new route, then
+        // fire the route-changed hook exactly like a reroute / leg-advance.
+        // seed() also calls refreshAlternatives(), so the OLD active route
+        // becomes one of the new alternatives automatically.
+        guard let dest else { return false }
+        seed(route: newRoute, destination: dest)
+        await onActiveRouteChanged?(newRoute)
+        return true
     }
 
     /// Append a fresh fix to the travelled breadcrumb, thinned so points
@@ -482,6 +610,11 @@ final class ActiveNavigator {
         // automatically once `legArrivalDate` is nil).
         etaRefreshTask?.cancel()
         etaRefreshTask = nil
+        // F3: drop any alternatives and notify so the dash clears the
+        // grey lines + ETA bubbles.
+        currentAlternatives = []
+        altCommitStreak = [:]
+        onAlternativesChanged?([])
         self.legArrivalDate = nil
         self.isOffRoute = false
         self.offRouteSince = nil
@@ -541,6 +674,15 @@ final class ActiveNavigator {
             currentCoord: coord
         )
         self.remainingDistance = remaining
+
+        // F3 auto-switch (Volba 2): if the rider has physically turned onto
+        // one of this leg's alternatives, swap navigation to it BEFORE any
+        // leg-advance / arrival / reroute logic. On a successful swap the
+        // active route (and alternatives) are replaced; return so the next
+        // fix ingests against the new route.
+        if await maybeSwitchToAlternative(at: coord, distFromActive: distFromRoute) {
+            return
+        }
 
         // Arm the "been under way" guard so a short route can't fire
         // arrival on its very first fix (where remaining may start small).

@@ -151,6 +151,14 @@ final class MapViewSource: NSObject, FrameSource {
     /// marks the origin and the destination reads from the line's end.
     private var waypointDots: [CLLocationCoordinate2D] = []
 
+    /// Alternative routes for the CURRENT leg, drawn thin/grey with an
+    /// ETA-delta bubble ("+5 min" / "similar"). The rider physically
+    /// turning onto one of these makes ActiveNavigator swap to it (see
+    /// `AlternativeRouteMonitor`). Empty when there are no alternatives or
+    /// the setting is off. NOT the same as `fullRouteCoords` (the active
+    /// route) — these are the roads NOT currently being navigated.
+    fileprivate var alternativeRoutes: [AlternativeRouteRender] = []
+
     /// Latest active-nav overlay state pushed in by ActiveNavLoop.
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
@@ -1026,6 +1034,35 @@ extension MapViewSource {
                           width: tw, height: th)
         drawImageUIKit(cg, in: rect, ctx: ctx)
 
+        // Alternative routes (thin grey), drawn BEFORE the active blue
+        // line so the active route always sits on top. Same Y-DOWN
+        // projection as the active line below. The ETA bubbles are drawn
+        // separately, upright, after restoreGState (see below).
+        if !alternativeRoutes.isEmpty {
+            let projAlt: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let px =  (c.longitude - centerLon) * pxPerDegLon
+                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(currentStyle.alternativeLineColor)
+            // Slightly thinner than the active route so it reads secondary.
+            ctx.setLineWidth((routeLineScreenPx - 1.5) / currentZoom)
+            for alt in alternativeRoutes {
+                guard alt.coords.count > 1 else { continue }
+                let ap = CGMutablePath()
+                var firstA = true
+                for c in alt.coords {
+                    let pt = projAlt(c)
+                    if firstA { ap.move(to: pt); firstA = false }
+                    else { ap.addLine(to: pt) }
+                }
+                ctx.addPath(ap)
+                ctx.strokePath()
+            }
+        }
+
         // Draw the route polyline in the same Y-DOWN coordinate space.
         // Off-corridor this still draws the (now-distant) route line so
         // the rider can see which way to get back to it. Uses the FULL
@@ -1085,6 +1122,13 @@ extension MapViewSource {
         drawSpeedCameras(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
                          pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+
+        // ETA-delta bubbles for the alternative routes — geo-anchored to
+        // each alt's `bubbleAnchor` but drawn upright + constant size in
+        // the flat outer ctx (same projection trick as the cameras).
+        drawAlternativeBubbles(into: ctx,
+                               centerLat: centerLat, centerLon: centerLon,
+                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
 
         // Draw user direction arrow in the center. The map is rotated
         // heading-up, so the arrow always points toward the top of the
@@ -1384,6 +1428,36 @@ extension MapViewSource {
     /// available, else the active-leg polyline (legacy / single-dest).
     fileprivate var routeDrawCoords: [CLLocationCoordinate2D] {
         fullRouteCoords.isEmpty ? routePolylineCoords : fullRouteCoords
+    }
+
+    /// Push the alternative routes for the current leg (thin grey lines +
+    /// ETA-delta bubbles). Pass an empty array to clear (no alternatives,
+    /// or the feature is off). Called from ActiveNavLoop / AppStatus as the
+    /// active leg's alternatives change.
+    func setAlternativeRoutes(_ alts: [AlternativeRouteRender]) {
+        alternativeRoutes = alts
+    }
+}
+
+/// A single alternative route to draw on the dash: its geometry plus a
+/// short ETA-delta label ("+5 min", "−2 min", "similar") and the anchor
+/// coordinate the bubble is pinned to (the fork point where it diverges
+/// from the active route reads best; the midpoint is a safe default).
+struct AlternativeRouteRender: Identifiable {
+    let id: UUID
+    /// Full coordinate list of this alternative.
+    let coords: [CLLocationCoordinate2D]
+    /// ETA delta vs the active route, seconds (positive = slower).
+    let etaDeltaSeconds: TimeInterval
+    /// Coordinate the ETA bubble is anchored to.
+    let bubbleAnchor: CLLocationCoordinate2D
+
+    /// "+5 min" / "−2 min" / "similar" (|delta| < 60 s reads "similar").
+    var etaDeltaLabel: String {
+        let mins = Int((etaDeltaSeconds / 60).rounded())
+        if abs(mins) < 1 { return "similar" }
+        let sign = mins > 0 ? "+" : "−"
+        return "\(sign)\(abs(mins)) min"
     }
 }
 
@@ -1854,6 +1928,73 @@ extension MapViewSource {
                          control2: CGPoint(x: s * 0.66, y: s * 0.86))
             ctx.strokePath()
         }
+    }
+
+    // MARK: Alternative-route ETA bubbles
+
+    /// Draw an ETA-delta bubble ("+5 min" / "similar") for each alternative
+    /// route, geo-anchored to its `bubbleAnchor` but rendered UPRIGHT and
+    /// constant-size in the flat outer ctx — same hand-rolled projection as
+    /// `drawSpeedCameras` (forward bias → heading rotation → zoom → geo
+    /// delta). Bubbles whose anchor projects off-frame are culled.
+    fileprivate func drawAlternativeBubbles(into ctx: CGContext,
+                                            centerLat: Double, centerLon: Double,
+                                            pxPerDegLon: Double, pxPerDegLat: Double) {
+        guard !alternativeRoutes.isEmpty else { return }
+        let theta = -lastHeading * .pi / 180.0
+        let cosT = cos(theta), sinT = sin(theta)
+        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
+        let anchorX = Double(frameSize.width) / 2
+        let anchorY = Double(frameSize.height) / 2 + biasPx
+        let z = Double(currentZoom)
+        let w = Double(frameSize.width), h = Double(frameSize.height)
+
+        for alt in alternativeRoutes {
+            let c = alt.bubbleAnchor
+            let dx = (c.longitude - centerLon) * pxPerDegLon
+            let dy = -(c.latitude - centerLat) * pxPerDegLat   // Y-DOWN
+            let zx = dx * z, zy = dy * z
+            let rx = zx * cosT - zy * sinT
+            let ry = zx * sinT + zy * cosT
+            let sx = anchorX + rx
+            let sy = anchorY + ry
+            guard sx > -80, sx < w + 80, sy > -32, sy < h + 32 else { continue }
+            drawEtaBubble(into: ctx, at: CGPoint(x: sx, y: sy), label: alt.etaDeltaLabel)
+        }
+    }
+
+    /// One upright rounded pill centred at `p` carrying the ETA-delta text.
+    private func drawEtaBubble(into ctx: CGContext, at p: CGPoint, label: String) {
+        let fontSize: CGFloat = 15
+        let ink = UIColor(cgColor: currentStyle.alternativeBubbleInk)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: ink,
+        ]
+        let attr = NSAttributedString(string: label, attributes: attrs)
+        let line = CTLineCreateWithAttributedString(attr)
+        let textBounds = CTLineGetImageBounds(line, ctx)
+        let padX: CGFloat = 9, padY: CGFloat = 5
+        let pillW = textBounds.width + padX * 2
+        let pillH = fontSize + padY * 2
+        let pill = CGRect(x: p.x - pillW / 2, y: p.y - pillH / 2,
+                          width: pillW, height: pillH)
+
+        ctx.saveGState()
+        // Pill background.
+        ctx.setFillColor(currentStyle.alternativeBubbleFill)
+        ctx.addPath(CGPath(roundedRect: pill, cornerWidth: pillH / 2,
+                           cornerHeight: pillH / 2, transform: nil))
+        ctx.fillPath()
+        // Text baseline-centred inside the pill. The outer buffer is
+        // Y-DOWN; flip locally so CoreText draws upright.
+        ctx.textMatrix = .identity
+        ctx.translateBy(x: p.x - textBounds.width / 2 - textBounds.minX,
+                        y: p.y + fontSize / 2 - 1)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
     }
 
     // MARK: Speed cameras
