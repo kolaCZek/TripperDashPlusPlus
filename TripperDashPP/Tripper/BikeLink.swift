@@ -129,6 +129,12 @@ final class BikeLink {
     /// normally before wiring (or in tests).
     var telemetryProvider: (@Sendable () async -> PhoneTelemetry)?
 
+    /// Called on the main actor for each decoded joystick / button event
+    /// from the dash (after the wire ack has been sent). AppStatus wires
+    /// this to drive map zoom etc. `nil` → events are still acked and
+    /// logged, just not routed anywhere (e.g. before wiring, or in tests).
+    var onButton: ((K1GPacket.DashButton) -> Void)?
+
     init() {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
@@ -239,6 +245,24 @@ final class BikeLink {
         guard state == .connected, let s = socket else { return }
         let g = K1GPacket.makeProjectionFrame(seq: seq.consume())
         try? await s.send(g)
+    }
+
+    /// Handle one decoded button event from the inbound loop: echo the
+    /// wire ack (fire-and-forget) so the firmware keeps sending events,
+    /// then route the recognised button to `onButton`. Unrecognised codes
+    /// are still acked (the dash asked for it) but not routed.
+    private func handleButton(code: UInt8) {
+        // Ack every code the dash sends, recognised or not — the ack is
+        // what keeps the event stream flowing on picky firmwares.
+        if let s = socket {
+            let ack = K1GPacket.makeButtonAck(code: code, seq: seq.consume())
+            Task { try? await s.send(ack) }
+        }
+        guard let button = K1GPacket.DashButton(code: code) else {
+            log.debug("RX button code 0x\(String(format: "%02X", code), privacy: .public) not mapped — acked only")
+            return
+        }
+        onButton?(button)
     }
 
     /// Tear down the nav projection. Call BEFORE stopping the RTP stream.
@@ -713,14 +737,13 @@ final class BikeLink {
                     // this loop exists during bring-up. Log them at INFO
                     // so they're visible in the default Xcode console.
                     if seg.type == 0x09 && seg.sub == 0x00 {
-                        let code: String
                         if seg.payload.count >= 3 {
                             let byte = seg.payload[seg.payload.index(seg.payload.startIndex, offsetBy: 2)]
-                            code = String(format: "%02X", byte)
+                            self.log.info("RX button: code=0x\(String(format: "%02X", byte), privacy: .public) (payload=\(seg.payload.hexString, privacy: .public))")
+                            self.handleButton(code: byte)
                         } else {
-                            code = "??"
+                            self.log.info("RX button: code=0x?? (payload=\(seg.payload.hexString, privacy: .public))")
                         }
-                        self.log.info("RX button: code=0x\(code, privacy: .public) (payload=\(seg.payload.hexString, privacy: .public))")
                     } else {
                         self.log.info("RX seg type=0x\(String(format: "%02X", seg.type), privacy: .public) sub=0x\(String(format: "%02X", seg.sub), privacy: .public) len=\(seg.payload.count)")
                     }
