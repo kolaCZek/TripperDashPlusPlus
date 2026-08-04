@@ -24,6 +24,7 @@ import math
 import pytest
 
 from tests.gpx_geometry_mirror import (
+    EDITABLE_LIST_THRESHOLD,
     NAVIGABLE_CAP,
     PROMPT_THRESHOLD_M,
     ParsedGPX,
@@ -230,9 +231,46 @@ class TestParsePriority:
             "</trkseg></trk>"
         )
         p = parse(gpx(body))
-        assert p.kind == "track"
+        # A sparse <rte> (2 pts) beats the track AND classifies as
+        # .waypoints (real stops → dash shows next-stop ETA).
+        assert p.kind == "waypoints"
         assert p.name == "Planned"
         assert p.raw_points[0].lat == pytest.approx(50.0)
+
+    def test_sparse_route_is_waypoints(self):
+        # A short <rte> = a list of real stops → .waypoints so the dash
+        # renders the "next stop + ETA" label (regression: a multi-stop
+        # imported GPX showed no next-waypoint ETA because <rte> was always
+        # classified .track — Martin, 2026-08).
+        body = "<rte>" + "".join(
+            f'<rtept lat="{50.0 + i*0.05}" lon="14.0"><name>Stop {i}</name></rtept>'
+            for i in range(8)
+        ) + "</rte>"
+        p = parse(gpx(body))
+        assert p.kind == "waypoints"
+        assert len(p.raw_points) == 8
+
+    def test_route_at_threshold_is_waypoints(self):
+        # Exactly EDITABLE_LIST_THRESHOLD points → still a stop list.
+        body = "<rte>" + "".join(
+            f'<rtept lat="{50.0 + i*0.01}" lon="14.0"/>'
+            for i in range(EDITABLE_LIST_THRESHOLD)
+        ) + "</rte>"
+        p = parse(gpx(body))
+        assert len(p.raw_points) == EDITABLE_LIST_THRESHOLD
+        assert p.kind == "waypoints"
+
+    def test_dense_route_is_track(self):
+        # More than the threshold → treated as a traced path (.track),
+        # same as a <trk>.
+        n = EDITABLE_LIST_THRESHOLD + 1
+        body = "<rte>" + "".join(
+            f'<rtept lat="{50.0 + i*0.001}" lon="14.0"/>'
+            for i in range(n)
+        ) + "</rte>"
+        p = parse(gpx(body))
+        assert len(p.raw_points) == n
+        assert p.kind == "track"
 
     def test_multiple_track_segments_concatenated(self):
         body = (

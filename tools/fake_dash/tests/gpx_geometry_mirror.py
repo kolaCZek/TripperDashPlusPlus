@@ -322,7 +322,11 @@ def parse(gpx_text: str, filename_fallback: Optional[str] = None) -> ParsedGPX:
     wpt_pts = _points_under(root, point_tag="wpt")
 
     if rte_pts:
-        kind, pts = "track", rte_pts
+        # Mirror GPXImporter: a sparse <rte> (<= threshold) is a stop list
+        # (.waypoints, dash shows next-stop ETA); a dense one is a traced
+        # path (.track). Count only — names are irrelevant.
+        kind = "waypoints" if len(rte_pts) <= EDITABLE_LIST_THRESHOLD else "track"
+        pts = rte_pts
     elif trk_pts:
         kind, pts = "track", trk_pts
     else:

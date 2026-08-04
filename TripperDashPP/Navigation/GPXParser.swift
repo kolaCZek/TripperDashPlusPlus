@@ -7,17 +7,20 @@
 //  ready for the library.
 //
 //  Extraction priority (a GPX file may contain several of these):
-//    1. <rte><rtept>   — an explicit planned route → RouteKind.track
+//    1. <rte><rtept>   — an explicit planned route. Classified by COUNT
+//                        (mirrors the planner's editableListThreshold):
+//                        ≤ threshold points → RouteKind.waypoints (real
+//                        stops, dash shows next-stop ETA); more → .track.
 //    2. <trk><trkseg><trkpt> — a recorded track (all segments
 //                        concatenated in document order) → .track
 //    3. <wpt>          — standalone waypoints → RouteKind.waypoints
 //
-//  Rationale for the priority: <rte>/<trk> describe an intended *path*
-//  (dense, ordered), so they navigate as a reduced via-point track.
-//  Bare <wpt>s are sparse named places the rider wants to pass through,
-//  so each is kept as a real stop. If a file has BOTH a track and loose
-//  waypoints, the track wins (it's the actual route); the waypoints are
-//  ignored to avoid mixing two unrelated geometries.
+//  Rationale for the priority: a dense <trk> (or a long <rte>) describes
+//  an intended *path*, so it navigates as a reduced via-point track. A
+//  sparse <rte> and bare <wpt>s are ordered places the rider wants to
+//  pass through, so each is kept as a real stop. If a file has BOTH a
+//  track and loose waypoints, the track wins (it's the actual route);
+//  the waypoints are ignored to avoid mixing two unrelated geometries.
 //
 //  The parser is deliberately tolerant: it reads `lat`/`lon` attributes
 //  regardless of element namespace prefix (matches on the local name),
@@ -114,10 +117,21 @@ enum GPXImporter {
         }
 
         // Priority: route points → track points → waypoints.
+        //
+        // `<rtept>` classification pivots on COUNT, mirroring the planner's
+        // stop-list threshold (`RoutePoint.editableListThreshold`): a sparse
+        // `<rte>` (≤ threshold points) is a list of real stops the rider
+        // wants ETAs to, so it's `.waypoints` (the dash then shows the
+        // "next stop + ETA" label — `.track` suppresses it). A dense `<rte>`
+        // (> threshold) is really a traced path, so it's `.track` like a
+        // `<trk>`. Point NAMES are irrelevant to the decision (Martin,
+        // 2026-08) — only the count, exactly as the planner does it.
         let kind: RouteKind
         let pts: [RoutePoint]
         if !delegate.routePoints.isEmpty {
-            kind = .track; pts = delegate.routePoints
+            kind = delegate.routePoints.count <= RoutePoint.editableListThreshold
+                ? .waypoints : .track
+            pts = delegate.routePoints
         } else if !delegate.trackPoints.isEmpty {
             kind = .track; pts = delegate.trackPoints
         } else {
