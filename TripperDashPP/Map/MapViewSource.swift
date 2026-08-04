@@ -321,11 +321,6 @@ final class MapViewSource: NSObject, FrameSource {
     /// tenkou černou linkou aby víc vynikla").
     private let routeCasingScreenPx: CGFloat = 4.0
 
-    /// On-screen radius (px) of the blue via-stop dots drawn on the route
-    /// line. Also divided by `currentZoom` at the draw site for constant
-    /// on-screen size. The casing ring adds `routeCasingScreenPx` on top.
-    private let waypointDotScreenPx: CGFloat = 6.0
-
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
     /// without PiP. AVAudioSession (SilentAudioKeeper) keeps the
@@ -1099,16 +1094,14 @@ extension MapViewSource {
             ctx.setStrokeColor(currentStyle.routeCasingColor)
             ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
             ctx.strokePath()
-            // 2. The blue route fill on top.
+            // 3. Blue route fill on top.
             ctx.addPath(path)
             ctx.setStrokeColor(currentStyle.routeLineColor)
             ctx.setLineWidth(lineW)
             ctx.strokePath()
-
-            // 3. Intermediate via-stop dots (blue disc + casing ring),
-            //    drawn upright + constant-size (undo the zoom scale so the
-            //    dot doesn't balloon at city zoom).
-            drawWaypointDots(into: ctx, project: project)
+            // Via-stop pins are NOT drawn here — they must be upright +
+            // constant-size, so they're rendered geo-anchored in the outer
+            // (un-rotated) ctx below, same as the speed cameras.
         }
 
         ctx.restoreGState()
@@ -1120,6 +1113,13 @@ extension MapViewSource {
         // position stays on top. Projection params captured from this
         // tile-cache frame above.
         drawSpeedCameras(into: ctx,
+                         centerLat: centerLat, centerLon: centerLon,
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+
+        // Via-stop waypoint pins — geo-anchored like the cameras but drawn
+        // upright + constant-size in the outer ctx so the pin glyph always
+        // stands vertical regardless of map rotation/zoom.
+        drawWaypointPins(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
                          pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
 
@@ -1186,26 +1186,83 @@ extension MapViewSource {
         ctx.restoreGState()
     }
 
-    /// Draw a blue dot (with a contrasting casing ring) at each
-    /// intermediate via-stop. Called from INSIDE the map's zoomed/rotated
-    /// CTM (so `project` maps geo→the same pixel space as the route line).
-    /// A circle is rotation-invariant, so the only correction needed for
-    /// constant on-screen size is dividing the radius by `currentZoom`.
+    /// Project each via-stop into the outer (un-rotated) Y-DOWN ctx and
+    /// draw an upright, constant-size map pin. Same geo→screen math as
+    /// `drawSpeedCameras` so the pin tip sits exactly on the route line.
     /// No-op when there are no via-stops (single-destination trips).
-    private func drawWaypointDots(into ctx: CGContext,
-                                  project: (CLLocationCoordinate2D) -> CGPoint) {
+    private func drawWaypointPins(into ctx: CGContext,
+                                  centerLat: Double, centerLon: Double,
+                                  pxPerDegLon: Double, pxPerDegLat: Double) {
         guard !waypointDots.isEmpty else { return }
-        let r  = waypointDotScreenPx / currentZoom
-        let rc = (waypointDotScreenPx + routeCasingScreenPx) / currentZoom
+        let theta = -lastHeading * .pi / 180.0
+        let cosT = cos(theta), sinT = sin(theta)
+        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
+        let anchorX = Double(frameSize.width) / 2
+        let anchorY = Double(frameSize.height) / 2 + biasPx
+        let z = Double(currentZoom)
+        let w = Double(frameSize.width), h = Double(frameSize.height)
         for wp in waypointDots {
-            let p = project(wp)
-            ctx.setFillColor(currentStyle.routeCasingColor)
-            ctx.fillEllipse(in: CGRect(x: p.x - rc, y: p.y - rc,
-                                       width: rc * 2, height: rc * 2))
-            ctx.setFillColor(currentStyle.waypointDotColor)
-            ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r,
-                                       width: r * 2, height: r * 2))
+            let dx = (wp.longitude - centerLon) * pxPerDegLon
+            let dy = -(wp.latitude - centerLat) * pxPerDegLat  // Y-DOWN
+            let zx = dx * z, zy = dy * z
+            let rx = zx * cosT - zy * sinT
+            let ry = zx * sinT + zy * cosT
+            let sx = anchorX + rx
+            let sy = anchorY + ry
+            // Cull off-frame pins (margin clears the pin body + tip).
+            guard sx > -24, sx < w + 24, sy > -40, sy < h + 12 else { continue }
+            drawWaypointPin(into: ctx, at: CGPoint(x: sx, y: sy))
         }
+    }
+
+    /// One upright map-pin marker whose TIP sits at `p` (Y-DOWN outer ctx):
+    /// a teardrop body (route-blue with a white outline) rising above the
+    /// anchor point, with a white centre hole. Constant on-screen size.
+    private func drawWaypointPin(into ctx: CGContext, at p: CGPoint) {
+        let fill = currentStyle.waypointDotColor
+        let outline = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        // Pin geometry (Y-DOWN): tip at p, body bulges upward (−y). A
+        // teardrop = a circle centred `bodyR` above the tip with two
+        // tangent lines running down to the tip.
+        let bodyR: CGFloat = 8      // radius of the round head
+        let tipDrop: CGFloat = 20   // distance from head centre down to tip
+        let cx = p.x
+        let cy = p.y - tipDrop      // head centre (above the tip)
+
+        // Teardrop outline path: start at tip, curve up the right side,
+        // around the head, down the left side back to the tip.
+        func teardrop(_ scale: CGFloat) -> CGPath {
+            let path = CGMutablePath()
+            let r = bodyR * scale
+            let ccy = p.y - tipDrop
+            // Tip
+            path.move(to: CGPoint(x: p.x, y: p.y))
+            // Right tangent up to the head, then arc over the top and down
+            // the left side back toward the tip.
+            path.addLine(to: CGPoint(x: cx + r, y: ccy + r * 0.35))
+            path.addArc(center: CGPoint(x: cx, y: ccy), radius: r,
+                        startAngle: -0.35, endAngle: .pi + 0.35, clockwise: false)
+            path.addLine(to: CGPoint(x: p.x, y: p.y))
+            path.closeSubpath()
+            return path
+        }
+
+        ctx.saveGState()
+        // White outline (slightly larger teardrop behind the fill).
+        ctx.addPath(teardrop(1.28))
+        ctx.setFillColor(outline)
+        ctx.fillPath()
+        // Blue body.
+        ctx.addPath(teardrop(1.0))
+        ctx.setFillColor(fill)
+        ctx.fillPath()
+        // White centre hole in the head.
+        ctx.setFillColor(outline)
+        let holeR: CGFloat = 3.2
+        ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR,
+                                   width: holeR * 2, height: holeR * 2))
+        ctx.restoreGState()
     }
 
     /// Speed → zoom mapping. Linear ramp from "close" at standstill to
@@ -1345,8 +1402,28 @@ extension MapViewSource {
         ctx.setStrokeColor(currentStyle.routeLineColor)
         ctx.setLineWidth(lineW)
         ctx.strokePath()
-        drawWaypointDots(into: ctx, project: project)
         ctx.restoreGState()
+
+        // Via-stop pins upright + constant-size in the OUTER ctx (after the
+        // rotated CTM is popped), same as the tile-cache path. Reproduce
+        // the rotate·scale·translate the CTM applied so the pin lands where
+        // the in-CTM line does, but draws vertical.
+        if !waypointDots.isEmpty {
+            let theta = -Double(lastHeading) * .pi / 180.0
+            let cosT = cos(theta), sinT = sin(theta)
+            let z = Double(currentZoom)
+            let anchorX = Double(frameSize.width) / 2
+            let anchorY = Double(frameSize.height) / 2 + Double(biasPx)
+            for wp in waypointDots {
+                let dxM =  (wp.longitude - centerLon) * mPerDegLon
+                let dyM = -(wp.latitude  - centerLat) * mPerDegLat  // Y-DOWN
+                let px = dxM / metersPerPx, py = dyM / metersPerPx
+                let zx = px * z, zy = py * z
+                let rx = zx * cosT - zy * sinT
+                let ry = zx * sinT + zy * cosT
+                drawWaypointPin(into: ctx, at: CGPoint(x: anchorX + rx, y: anchorY + ry))
+            }
+        }
 
         // User direction arrow in the centre (same chevron as the
         // tile-cache path; map is heading-up so arrow always points up).
