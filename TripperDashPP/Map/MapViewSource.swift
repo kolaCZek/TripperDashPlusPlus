@@ -136,6 +136,21 @@ final class MapViewSource: NSObject, FrameSource {
     private var routePolyline: MKPolyline?
     private var routePolylineCoords: [CLLocationCoordinate2D] = []
 
+    /// The ENTIRE multi-stop route geometry (every leg's selected option,
+    /// concatenated) drawn as the blue line on the dash. Set once at
+    /// navigation start (and refreshed on reroute) so the rider sees the
+    /// whole trip, not just the polyline up to the next waypoint. When
+    /// non-empty this is what the route-line draw uses; when empty the
+    /// draw falls back to `routePolylineCoords` (the active leg only), so
+    /// single-destination / legacy paths keep working unchanged.
+    private var fullRouteCoords: [CLLocationCoordinate2D] = []
+
+    /// Intermediate waypoint coordinates (via-stops between origin and
+    /// final destination) rendered as blue dots on top of the route line.
+    /// Origin and final destination are intentionally excluded — the puck
+    /// marks the origin and the destination reads from the line's end.
+    private var waypointDots: [CLLocationCoordinate2D] = []
+
     /// Latest active-nav overlay state pushed in by ActiveNavLoop.
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
@@ -289,6 +304,19 @@ final class MapViewSource: NSObject, FrameSource {
     /// the old fixed width 8 that rendered "as thick as the road" at city
     /// zoom, but with a clearer, more legible track.
     private let routeLineScreenPx: CGFloat = 7.0
+
+    /// On-screen width (px) of the dark/white casing stroked UNDER the
+    /// route line, EACH SIDE. Total casing width = routeLineScreenPx +
+    /// routeCasingScreenPx. Also divided by `currentZoom` at the draw site
+    /// so it stays constant on screen. 4.0 → ~2 px of casing peeking out
+    /// on each side of the blue line (rider feedback 2026-08: "obtáhnout
+    /// tenkou černou linkou aby víc vynikla").
+    private let routeCasingScreenPx: CGFloat = 4.0
+
+    /// On-screen radius (px) of the blue via-stop dots drawn on the route
+    /// line. Also divided by `currentZoom` at the draw site for constant
+    /// on-screen size. The casing ring adds `routeCasingScreenPx` on top.
+    private let waypointDotScreenPx: CGFloat = 6.0
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
@@ -1000,31 +1028,50 @@ extension MapViewSource {
 
         // Draw the route polyline in the same Y-DOWN coordinate space.
         // Off-corridor this still draws the (now-distant) route line so
-        // the rider can see which way to get back to it.
-        if !routePolylineCoords.isEmpty {
-            ctx.setStrokeColor(CGColor(red: 0.0, green: 0.48, blue: 1.0, alpha: 0.85))
+        // the rider can see which way to get back to it. Uses the FULL
+        // trip geometry when available (setFullRoute) so the line spans
+        // the whole route, not just the leg up to the next waypoint.
+        let drawCoords = routeDrawCoords
+        if !drawCoords.isEmpty {
+            // Project a coord into this frame's Y-DOWN pixel space.
+            let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let px =  (c.longitude - centerLon) * pxPerDegLon
+                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+            }
+            // Build the path once, reuse for casing + fill.
+            let path = CGMutablePath()
+            var first = true
+            for c in drawCoords {
+                let pt = project(c)
+                if first { path.move(to: pt); first = false }
+                else { path.addLine(to: pt) }
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
             // The line is stroked INSIDE the currentZoom scale, so a fixed
             // lineWidth would grow with zoom (a city-zoom 2.9× made it as
             // thick as a road — rider feedback 6/2026). Divide by zoom so
-            // the route reads at a constant ~5 px on screen regardless of
+            // the route reads at a constant on-screen width regardless of
             // zoom level.
-            ctx.setLineWidth(routeLineScreenPx / currentZoom)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.beginPath()
-            var first = true
-            for c in routePolylineCoords {
-                let dx =  (c.longitude - centerLon) * pxPerDegLon
-                let dy = -(c.latitude  - centerLat) * pxPerDegLat       // Y-DOWN: north = -y
-                let pt = CGPoint(x: CGFloat(dx), y: CGFloat(dy))
-                if first {
-                    ctx.move(to: pt)
-                    first = false
-                } else {
-                    ctx.addLine(to: pt)
-                }
-            }
+            let lineW = routeLineScreenPx / currentZoom
+            // 1. Casing UNDER the line — dark on Light, white on Dark —
+            //    so the blue route pops against busy map content (rider
+            //    feedback 2026-08). ~4 px wider on screen than the fill.
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeCasingColor)
+            ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
             ctx.strokePath()
+            // 2. The blue route fill on top.
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeLineColor)
+            ctx.setLineWidth(lineW)
+            ctx.strokePath()
+
+            // 3. Intermediate via-stop dots (blue disc + casing ring),
+            //    drawn upright + constant-size (undo the zoom scale so the
+            //    dot doesn't balloon at city zoom).
+            drawWaypointDots(into: ctx, project: project)
         }
 
         ctx.restoreGState()
@@ -1093,6 +1140,28 @@ extension MapViewSource {
         ctx.fillPath()
 
         ctx.restoreGState()
+    }
+
+    /// Draw a blue dot (with a contrasting casing ring) at each
+    /// intermediate via-stop. Called from INSIDE the map's zoomed/rotated
+    /// CTM (so `project` maps geo→the same pixel space as the route line).
+    /// A circle is rotation-invariant, so the only correction needed for
+    /// constant on-screen size is dividing the radius by `currentZoom`.
+    /// No-op when there are no via-stops (single-destination trips).
+    private func drawWaypointDots(into ctx: CGContext,
+                                  project: (CLLocationCoordinate2D) -> CGPoint) {
+        guard !waypointDots.isEmpty else { return }
+        let r  = waypointDotScreenPx / currentZoom
+        let rc = (waypointDotScreenPx + routeCasingScreenPx) / currentZoom
+        for wp in waypointDots {
+            let p = project(wp)
+            ctx.setFillColor(currentStyle.routeCasingColor)
+            ctx.fillEllipse(in: CGRect(x: p.x - rc, y: p.y - rc,
+                                       width: rc * 2, height: rc * 2))
+            ctx.setFillColor(currentStyle.waypointDotColor)
+            ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r,
+                                       width: r * 2, height: r * 2))
+        }
     }
 
     /// Speed → zoom mapping. Linear ramp from "close" at standstill to
@@ -1183,7 +1252,7 @@ extension MapViewSource {
         ctx.setFillColor(currentStyle.vectorBackground)
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
-        guard let fix = lastFix, !routePolylineCoords.isEmpty else {
+        guard let fix = lastFix, !routeDrawCoords.isEmpty else {
             // Nothing useful to draw.
             return
         }
@@ -1203,27 +1272,36 @@ extension MapViewSource {
         ctx.rotate(by: -lastHeading * .pi / 180)
         ctx.scaleBy(x: currentZoom, y: currentZoom)
 
-        ctx.setStrokeColor(CGColor(red: 0.0, green: 0.78, blue: 1.0, alpha: 0.95))
-        // Constant on-screen thickness regardless of zoom (see the tile
-        // path's note). Divide by currentZoom since we stroke inside the
-        // zoom scale.
-        ctx.setLineWidth(routeLineScreenPx / currentZoom)
+        // Project a coord into this frame's Y-DOWN pixel space (meters/px).
+        let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+            let dxM =  (c.longitude - centerLon) * mPerDegLon
+            let dyM = -(c.latitude  - centerLat) * mPerDegLat   // Y-DOWN
+            return CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
+        }
+        // Build the full route path once, reuse for casing + fill.
+        let path = CGMutablePath()
+        var first = true
+        for c in routeDrawCoords {
+            let pt = project(c)
+            if first { path.move(to: pt); first = false }
+            else { path.addLine(to: pt) }
+        }
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
-        ctx.beginPath()
-        var first = true
-        for c in routePolylineCoords {
-            let dxM =  (c.longitude - centerLon) * mPerDegLon
-            let dyM = -(c.latitude  - centerLat) * mPerDegLat       // Y-DOWN: north = -y
-            let pt = CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
-            if first {
-                ctx.move(to: pt)
-                first = false
-            } else {
-                ctx.addLine(to: pt)
-            }
-        }
+        // Constant on-screen thickness regardless of zoom (see the tile
+        // path's note). Divide by currentZoom since we stroke inside the
+        // zoom scale. Casing under the blue line + via-stop dots, matching
+        // the tile-cache path.
+        let lineW = routeLineScreenPx / currentZoom
+        ctx.addPath(path)
+        ctx.setStrokeColor(currentStyle.routeCasingColor)
+        ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
         ctx.strokePath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(currentStyle.routeLineColor)
+        ctx.setLineWidth(lineW)
+        ctx.strokePath()
+        drawWaypointDots(into: ctx, project: project)
         ctx.restoreGState()
 
         // User direction arrow in the centre (same chevron as the
@@ -1287,6 +1365,25 @@ extension MapViewSource {
         } else {
             routePolylineCoords = []
         }
+    }
+
+    /// Push the ENTIRE trip geometry + the intermediate via-stops so the
+    /// dash shows the whole planned route (not just the leg up to the next
+    /// waypoint) with a blue dot at each via-stop. Pass `full` = the
+    /// concatenated coordinates of every leg's selected option, and
+    /// `waypoints` = the intermediate stops only (exclude origin + final
+    /// destination). Pass empty arrays to clear (single-destination /
+    /// legacy paths fall back to `routePolylineCoords`).
+    func setFullRoute(coords full: [CLLocationCoordinate2D],
+                      waypoints: [CLLocationCoordinate2D]) {
+        fullRouteCoords = full
+        waypointDots = waypoints
+    }
+
+    /// The coordinates the route-line draw should stroke: the full trip if
+    /// available, else the active-leg polyline (legacy / single-dest).
+    fileprivate var routeDrawCoords: [CLLocationCoordinate2D] {
+        fullRouteCoords.isEmpty ? routePolylineCoords : fullRouteCoords
     }
 }
 
