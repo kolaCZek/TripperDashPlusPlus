@@ -1210,56 +1210,66 @@ extension MapViewSource {
             let sx = anchorX + rx
             let sy = anchorY + ry
             // Cull off-frame pins (margin clears the pin body + tip).
-            guard sx > -24, sx < w + 24, sy > -40, sy < h + 12 else { continue }
+            guard sx > -28, sx < w + 28, sy > -48, sy < h + 16 else { continue }
             drawWaypointPin(into: ctx, at: CGPoint(x: sx, y: sy))
         }
     }
 
     /// One upright map-pin marker whose TIP sits at `p` (Y-DOWN outer ctx):
-    /// a round head sitting above the anchor with a triangular spike down to
-    /// the tip, route-blue with a white outline and a white centre hole.
-    /// Constant on-screen size. Built from two simple filled primitives
-    /// (circle + triangle) rather than a hand-rolled teardrop arc path,
-    /// which rendered as a broken "V" glyph (rider feedback 2026-08).
+    /// a round head above the anchor with a spike down to the tip whose
+    /// sides are TANGENT to the head, so it reads as a clean teardrop
+    /// (rider reference 2026-08). Route-blue with a white outline and a
+    /// white centre hole. Constant on-screen size. Built from a filled
+    /// circle + a filled tangent triangle (both always closed/filled) —
+    /// the earlier hand-rolled arc path rendered as a broken "V".
     private func drawWaypointPin(into ctx: CGContext, at p: CGPoint) {
         let fill = currentStyle.waypointDotColor
         let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
 
         // Geometry (Y-DOWN: tip at p, head bulges UP = smaller y).
-        let headR: CGFloat = 8       // head radius
-        let tipDrop: CGFloat = 22    // tip is this far below the head centre
+        let headR: CGFloat = 10      // head radius (enlarged per feedback)
+        let tipDrop: CGFloat = 27    // tip is this far below the head centre
         let cx = p.x
         let cy = p.y - tipDrop       // head centre, above the tip
 
-        // Triangular spike: from the tip up to two points on the lower rim
-        // of the head. Half-width set so the spike blends flush into the
-        // circle (slightly less than the radius).
-        let spikeHalfW: CGFloat = headR * 0.62
-        func spike(_ grow: CGFloat) -> CGPath {
+        // Build the pin shape for a given head radius `r` (the tip stays at
+        // `p`). The spike is the triangle from the tip to the two points
+        // where lines from the tip are TANGENT to the head circle — this is
+        // what makes the spike flow smoothly into the head instead of
+        // cutting a flat chord. Tangent contact angle from the tip→centre
+        // (straight-up) direction is acos(r/d).
+        func pinPath(_ r: CGFloat) -> CGPath {
+            let d = tipDrop                         // tip→centre distance
             let path = CGMutablePath()
-            path.move(to: CGPoint(x: p.x, y: p.y + grow))                 // tip
-            path.addLine(to: CGPoint(x: cx - spikeHalfW - grow, y: cy))   // left rim
-            path.addLine(to: CGPoint(x: cx + spikeHalfW + grow, y: cy))   // right rim
-            path.closeSubpath()
+            // Head circle.
+            path.addEllipse(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2))
+            // Tangent spike (skip if geometry degenerates, r >= d).
+            if d > r {
+                let a = acos(r / d)                 // angle at centre to each contact pt
+                let sinA = sin(a), cosA = cos(a)
+                // Contact points on the LOWER arc (cos positive = below centre).
+                let lx = cx - r * sinA, rx = cx + r * sinA
+                let cyC = cy + r * cosA
+                path.move(to: CGPoint(x: p.x, y: p.y))   // tip
+                path.addLine(to: CGPoint(x: lx, y: cyC)) // left tangent contact
+                path.addLine(to: CGPoint(x: rx, y: cyC)) // right tangent contact
+                path.closeSubpath()
+            }
             return path
         }
 
         ctx.saveGState()
-        // 1. White outline: a slightly larger head + spike behind the fill.
+        // 1. White outline: the same shape, 2 px larger head, drawn behind.
         ctx.setFillColor(white)
-        ctx.addPath(spike(2))
+        ctx.addPath(pinPath(headR + 2))
         ctx.fillPath()
-        ctx.fillEllipse(in: CGRect(x: cx - headR - 2, y: cy - headR - 2,
-                                   width: (headR + 2) * 2, height: (headR + 2) * 2))
-        // 2. Blue fill: head + spike.
+        // 2. Blue fill.
         ctx.setFillColor(fill)
-        ctx.addPath(spike(0))
+        ctx.addPath(pinPath(headR))
         ctx.fillPath()
-        ctx.fillEllipse(in: CGRect(x: cx - headR, y: cy - headR,
-                                   width: headR * 2, height: headR * 2))
         // 3. White centre hole in the head.
         ctx.setFillColor(white)
-        let holeR: CGFloat = 3.2
+        let holeR: CGFloat = 4.0
         ctx.fillEllipse(in: CGRect(x: cx - holeR, y: cy - holeR,
                                    width: holeR * 2, height: holeR * 2))
         ctx.restoreGState()
