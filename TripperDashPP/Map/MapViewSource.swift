@@ -1207,11 +1207,11 @@ extension MapViewSource {
             let zx = dx * z, zy = dy * z
             let rx = zx * cosT - zy * sinT
             let ry = zx * sinT + zy * cosT
-            let sx = anchorX + rx
-            let sy = anchorY + ry
+            let px = anchorX + rx
+            let py = anchorY + ry
             // Cull off-frame pins (margin clears the pin body + tip).
-            guard sx > -28, sx < w + 28, sy > -48, sy < h + 16 else { continue }
-            drawWaypointPin(into: ctx, at: CGPoint(x: sx, y: sy))
+            guard px > -28, px < w + 28, py > -48, py < h + 16 else { continue }
+            drawWaypointPin(into: ctx, at: CGPoint(x: px, y: py))
         }
     }
 
