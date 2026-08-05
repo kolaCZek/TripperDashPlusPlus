@@ -107,6 +107,12 @@ final class AppStatus {
     private let audioKeeper = SilentAudioKeeper()
     private var wakelockToken: UUID?
 
+    /// Spoken turn-by-turn guidance. Shares the one AVAudioSession owned by
+    /// `audioKeeper` (it only flips ducking, never deactivates the session),
+    /// so voice prompts and the wakelock's silent loop coexist. Held for the
+    /// app's lifetime; only actually speaks while `dashNavSettings.voiceEnabled`.
+    let voiceNavigator = VoiceNavigator()
+
     init() {
         // The trip computer shares the one LocationService (already
         // initialised as an inline stored property). Assigned here rather
@@ -252,8 +258,13 @@ final class AppStatus {
             bikeLink: bikeLink,
             navigator: activeNavigator,
             mapSource: mapViewSource,
-            settings: dashNavSettings
+            settings: dashNavSettings,
+            voice: voiceNavigator
         )
+        // Keep the synth's cheap enable gate in sync with the setting so a
+        // stale prompt can't slip out between ticks after the rider toggles
+        // voice off. The loop also re-checks the flag each tick.
+        voiceNavigator.enabled = dashNavSettings.voiceEnabled
         loop.start()
         activeNavLoop = loop
         rideStats.begin()   // start folding GPS fixes into the trip computer
@@ -267,6 +278,11 @@ final class AppStatus {
         let link = bikeLink
         activeNavLoop?.stop()
         activeNavLoop = nil
+        // Silence spoken guidance on teardown. On a MANUAL stop this cuts any
+        // prompt mid-sentence (rider ended the ride — no reason to keep
+        // talking). On ARRIVAL, onArrived speaks its confirmation AFTER this
+        // returns, so the arrival line is not lost.
+        voiceNavigator.stop()
         Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
@@ -573,6 +589,15 @@ final class AppStatus {
             self.activeNavigator.onActiveRouteChanged = nil
             self.stagedDestination = nil
             self.plannedRoute = nil
+            // Spoken arrival confirmation. Fired AFTER stopStreaming (above)
+            // has torn down the ActiveNavLoop — a fresh utterance re-arms the
+            // shared audio session's duck, so it is not clipped by the loop's
+            // teardown. Gated on the voice setting like every other prompt.
+            if self.dashNavSettings.voiceEnabled {
+                let lang = self.dashNavSettings.voiceLanguage
+                self.voiceNavigator.speak(VoicePhrase.arrived(lang),
+                                          language: lang.rawValue, priority: .critical)
+            }
         }
     }
 

@@ -206,6 +206,31 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Voice guidance: speak turn-by-turn maneuver prompts through the
+    /// phone speaker / connected headset while navigating. Offline
+    /// (`AVSpeechSynthesizer`), keyless. Defaults OFF so a rider who
+    /// doesn't want spoken cues (or has no intercom) never gets surprised
+    /// by audio — they opt in. When OFF, `VoiceNavigator` is never asked to
+    /// speak and its audio-session ducking never engages.
+    var voiceEnabled: Bool = false {
+        didSet { persist() }
+    }
+
+    /// Language for spoken guidance. Defaults to Czech (the primary rider's
+    /// language); switchable to English. Drives `AVSpeechSynthesisVoice`.
+    var voiceLanguage: VoiceLanguage = .czech {
+        didSet { persist() }
+    }
+
+    /// Also speak a chime/prompt when approaching a speed camera. Gated
+    /// additionally on `speedCamerasEnabled` (no cameras loaded → nothing to
+    /// announce) and on `voiceEnabled`. Defaults ON — a rider who turned
+    /// voice on generally wants the safety callout too. This is the
+    /// previously-deferred camera chime (see the note on `speedCamerasEnabled`).
+    var voiceSpeedCameraEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     /// When to show the posted-speed-limit traffic sign. Defaults to
     /// `.always` — most riders want the current limit visible at a glance.
     /// `.off` skips the Overpass fetch entirely.
@@ -373,7 +398,7 @@ final class DashNavSettings {
     // (message notify ON, call-state card ON, lookahead ON, threshold 300 m).
     // Phone-status telemetry is no longer a setting — it's always reported
     // (a dropped `deviceTelemetryEnabled` key in an old blob is simply ignored).
-    private static let storeKey = "dashNavSettings.v8"
+    private static let storeKey = "dashNavSettings.v9"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -391,6 +416,9 @@ final class DashNavSettings {
         var speedCamerasEnabled: Bool?
         var speedLimitDisplay: SpeedLimitDisplay?
         var speedLimitOverToleranceKmh: Double?
+        var voiceEnabled: Bool?
+        var voiceLanguage: VoiceLanguage?
+        var voiceSpeedCameraEnabled: Bool?
     }
 
     init() {
@@ -413,6 +441,9 @@ final class DashNavSettings {
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
         self.speedLimitDisplay = p.speedLimitDisplay ?? .always
         self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
+        self.voiceEnabled = p.voiceEnabled ?? false
+        self.voiceLanguage = p.voiceLanguage ?? .czech
+        self.voiceSpeedCameraEnabled = p.voiceSpeedCameraEnabled ?? true
     }
 
     private func persist() {
@@ -428,7 +459,10 @@ final class DashNavSettings {
             weatherAlertsEnabled: weatherAlertsEnabled,
             speedCamerasEnabled: speedCamerasEnabled,
             speedLimitDisplay: speedLimitDisplay,
-            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh
+            speedLimitOverToleranceKmh: speedLimitOverToleranceKmh,
+            voiceEnabled: voiceEnabled,
+            voiceLanguage: voiceLanguage,
+            voiceSpeedCameraEnabled: voiceSpeedCameraEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

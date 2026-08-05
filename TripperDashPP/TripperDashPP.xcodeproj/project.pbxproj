@@ -90,10 +90,15 @@
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
 		7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A8 /* NextWaypointLabelTests.swift */; };
+		A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */; };
+		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
 		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
 		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
+		A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E001 /* VoiceNavigator.swift */; };
+		A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E002 /* VoicePhrase.swift */; };
+		A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -183,10 +188,15 @@
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A8 /* NextWaypointLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWaypointLabelTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhraseTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E001 /* VoiceNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNavigator.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E002 /* VoicePhrase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhrase.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptScheduler.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -252,6 +262,7 @@
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
 				A4B6F0002FE6000000AA36C3 /* LocationService.swift */,
 				A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */,
+				A4F0FFFF000000000000E001 /* VoiceNavigator.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -340,6 +351,8 @@
 				FE70000000000000000000A0 /* GPXParser.swift */,
 				FE70000000000000000000B0 /* SavedRoutesStore.swift */,
 				FE70000000000000000000C0 /* RouteStartPlanner.swift */,
+				A4F0FFFF000000000000E002 /* VoicePhrase.swift */,
+				A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */,
 			);
 			path = Navigation;
 			sourceTree = "<group>";
@@ -395,6 +408,8 @@
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
+				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
+				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -605,6 +620,9 @@
 				FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */,
 				7E5700000000000000000A62 /* GPXExporter.swift in Sources */,
 				7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */,
+				A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */,
+				A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */,
+				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -617,6 +635,8 @@
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
+				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
+				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

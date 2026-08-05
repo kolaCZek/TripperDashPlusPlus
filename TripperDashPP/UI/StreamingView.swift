@@ -88,6 +88,45 @@ struct StreamingView: View {
                 }
             }
 
+            Section("Voice guidance") {
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.voiceEnabled },
+                    set: {
+                        status.dashNavSettings.voiceEnabled = $0
+                        // Keep the synth's cheap gate in lock-step so a
+                        // just-toggled-off setting silences the next prompt
+                        // immediately, and toggling off mid-ride stops any
+                        // sentence in flight.
+                        status.voiceNavigator.enabled = $0
+                        if !$0 { status.voiceNavigator.stop() }
+                    }
+                )) {
+                    Text("Spoken turn-by-turn")
+                }
+
+                if status.dashNavSettings.voiceEnabled {
+                    Picker("Language", selection: Binding(
+                        get: { status.dashNavSettings.voiceLanguage },
+                        set: { status.dashNavSettings.voiceLanguage = $0 }
+                    )) {
+                        ForEach(VoiceLanguage.allCases) { l in
+                            Text(l.label).tag(l)
+                        }
+                    }
+
+                    Toggle(isOn: Binding(
+                        get: { status.dashNavSettings.voiceSpeedCameraEnabled },
+                        set: { status.dashNavSettings.voiceSpeedCameraEnabled = $0 }
+                    )) {
+                        Text("Speak speed-camera alerts")
+                    }
+                }
+
+                Text("Announces upcoming turns through your phone speaker or a paired Bluetooth headset. Offline — no account or data needed. Music and podcasts duck briefly during each prompt.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Notifications") {
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.callStateEnabled },
