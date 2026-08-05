@@ -38,12 +38,19 @@ class ZoomBias:
     bias: float = 1.0
     last_nudge: float | None = None  # monotonic seconds, None = neutral/idle
 
-    def nudge(self, zoom_in: bool, now: float) -> None:
+    def nudge(self, zoom_in: bool, now: float) -> bool:
         """RIGHT (zoom_in=True) multiplies the bias up, LEFT divides it
-        down; result is clamped and the auto-revert timer is reset."""
+        down; result is clamped and the auto-revert timer is reset.
+
+        Returns True when the press was AT THE LIMIT — the clamp swallowed
+        the whole step so the bias didn't move. Mirrors the `atLimit` flag
+        `applyZoomButton` stores on `zoomOsd` to flash the blocked glyph.
+        """
         factor = ZOOM_BIAS_STEP if zoom_in else 1.0 / ZOOM_BIAS_STEP
+        before = self.bias
         self.bias = _clamp(self.bias * factor, ZOOM_BIAS_MIN, ZOOM_BIAS_MAX)
         self.last_nudge = now
+        return abs(self.bias - before) < 1e-6
 
     def decay(self, now: float) -> None:
         """Ease the bias back toward 1.0 once the hold window elapses.

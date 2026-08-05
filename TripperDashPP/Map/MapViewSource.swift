@@ -387,20 +387,31 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// A transient on-screen zoom indicator ("＋" / "－"), shown for a
     /// moment after a manual nudge so the rider gets feedback that the
-    /// press registered. `nil` = nothing to draw.
-    private(set) var zoomOsd: (symbol: String, until: Date)?
+    /// press registered. `atLimit` marks a press that couldn't move the
+    /// bias any further (already at the min/max clamp) so the OSD can draw
+    /// a "blocked" glyph instead. `nil` = nothing to draw.
+    private(set) var zoomOsd: (symbol: String, until: Date, atLimit: Bool)?
 
     /// Apply a manual zoom nudge from the dash joystick. `zoomIn` true =
     /// RIGHT (magnify), false = LEFT (widen). Bumps the bias one step,
-    /// clamps it, resets the auto-revert timer, and flashes the OSD.
+    /// clamps it, resets the auto-revert timer, and flashes the OSD. When
+    /// the bias is already pinned at the clamp and the rider keeps pressing
+    /// in the same direction, the OSD flashes a "blocked" glyph so it's
+    /// clear the zoom can't go any further.
     /// Called on the main actor from AppStatus's button hook.
     func applyZoomButton(zoomIn: Bool) {
         let factor = zoomIn ? zoomBiasStep : 1.0 / zoomBiasStep
+        let before = userZoomBias
         userZoomBias = min(max(userZoomBias * factor, zoomBiasRange.lowerBound),
                            zoomBiasRange.upperBound)
+        // If the clamp swallowed the whole step, we were already at the
+        // limit — the press did nothing to the zoom. Use a small epsilon
+        // to absorb floating-point noise from the multiply.
+        let atLimit = abs(userZoomBias - before) < 1e-6
         lastZoomBiasNudge = Date()
         zoomOsd = (symbol: zoomIn ? "＋" : "－",
-                   until: Date().addingTimeInterval(1.2))
+                   until: Date().addingTimeInterval(1.2),
+                   atLimit: atLimit)
     }
 
     /// Ease the manual bias back toward 1.0 once the rider has stopped
@@ -1435,16 +1446,22 @@ extension MapViewSource {
             return
         }
         let isPlus = osd.symbol == "＋"
+        let atLimit = osd.atLimit
         let r: CGFloat = 15
         let cx: CGFloat = r + 10
         let cy: CGFloat = frameSize.height - r - 10   // bottom-left (Y-DOWN)
 
-        // Dark translucent disc with a thin white ring for contrast on
-        // both light and dark map palettes.
+        // Dark translucent disc with a thin ring for contrast on both light
+        // and dark map palettes. At the zoom limit the ring goes red so the
+        // "can't go further" state reads at a glance even before the eye
+        // resolves the slash.
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
         ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
-        ctx.setLineWidth(1.5)
+        let ringColor = atLimit
+            ? CGColor(red: 1.0, green: 0.32, blue: 0.28, alpha: 0.95)   // red
+            : CGColor(red: 1, green: 1, blue: 1, alpha: 0.9)
+        ctx.setStrokeColor(ringColor)
+        ctx.setLineWidth(atLimit ? 2.2 : 1.5)
         ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
 
         // White glyph bars.
@@ -1458,6 +1475,20 @@ extension MapViewSource {
             // Vertical bar completes the "+".
             ctx.fill(CGRect(x: cx - barThick / 2, y: cy - barLen / 2,
                             width: barThick, height: barLen))
+        }
+
+        // At the limit, overlay a diagonal "prohibited" slash across the
+        // glyph — the universal "no / blocked" affordance — so the rider
+        // sees the zoom won't go any further even though the press was
+        // registered. Drawn last so it sits on top of the +/− bars.
+        if atLimit {
+            let d = r * 0.72   // slash half-length inside the disc
+            ctx.setStrokeColor(CGColor(red: 1.0, green: 0.32, blue: 0.28, alpha: 1.0))
+            ctx.setLineCap(.round)
+            ctx.setLineWidth(3.0)
+            ctx.move(to: CGPoint(x: cx - d, y: cy - d))
+            ctx.addLine(to: CGPoint(x: cx + d, y: cy + d))
+            ctx.strokePath()
         }
     }
 

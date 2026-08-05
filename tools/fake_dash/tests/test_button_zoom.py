@@ -146,3 +146,43 @@ def test_decay_noop_when_neutral():
     z.decay(now=1000.0)             # never nudged
     assert z.bias == 1.0
     assert z.last_nudge is None
+
+
+# --- Zoom bias: at-limit feedback (blocked OSD glyph) ------------------
+
+def test_nudge_reports_not_at_limit_when_bias_moves():
+    z = ZoomBias()
+    assert z.nudge(zoom_in=True, now=0.0) is False   # room to grow
+    assert z.nudge(zoom_in=False, now=1.0) is False  # room to shrink
+
+
+def test_nudge_reports_at_limit_at_max():
+    z = ZoomBias()
+    at_limit = False
+    for i in range(50):
+        at_limit = z.nudge(zoom_in=True, now=float(i))
+    assert z.bias == ZOOM_BIAS_MAX
+    assert at_limit is True          # pressing further does nothing
+
+
+def test_nudge_reports_at_limit_at_min():
+    z = ZoomBias()
+    at_limit = False
+    for i in range(50):
+        at_limit = z.nudge(zoom_in=False, now=float(i))
+    assert z.bias == ZOOM_BIAS_MIN
+    assert at_limit is True
+
+
+def test_swift_zoom_osd_flags_at_limit():
+    """MapViewSource must detect a clamp-swallowed press and store the
+    atLimit flag on zoomOsd so drawZoomOsd can flash the blocked glyph."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[3]
+    src = (root / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    assert "atLimit: Bool)?" in src, "zoomOsd must carry an atLimit flag"
+    assert "let atLimit = abs(userZoomBias - before) < 1e-6" in src, (
+        "applyZoomButton must set atLimit when the clamp swallows the step"
+    )
+    # drawZoomOsd must render a distinct blocked state (red + slash).
+    assert "if atLimit {" in src, "drawZoomOsd must branch on atLimit"
