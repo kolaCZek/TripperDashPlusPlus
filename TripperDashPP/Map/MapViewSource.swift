@@ -1267,7 +1267,11 @@ extension MapViewSource {
             ctx.setLineJoin(.round)
             ctx.setStrokeColor(currentStyle.alternativeLineColor)
             // Slightly thinner than the active route so it reads secondary.
-            ctx.setLineWidth((routeLineScreenPx - 1.5) / currentZoom)
+            // Divide by drawZoom (= currentZoom × layerScale) — the stroke
+            // is inside the layer-compensated scale, so using currentZoom
+            // alone would make the line layerScale× too thick on the coarse
+            // layer (an 8× blue blob) and too thin on fine.
+            ctx.setLineWidth((routeLineScreenPx - 1.5) / drawZoom)
             for alt in alternativeRoutes {
                 guard alt.coords.count > 1 else { continue }
                 let ap = CGMutablePath()
@@ -1305,18 +1309,19 @@ extension MapViewSource {
             }
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
-            // The line is stroked INSIDE the currentZoom scale, so a fixed
-            // lineWidth would grow with zoom (a city-zoom 2.9× made it as
-            // thick as a road — rider feedback 6/2026). Divide by zoom so
-            // the route reads at a constant on-screen width regardless of
-            // zoom level.
-            let lineW = routeLineScreenPx / currentZoom
+            // The line is stroked INSIDE the drawZoom scale (currentZoom ×
+            // layerScale), so the width must divide by drawZoom, not just
+            // currentZoom — otherwise on the coarse layer (layerScale 8) the
+            // route rendered as a giant blue blob covering the map, and on
+            // fine it vanished. Divide by drawZoom for a constant on-screen
+            // width regardless of zoom AND which quality layer is active.
+            let lineW = routeLineScreenPx / drawZoom
             // 1. Casing UNDER the line — dark on Light, white on Dark —
             //    so the blue route pops against busy map content (rider
             //    feedback 2026-08). ~4 px wider on screen than the fill.
             ctx.addPath(path)
             ctx.setStrokeColor(currentStyle.routeCasingColor)
-            ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
+            ctx.setLineWidth(lineW + routeCasingScreenPx / drawZoom)
             ctx.strokePath()
             // 3. Blue route fill on top.
             ctx.addPath(path)
@@ -1338,21 +1343,24 @@ extension MapViewSource {
         // tile-cache frame above.
         drawSpeedCameras(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
-                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                         zoom: drawZoom)
 
         // Via-stop waypoint pins — geo-anchored like the cameras but drawn
         // upright + constant-size in the outer ctx so the pin glyph always
         // stands vertical regardless of map rotation/zoom.
         drawWaypointPins(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
-                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                         zoom: drawZoom)
 
         // ETA-delta bubbles for the alternative routes — geo-anchored to
         // each alt's `bubbleAnchor` but drawn upright + constant size in
         // the flat outer ctx (same projection trick as the cameras).
         drawAlternativeBubbles(into: ctx,
                                centerLat: centerLat, centerLon: centerLon,
-                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                               zoom: drawZoom)
 
         // Draw user direction arrow in the center. The map is rotated
         // heading-up, so the arrow always points toward the top of the
@@ -1459,14 +1467,15 @@ extension MapViewSource {
     /// No-op when there are no via-stops (single-destination trips).
     private func drawWaypointPins(into ctx: CGContext,
                                   centerLat: Double, centerLon: Double,
-                                  pxPerDegLon: Double, pxPerDegLat: Double) {
+                                  pxPerDegLon: Double, pxPerDegLat: Double,
+                                  zoom: CGFloat) {
         guard !waypointDots.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
         for wp in waypointDots {
             let dx = (wp.longitude - centerLon) * pxPerDegLon
@@ -2295,14 +2304,15 @@ extension MapViewSource {
     /// delta). Bubbles whose anchor projects off-frame are culled.
     fileprivate func drawAlternativeBubbles(into ctx: CGContext,
                                             centerLat: Double, centerLon: Double,
-                                            pxPerDegLon: Double, pxPerDegLat: Double) {
+                                            pxPerDegLon: Double, pxPerDegLat: Double,
+                                            zoom: CGFloat) {
         guard !alternativeRoutes.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
         for alt in alternativeRoutes {
@@ -2363,7 +2373,8 @@ extension MapViewSource {
     /// culled.
     fileprivate func drawSpeedCameras(into ctx: CGContext,
                                       centerLat: Double, centerLon: Double,
-                                      pxPerDegLon: Double, pxPerDegLat: Double) {
+                                      pxPerDegLon: Double, pxPerDegLat: Double,
+                                      zoom: CGFloat) {
         guard !speedCameras.isEmpty else { return }
 
         let theta = -lastHeading * .pi / 180.0
@@ -2374,7 +2385,10 @@ extension MapViewSource {
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        // `zoom` is the effective DRAW zoom (currentZoom × layerScale) so
+        // markers land on the route regardless of which quality layer's
+        // tile — and thus which pxPerDeg — supplied this frame.
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
         for cam in speedCameras {
