@@ -951,7 +951,7 @@ struct MapPickerView: View {
         // auto-switch, reroute, clear) rebuild the render models and push
         // them into the dash — thin grey lines + ETA-delta bubbles.
         status.activeNavigator.onAlternativesChanged = { [weak status] alts in
-            guard let status else { return }
+            guard status != nil else { return }
             self.pushAlternativeRenders(alts)
         }
     }

@@ -127,12 +127,12 @@ final class RouteTileCache {
     /// simulation (see `osm-tile-cache-rendering-pitfalls.md` Pitfall 11).
     /// Default composite grid side (ODD — see doc above). Layers may
     /// override per instance, but every layer MUST stay odd.
-    static let gridSide: Int = 5
+    nonisolated static let gridSide: Int = 5
 
     /// OSM zoom level for the composites. Re-exposed here so callers
     /// (and tests) can find the source of truth in one place even
     /// though the value comes from `WebMercator.defaultZoom`.
-    static let zoom: Int = WebMercator.defaultZoom
+    nonisolated static let zoom: Int = WebMercator.defaultZoom
 
     /// Composite geographic extent — informational. Real geometry
     /// comes from `pxPerDeg`. ~1.2 m/px after factoring in the
@@ -168,7 +168,7 @@ final class RouteTileCache {
     /// from cold (no disk hits): 8 km / 700 m stride = ~12 main +
     /// 24 wings = ~36 composites × 25 tiles = ~900 max tile fetches
     /// (heavily dedup'd by overlap → typically ~250 unique tiles).
-    static let initialBakeAheadMeters: CLLocationDistance = 8000
+    nonisolated static let initialBakeAheadMeters: CLLocationDistance = 8000
 
     /// How far ahead of the current rider position the rolling
     /// extender keeps the cache warm. 5 km is comfortable margin:
@@ -500,7 +500,7 @@ final class RouteTileCache {
                 let center = allAnchors[i].coord
                 let style = self.style
                 group.addTask { @MainActor in
-                    let tile = await composite(center: center, style: style)
+                    let tile = await self.composite(center: center, style: style)
                     return (i, tile)
                 }
             }
@@ -517,7 +517,7 @@ final class RouteTileCache {
                     let center = allAnchors[i].coord
                     let style = self.style
                     group.addTask { @MainActor in
-                        let tile = await composite(center: center, style: style)
+                        let tile = await self.composite(center: center, style: style)
                         return (i, tile)
                     }
                 }
@@ -1065,7 +1065,7 @@ final class RouteTileCache {
         // light and dark terrain. Drawn AFTER the saveGState restore so
         // it uses Y-up coords (matches CoreText drawing convention), and
         // AFTER the colour transform so its ink is in the final palette.
-        drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
+        Self.drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
 
         guard let outImage = ctx.makeImage() else { return nil }
 
@@ -1077,8 +1077,8 @@ final class RouteTileCache {
 
         let region = MKCoordinateRegion(
             center: center,
-            latitudinalMeters: tileSpanMeters,
-            longitudinalMeters: tileSpanMeters
+            latitudinalMeters: Self.tileSpanMeters,
+            longitudinalMeters: Self.tileSpanMeters
         )
         return RouteTile(
             center: center,
