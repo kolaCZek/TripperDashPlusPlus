@@ -216,9 +216,11 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
-    /// Language for spoken guidance. Defaults to Czech (the primary rider's
-    /// language); switchable to English. Drives `AVSpeechSynthesisVoice`.
-    var voiceLanguage: VoiceLanguage = .czech {
+    /// Language for spoken guidance. Seeded from the PHONE'S language on
+    /// first launch (`VoiceLanguage.deviceDefault`) — an unsupported phone
+    /// language falls back to English. The rider can override in settings;
+    /// once set, the stored choice wins on every subsequent launch.
+    var voiceLanguage: VoiceLanguage = .deviceDefault {
         didSet { persist() }
     }
 
@@ -442,7 +444,7 @@ final class DashNavSettings {
         self.speedLimitDisplay = p.speedLimitDisplay ?? .always
         self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
         self.voiceEnabled = p.voiceEnabled ?? false
-        self.voiceLanguage = p.voiceLanguage ?? .czech
+        self.voiceLanguage = p.voiceLanguage ?? .deviceDefault
         self.voiceSpeedCameraEnabled = p.voiceSpeedCameraEnabled ?? true
     }
 

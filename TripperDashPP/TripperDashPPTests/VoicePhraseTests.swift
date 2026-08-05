@@ -114,7 +114,6 @@ struct VoicePhraseTests {
     }
 
     @Test func everyLanguageHasNonEmptyPromptsForEveryManeuver() {
-        // Guards against a missing/empty table entry for any language.
         let kinds: [ManeuverKind] = [
             .straight, .slightLeft, .left, .sharpLeft, .slightRight, .right,
             .sharpRight, .uTurnLeft, .uTurnRight, .mergeLeft, .mergeRight,
@@ -131,5 +130,26 @@ struct VoicePhraseTests {
                         "empty prompt for \(k) in \(lang.rawValue)")
             }
         }
+    }
+
+    // MARK: - Device-language default resolution
+
+    @Test func matchingResolvesSupportedLanguagesRegionAgnostic() {
+        #expect(VoiceLanguage.matching(Locale(identifier: "cs_CZ")) == .czech)
+        #expect(VoiceLanguage.matching(Locale(identifier: "sk_SK")) == .slovak)
+        #expect(VoiceLanguage.matching(Locale(identifier: "de_AT")) == .german)
+        #expect(VoiceLanguage.matching(Locale(identifier: "pl_PL")) == .polish)
+        #expect(VoiceLanguage.matching(Locale(identifier: "fr_CA")) == .french)
+        #expect(VoiceLanguage.matching(Locale(identifier: "es_MX")) == .spanish)
+        #expect(VoiceLanguage.matching(Locale(identifier: "it_IT")) == .italian)
+        // English regions all collapse to English.
+        #expect(VoiceLanguage.matching(Locale(identifier: "en_US")) == .english)
+        #expect(VoiceLanguage.matching(Locale(identifier: "en_GB")) == .english)
+    }
+
+    @Test func matchingFallsBackToEnglishForUnsupported() {
+        #expect(VoiceLanguage.matching(Locale(identifier: "ja_JP")) == .english)
+        #expect(VoiceLanguage.matching(Locale(identifier: "nb_NO")) == .english)
+        #expect(VoiceLanguage.matching(Locale(identifier: "nl_NL")) == .english)
     }
 }

@@ -64,6 +64,28 @@ enum VoiceLanguage: String, CaseIterable, Identifiable, Codable {
         case .italian: return "Italiano"
         }
     }
+
+    /// Best default for a given locale: match on the primary language code
+    /// (region-agnostic, so `en-US`, `en-GB`, `en-AU` all map to English),
+    /// falling back to English for any language we don't ship. Used to seed
+    /// the voice-language setting from the phone's language on first launch.
+    static func matching(_ locale: Locale) -> VoiceLanguage {
+        let code = locale.language.languageCode?.identifier.lowercased() ?? "en"
+        switch code {
+        case "cs": return .czech
+        case "sk": return .slovak
+        case "de": return .german
+        case "pl": return .polish
+        case "fr": return .french
+        case "es": return .spanish
+        case "it": return .italian
+        case "en": return .english
+        default:   return .english   // unsupported phone language → English
+        }
+    }
+
+    /// Convenience: default from the device's current locale.
+    static var deviceDefault: VoiceLanguage { matching(.current) }
 }
 
 enum VoicePhrase {
