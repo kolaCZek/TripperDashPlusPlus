@@ -170,8 +170,15 @@ def test_swift_route_line_constant_and_divides_by_zoom():
     src = _map_source_src()
     m = re.search(r"routeLineScreenPx:\s*CGFloat\s*=\s*([\d.]+)", src)
     assert m and float(m.group(1)) == pytest.approx(7.0), "route line px must be 7.0"
-    # Both dash render paths must divide by zoom (constant on-screen width).
-    assert src.count("routeLineScreenPx / currentZoom") == 2, (
-        "both tile-cache and vector-only paths must stroke "
-        "routeLineScreenPx / currentZoom"
+    # Both dash render paths must divide by zoom for a constant on-screen
+    # width. The tile-cache path strokes INSIDE the layer-compensated scale
+    # (drawZoom = currentZoom × layerScale), so it must divide by drawZoom —
+    # otherwise the coarse layer (layerScale 8) renders an 8× blue blob.
+    # The vector-only fallback has no tile/layerScale, so it uses currentZoom.
+    assert "routeLineScreenPx / drawZoom" in src, (
+        "tile-cache path must stroke routeLineScreenPx / drawZoom "
+        "(layer-compensated), not raw currentZoom"
+    )
+    assert "routeLineScreenPx / currentZoom" in src, (
+        "vector-only fallback must stroke routeLineScreenPx / currentZoom"
     )

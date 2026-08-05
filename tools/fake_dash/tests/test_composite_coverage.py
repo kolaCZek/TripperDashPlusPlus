@@ -130,7 +130,7 @@ def bearing(a, b) -> float:
 # Mirror of RouteTileCache.composite() coverage geometry.
 # ---------------------------------------------------------------------------
 
-def painted_region(anchor, grid_side: int):
+def painted_region(anchor, grid_side: int, zoom: int = ZOOM):
     """Return (xlo, xhi, ylo, yhi, center_px) — the sub-rect of the
     grid*256 bitmap that actually has tile data painted into it, exactly
     as `composite()` lays it out:
@@ -140,7 +140,7 @@ def painted_region(anchor, grid_side: int):
         data spans [paintOffsetX, paintOffsetX + grid_side*256], clipped
         to the bitmap [0, grid_side*256].
     """
-    fx, fy = tile_for(*anchor)
+    fx, fy = tile_for(*anchor, zoom=zoom)
     bs = grid_side * TILE_PIXELS
     half = grid_side // 2
     tlx = math.floor(fx) - half
@@ -152,13 +152,19 @@ def painted_region(anchor, grid_side: int):
     return xlo, xhi, ylo, yhi, bs / 2.0
 
 
-def frame_corner_black_count(rider, heading_deg, zoom, anchor, grid_side: int) -> int:
+def frame_corner_black_count(rider, heading_deg, zoom, anchor, grid_side: int, osm_zoom: int = ZOOM) -> int:
     """Mirror of MapViewSource.drawTileCacheFrame's inverse mapping:
     walk the four frame corners back into composite-bitmap pixel space
-    and count how many land OUTSIDE the painted region (= black)."""
-    xlo, xhi, ylo, yhi, ctr = painted_region(anchor, grid_side)
-    pplon = px_per_deg_lon()
-    pplat = px_per_deg_lat(rider[0])
+    and count how many land OUTSIDE the painted region (= black).
+
+    `zoom` is the renderer's effective zoom (autozoom × bias). `osm_zoom`
+    is the OSM tile level the layer was baked at (base 15, coarse 12,
+    fine 16) — the renderer reads pxPerDeg from the tile, so the corner
+    mapping must use the layer's own pxPerDeg, not the base z=15 value.
+    """
+    xlo, xhi, ylo, yhi, ctr = painted_region(anchor, grid_side, zoom=osm_zoom)
+    pplon = px_per_deg_lon(zoom=osm_zoom)
+    pplat = px_per_deg_lat(rider[0], zoom=osm_zoom)
     # tile.center - rider, in bitmap px (Y-DOWN: north = -y).
     dx = (anchor[1] - rider[1]) * pplon
     dy = -(anchor[0] - rider[0]) * pplat
@@ -395,7 +401,7 @@ def test_swift_tile_pixels_derived_from_grid_side():
     """tilePixels must be DERIVED from gridSide so the two can't drift
     (a hardcoded mismatch silently shrinks the painted area)."""
     src = _route_cache_src()
-    assert "CGFloat(gridSide * WebMercator.tilePixels)" in src, (
+    assert "gridSide * WebMercator.tilePixels" in src, (
         "tilePixels must be derived from gridSide, not hardcoded"
     )
 
@@ -406,3 +412,139 @@ def test_swift_block_uses_floor_not_round():
     src = _route_cache_src()
     assert "Int(floor(fx)) - half" in src
     assert "Int(floor(fy)) - half" in src
+
+
+# ---------------------------------------------------------------------------
+# Multi-zoom quality layers (coarse z=12 overview + fine z=16 detail).
+#
+# The renderer draws each layer's tile at `currentZoom * 2^(15 - osmZoom)`
+# so the on-screen ground scale is identical whichever layer supplied the
+# tile (MapViewSource.drawProjectedTile `layerScale`). These tests prove
+# each layer FULLY covers the dash frame across the effective-zoom band it
+# is selected for (MapViewSource.selectLayer), INCLUDING the hysteresis
+# overlap at each handoff, so switching layers never exposes a black
+# corner. If someone moves a band edge past a layer's real coverage the
+# matching assertion fails loudly here.
+# ---------------------------------------------------------------------------
+
+BASE_OSM_ZOOM = 15
+COARSE_OSM_ZOOM = 13
+FINE_OSM_ZOOM = 16
+
+# Composite grid sides per layer — MUST match the RouteTileCache(...) calls
+# in MapViewSource.buildQualityLayers. Coarse uses a WIDER grid (7) so the
+# higher-detail z=13 tiles still blanket the frame at the widest zoom-out.
+COARSE_GRID = 7
+BASE_GRID = 5
+FINE_GRID = 5
+
+# Band edges + hysteresis margin — MUST match MapViewSource.selectLayer.
+COARSE_EDGE = 0.85
+FINE_EDGE = 1.9
+LAYER_MARGIN = 0.08
+
+
+def _layer_black_frames(osm_zoom: int, grid_side: int, eff_zoom: float) -> tuple[int, int]:
+    """Count black-corner frames along the whole route for a layer baked
+    at `osm_zoom`, rendered at effective zoom `eff_zoom`. Mirrors the
+    renderer's per-layer scale compensation 2^(15 - osm_zoom)."""
+    mains = anchors_along(ROUTE)
+    tiles = build_tiles(mains)
+    total = _route_distance(ROUTE)
+    render_zoom = eff_zoom * (2.0 ** (BASE_OSM_ZOOM - osm_zoom))
+    black = samples = 0
+    for dm in range(0, int(total) + 1, 25):
+        rider, hdg = _pos_and_heading(ROUTE, dm)
+        anchor = nearest_main_tile(tiles, rider)
+        if anchor is None:
+            continue
+        samples += 1
+        if frame_corner_black_count(rider, hdg, render_zoom, anchor,
+                                    grid_side=grid_side, osm_zoom=osm_zoom) > 0:
+            black += 1
+    return black, samples
+
+
+def test_coarse_layer_covers_wide_zoom_out():
+    """Coarse z=12 fully covers the frame from the widest manual zoom-out
+    (effective ~0.12 = autozoom floor 0.8 x bias floor 0.15) up through
+    the coarse->base handoff (COARSE_EDGE + margin), where base takes over."""
+    for eff in [0.12, 0.20, 0.35, 0.55, 0.77, COARSE_EDGE + LAYER_MARGIN]:
+        black, samples = _layer_black_frames(COARSE_OSM_ZOOM, COARSE_GRID, eff)
+        assert samples > 0
+        assert black == 0, f"coarse layer black corners at eff={eff}: {black}/{samples}"
+
+
+def test_base_layer_covers_its_band_including_handoffs():
+    """Base z=15 fully covers from the coarse->base handoff (COARSE_EDGE -
+    margin) up to the base->fine handoff (FINE_EDGE + margin). Below the
+    lower bound the coarse layer is active; above the upper bound fine is."""
+    for eff in [COARSE_EDGE - LAYER_MARGIN, 0.8, 1.2, 1.5, FINE_EDGE + LAYER_MARGIN]:
+        black, samples = _layer_black_frames(BASE_OSM_ZOOM, 5, eff)
+        assert samples > 0
+        assert black == 0, f"base layer black corners at eff={eff}: {black}/{samples}"
+
+
+def test_fine_layer_covers_close_zoom_in():
+    """Fine z=16 fully covers the frame from the base->fine handoff
+    (FINE_EDGE - margin) up to the maximum manual zoom-in (bias ceiling
+    2.5). Below the handoff base is still active and fully covers."""
+    for eff in [FINE_EDGE - LAYER_MARGIN, 2.0, 2.25, 2.5]:
+        black, samples = _layer_black_frames(FINE_OSM_ZOOM, 5, eff)
+        assert samples > 0
+        assert black == 0, f"fine layer black corners at eff={eff}: {black}/{samples}"
+
+
+def test_base_layer_alone_cannot_cover_wide_zoom_out():
+    """Proves WHY the coarse layer is needed: base z=15 DOES show black
+    corners at the wide manual zoom-out, so a single-layer renderer can't
+    satisfy the zoom-out range. This is the regression that motivated the
+    coarse overview layer."""
+    black, samples = _layer_black_frames(BASE_OSM_ZOOM, 5, 0.12)
+    assert samples > 0
+    assert black > 0, "expected base layer to black out at wide zoom-out (justifies coarse layer)"
+
+
+def test_layer_band_edges_match_swift():
+    """The Python band edges above must track MapViewSource.selectLayer so
+    the coverage proof stays honest if someone retunes the Swift edges."""
+    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    m_coarse = re.search(r"let coarseEdge: CGFloat = ([0-9.]+)", src)
+    m_fine = re.search(r"let fineEdge: CGFloat = ([0-9.]+)", src)
+    m_margin = re.search(r"let margin: CGFloat = ([0-9.]+)", src)
+    assert m_coarse and m_fine and m_margin, "could not find layer band edges in Swift"
+    assert abs(float(m_coarse.group(1)) - COARSE_EDGE) < 1e-9, m_coarse.group(1)
+    assert abs(float(m_fine.group(1)) - FINE_EDGE) < 1e-9, m_fine.group(1)
+    assert abs(float(m_margin.group(1)) - LAYER_MARGIN) < 1e-9, m_margin.group(1)
+
+
+def test_layer_zoom_and_grid_match_swift():
+    """The Python mirror's per-layer OSM zoom + composite gridSide MUST
+    track MapViewSource so the coverage proof stays honest if someone
+    retunes the Swift layers (e.g. bumps coarse detail z=12->13)."""
+    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    m_cz = re.search(r"static let coarseLayerZoom = (\d+)", src)
+    m_bz = re.search(r"static let baseLayerZoom = (\d+)", src)
+    m_fz = re.search(r"static let fineLayerZoom = (\d+)", src)
+    assert m_cz and m_bz and m_fz, "could not find layer zoom constants in Swift"
+    assert int(m_cz.group(1)) == COARSE_OSM_ZOOM, m_cz.group(1)
+    assert int(m_bz.group(1)) == BASE_OSM_ZOOM, m_bz.group(1)
+    assert int(m_fz.group(1)) == FINE_OSM_ZOOM, m_fz.group(1)
+    # Coarse composite gridSide is passed explicitly to RouteTileCache in
+    # buildQualityLayers; assert it matches COARSE_GRID.
+    m_cg = re.search(
+        r"zoom: MapViewSource\.coarseLayerZoom,\s*\n\s*gridSide: (\d+)", src
+    )
+    assert m_cg, "could not find coarse gridSide in buildQualityLayers"
+    assert int(m_cg.group(1)) == COARSE_GRID, m_cg.group(1)
+    # Every gridSide MUST stay odd (Pitfall 11).
+    assert COARSE_GRID % 2 == 1 and BASE_GRID % 2 == 1 and FINE_GRID % 2 == 1
+
+
+def test_swift_renderer_compensates_layer_scale():
+    """The renderer MUST scale currentZoom by 2^(baseZoom - tile.osmZoom)
+    or coarse/fine tiles render at the wrong on-screen size."""
+    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    assert "pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))" in src, (
+        "renderer must compensate per-layer pixel density via 2^(baseZoom - osmZoom)"
+    )

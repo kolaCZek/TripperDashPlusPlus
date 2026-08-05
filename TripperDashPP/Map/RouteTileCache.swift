@@ -86,6 +86,12 @@ struct RouteTile: Sendable {
     /// Pixels per degree of latitude at `center`. Latitude-dependent
     /// (Mercator y-stretch) — see `WebMercator.pixelsPerDegreeLatitude`.
     let pxPerDegLat: Double
+    /// OSM zoom level this composite was baked at (base 15, coarse 12,
+    /// fine 16). The renderer scales `currentZoom` by
+    /// `2^(baseZoom - osmZoom)` so a coarse tile (fewer px per metre)
+    /// isn't drawn tiny and a fine tile isn't drawn huge — the on-screen
+    /// ground scale stays consistent across layers.
+    let osmZoom: Int
 }
 
 /// Container + builder for `RouteTile`s along an `MKRoute`.
@@ -99,11 +105,6 @@ final class RouteTileCache {
     /// ~40 % overlap — enough that any rotation up to 360° still
     /// leaves the user position well inside a single composite.
     static let stride: CLLocationDistance = 700
-
-    /// Composite bitmap size in pixels. DERIVED from `gridSide` so the
-    /// two can never drift apart — a mismatch silently shrinks the
-    /// painted area and reintroduces the edge-gap bug below.
-    static let tilePixels: CGFloat = CGFloat(gridSide * WebMercator.tilePixels)
 
     /// How many OSM tiles per side of each composite. 5 × 256 = 1280 px,
     /// covers ~2.0 km at z=15 (latitude-dependent).
@@ -124,12 +125,14 @@ final class RouteTileCache {
     /// side carries equal margin and the frame is always fully covered.
     /// Field-reported 2026-06; reproduced + fixed via the PIL coverage
     /// simulation (see `osm-tile-cache-rendering-pitfalls.md` Pitfall 11).
-    static let gridSide: Int = 5
+    /// Default composite grid side (ODD — see doc above). Layers may
+    /// override per instance, but every layer MUST stay odd.
+    nonisolated static let gridSide: Int = 5
 
     /// OSM zoom level for the composites. Re-exposed here so callers
     /// (and tests) can find the source of truth in one place even
     /// though the value comes from `WebMercator.defaultZoom`.
-    static let zoom: Int = WebMercator.defaultZoom
+    nonisolated static let zoom: Int = WebMercator.defaultZoom
 
     /// Composite geographic extent — informational. Real geometry
     /// comes from `pxPerDeg`. ~1.2 m/px after factoring in the
@@ -165,7 +168,7 @@ final class RouteTileCache {
     /// from cold (no disk hits): 8 km / 700 m stride = ~12 main +
     /// 24 wings = ~36 composites × 25 tiles = ~900 max tile fetches
     /// (heavily dedup'd by overlap → typically ~250 unique tiles).
-    static let initialBakeAheadMeters: CLLocationDistance = 8000
+    nonisolated static let initialBakeAheadMeters: CLLocationDistance = 8000
 
     /// How far ahead of the current rider position the rolling
     /// extender keeps the cache warm. 5 km is comfortable margin:
@@ -325,8 +328,40 @@ final class RouteTileCache {
     ///     bitmaps (same failure shape as the reorder bug in Pitfall #2).
     let style: MapStyle
 
-    init(style: MapStyle) {
+    /// OSM zoom level for THIS layer's composites. Defaults to the base
+    /// z=15; the coarse overview layer uses a lower z (wider area per
+    /// tile) and the fine layer a higher z (sharper close-in). Instance
+    /// value shadows `Self.zoom` inside composite geometry.
+    let zoom: Int
+
+    /// Composite grid side for THIS layer (MUST be ODD — Pitfall 11).
+    let gridSide: Int
+
+    /// Fast-start + rolling bake-ahead window for THIS layer. The base
+    /// layer bakes the full `initialBakeAheadMeters` (8 km) so the rider
+    /// can press Go and ride. The coarse/fine sibling layers only need to
+    /// cover the immediate surroundings for their zoom band, so they use
+    /// a much shorter window to keep tile fetches + RAM down (each coarse
+    /// z=12 tile already covers ~8× the ground of a z=15 tile, and the
+    /// fine z=16 layer is only ever shown when zoomed right in on the
+    /// rider). Defaults to the base window.
+    let bakeAheadMeters: CLLocationDistance
+
+    /// Composite bitmap side in px, DERIVED from this layer's gridSide so
+    /// the two can never drift apart (Pitfall 11).
+    var tilePixels: Int { gridSide * WebMercator.tilePixels }
+
+    init(
+        style: MapStyle,
+        zoom: Int = RouteTileCache.zoom,
+        gridSide: Int = RouteTileCache.gridSide,
+        bakeAheadMeters: CLLocationDistance = RouteTileCache.initialBakeAheadMeters
+    ) {
+        precondition(gridSide % 2 == 1, "gridSide must be ODD (Pitfall 11); got \(gridSide)")
         self.style = style
+        self.zoom = zoom
+        self.gridSide = gridSide
+        self.bakeAheadMeters = bakeAheadMeters
         imageCache.countLimit = 8
     }
 
@@ -356,9 +391,9 @@ final class RouteTileCache {
         progress(0)
 
         // Fast start: bake every anchor (main + wings) whose
-        // routeOffset falls within [0, initialBakeAheadMeters].
+        // routeOffset falls within [0, bakeAheadMeters].
         let initialIndices = anchorIndices(
-            withinOffsetRange: 0...Self.initialBakeAheadMeters
+            withinOffsetRange: 0...bakeAheadMeters
         )
         await bakeAnchors(at: initialIndices, progress: progress)
         progress(1)
@@ -393,7 +428,7 @@ final class RouteTileCache {
         let snapped = snapToMainAnchor(coord: coord) ?? 0
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
-        let frontEdge = snapped + Self.initialBakeAheadMeters
+        let frontEdge = snapped + bakeAheadMeters
         log.info("Style re-bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
 
         let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
@@ -465,7 +500,7 @@ final class RouteTileCache {
                 let center = allAnchors[i].coord
                 let style = self.style
                 group.addTask { @MainActor in
-                    let tile = await Self.composite(center: center, style: style)
+                    let tile = await self.composite(center: center, style: style)
                     return (i, tile)
                 }
             }
@@ -482,7 +517,7 @@ final class RouteTileCache {
                     let center = allAnchors[i].coord
                     let style = self.style
                     group.addTask { @MainActor in
-                        let tile = await Self.composite(center: center, style: style)
+                        let tile = await self.composite(center: center, style: style)
                         return (i, tile)
                     }
                 }
@@ -728,7 +763,7 @@ final class RouteTileCache {
         positionFallbackInFlight = true
         defer { positionFallbackInFlight = false }
         log.info("Baking position-fallback tile (off-corridor) around rider")
-        let baked = await Self.composite(center: coord, style: style)
+        let baked = await composite(center: coord, style: style)
         if let baked = baked {
             positionFallbackTile = baked
             positionFallbackImage = nil   // invalidate stale decode
@@ -878,11 +913,11 @@ final class RouteTileCache {
     /// Geometry is fully deterministic — no probe, no measure. The
     /// renderer in `MapViewSource` reads `pxPerDeg` and `centerPixel`
     /// from the returned tile and gets pixel-exact results.
-    private static func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
+    private func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
         let z = zoom
         let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
         let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
-        let bitmapSize = Int(tilePixels)
+        let bitmapSize = tilePixels
 
         // Fractional tile coords for the center.
         let (fx, fy) = WebMercator.tile(for: center, zoom: z)
@@ -1030,7 +1065,7 @@ final class RouteTileCache {
         // light and dark terrain. Drawn AFTER the saveGState restore so
         // it uses Y-up coords (matches CoreText drawing convention), and
         // AFTER the colour transform so its ink is in the final palette.
-        drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
+        Self.drawAttribution(into: ctx, bitmapSize: CGFloat(bitmapSize), style: style)
 
         guard let outImage = ctx.makeImage() else { return nil }
 
@@ -1042,8 +1077,8 @@ final class RouteTileCache {
 
         let region = MKCoordinateRegion(
             center: center,
-            latitudinalMeters: tileSpanMeters,
-            longitudinalMeters: tileSpanMeters
+            latitudinalMeters: Self.tileSpanMeters,
+            longitudinalMeters: Self.tileSpanMeters
         )
         return RouteTile(
             center: center,
@@ -1054,7 +1089,8 @@ final class RouteTileCache {
             // lands at the bitmap midpoint. No clamp drift.
             centerPixel: CGPoint(x: Double(bitmapSize) / 2.0, y: Double(bitmapSize) / 2.0),
             pxPerDegLon: pxPerDegLon,
-            pxPerDegLat: pxPerDegLat
+            pxPerDegLat: pxPerDegLat,
+            osmZoom: z
         )
     }
 

@@ -236,7 +236,81 @@ final class MapViewSource: NSObject, FrameSource {
     nonisolated private static let shadowRatio: Double = 2.0
 
     /// Pre-rendered tile cache — built from the active route in FG.
+    /// This is the BASE layer (OSM z=15). Two optional sibling layers
+    /// give better quality at the extremes of the manual zoom range:
+    ///   - `coarseTileCache` (z=12): wide overview when zoomed way out,
+    ///     so the frame corners stay covered instead of going black.
+    ///   - `fineTileCache` (z=16): sharp streets when zoomed way in,
+    ///     instead of a blurry upscaled z=15 stitch.
+    /// The renderer is zoom-agnostic (it reads pxPerDeg from each tile),
+    /// so switching layer is purely a matter of which cache we ask for a
+    /// covering tile. `activeTileCache(for:)` picks the layer from the
+    /// current effective zoom with hysteresis to avoid boundary flicker.
     private var routeTileCache: RouteTileCache?
+    private var coarseTileCache: RouteTileCache?
+    private var fineTileCache: RouteTileCache?
+
+    /// Which quality layer the renderer last selected. Sticky: switching
+    /// requires crossing the band edge PLUS a hysteresis margin, so a
+    /// zoom hovering on a threshold doesn't thrash between layers.
+    private var activeLayer: TileLayer = .base
+
+    /// OSM zoom levels for the three quality layers. All gridSides stay
+    /// ODD (Pitfall 11). Coarse trades detail for area; fine the reverse.
+    static let coarseLayerZoom = 13
+    static let baseLayerZoom = 15
+    static let fineLayerZoom = 16
+
+    enum TileLayer { case coarse, base, fine }
+
+    /// Pick the quality layer for an effective zoom (currentZoom ×
+    /// userZoomBias), with hysteresis around the band edges so a zoom
+    /// parked on a threshold doesn't flip-flop every frame. Falls back to
+    /// `.base` when the chosen sibling layer isn't baked yet.
+    private func selectLayer(forEffectiveZoom z: CGFloat) -> TileLayer {
+        // Nominal band edges. Chosen so each layer FULLY covers the dash
+        // frame across its whole band (verified in test_composite_coverage
+        // per layer): coarse z=12 covers the wide zoom-out AND overlaps up
+        // into the base band (base z=15 only fully covers the frame from
+        // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
+        // cover); fine z=16 (gridSide 5) only fully covers from ~1.82× in,
+        // so its edge sits at 1.9 where base still fully covers too.
+        let coarseEdge: CGFloat = 0.85
+        let fineEdge: CGFloat = 1.9
+        let margin: CGFloat = 0.08   // hysteresis half-width
+
+        switch activeLayer {
+        case .coarse:
+            // Stay coarse until we climb well past the edge.
+            if z > coarseEdge + margin { activeLayer = (z >= fineEdge ? .fine : .base) }
+        case .base:
+            if z < coarseEdge - margin { activeLayer = .coarse }
+            else if z > fineEdge + margin { activeLayer = .fine }
+        case .fine:
+            if z < fineEdge - margin { activeLayer = (z <= coarseEdge ? .coarse : .base) }
+        }
+        return activeLayer
+    }
+
+    /// The cache instance to render from for the current effective zoom.
+    /// Falls back to the base layer whenever the preferred sibling layer
+    /// hasn't been built yet (or its bake is still in flight), so the
+    /// rider never loses the map while a layer warms up.
+    private func activeTileCache(forEffectiveZoom z: CGFloat) -> RouteTileCache? {
+        switch selectLayer(forEffectiveZoom: z) {
+        case .coarse: return coarseTileCache ?? routeTileCache
+        case .base:   return routeTileCache
+        case .fine:   return fineTileCache ?? routeTileCache
+        }
+    }
+
+    /// Current effective zoom for layer selection. `currentZoom` already
+    /// folds in the manual bias (it lerps toward `targetZoom = speedZoom ×
+    /// maneuverBoost × userZoomBias`), so we must NOT multiply by
+    /// userZoomBias again here — that would double-count the bias and pick
+    /// the wrong layer.
+    private var effectiveZoom: CGFloat { currentZoom }
+
     private var lastTileHintIndex: Int = 0
 
     /// Timestamp of the most recent `extendTileCache(near:)` invocation
@@ -313,20 +387,31 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// A transient on-screen zoom indicator ("＋" / "－"), shown for a
     /// moment after a manual nudge so the rider gets feedback that the
-    /// press registered. `nil` = nothing to draw.
-    private(set) var zoomOsd: (symbol: String, until: Date)?
+    /// press registered. `atLimit` marks a press that couldn't move the
+    /// bias any further (already at the min/max clamp) so the OSD can draw
+    /// a "blocked" glyph instead. `nil` = nothing to draw.
+    private(set) var zoomOsd: (symbol: String, until: Date, atLimit: Bool)?
 
     /// Apply a manual zoom nudge from the dash joystick. `zoomIn` true =
     /// RIGHT (magnify), false = LEFT (widen). Bumps the bias one step,
-    /// clamps it, resets the auto-revert timer, and flashes the OSD.
+    /// clamps it, resets the auto-revert timer, and flashes the OSD. When
+    /// the bias is already pinned at the clamp and the rider keeps pressing
+    /// in the same direction, the OSD flashes a "blocked" glyph so it's
+    /// clear the zoom can't go any further.
     /// Called on the main actor from AppStatus's button hook.
     func applyZoomButton(zoomIn: Bool) {
         let factor = zoomIn ? zoomBiasStep : 1.0 / zoomBiasStep
+        let before = userZoomBias
         userZoomBias = min(max(userZoomBias * factor, zoomBiasRange.lowerBound),
                            zoomBiasRange.upperBound)
+        // If the clamp swallowed the whole step, we were already at the
+        // limit — the press did nothing to the zoom. Use a small epsilon
+        // to absorb floating-point noise from the multiply.
+        let atLimit = abs(userZoomBias - before) < 1e-6
         lastZoomBiasNudge = Date()
         zoomOsd = (symbol: zoomIn ? "＋" : "－",
-                   until: Date().addingTimeInterval(1.2))
+                   until: Date().addingTimeInterval(1.2),
+                   atLimit: atLimit)
     }
 
     /// Ease the manual bias back toward 1.0 once the rider has stopped
@@ -453,12 +538,68 @@ final class MapViewSource: NSObject, FrameSource {
     /// Install a pre-rendered tile cache produced by `RouteTileCache.prerender`.
     /// Once installed, the BG render path will composite from these tiles
     /// instead of asking MapKit to draw anything.
-    func setTileCache(_ cache: RouteTileCache?) {
+    ///
+    /// When `buildLayers` is true and a route is known, this also kicks
+    /// off (fire-and-forget) the coarse overview (z=12) and fine detail
+    /// (z=16) sibling layers around the rider's current position, so the
+    /// map quality scales with the manual zoom. The base layer is usable
+    /// immediately; the siblings appear a few seconds later once their
+    /// (much smaller) bake windows finish, and until then
+    /// `activeTileCache` transparently falls back to base.
+    func setTileCache(_ cache: RouteTileCache?, buildLayers: Bool = true) {
         routeTileCache = cache
+        coarseTileCache = nil
+        fineTileCache = nil
+        activeLayer = .base
         lastTileHintIndex = 0
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
+        if buildLayers, cache != nil, let route = currentRoute {
+            buildQualityLayers(route: route, around: lastFix?.coordinate)
+        }
+    }
+
+    /// Build the coarse (z=12) + fine (z=16) sibling quality layers for
+    /// `route`, baked around `coord` (or the route start if nil). Runs
+    /// each bake in its own Task and swaps the finished layer in
+    /// atomically. The layers use a SHORT bake-ahead window (they only
+    /// need to cover the immediate surroundings for their zoom band), so
+    /// the extra tile fetches are modest versus the base layer.
+    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+        let style = currentStyle
+        let coarse = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.coarseLayerZoom,
+            gridSide: 7,
+            bakeAheadMeters: 3000
+        )
+        let fine = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.fineLayerZoom,
+            gridSide: 5,
+            bakeAheadMeters: 2000
+        )
+        Task { @MainActor in
+            if let coord {
+                await coarse.prerender(route: route, around: coord) { _ in }
+            } else {
+                await coarse.prerender(route: route) { _ in }
+            }
+            guard style == currentStyle, currentRoute === route else { return }
+            coarseTileCache = coarse
+            log.info("Coarse overview layer installed: \(coarse.tiles.count, privacy: .public) tiles")
+        }
+        Task { @MainActor in
+            if let coord {
+                await fine.prerender(route: route, around: coord) { _ in }
+            } else {
+                await fine.prerender(route: route) { _ in }
+            }
+            guard style == currentStyle, currentRoute === route else { return }
+            fineTileCache = fine
+            log.info("Fine detail layer installed: \(fine.tiles.count, privacy: .public) tiles")
+        }
     }
 
     /// Remember the active route so a mid-ride style switch can re-bake
@@ -507,10 +648,17 @@ final class MapViewSource: NSObject, FrameSource {
         // Re-check: a newer style switch may have landed during the bake.
         guard style == currentStyle else { return }
         routeTileCache = fresh   // atomic swap; old cache was visible until now
+        // Drop the old-palette sibling layers and rebuild them in the new
+        // style around the rider, so coarse/fine quality layers don't show
+        // a stale palette after a Light/Dark switch.
+        coarseTileCache = nil
+        fineTileCache = nil
+        activeLayer = .base
         lastTileHintIndex = 0
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
+        buildQualityLayers(route: route, around: coord)
     }
 
     /// Extend the rolling tile-bake window around `coord`. Called from
@@ -542,8 +690,16 @@ final class MapViewSource: NSObject, FrameSource {
             return
         }
         lastTileExtendAt = now
+        // Extend the base layer plus whichever sibling quality layers are
+        // baked. Each cache's `extend` is idempotent + coalesced, so a
+        // sibling that isn't relevant to the current zoom still just keeps
+        // its rolling window warm cheaply (short bake-ahead window).
+        let coarse = coarseTileCache
+        let fine = fineTileCache
         Task { @MainActor in
             await cache.extend(near: coord)
+            if let coarse { await coarse.extend(near: coord) }
+            if let fine { await fine.extend(near: coord) }
         }
     }
 
@@ -918,7 +1074,16 @@ extension MapViewSource {
     /// Steps: pick nearest tile → rotate context to heading-up →
     /// draw cropped tile → polyline → user dot in the center.
     private func drawTileCacheFrame(into ctx: CGContext) {
-        guard let cache = routeTileCache, let fix = lastFix else { return }
+        guard lastFix != nil else { return }
+        // Pick the quality layer for the current effective zoom. Falls
+        // back to base if the preferred sibling layer isn't baked yet.
+        let layerBefore = activeLayer
+        guard let cache = activeTileCache(forEffectiveZoom: effectiveZoom),
+              let fix = lastFix else { return }
+        // A layer switch invalidates the hint index (it points into the
+        // previous cache's tiles[]). Reset so nearestTile does a fresh
+        // full scan on the new layer rather than trusting a stale hint.
+        if activeLayer != layerBefore { lastTileHintIndex = 0 }
         guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
             // Off the baked route corridor (wrong turn + reroute pending,
             // or a deliberate detour). Don't drop straight to the bare
@@ -1071,7 +1236,16 @@ extension MapViewSource {
         ctx.rotate(by: -lastHeading * .pi / 180)
         // Speed-adaptive zoom (slow lerp; see targetZoom/updateZoom).
         // Applied AFTER rotation so the origin sits at the puck.
-        ctx.scaleBy(x: currentZoom, y: currentZoom)
+        //
+        // Layer compensation: `currentZoom` is calibrated for the BASE
+        // OSM level (z=15). A coarse (z=12) or fine (z=16) tile has a
+        // different pixel-per-metre density, so drawing it at the raw
+        // `currentZoom` would render it too small (coarse) or too large
+        // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
+        // ground scale is identical whichever layer supplied the tile.
+        let layerScale = pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))
+        let drawZoom = currentZoom * layerScale
+        ctx.scaleBy(x: drawZoom, y: drawZoom)
 
         // Draw the tile shifted by the delta from its own centre to the
         // user's position. Use `tile.center` (the requested centre — and
@@ -1104,7 +1278,11 @@ extension MapViewSource {
             ctx.setLineJoin(.round)
             ctx.setStrokeColor(currentStyle.alternativeLineColor)
             // Slightly thinner than the active route so it reads secondary.
-            ctx.setLineWidth((routeLineScreenPx - 1.5) / currentZoom)
+            // Divide by drawZoom (= currentZoom × layerScale) — the stroke
+            // is inside the layer-compensated scale, so using currentZoom
+            // alone would make the line layerScale× too thick on the coarse
+            // layer (an 8× blue blob) and too thin on fine.
+            ctx.setLineWidth((routeLineScreenPx - 1.5) / drawZoom)
             for alt in alternativeRoutes {
                 guard alt.coords.count > 1 else { continue }
                 let ap = CGMutablePath()
@@ -1142,18 +1320,19 @@ extension MapViewSource {
             }
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
-            // The line is stroked INSIDE the currentZoom scale, so a fixed
-            // lineWidth would grow with zoom (a city-zoom 2.9× made it as
-            // thick as a road — rider feedback 6/2026). Divide by zoom so
-            // the route reads at a constant on-screen width regardless of
-            // zoom level.
-            let lineW = routeLineScreenPx / currentZoom
+            // The line is stroked INSIDE the drawZoom scale (currentZoom ×
+            // layerScale), so the width must divide by drawZoom, not just
+            // currentZoom — otherwise on the coarse layer (layerScale 8) the
+            // route rendered as a giant blue blob covering the map, and on
+            // fine it vanished. Divide by drawZoom for a constant on-screen
+            // width regardless of zoom AND which quality layer is active.
+            let lineW = routeLineScreenPx / drawZoom
             // 1. Casing UNDER the line — dark on Light, white on Dark —
             //    so the blue route pops against busy map content (rider
             //    feedback 2026-08). ~4 px wider on screen than the fill.
             ctx.addPath(path)
             ctx.setStrokeColor(currentStyle.routeCasingColor)
-            ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
+            ctx.setLineWidth(lineW + routeCasingScreenPx / drawZoom)
             ctx.strokePath()
             // 3. Blue route fill on top.
             ctx.addPath(path)
@@ -1175,21 +1354,24 @@ extension MapViewSource {
         // tile-cache frame above.
         drawSpeedCameras(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
-                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                         zoom: drawZoom)
 
         // Via-stop waypoint pins — geo-anchored like the cameras but drawn
         // upright + constant-size in the outer ctx so the pin glyph always
         // stands vertical regardless of map rotation/zoom.
         drawWaypointPins(into: ctx,
                          centerLat: centerLat, centerLon: centerLon,
-                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                         pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                         zoom: drawZoom)
 
         // ETA-delta bubbles for the alternative routes — geo-anchored to
         // each alt's `bubbleAnchor` but drawn upright + constant size in
         // the flat outer ctx (same projection trick as the cameras).
         drawAlternativeBubbles(into: ctx,
                                centerLat: centerLat, centerLon: centerLon,
-                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat)
+                               pxPerDegLon: pxPerDegLon, pxPerDegLat: pxPerDegLat,
+                               zoom: drawZoom)
 
         // Draw user direction arrow in the center. The map is rotated
         // heading-up, so the arrow always points toward the top of the
@@ -1264,22 +1446,44 @@ extension MapViewSource {
             return
         }
         let isPlus = osd.symbol == "＋"
+        let atLimit = osd.atLimit
         let r: CGFloat = 15
         let cx: CGFloat = r + 10
         let cy: CGFloat = frameSize.height - r - 10   // bottom-left (Y-DOWN)
 
-        // Dark translucent disc with a thin white ring for contrast on
-        // both light and dark map palettes.
+        // Dark translucent disc, same on both states so the badge keeps its
+        // place and palette. The white ring + white glyph match the normal
+        // +/− feedback (rider asked to keep the current colours).
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
         ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        if atLimit {
+            // Zoom pinned at the clamp: draw a "no-parking"-style sign — a
+            // bold white ring with a single diagonal white bar across it —
+            // so the rider sees the zoom won't go any further. Same white
+            // palette as the +/− badge, no glyph inside (reads as a traffic
+            // prohibition sign rather than a button press).
+            ctx.setStrokeColor(white)
+            ctx.setLineWidth(2.6)
+            ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+            let d = r * 0.66   // diagonal half-length (top-left → bottom-right)
+            ctx.setLineCap(.round)
+            ctx.setLineWidth(3.0)
+            ctx.move(to: CGPoint(x: cx - d, y: cy - d))
+            ctx.addLine(to: CGPoint(x: cx + d, y: cy + d))
+            ctx.strokePath()
+            return
+        }
+
+        // Normal nudge feedback: thin white ring + white +/− glyph.
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
         ctx.setLineWidth(1.5)
         ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
 
-        // White glyph bars.
         let barLen: CGFloat = 14
         let barThick: CGFloat = 2.6
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.setFillColor(white)
         // Horizontal bar (present for both + and −).
         ctx.fill(CGRect(x: cx - barLen / 2, y: cy - barThick / 2,
                         width: barLen, height: barThick))
@@ -1296,14 +1500,15 @@ extension MapViewSource {
     /// No-op when there are no via-stops (single-destination trips).
     private func drawWaypointPins(into ctx: CGContext,
                                   centerLat: Double, centerLon: Double,
-                                  pxPerDegLon: Double, pxPerDegLat: Double) {
+                                  pxPerDegLon: Double, pxPerDegLat: Double,
+                                  zoom: CGFloat) {
         guard !waypointDots.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
         for wp in waypointDots {
             let dx = (wp.longitude - centerLon) * pxPerDegLon
@@ -2132,14 +2337,15 @@ extension MapViewSource {
     /// delta). Bubbles whose anchor projects off-frame are culled.
     fileprivate func drawAlternativeBubbles(into ctx: CGContext,
                                             centerLat: Double, centerLon: Double,
-                                            pxPerDegLon: Double, pxPerDegLat: Double) {
+                                            pxPerDegLon: Double, pxPerDegLat: Double,
+                                            zoom: CGFloat) {
         guard !alternativeRoutes.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
         for alt in alternativeRoutes {
@@ -2200,7 +2406,8 @@ extension MapViewSource {
     /// culled.
     fileprivate func drawSpeedCameras(into ctx: CGContext,
                                       centerLat: Double, centerLon: Double,
-                                      pxPerDegLon: Double, pxPerDegLat: Double) {
+                                      pxPerDegLon: Double, pxPerDegLat: Double,
+                                      zoom: CGFloat) {
         guard !speedCameras.isEmpty else { return }
 
         let theta = -lastHeading * .pi / 180.0
@@ -2211,7 +2418,10 @@ extension MapViewSource {
         let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
         let anchorX = Double(frameSize.width) / 2
         let anchorY = Double(frameSize.height) / 2 + biasPx
-        let z = Double(currentZoom)
+        // `zoom` is the effective DRAW zoom (currentZoom × layerScale) so
+        // markers land on the route regardless of which quality layer's
+        // tile — and thus which pxPerDeg — supplied this frame.
+        let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
         for cam in speedCameras {
