@@ -1451,23 +1451,39 @@ extension MapViewSource {
         let cx: CGFloat = r + 10
         let cy: CGFloat = frameSize.height - r - 10   // bottom-left (Y-DOWN)
 
-        // Dark translucent disc with a thin ring for contrast on both light
-        // and dark map palettes. At the zoom limit the ring goes red so the
-        // "can't go further" state reads at a glance even before the eye
-        // resolves the slash.
+        // Dark translucent disc, same on both states so the badge keeps its
+        // place and palette. The white ring + white glyph match the normal
+        // +/− feedback (rider asked to keep the current colours).
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
         ctx.fillEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
-        let ringColor = atLimit
-            ? CGColor(red: 1.0, green: 0.32, blue: 0.28, alpha: 0.95)   // red
-            : CGColor(red: 1, green: 1, blue: 1, alpha: 0.9)
-        ctx.setStrokeColor(ringColor)
-        ctx.setLineWidth(atLimit ? 2.2 : 1.5)
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        if atLimit {
+            // Zoom pinned at the clamp: draw a "no-parking"-style sign — a
+            // bold white ring with a single diagonal white bar across it —
+            // so the rider sees the zoom won't go any further. Same white
+            // palette as the +/− badge, no glyph inside (reads as a traffic
+            // prohibition sign rather than a button press).
+            ctx.setStrokeColor(white)
+            ctx.setLineWidth(2.6)
+            ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+            let d = r * 0.66   // diagonal half-length (top-left → bottom-right)
+            ctx.setLineCap(.round)
+            ctx.setLineWidth(3.0)
+            ctx.move(to: CGPoint(x: cx - d, y: cy - d))
+            ctx.addLine(to: CGPoint(x: cx + d, y: cy + d))
+            ctx.strokePath()
+            return
+        }
+
+        // Normal nudge feedback: thin white ring + white +/− glyph.
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+        ctx.setLineWidth(1.5)
         ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
 
-        // White glyph bars.
         let barLen: CGFloat = 14
         let barThick: CGFloat = 2.6
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.setFillColor(white)
         // Horizontal bar (present for both + and −).
         ctx.fill(CGRect(x: cx - barLen / 2, y: cy - barThick / 2,
                         width: barLen, height: barThick))
@@ -1475,20 +1491,6 @@ extension MapViewSource {
             // Vertical bar completes the "+".
             ctx.fill(CGRect(x: cx - barThick / 2, y: cy - barLen / 2,
                             width: barThick, height: barLen))
-        }
-
-        // At the limit, overlay a diagonal "prohibited" slash across the
-        // glyph — the universal "no / blocked" affordance — so the rider
-        // sees the zoom won't go any further even though the press was
-        // registered. Drawn last so it sits on top of the +/− bars.
-        if atLimit {
-            let d = r * 0.72   // slash half-length inside the disc
-            ctx.setStrokeColor(CGColor(red: 1.0, green: 0.32, blue: 0.28, alpha: 1.0))
-            ctx.setLineCap(.round)
-            ctx.setLineWidth(3.0)
-            ctx.move(to: CGPoint(x: cx - d, y: cy - d))
-            ctx.addLine(to: CGPoint(x: cx + d, y: cy + d))
-            ctx.strokePath()
         }
     }
 

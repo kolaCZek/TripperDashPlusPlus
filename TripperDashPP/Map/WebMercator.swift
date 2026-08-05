@@ -36,7 +36,7 @@ enum WebMercator {
     ///   - z=16 → ~600 m / tile, very zoomed in (good for city streets
     ///     but loses context on highways)
     ///   - z=14 → ~2.4 km / tile, too zoomed out for turn-by-turn
-    static let defaultZoom: Int = 15
+    nonisolated static let defaultZoom: Int = 15
 
     /// Convert a geographic coordinate to a *fractional* tile address
     /// at the given zoom level. Integer part = tile index; fractional
