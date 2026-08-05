@@ -342,6 +342,48 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    // MARK: - Button / joystick events (dash → phone, UDP/2002)
+    //
+    // While streaming, the dash sends joystick / click events as
+    // `09 00 0001 XX` segments. The phone MUST echo a `06 80 0001 XX` ack
+    // back with the same trailing byte, otherwise some firmwares stop
+    // sending further events. Authority: skill `k1g-wire-protocol.md`
+    // "Button event → ack" table + better-dash `bike_link.py` listener.
+    //
+    //   09 00 0001 13  RIGHT  → echo 06 80 0001 13
+    //   09 00 0001 14  LEFT   → echo 06 80 0001 14
+    //   09 00 0001 15  DOWN   → echo 06 80 0001 15
+    //   09 00 0001 18  CLICK  → echo 06 80 0001 18
+
+    /// The four physical inputs the Tripper joystick sends while streaming.
+    /// Raw values are the trailing byte of the `09 00 0001 XX` segment.
+    enum DashButton: UInt8, Equatable, Sendable {
+        case right = 0x13
+        case left  = 0x14
+        case down  = 0x15
+        case click = 0x18
+
+        /// Decode the trailing byte of a `09 00 …` button segment. Returns
+        /// `nil` for any unrecognised code (older firmware quirks, the
+        /// `q3c.U2/V2/…` click-family bytes we don't map to navigation).
+        init?(code: UInt8) {
+            self.init(rawValue: code)
+        }
+    }
+
+    /// Phone → bike: acknowledge a joystick / button event. `06 80 0001 XX`
+    /// where `XX` is the SAME trailing byte the dash sent. Without this ack
+    /// some firmwares stop emitting further button events.
+    static func makeButtonAck(code: UInt8, seq: UInt8) -> Data {
+        let seg = K1GSegment(
+            type: .status,
+            sub: 0x80,
+            payload: Data([code])
+        )
+        return encode(segments: [seg], seq: seq)
+    }
+
+
     // MARK: - Call-state notification
     //
     // Mirror the stock Royal Enfield app's incoming-call card on the big

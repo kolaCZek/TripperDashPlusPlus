@@ -51,3 +51,16 @@ def build_button_segment(button: Button) -> Segment:
 def build_button_packet(button: Button, seq: int = 0) -> bytes:
     """Wrap a button segment in a complete K1G envelope ready to send."""
     return build_envelope([build_button_segment(button)], seq=seq)
+
+
+def build_button_ack_segment(code: int) -> Segment:
+    """Mirror of Swift `K1GPacket.makeButtonAck`: the phone echoes each
+    joystick event back as a `06 80 0001 XX` status segment with the SAME
+    trailing byte, otherwise some firmwares stop emitting further events."""
+    return Segment(type=0x06, sub=0x80, payload=bytes([code & 0xFF]))
+
+
+def build_button_ack_packet(code: int, seq: int = 0) -> bytes:
+    """Wrap a button ack segment in a complete K1G envelope."""
+    return build_envelope([build_button_ack_segment(code)], seq=seq)
+
