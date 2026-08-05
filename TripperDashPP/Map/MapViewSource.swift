@@ -257,7 +257,7 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// OSM zoom levels for the three quality layers. All gridSides stay
     /// ODD (Pitfall 11). Coarse trades detail for area; fine the reverse.
-    static let coarseLayerZoom = 12
+    static let coarseLayerZoom = 13
     static let baseLayerZoom = 15
     static let fineLayerZoom = 16
 
@@ -560,7 +560,7 @@ final class MapViewSource: NSObject, FrameSource {
         let coarse = RouteTileCache(
             style: style,
             zoom: MapViewSource.coarseLayerZoom,
-            gridSide: 5,
+            gridSide: 7,
             bakeAheadMeters: 3000
         )
         let fine = RouteTileCache(

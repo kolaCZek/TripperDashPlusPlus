@@ -428,8 +428,15 @@ def test_swift_block_uses_floor_not_round():
 # ---------------------------------------------------------------------------
 
 BASE_OSM_ZOOM = 15
-COARSE_OSM_ZOOM = 12
+COARSE_OSM_ZOOM = 13
 FINE_OSM_ZOOM = 16
+
+# Composite grid sides per layer — MUST match the RouteTileCache(...) calls
+# in MapViewSource.buildQualityLayers. Coarse uses a WIDER grid (7) so the
+# higher-detail z=13 tiles still blanket the frame at the widest zoom-out.
+COARSE_GRID = 7
+BASE_GRID = 5
+FINE_GRID = 5
 
 # Band edges + hysteresis margin — MUST match MapViewSource.selectLayer.
 COARSE_EDGE = 0.85
@@ -463,7 +470,7 @@ def test_coarse_layer_covers_wide_zoom_out():
     (effective ~0.12 = autozoom floor 0.8 x bias floor 0.15) up through
     the coarse->base handoff (COARSE_EDGE + margin), where base takes over."""
     for eff in [0.12, 0.20, 0.35, 0.55, 0.77, COARSE_EDGE + LAYER_MARGIN]:
-        black, samples = _layer_black_frames(COARSE_OSM_ZOOM, 5, eff)
+        black, samples = _layer_black_frames(COARSE_OSM_ZOOM, COARSE_GRID, eff)
         assert samples > 0
         assert black == 0, f"coarse layer black corners at eff={eff}: {black}/{samples}"
 
@@ -509,6 +516,29 @@ def test_layer_band_edges_match_swift():
     assert abs(float(m_coarse.group(1)) - COARSE_EDGE) < 1e-9, m_coarse.group(1)
     assert abs(float(m_fine.group(1)) - FINE_EDGE) < 1e-9, m_fine.group(1)
     assert abs(float(m_margin.group(1)) - LAYER_MARGIN) < 1e-9, m_margin.group(1)
+
+
+def test_layer_zoom_and_grid_match_swift():
+    """The Python mirror's per-layer OSM zoom + composite gridSide MUST
+    track MapViewSource so the coverage proof stays honest if someone
+    retunes the Swift layers (e.g. bumps coarse detail z=12->13)."""
+    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    m_cz = re.search(r"static let coarseLayerZoom = (\d+)", src)
+    m_bz = re.search(r"static let baseLayerZoom = (\d+)", src)
+    m_fz = re.search(r"static let fineLayerZoom = (\d+)", src)
+    assert m_cz and m_bz and m_fz, "could not find layer zoom constants in Swift"
+    assert int(m_cz.group(1)) == COARSE_OSM_ZOOM, m_cz.group(1)
+    assert int(m_bz.group(1)) == BASE_OSM_ZOOM, m_bz.group(1)
+    assert int(m_fz.group(1)) == FINE_OSM_ZOOM, m_fz.group(1)
+    # Coarse composite gridSide is passed explicitly to RouteTileCache in
+    # buildQualityLayers; assert it matches COARSE_GRID.
+    m_cg = re.search(
+        r"zoom: MapViewSource\.coarseLayerZoom,\s*\n\s*gridSide: (\d+)", src
+    )
+    assert m_cg, "could not find coarse gridSide in buildQualityLayers"
+    assert int(m_cg.group(1)) == COARSE_GRID, m_cg.group(1)
+    # Every gridSide MUST stay odd (Pitfall 11).
+    assert COARSE_GRID % 2 == 1 and BASE_GRID % 2 == 1 and FINE_GRID % 2 == 1
 
 
 def test_swift_renderer_compensates_layer_scale():
