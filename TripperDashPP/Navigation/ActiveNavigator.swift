@@ -18,6 +18,20 @@ import MapKit
 import os
 import Observation
 
+/// Coarse traffic-delay level for the progress bar's "road ahead" tint.
+/// This is the Apple-only honest signal — ONE level for the whole road
+/// ahead (whether the live ETA is running slower than the trip's baseline
+/// pace), NOT per-segment flow. Per-segment yellow/red waits on a BYOK
+/// live-traffic provider (see routing-engines.md). `unknown` renders
+/// neutral (no green/amber/red claim) when there's no baseline yet or the
+/// rider is essentially arrived.
+enum TrafficDelayLevel: String, Equatable, CaseIterable {
+    case unknown
+    case clear      // green  — moving at/above the trip's baseline pace
+    case moderate   // amber  — ≥ 1.15× the baseline free-flow time
+    case heavy      // red    — ≥ 1.40× the baseline free-flow time
+}
+
 @MainActor
 @Observable
 final class ActiveNavigator {
@@ -298,6 +312,85 @@ final class ActiveNavigator {
     /// fix of a short route (where remaining can start below the radius).
     private var hasBeenUnderway: Bool = false
 
+    // MARK: - Ride progress + coarse traffic-delay gauge (feat/route-progress-bar)
+
+    /// The WHOLE planned route's distance (metres) captured once when
+    /// navigation starts — the denominator for the progress fraction.
+    /// For a plan it's the sum of every leg's selected distance; for a
+    /// single destination it's the route's own distance. Held for the
+    /// whole ride (never reduced by a reroute — a reroute changes the
+    /// road ahead, but progress is still measured against the trip the
+    /// rider set out on, so the bar doesn't jump backward mid-ride).
+    private(set) var plannedTotalDistance: CLLocationDistance = 0
+
+    /// The WHOLE planned route's expected travel time (seconds) at START,
+    /// captured once. Divided into `plannedTotalDistance` it gives the
+    /// trip's baseline average pace (m/s) that the live-ETA delay gauge
+    /// compares against. Captured at start only, so "slower than planned"
+    /// means slower than the conditions Apple saw when the rider set off.
+    private(set) var plannedBaselineTime: TimeInterval = 0
+
+    /// Fraction of the whole trip completed, 0…1, for the progress bar.
+    /// Measured as travelled ÷ planned-total using the SAME
+    /// `finalDestinationRemainingDistance` the HUD counts down, so the
+    /// bar and the distance readout can never disagree. Clamped and
+    /// guarded against a zero/again-nil denominator (returns 0 before the
+    /// first route seeds). Monotonic in practice because
+    /// `plannedTotalDistance` is fixed for the ride.
+    var rideProgressFraction: Double {
+        guard plannedTotalDistance > 0 else { return 0 }
+        let done = plannedTotalDistance - finalDestinationRemainingDistance
+        return max(0, min(1, done / plannedTotalDistance))
+    }
+
+    /// The trip's baseline average pace in m/s (planned distance ÷ planned
+    /// time), captured at start. 0 until the first route seeds or if the
+    /// planned time was non-positive.
+    var baselineSpeedMetersPerSec: Double {
+        guard plannedBaselineTime > 0 else { return 0 }
+        return plannedTotalDistance / plannedBaselineTime
+    }
+
+    /// Coarse "how's the road ahead" level derived from the live Apple ETA
+    /// versus the trip's own baseline pace. This is the HONEST Apple-only
+    /// signal (see `DashNavSettings.progressBarEnabled`): a single level
+    /// for the whole road ahead, NOT per-segment flow. Compares the live
+    /// remaining ETA (`finalDestinationEtaSeconds`, kept fresh by the
+    /// periodic MKDirections re-fetch) against how long the remaining
+    /// distance WOULD take at the baseline pace. A live ETA meaningfully
+    /// longer than that ⇒ conditions ahead are slower than the trip has
+    /// been ⇒ amber/red.
+    var trafficDelayLevel: TrafficDelayLevel {
+        Self.trafficDelayLevel(
+            baselineSpeed: baselineSpeedMetersPerSec,
+            remainingDistance: finalDestinationRemainingDistance,
+            liveEtaSeconds: finalDestinationEtaSeconds
+        )
+    }
+
+    /// Pure, actor-free, MapKit-free decision core for the delay gauge, so
+    /// it's unit-testable and mirrored in `fake_dash`. Returns `.unknown`
+    /// when inputs are degenerate (no baseline yet, ~arrived), so the bar
+    /// can render its "ahead" half in a neutral colour rather than a
+    /// misleading green/red. Thresholds: ≥ 1.40× ⇒ `.heavy` (red),
+    /// ≥ 1.15× ⇒ `.moderate` (amber), else `.clear` (green). The ratio is
+    /// live-ETA ÷ free-flow-time-for-the-remaining-distance-at-baseline.
+    static func trafficDelayLevel(
+        baselineSpeed: Double,
+        remainingDistance: Double,
+        liveEtaSeconds: Double
+    ) -> TrafficDelayLevel {
+        guard baselineSpeed > 0,
+              remainingDistance > 50,          // ~arrived → gauge is noise
+              liveEtaSeconds.isFinite, liveEtaSeconds > 0 else { return .unknown }
+        let freeFlow = remainingDistance / baselineSpeed
+        guard freeFlow > 0 else { return .unknown }
+        let ratio = liveEtaSeconds / freeFlow
+        if ratio >= 1.40 { return .heavy }
+        if ratio >= 1.15 { return .moderate }
+        return .clear
+    }
+
     // MARK: - Reroute hysteresis state (7h)
 
     private var offRouteSince: Date?
@@ -388,6 +481,9 @@ final class ActiveNavigator {
         self.hasArrived = false
         self.hasBeenUnderway = false
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
+        // Progress gauge baseline: a single destination IS the whole trip.
+        self.plannedTotalDistance = route.distance
+        self.plannedBaselineTime = route.expectedTravelTime
         seed(route: route, destination: destination)
         self.isNavigating = true
         log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
@@ -419,6 +515,12 @@ final class ActiveNavigator {
         }
         seed(route: route, destination: destWp.asDestination)
         self.isNavigating = true
+        // Progress gauge baseline: sum EVERY leg's selected distance/time
+        // (from `fromLegIndex` to the end) so the bar measures against the
+        // whole remaining trip, and the delay ratio uses a whole-trip pace.
+        let plannedLegs = plan.legs[self.currentLegIndex...]
+        self.plannedTotalDistance = plannedLegs.reduce(0.0) { $0 + ($1.selected?.distanceMeters ?? 0) }
+        self.plannedBaselineTime = plannedLegs.reduce(0.0) { $0 + ($1.selected?.travelTime ?? 0) }
         log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
         await onActiveRouteChanged?(route)
     }
@@ -630,6 +732,9 @@ final class ActiveNavigator {
         self.traveledCoordinates = []
         self.activeRouteCoordsCache = []
         self.subsequentLegsCoordsCache = []
+        // Progress gauge — drop the baseline so the next ride re-captures it.
+        self.plannedTotalDistance = 0
+        self.plannedBaselineTime = 0
     }
 
     /// Reached the final destination. Flip into the `hasArrived` display

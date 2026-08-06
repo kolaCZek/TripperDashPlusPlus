@@ -240,6 +240,27 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Route progress bar: draw a thin bar along the BOTTOM edge of the
+    /// streamed map showing how far along the route the rider is (filled
+    /// from the left) plus a coarse traffic-delay tint on the road AHEAD.
+    /// Defaults ON — it's an at-a-glance ride gauge, non-critical, and
+    /// costs nothing (all data is already local: breadcrumb distance vs.
+    /// planned total, and the live Apple ETA vs. the trip's own baseline
+    /// pace). When OFF, `drawProgressBar` is a no-op.
+    ///
+    /// IMPORTANT — honest scope (Martin, 8/2026): the "ahead" tint is a
+    /// SINGLE coarse colour derived from whether the live ETA is running
+    /// slower than the route's own start-of-trip average pace. It is NOT
+    /// per-segment traffic flow — Apple `MKDirections` returns only a
+    /// scalar `expectedTravelTime`, no geometry-resolved flow, so a true
+    /// yellow/red "jam at km 12" colouring is impossible on Apple and
+    /// waits on the BYOK TomTom provider (see routing-engines.md). This
+    /// bar tells the rider "the road ahead is slower than this trip has
+    /// been", not WHERE the slowdown is.
+    var progressBarEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -394,13 +415,11 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v7 when the message-notify toggle (messageNotifyEnabled)
-    // landed. Older blobs (v6 and earlier) are silently ignored on first
+    // Bumped to v11 when the route progress bar toggle (progressBarEnabled)
+    // landed. Older blobs (v10 and earlier) are silently ignored on first
     // read; we just rewrite them under the new key with current defaults
-    // (message notify ON, call-state card ON, lookahead ON, threshold 300 m).
-    // Phone-status telemetry is no longer a setting — it's always reported
-    // (a dropped `deviceTelemetryEnabled` key in an old blob is simply ignored).
-    private static let storeKey = "dashNavSettings.v9"
+    // (progress bar ON, traffic reroute OFF, message notify ON, etc.).
+    private static let storeKey = "dashNavSettings.v11"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -421,6 +440,7 @@ final class DashNavSettings {
         var voiceEnabled: Bool?
         var voiceLanguage: VoiceLanguage?
         var voiceSpeedCameraEnabled: Bool?
+        var progressBarEnabled: Bool?
     }
 
     init() {
@@ -446,6 +466,7 @@ final class DashNavSettings {
         self.voiceEnabled = p.voiceEnabled ?? false
         self.voiceLanguage = p.voiceLanguage ?? .deviceDefault
         self.voiceSpeedCameraEnabled = p.voiceSpeedCameraEnabled ?? true
+        self.progressBarEnabled = p.progressBarEnabled ?? true
     }
 
     private func persist() {
@@ -464,7 +485,8 @@ final class DashNavSettings {
             speedLimitOverToleranceKmh: speedLimitOverToleranceKmh,
             voiceEnabled: voiceEnabled,
             voiceLanguage: voiceLanguage,
-            voiceSpeedCameraEnabled: voiceSpeedCameraEnabled
+            voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
+            progressBarEnabled: progressBarEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
