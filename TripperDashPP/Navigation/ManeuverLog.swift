@@ -66,11 +66,17 @@ final class ManeuverLog: @unchecked Sendable {
     /// Process-wide singleton.
     static let shared = ManeuverLog()
 
-    /// Master on/off switch. Default **ON** so debug builds capture a trail
-    /// without any wiring. Flip to `false` to disable all file IO; `record`
-    /// early-returns before doing any work. `nonisolated(unsafe)` because
-    /// this is a coarse debug toggle, not hot-path mutable shared state.
+    /// Master on/off switch. **ON in DEBUG builds only** so field-debug
+    /// builds capture a trail without any wiring, while App Store / release
+    /// builds never write the rider's raw GPS to disk. Flip to `false`
+    /// (or build Release) to disable all file IO; `record` early-returns
+    /// before doing any work. `nonisolated(unsafe)` because this is a
+    /// coarse debug toggle, not hot-path mutable shared state.
+    #if DEBUG
     nonisolated(unsafe) static var isEnabled = true
+    #else
+    nonisolated(unsafe) static var isEnabled = false
+    #endif
 
     /// Subsystem kept consistent with `ActiveNavLoop` (`cz.kolaczek.tripperdash`).
     private let log = Logger(subsystem: "cz.kolaczek.tripperdash", category: "ManeuverLog")
