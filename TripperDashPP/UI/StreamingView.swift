@@ -121,10 +121,6 @@ struct StreamingView: View {
                         Text("Speak speed-camera alerts")
                     }
                 }
-
-                Text("Announces upcoming turns through your phone speaker or a paired Bluetooth headset. Offline — no account or data needed. Music and podcasts duck briefly during each prompt.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Notifications") {
