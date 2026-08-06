@@ -224,14 +224,11 @@ struct StreamingView: View {
 
             MapCacheSection()
 
-            Section("Build") {
-                LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildCommitSHA))")
-            }
-            // NOTE: the parenthesised value is the short git commit SHA the
-            // build came from (stamped by tools/stamp-git-sha.sh), not the
-            // CFBundleVersion build number.
-
             Section("About") {
+                LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildCommitSHA))")
+                // NOTE: the parenthesised value is the short git commit SHA
+                // the build came from (stamped by tools/stamp-git-sha.sh),
+                // not the CFBundleVersion build number.
                 Link(destination: URL(string: "https://github.com/kolaCZek/TripperDashPlusPlus/issues/new")!) {
                     Label("Report a bug", systemImage: "ladybug")
                 }
