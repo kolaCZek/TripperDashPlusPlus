@@ -211,18 +211,15 @@ struct StreamingView: View {
                     LabeledContent("Currently",
                                    value: status.effectiveMapStyle == .dark ? "Dark" : "Light")
                 }
-                Text("Auto follows local sunrise and sunset from your GPS position. Light and dark map tiles are cached separately.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Route progress") {
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.progressBarEnabled },
                     set: { status.dashNavSettings.progressBarEnabled = $0 }
                 )) {
-                    Text("Progress bar")
+                    Text("Route progress bar")
                 }
+                Text("Auto follows local sunrise and sunset from your GPS position. Light and dark map tiles are cached separately.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             MapCacheSection()
