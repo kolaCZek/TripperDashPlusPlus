@@ -2728,18 +2728,21 @@ extension MapViewSource {
         ctx.setLineWidth(1)
         ctx.strokePath()
 
-        // Position marker — a red RIGHT-pointing chevron (play-triangle)
-        // sitting at the split, vertically centred on the bar and taller
-        // than it, lined with thin white so it pops off the map and the
-        // bar (matches the mock the rider sent).
+        // Position marker — a red RIGHT-pointing chevron sitting at the
+        // split, vertically centred on the bar and taller than it, lined
+        // with thin white so it pops off the map and the bar. Shaped like
+        // the heading puck's chevron: a back NOTCH cut into the trailing
+        // edge so it reads as an arrow, not a plain triangle.
         let markX = min(max(x0, splitX), x0 + barW)
         let midY = y + h / 2
-        let arrowW: CGFloat = 8            // depth of the triangle (points right)
+        let arrowW: CGFloat = 8            // depth from back edge to tip
         let arrowHalfH: CGFloat = 7        // half-height (overhangs the bar)
+        let notch: CGFloat = 4             // how deep the back notch bites in
         let chevron = CGMutablePath()
-        chevron.move(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH))   // top-back
-        chevron.addLine(to: CGPoint(x: markX + arrowW, y: midY))             // tip (points right)
-        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY + arrowHalfH)) // bottom-back
+        chevron.move(to: CGPoint(x: markX + arrowW, y: midY))                 // tip (points right)
+        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH)) // top-back corner
+        chevron.addLine(to: CGPoint(x: markX - arrowW + notch, y: midY))      // back notch (bite in)
+        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY + arrowHalfH)) // bottom-back corner
         chevron.closeSubpath()
 
         // White outline first (stroked wider), then the red fill on top.
