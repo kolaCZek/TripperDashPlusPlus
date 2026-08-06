@@ -40,6 +40,32 @@ def ride_progress_fraction(planned_total: float, remaining: float) -> float:
     return max(0.0, min(1.0, done / planned_total))
 
 
+EDITABLE_LIST_THRESHOLD = 20  # RoutePoint.editableListThreshold
+
+
+def waypoint_fractions(leg_distances: list[float]) -> list[float]:
+    """Mirror of the waypoint-tick capture in `ActiveNavigator.start(plan:)`.
+
+    Given the selected distance of every remaining leg, return the 0…1 bar
+    position of each intermediate pass-through waypoint — the cumulative
+    length up to each leg boundary EXCEPT the last (the final destination
+    is the bar's end, not a tick). Empty for a single leg or zero total,
+    and suppressed entirely for a dense plan (via-point count above the
+    planner's editable-list threshold) so a recorded track doesn't smear
+    the bar into an unreadable comb.
+    """
+    total = sum(leg_distances)
+    via_count = len(leg_distances) - 1
+    if total <= 0 or via_count < 1 or via_count > EDITABLE_LIST_THRESHOLD:
+        return []
+    fractions: list[float] = []
+    cumulative = 0.0
+    for dist in leg_distances[:-1]:
+        cumulative += dist
+        fractions.append(cumulative / total)
+    return fractions
+
+
 # --------------------------------------------------------------------------
 # Progress fraction
 # --------------------------------------------------------------------------
@@ -72,6 +98,51 @@ class TestProgressFraction:
 
 
 # --------------------------------------------------------------------------
+# Waypoint tick positions
+# --------------------------------------------------------------------------
+
+
+class TestWaypointFractions:
+    def test_single_leg_no_ticks(self):
+        # A direct route (one leg) has no intermediate via-points.
+        assert waypoint_fractions([10_000]) == []
+
+    def test_two_legs_one_tick_at_midpoint(self):
+        # Two equal legs → one via-point at the halfway mark.
+        assert waypoint_fractions([5_000, 5_000]) == pytest.approx([0.5])
+
+    def test_three_uneven_legs(self):
+        # Ticks at each boundary before the final destination.
+        got = waypoint_fractions([2_000, 3_000, 5_000])
+        assert got == pytest.approx([0.2, 0.5])
+
+    def test_final_destination_not_a_tick(self):
+        # The last boundary (fraction 1.0) is the bar's end, never emitted.
+        got = waypoint_fractions([1_000, 1_000, 1_000])
+        assert 1.0 not in got
+        assert got == pytest.approx([1 / 3, 2 / 3])
+
+    def test_zero_total_no_ticks(self):
+        assert waypoint_fractions([0, 0]) == []
+
+    def test_at_threshold_still_drawn(self):
+        # Exactly threshold via-points (threshold+1 legs) → still drawn.
+        legs = [1_000.0] * (EDITABLE_LIST_THRESHOLD + 1)
+        got = waypoint_fractions(legs)
+        assert len(got) == EDITABLE_LIST_THRESHOLD
+
+    def test_above_threshold_suppressed(self):
+        # One past the threshold (a dense track) → no ticks at all.
+        legs = [1_000.0] * (EDITABLE_LIST_THRESHOLD + 2)
+        assert waypoint_fractions(legs) == []
+
+    def test_dense_track_suppressed(self):
+        # A recorded track staged for nav (hundreds of points) → empty.
+        legs = [100.0] * 500
+        assert waypoint_fractions(legs) == []
+
+
+# --------------------------------------------------------------------------
 # Drift guard — the Swift source must still match this core
 # --------------------------------------------------------------------------
 
@@ -99,3 +170,11 @@ class TestSwiftDriftGuard:
         src = _swift_navigator_source()
         assert "TrafficDelayLevel" not in src
         assert "trafficDelayLevel" not in src
+
+    def test_waypoint_ticks_gated_on_editable_threshold(self):
+        # The waypoint ticks must reuse the SAME density cutoff the planner
+        # uses for its editable stop list, so a dense imported track shows
+        # no ticks (they'd smear into a comb).
+        src = _swift_navigator_source()
+        assert "plannedWaypointFractions" in src
+        assert "RoutePoint.editableListThreshold" in src

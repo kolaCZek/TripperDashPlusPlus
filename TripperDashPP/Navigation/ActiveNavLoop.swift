@@ -332,7 +332,8 @@ final class ActiveNavLoop {
         if settings.progressBarEnabled {
             mapSource?.setRideProgress(
                 MapViewSource.RideProgress(
-                    fraction: nav.rideProgressFraction
+                    fraction: nav.rideProgressFraction,
+                    waypointFractions: nav.plannedWaypointFractions
                 )
             )
         } else {

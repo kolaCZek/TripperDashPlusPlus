@@ -309,6 +309,19 @@ final class ActiveNavigator {
     /// rider set out on, so the bar doesn't jump backward mid-ride).
     private(set) var plannedTotalDistance: CLLocationDistance = 0
 
+    /// Fractional positions (0…1) of the intermediate pass-through
+    /// waypoints along the WHOLE trip, captured once at start alongside
+    /// `plannedTotalDistance`. Each entry is the cumulative selected-leg
+    /// distance up to that via-point ÷ the planned total, so the progress
+    /// bar can draw a tick where every waypoint sits. The final
+    /// destination (fraction 1.0) is NOT included — it's the bar's end,
+    /// not a mid-route tick. Empty for a single-destination session AND
+    /// for a dense plan (> `RoutePoint.editableListThreshold` via-points,
+    /// e.g. an imported track) where ticks would smear into a comb.
+    /// Fixed for the ride (a reroute doesn't shuffle the ticks), matching
+    /// the fixed `plannedTotalDistance` denominator.
+    private(set) var plannedWaypointFractions: [Double] = []
+
     /// Fraction of the whole trip completed, 0…1, for the progress bar.
     /// Measured as travelled ÷ planned-total using the SAME
     /// `finalDestinationRemainingDistance` the HUD counts down, so the
@@ -435,6 +448,7 @@ final class ActiveNavigator {
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
         // Progress gauge baseline: a single destination IS the whole trip.
         self.plannedTotalDistance = route.distance
+        self.plannedWaypointFractions = []   // no via-points on a direct route
         seed(route: route, destination: destination)
         self.isNavigating = true
         log.info("Navigation started to \(destination.name, privacy: .public) — \(Int(route.distance)) m / \(Int(route.expectedTravelTime)) s")
@@ -469,8 +483,30 @@ final class ActiveNavigator {
         // Progress gauge baseline: sum EVERY leg's selected distance
         // (from `fromLegIndex` to the end) so the bar measures against the
         // whole remaining trip.
-        let plannedLegs = plan.legs[self.currentLegIndex...]
-        self.plannedTotalDistance = plannedLegs.reduce(0.0) { $0 + ($1.selected?.distanceMeters ?? 0) }
+        let plannedLegs = Array(plan.legs[self.currentLegIndex...])
+        let legDistances = plannedLegs.map { $0.selected?.distanceMeters ?? 0 }
+        let total = legDistances.reduce(0.0, +)
+        self.plannedTotalDistance = total
+        // Waypoint ticks: the boundary AFTER each leg except the last is a
+        // pass-through via-point. Its bar position is the cumulative length
+        // up to that boundary ÷ total. The final destination (the end of
+        // the last leg) is deliberately excluded — it's the bar's end.
+        // Suppressed entirely for a dense plan (an imported/recorded track
+        // staged for navigation carries hundreds of via-points): past the
+        // planner's editable-list threshold the ticks would smear into an
+        // unreadable comb, so we mirror that cutoff and draw none.
+        let viaCount = legDistances.count - 1   // boundaries before the final dest
+        if total > 0, viaCount >= 1, viaCount <= RoutePoint.editableListThreshold {
+            var cumulative = 0.0
+            var fractions: [Double] = []
+            for dist in legDistances.dropLast() {
+                cumulative += dist
+                fractions.append(cumulative / total)
+            }
+            self.plannedWaypointFractions = fractions
+        } else {
+            self.plannedWaypointFractions = []
+        }
         log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
         await onActiveRouteChanged?(route)
     }
@@ -684,6 +720,7 @@ final class ActiveNavigator {
         self.subsequentLegsCoordsCache = []
         // Progress gauge — drop the baseline so the next ride re-captures it.
         self.plannedTotalDistance = 0
+        self.plannedWaypointFractions = []
     }
 
     /// Reached the final destination. Flip into the `hasArrived` display

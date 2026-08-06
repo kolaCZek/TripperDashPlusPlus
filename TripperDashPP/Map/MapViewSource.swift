@@ -1897,11 +1897,14 @@ extension MapViewSource {
     }
 
     /// Ride-progress state for the bottom-edge progress bar. `fraction`
-    /// is 0…1 (how far along the whole trip). The bar renders the DONE
-    /// portion (left) grey and the REMAINING portion (right) blue, with a
-    /// marker at the current position.
+    /// is 0…1 (how far along the whole trip). `waypointFractions` are the
+    /// 0…1 positions of intermediate pass-through waypoints (empty for a
+    /// direct route). The bar renders the DONE portion (left) grey and the
+    /// REMAINING portion (right) blue, with a marker at the current
+    /// position and a tick at each waypoint.
     struct RideProgress {
         var fraction: Double            // 0…1 completed
+        var waypointFractions: [Double] // 0…1 via-point positions
     }
 
     /// Push the latest ride-progress (or `nil` to hide the bar). Mirrors
@@ -2695,6 +2698,22 @@ extension MapViewSource {
         if splitX < x0 + barW {
             ctx.setFillColor(aheadBlue)
             ctx.fill(CGRect(x: splitX, y: y, width: x0 + barW - splitX, height: h))
+        }
+
+        // Waypoint ticks — a slim notch at each intermediate via-point so
+        // the rider can see the stops laid out along the whole trip. Drawn
+        // over both halves (dark, semi-transparent) so they read whether
+        // the leg is done or ahead. The final destination isn't in the
+        // list (it's the bar's end).
+        let tickW: CGFloat = 2
+        ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.85))
+        for wf in p.waypointFractions {
+            let f = CGFloat(max(0, min(1, wf)))
+            let tx = (x0 + barW * f).rounded()
+            // Keep the notch fully inside the bar; skip if it would land on
+            // the very edge (indistinguishable from the bar end).
+            guard tx > x0 + tickW, tx < x0 + barW - tickW else { continue }
+            ctx.fill(CGRect(x: tx - tickW / 2, y: y, width: tickW, height: h))
         }
 
         // Position marker — a red RIGHT-pointing chevron (play-triangle)
