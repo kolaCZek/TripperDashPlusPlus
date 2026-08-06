@@ -2735,9 +2735,9 @@ extension MapViewSource {
         // edge so it reads as an arrow, not a plain triangle.
         let markX = min(max(x0, splitX), x0 + barW)
         let midY = y + h / 2
-        let arrowW: CGFloat = 8            // depth from back edge to tip
-        let arrowHalfH: CGFloat = 7        // half-height (overhangs the bar)
-        let notch: CGFloat = 4             // how deep the back notch bites in
+        let arrowW: CGFloat = 11           // depth from back edge to tip
+        let arrowHalfH: CGFloat = 9        // half-height (overhangs the bar)
+        let notch: CGFloat = 5             // how deep the back notch bites in
         let chevron = CGMutablePath()
         chevron.move(to: CGPoint(x: markX + arrowW, y: midY))                 // tip (points right)
         chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH)) // top-back corner
