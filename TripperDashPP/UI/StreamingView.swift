@@ -230,6 +230,15 @@ struct StreamingView: View {
             // NOTE: the parenthesised value is the short git commit SHA the
             // build came from (stamped by tools/stamp-git-sha.sh), not the
             // CFBundleVersion build number.
+
+            Section("About") {
+                Link(destination: URL(string: "https://github.com/kolaCZek/TripperDashPlusPlus/issues/new")!) {
+                    Label("Report a bug", systemImage: "ladybug")
+                }
+                Link(destination: URL(string: "https://github.com/sponsors/kolaCZek")!) {
+                    Label("Donate", systemImage: "heart")
+                }
+            }
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
