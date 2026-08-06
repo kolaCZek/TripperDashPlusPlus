@@ -325,16 +325,14 @@ final class ActiveNavLoop {
         mapSource?.setNavOverlay(overlay)
 
         // 2a. Ride progress bar (feat/route-progress-bar). Push the trip
-        //     fraction + coarse road-ahead delay level only when the rider
-        //     has opted in; when off, clear it so the bar disappears the
-        //     same tick the toggle flips. The fraction + delay level are
-        //     both pure reads off the navigator (breadcrumb-vs-planned and
-        //     live-ETA-vs-baseline) — no MapKit work here.
+        //     fraction only when the rider has opted in; when off, clear it
+        //     so the bar disappears the same tick the toggle flips. The
+        //     fraction is a pure read off the navigator (breadcrumb vs.
+        //     planned total) — no MapKit work here.
         if settings.progressBarEnabled {
             mapSource?.setRideProgress(
                 MapViewSource.RideProgress(
-                    fraction: nav.rideProgressFraction,
-                    delay: nav.trafficDelayLevel
+                    fraction: nav.rideProgressFraction
                 )
             )
         } else {
