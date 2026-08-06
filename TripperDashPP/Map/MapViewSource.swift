@@ -2648,9 +2648,9 @@ extension MapViewSource {
 
     // MARK: - Route progress bar
 
-    /// Height (px) of the bottom-edge progress bar. Thin — a HUD accent,
-    /// not a chunky UI element, on the 526×300 dash.
-    fileprivate static let progressBarHeight: CGFloat = 8
+    /// Height (px) of the bottom-edge progress bar. Thin — a sleek HUD
+    /// accent, not a chunky UI element, on the 526×300 dash.
+    fileprivate static let progressBarHeight: CGFloat = 6
 
     /// Fraction of the dash width the bar spans. The rider asked for a
     /// centred bar that doesn't run the full edge — 75% leaves margins so
@@ -2681,12 +2681,17 @@ extension MapViewSource {
         let doneGrey = CGColor(red: 0.55, green: 0.57, blue: 0.60, alpha: 0.95)
         let aheadBlue = CGColor(red: 0.16, green: 0.52, blue: 0.96, alpha: 0.98)
 
+        let barRect = CGRect(x: x0, y: y, width: barW, height: h)
+        let radius = h / 2                         // fully rounded (pill) ends
+        let pill = CGPath(roundedRect: barRect, cornerWidth: radius,
+                          cornerHeight: radius, transform: nil)
+
         ctx.saveGState()
 
-        // Dark track backdrop under the whole bar so both halves read over
-        // bright map tiles regardless of the underlying pixels.
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.40))
-        ctx.fill(CGRect(x: x0 - 1, y: y - 1, width: barW + 2, height: h + 2))
+        // Clip everything that follows to the rounded pill so the fills and
+        // the split inherit the rounded ends.
+        ctx.addPath(pill)
+        ctx.clip()
 
         // DONE portion (left) — grey.
         if splitX > x0 {
@@ -2704,31 +2709,47 @@ extension MapViewSource {
         // the rider can see the stops laid out along the whole trip. Drawn
         // over both halves (dark, semi-transparent) so they read whether
         // the leg is done or ahead. The final destination isn't in the
-        // list (it's the bar's end).
-        let tickW: CGFloat = 2
+        // list (it's the bar's end). Still clipped to the pill.
+        let tickW: CGFloat = 1.5
         ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.85))
         for wf in p.waypointFractions {
             let f = CGFloat(max(0, min(1, wf)))
             let tx = (x0 + barW * f).rounded()
-            // Keep the notch fully inside the bar; skip if it would land on
-            // the very edge (indistinguishable from the bar end).
             guard tx > x0 + tickW, tx < x0 + barW - tickW else { continue }
             ctx.fill(CGRect(x: tx - tickW / 2, y: y, width: tickW, height: h))
         }
 
+        // Drop the clip so the outline stroke sits ON the pill edge.
+        ctx.resetClip()
+
+        // Thin black outline tracing the rounded bar.
+        ctx.addPath(pill)
+        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
+        ctx.setLineWidth(1)
+        ctx.strokePath()
+
         // Position marker — a red RIGHT-pointing chevron (play-triangle)
         // sitting at the split, vertically centred on the bar and taller
-        // than it, so the rider sees exactly where "now" is and which way
-        // the ride runs (matches the mock the rider sent).
+        // than it, lined with thin white so it pops off the map and the
+        // bar (matches the mock the rider sent).
         let markX = min(max(x0, splitX), x0 + barW)
         let midY = y + h / 2
-        let arrowW: CGFloat = 9            // depth of the triangle (points right)
-        let arrowHalfH: CGFloat = 8        // half-height (overhangs the bar)
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH))   // top-back
-        ctx.addLine(to: CGPoint(x: markX + arrowW, y: midY))            // tip (points right)
-        ctx.addLine(to: CGPoint(x: markX - arrowW, y: midY + arrowHalfH)) // bottom-back
-        ctx.closePath()
+        let arrowW: CGFloat = 8            // depth of the triangle (points right)
+        let arrowHalfH: CGFloat = 7        // half-height (overhangs the bar)
+        let chevron = CGMutablePath()
+        chevron.move(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH))   // top-back
+        chevron.addLine(to: CGPoint(x: markX + arrowW, y: midY))             // tip (points right)
+        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY + arrowHalfH)) // bottom-back
+        chevron.closeSubpath()
+
+        // White outline first (stroked wider), then the red fill on top.
+        ctx.addPath(chevron)
+        ctx.setStrokeColor(CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0))
+        ctx.setLineWidth(2)
+        ctx.setLineJoin(.round)
+        ctx.strokePath()
+
+        ctx.addPath(chevron)
         ctx.setFillColor(CGColor(red: 0.91, green: 0.20, blue: 0.17, alpha: 1.0))
         ctx.fillPath()
 
