@@ -360,6 +360,27 @@ final class ActiveNavigator {
     /// second hook to forget.
     var onRerouteRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> MKRoute?))?
 
+    /// Live-traffic reroute hook. Returns Apple's current traffic-aware
+    /// route ALTERNATIVES from the rider's live position to the current
+    /// destination (i.e. `MKDirections` with `requestsAlternateRoutes`),
+    /// or nil/empty on failure. Distinct from `onRerouteRequested` (which
+    /// returns a single best route for OFF-route recovery): the traffic
+    /// check needs the WHOLE candidate set so it can (a) find the option
+    /// geometrically matching the rider's CURRENT road to read its live
+    /// with-traffic time, and (b) find the fastest alternative — then
+    /// compare the two. Wired by AppStatus. `nil` when the feature is off
+    /// or unwired → the periodic check no-ops.
+    var onTrafficRoutesRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> [MKRoute]))?
+
+    /// Mirror of `DashNavSettings.trafficRerouteEnabled`. Set by AppStatus
+    /// on start + whenever the setting changes. When false the periodic
+    /// traffic check is skipped entirely (no extra MKDirections work).
+    var trafficRerouteEnabled: Bool = false
+
+    /// Mirror of `DashNavSettings.trafficRerouteSavingSeconds` — the
+    /// minimum time a faster alternative must save before we auto-swap.
+    var trafficRerouteSavingSeconds: TimeInterval = 300
+
     /// Caller hook fired whenever the active route is replaced —
     /// fresh `start()` AND every successful reroute. Callers wire
     /// this to: (1) push the new polyline into `MapViewSource` so
@@ -793,53 +814,39 @@ final class ActiveNavigator {
         log.info("Requesting reroute from \(coord.latitude),\(coord.longitude) to \(dest.name, privacy: .public)")
         if let newRoute = await cb(coord, dest) {
             log.info("Reroute succeeded — swapping active route")
-            self.activeRoute = newRoute
-            self.lastSegmentIndex = 0
-            self.offRouteSince = nil
-            self.isOffRoute = false
-            self.remainingDistance = newRoute.distance
-            // Overview: refresh the AHEAD geometry to the new route.
-            // The travelled breadcrumb is deliberately NOT touched — a
-            // reroute replaces the road in front of the rider, never the
-            // ground already covered, so the progress bar keeps its
-            // history (the grey trace) and only the blue line ahead
-            // changes shape.
-            refreshOverviewCaches()
-            // F6: a successful reroute hands us a brand-new MKRoute with
-            // its own fresh `expectedTravelTime` from the rider's actual
-            // current position — feed that into `legArrivalDate` exactly
-            // like `seed()` does. A reroute IS itself an Apple re-fetch,
-            // so this keeps reroute-driven and periodic-driven ETA
-            // updates as the same single mechanism rather than two
-            // sources that could disagree.
-            self.legArrivalDate = Date(timeIntervalSinceNow: newRoute.expectedTravelTime)
-            // Fresh route after a reroute: the rider sits at the new
-            // route's origin, traversing steps[0] (ARRIVING — its polyline
-            // ends at the first maneuver node and its `.instructions` name
-            // that maneuver), departing via steps[1]. Same shape as `seed`
-            // and as the first `ingest` tick, so the off-by-one fix holds
-            // across reroutes too.
-            self.stepBeforeNext = newRoute.steps.first        // arriving (text + incoming leg)
-            self.nextStep = newRoute.steps.dropFirst().first  // departing (outgoing leg)
-            self.precedingStep = nil                          // fresh route → nothing before
-            self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
-            // F2c: rebuild secondary too. Reroute usually keeps the
-            // first step short (Apple Maps fences the next maneuver),
-            // so the look-ahead is most useful right after a reroute.
-            self.secondNextStep = newRoute.steps.dropFirst(2).first
-            // distance-to-secondary = distance-to-primary + the primary
-            // (departing) leg's own length (primary node → secondary node).
-            self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
-                + (newRoute.steps.dropFirst().first?.distance ?? 0)
-            // Fire the route-changed hook so Map UI repaints the new
-            // blue line and the tile cache re-bakes around the new
-            // polyline. Without this the rider sees the OLD line
-            // floating on the dash even though we're internally
-            // navigating the new route — confusing and dangerous.
-            await onActiveRouteChanged?(newRoute)
+            await installSwappedRoute(newRoute)
         } else {
             log.warning("Reroute failed — keeping existing route, will retry after cooldown")
         }
+    }
+
+    /// Swap `activeRoute` to `newRoute` and rebuild every piece of
+    /// per-route display/geometry state — shared by the off-route
+    /// reroute path AND the live-traffic reroute path. Resets the
+    /// segment cursor + off-route state, reseeds the maneuver model to
+    /// the fresh route's first steps (same off-by-one-safe shape as
+    /// `seed`), refreshes the overview caches, folds the new route's
+    /// `expectedTravelTime` into `legArrivalDate` (a swap IS itself an
+    /// Apple re-fetch), and fires `onActiveRouteChanged` so the tile
+    /// cache re-bakes and the dash/Map repaint the new blue line. The
+    /// travelled breadcrumb is deliberately untouched — a swap replaces
+    /// the road AHEAD, never the ground already covered.
+    private func installSwappedRoute(_ newRoute: MKRoute) async {
+        self.activeRoute = newRoute
+        self.lastSegmentIndex = 0
+        self.offRouteSince = nil
+        self.isOffRoute = false
+        self.remainingDistance = newRoute.distance
+        refreshOverviewCaches()
+        self.legArrivalDate = Date(timeIntervalSinceNow: newRoute.expectedTravelTime)
+        self.stepBeforeNext = newRoute.steps.first        // arriving (text + incoming leg)
+        self.nextStep = newRoute.steps.dropFirst().first  // departing (outgoing leg)
+        self.precedingStep = nil                          // fresh route → nothing before
+        self.distanceToNextStep = newRoute.steps.first?.distance ?? 0
+        self.secondNextStep = newRoute.steps.dropFirst(2).first
+        self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
+            + (newRoute.steps.dropFirst().first?.distance ?? 0)
+        await onActiveRouteChanged?(newRoute)
     }
 
     // MARK: - Leg advance (multi-stop)
@@ -921,6 +928,138 @@ final class ActiveNavigator {
         if let route = await cb(coord, dest) {
             self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
         }
+        // Live-traffic reroute rides on the SAME periodic cadence as the
+        // ETA re-fetch (both want Apple's latest traffic-aware times from
+        // the rider's current position), but is a separate MKDirections
+        // call because it needs the full ALTERNATE set, not just the best
+        // single route. Gated on the opt-in setting so it costs nothing
+        // when off.
+        if trafficRerouteEnabled {
+            await checkLiveTrafficReroute(from: coord, to: dest)
+        }
+    }
+
+    // MARK: - Live-traffic reroute (feat/live-traffic-reroute)
+
+    /// Periodic live-traffic reroute check. Fetches Apple's current
+    /// traffic-aware alternatives from the rider's live position, finds
+    /// the option matching the road the rider is CURRENTLY on (its live
+    /// with-traffic time) and the fastest option overall, and — if the
+    /// fastest saves at least `trafficRerouteSavingSeconds` AND is a
+    /// genuinely different road — swaps navigation onto it. Silent
+    /// (Martin 8/2026 chose automatic swap, like the off-route reroute).
+    ///
+    /// Conservative by design: if we CAN'T confidently identify the
+    /// rider's current corridor among the returned alternatives, we do
+    /// NOT reroute (a false "saving" from comparing against the wrong
+    /// baseline is worse than missing one jam). Respects the same
+    /// `rerouteCooldown` and `isRerouting` guards as the off-route path,
+    /// so the two reroute sources can't fire on top of each other.
+    private func checkLiveTrafficReroute(from coord: CLLocationCoordinate2D,
+                                         to dest: Destination) async {
+        guard !isRerouting,
+              Date.now.timeIntervalSince(lastRerouteAt) >= rerouteCooldown,
+              let cb = onTrafficRoutesRequested,
+              let current = activeRoute else { return }
+
+        let candidates = await cb(coord, dest)
+        guard !candidates.isEmpty else { return }
+
+        // Baseline = live with-traffic time of the corridor the rider is
+        // ON RIGHT NOW. Prefer the candidate whose geometry matches the
+        // current active route (Apple usually returns the current road as
+        // one alternative, now re-timed for traffic). If none matches
+        // closely enough, fall back to the live re-time of the current
+        // route itself IF Apple returned it; otherwise bail (conservative).
+        let currentTime = current.expectedTravelTime
+        guard let decision = Self.trafficRerouteDecision(
+            currentBaselineTime: currentTime,
+            candidates: candidates.map {
+                ($0, $0.expectedTravelTime, $0.polyline.coordinateList())
+            },
+            currentCoords: current.polyline.coordinateList(),
+            savingThreshold: trafficRerouteSavingSeconds
+        ) else { return }
+
+        let best = candidates[decision.bestIndex]
+        log.info("Live-traffic reroute: saving \(Int(decision.savingSeconds)) s ≥ threshold \(Int(self.trafficRerouteSavingSeconds)) s — swapping to faster route")
+        isRerouting = true
+        defer { isRerouting = false }
+        lastRerouteAt = .now
+        await installSwappedRoute(best)
+    }
+
+    /// Pure decision core for the live-traffic reroute — no MapKit calls,
+    /// no actor state, fully deterministic so it can be unit-tested and
+    /// mirrored in Python (`tools/fake_dash/tests`). Given the current
+    /// route's live baseline time and a set of candidate (route, time,
+    /// coords) tuples, decide whether to swap and to which candidate.
+    ///
+    /// Returns `nil` (DON'T reroute) when:
+    ///   - no candidate is geometrically DISTINCT from the current route
+    ///     (all just re-timings of the same road → nothing to switch to);
+    ///   - the fastest DISTINCT candidate doesn't beat the baseline by at
+    ///     least `savingThreshold`;
+    ///   - the baseline itself is non-finite / non-positive (bad input).
+    ///
+    /// "Distinct" = the candidate's mid-route geometry diverges from the
+    /// current route by more than `distinctThresholdMeters` at some
+    /// sampled point — a real different road, not GPS/decimation jitter on
+    /// the same one. This is what stops the check from "rerouting" onto an
+    /// identical road that Apple merely re-timed 6 minutes faster because
+    /// traffic eased (which would needlessly re-bake tiles + flash the
+    /// dash for no actual path change).
+    static func trafficRerouteDecision(
+        currentBaselineTime: TimeInterval,
+        candidates: [(route: MKRoute, time: TimeInterval, coords: [CLLocationCoordinate2D])],
+        currentCoords: [CLLocationCoordinate2D],
+        savingThreshold: TimeInterval,
+        distinctThresholdMeters: CLLocationDistance = 120
+    ) -> (bestIndex: Int, savingSeconds: TimeInterval)? {
+        guard currentBaselineTime.isFinite, currentBaselineTime > 0 else { return nil }
+
+        var bestIdx: Int? = nil
+        var bestTime = currentBaselineTime - savingThreshold  // must beat this
+        for (i, cand) in candidates.enumerated() {
+            guard cand.time.isFinite, cand.time > 0 else { continue }
+            // Only consider candidates that are a genuinely different road.
+            guard routesAreDistinct(currentCoords, cand.coords,
+                                    thresholdMeters: distinctThresholdMeters) else { continue }
+            if cand.time < bestTime {
+                bestTime = cand.time
+                bestIdx = i
+            }
+        }
+        guard let idx = bestIdx else { return nil }
+        return (idx, currentBaselineTime - candidates[idx].time)
+    }
+
+    /// True if two coordinate paths represent DIFFERENT roads — i.e. at
+    /// some sampled fraction along path A, the nearest point on path B is
+    /// farther than `thresholdMeters`. Samples A at a handful of interior
+    /// fractions (skips the shared start/end, which always coincide for
+    /// same-origin/same-destination routes) and asks how far B strays.
+    /// Cheap O(samples × |B|); both paths are decimated route polylines.
+    static func routesAreDistinct(_ a: [CLLocationCoordinate2D],
+                                  _ b: [CLLocationCoordinate2D],
+                                  thresholdMeters: CLLocationDistance) -> Bool {
+        guard a.count >= 2, b.count >= 2 else { return false }
+        // Interior sample fractions — avoid 0 and 1 (shared endpoints).
+        let fractions = [0.2, 0.35, 0.5, 0.65, 0.8]
+        for f in fractions {
+            let idx = min(a.count - 1, max(0, Int(Double(a.count - 1) * f)))
+            let p = a[idx]
+            // Nearest distance from p to any vertex of b (vertex-level is
+            // enough at 120 m threshold on decimated polylines).
+            var nearest = CLLocationDistance.greatestFiniteMagnitude
+            for q in b {
+                let d = PolylineMath.haversine(p, q)
+                if d < nearest { nearest = d }
+                if nearest <= thresholdMeters { break }
+            }
+            if nearest > thresholdMeters { return true }
+        }
+        return false
     }
 
     // MARK: - Formatting helpers

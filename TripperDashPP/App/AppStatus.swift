@@ -579,6 +579,31 @@ final class AppStatus {
             }
         }
 
+        // Live-traffic reroute: hand the navigator Apple's full current
+        // traffic-aware alternative set from the rider's live position.
+        // The navigator's pure decision core compares the current
+        // corridor against the fastest DISTINCT alternative and swaps
+        // only when the saving clears the user's threshold.
+        activeNavigator.onTrafficRoutesRequested = { [weak self] origin, dest in
+            guard let self else { return [] }
+            do {
+                let opts = try await self.routingService.calculate(
+                    from: origin,
+                    to: dest,
+                    preferences: self.navigationStore.routePreferences
+                )
+                return opts.map(\.route)
+            } catch {
+                return []
+            }
+        }
+
+        // Seed the navigator's traffic-reroute knobs from settings and
+        // keep them in sync when the rider changes them mid-ride.
+        activeNavigator.trafficRerouteEnabled = dashNavSettings.trafficRerouteEnabled
+        activeNavigator.trafficRerouteSavingSeconds = dashNavSettings.trafficRerouteSavingSeconds
+        observeTrafficRerouteSettings()
+
         // Final-destination arrival: tear the stream + route artefacts
         // down the instant we arrive (so the dash leaves projection
         // promptly), but DON'T call activeNavigator.stop() here — the HUD
@@ -602,6 +627,26 @@ final class AppStatus {
                 let lang = self.dashNavSettings.voiceLanguage
                 self.voiceNavigator.speak(VoicePhrase.arrived(lang),
                                           language: lang.rawValue, priority: .critical)
+            }
+        }
+    }
+
+    /// Keep the navigator's live-traffic-reroute knobs in sync with the
+    /// user settings while a ride is in progress. Same self-re-registering
+    /// `withObservationTracking` idiom as `observeCallStateToggle()`. Both
+    /// the enable flag and the saving threshold are mirrored, so flipping
+    /// the toggle or nudging the minutes stepper mid-ride takes effect on
+    /// the next periodic check without restarting navigation.
+    private func observeTrafficRerouteSettings() {
+        withObservationTracking {
+            _ = dashNavSettings.trafficRerouteEnabled
+            _ = dashNavSettings.trafficRerouteSavingSeconds
+        } onChange: {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.activeNavigator.trafficRerouteEnabled = self.dashNavSettings.trafficRerouteEnabled
+                self.activeNavigator.trafficRerouteSavingSeconds = self.dashNavSettings.trafficRerouteSavingSeconds
+                self.observeTrafficRerouteSettings()
             }
         }
     }

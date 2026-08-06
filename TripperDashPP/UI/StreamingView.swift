@@ -175,6 +175,28 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Live traffic") {
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.trafficRerouteEnabled },
+                    set: { status.dashNavSettings.trafficRerouteEnabled = $0 }
+                )) {
+                    Text("Auto-reroute around traffic")
+                }
+                if status.dashNavSettings.trafficRerouteEnabled {
+                    Stepper(
+                        "Only if it saves ≥ \(status.dashNavSettings.trafficRerouteSavingMinutes) min",
+                        value: Binding(
+                            get: { status.dashNavSettings.trafficRerouteSavingMinutes },
+                            set: { status.dashNavSettings.trafficRerouteSavingMinutes = $0 }
+                        ),
+                        in: 1...30
+                    )
+                }
+                Text("While navigating, periodically checks Apple Maps for a faster route to the same destination and switches automatically only when the time saved clears your threshold. Uses Apple's traffic estimate (best-effort — it reflects current traffic when online, not detailed incident data).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Route preferences live ONLY in the planning panel's
             // sliders button now (feat/route-waypoints). Removed from
             // here so there's a single source of truth the user edits.
