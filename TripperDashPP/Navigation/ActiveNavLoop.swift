@@ -39,18 +39,35 @@ final class ActiveNavLoop {
     private weak var mapSource: MapViewSource?
     private let settings: DashNavSettings
 
+    /// Optional spoken-guidance sink. Nil when the app was built/wired
+    /// without voice; otherwise AppStatus injects the shared instance.
+    /// Prompts only actually speak when `settings.voiceEnabled` is on —
+    /// the loop re-checks that flag each tick so toggling voice mid-ride
+    /// takes effect immediately.
+    private weak var voice: VoiceNavigator?
+
+    /// Pure "when to speak" decision state (per-maneuver fired tiers). Reset
+    /// on stop() and whenever the upcoming maneuver identity changes.
+    private var promptScheduler = VoicePromptScheduler()
+
+    /// Last reroute state we spoke a "recalculating" prompt for, so we say
+    /// it once per reroute episode, not every tick while it's in flight.
+    private var spokeReroutingForEpisode = false
+
     private var task: Task<Void, Never>?
 
     init(
         bikeLink: BikeLink,
         navigator: ActiveNavigator,
         mapSource: MapViewSource,
-        settings: DashNavSettings
+        settings: DashNavSettings,
+        voice: VoiceNavigator? = nil
     ) {
         self.bikeLink = bikeLink
         self.navigator = navigator
         self.mapSource = mapSource
         self.settings = settings
+        self.voice = voice
     }
 
     /// Start the 1 Hz pump. Idempotent — calling start twice without a
@@ -76,6 +93,13 @@ final class ActiveNavLoop {
         task?.cancel()
         task = nil
         mapSource?.setNavOverlay(nil)
+        // Silence any tier prompt in flight and reset the "when to speak"
+        // state so the next ride starts clean. NOTE: this fires on EVERY
+        // teardown including final arrival — the arrival prompt is spoken
+        // from AppStatus.onArrived AFTER stopStreaming has already run, so
+        // it is not clipped by this stop (a fresh utterance re-arms audio).
+        promptScheduler.reset()
+        spokeReroutingForEpisode = false
     }
 
     // MARK: - Tick
@@ -96,6 +120,10 @@ final class ActiveNavLoop {
         // the limit sign / camera pills keep tracking the rider's settings.
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
+            // Not navigating (free-ride / arrived) → drop any speak state so
+            // a later route start doesn't inherit stale fired tiers.
+            promptScheduler.reset()
+            spokeReroutingForEpisode = false
             mapSource?.setSpeedLimitConfig(
                 mode: settings.speedLimitDisplay.rawValue,
                 toleranceKmh: settings.speedLimitOverToleranceKmh,
@@ -294,6 +322,14 @@ final class ActiveNavLoop {
         )
         mapSource?.setNavOverlay(overlay)
 
+        // 2b. Spoken guidance (feat/voice-nav). Re-check the enable flag
+        //     every tick so toggling voice mid-ride takes effect at once.
+        //     `voice` is a shared @MainActor sink; the phrase + "when to
+        //     speak" decisions are pure (VoicePhrase / VoicePromptScheduler)
+        //     and unit-tested off-device.
+        emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
+                  arrivingStep: arrivingStep)
+
         // Keep the speed-limit sign's policy in sync with settings every
         // tick — a few cheap value writes, so flipping the display mode,
         // the over-limit tolerance, or km/h ⇄ mph mid-ride re-evaluates the
@@ -337,6 +373,70 @@ final class ActiveNavLoop {
             prevPolyTail: distNext <= 150 ? Self.polyTail(arrivingStep?.polyline) : nil,
             nextPolyHead: distNext <= 150 ? Self.polyHead(departingStep?.polyline) : nil
         )
+    }
+
+    // MARK: - Spoken guidance
+
+    /// Decide + fire spoken prompts for this tick. Pure decision logic lives
+    /// in `VoicePromptScheduler` (when) and `VoicePhrase` (what); this method
+    /// just wires them to the navigator state and the `VoiceNavigator` sink.
+    ///
+    /// Priority order on the wire:
+    ///   - reroute "recalculating" → `.critical` (once per reroute episode)
+    ///   - maneuver tier prompts   → `.maneuver`
+    /// Arrival is spoken separately off `ActiveNavigator.onArrived` (wired in
+    /// AppStatus), not here, because by the time `isNavigating` flips false
+    /// this loop has already stopped.
+    private func emitVoice(kind: ManeuverKind,
+                           distNext: Double,
+                           isRerouting: Bool,
+                           arrivingStep: MKRoute.Step?) {
+        guard let voice, settings.voiceEnabled else { return }
+        let lang = settings.voiceLanguage
+
+        // Reroute: announce once when an episode begins; re-arm when it ends.
+        if isRerouting {
+            if !spokeReroutingForEpisode {
+                spokeReroutingForEpisode = true
+                voice.speak(VoicePhrase.rerouting(lang),
+                            language: lang.rawValue, priority: .critical)
+            }
+            // While rerouting the upcoming maneuver belongs to the stale
+            // route — don't voice tier prompts for it.
+            return
+        }
+        spokeReroutingForEpisode = false
+
+        // Don't voice a bogus arrival/straight heartbeat far out.
+        if case .arrive = kind { return }
+        if case .arriveLeft = kind { return }
+        if case .arriveRight = kind { return }
+
+        // Stable identity for the current maneuver so each tier fires once.
+        let token = Self.maneuverToken(arrivingStep)
+        guard let tier = promptScheduler.onTick(token: token, distanceMeters: distNext) else {
+            return
+        }
+        guard let phrase = VoicePhrase.maneuver(kind, tier: tier, language: lang) else {
+            return
+        }
+        voice.speak(phrase, language: lang.rawValue, priority: .maneuver)
+    }
+
+    /// Stable per-maneuver identity token from the arriving step's polyline.
+    /// Uses the endpoint coordinate (the maneuver node) quantised to ~1 m so
+    /// GPS-driven polyline re-fetches don't spuriously reset the fired-tier
+    /// set. Falls back to a sentinel when no step is known yet.
+    private static func maneuverToken(_ step: MKRoute.Step?) -> Int {
+        guard let pl = step?.polyline, pl.pointCount > 0 else { return -1 }
+        var last = CLLocationCoordinate2D()
+        pl.getCoordinates(&last, range: NSRange(location: pl.pointCount - 1, length: 1))
+        let latq = Int((last.latitude * 1e5).rounded())
+        let lonq = Int((last.longitude * 1e5).rounded())
+        var hasher = Hasher()
+        hasher.combine(latq)
+        hasher.combine(lonq)
+        return hasher.finalize()
     }
 
     /// Vertices spanning ~25 m walking back from the polyline END (the
