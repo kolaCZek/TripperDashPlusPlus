@@ -197,6 +197,18 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Route progress") {
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.progressBarEnabled },
+                    set: { status.dashNavSettings.progressBarEnabled = $0 }
+                )) {
+                    Text("Progress bar")
+                }
+                Text("Draws a thin bar along the bottom edge showing how far along the route you are, with a coarse colour for how the road ahead is flowing (green / amber / red). The traffic colour is Apple's whole-route estimate — a single overall reading, not a per-section jam map.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Route preferences live ONLY in the planning panel's
             // sliders button now (feat/route-waypoints). Removed from
             // here so there's a single source of truth the user edits.

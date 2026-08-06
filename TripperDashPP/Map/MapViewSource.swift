@@ -163,6 +163,11 @@ final class MapViewSource: NSObject, FrameSource {
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
 
+    /// Latest ride-progress state pushed in by the nav pump. `nil` while
+    /// not navigating or when the feature is off → drawProgressBar
+    /// short-circuits (no bar drawn).
+    fileprivate var rideProgress: MapViewSource.RideProgress?
+
     /// Latest ride-relevant weather alert, pushed in by the nav pump from
     /// `WeatherAlertService`. `nil` → no pill drawn (clear weather, the
     /// common case). Rendered bottom-right so it never overlaps the route
@@ -1050,6 +1055,13 @@ extension MapViewSource {
         // No-op unless a limit is map-matched and the display mode allows.
         drawSpeedLimitSign(into: ctx)
 
+        // Route progress bar — pinned to the BOTTOM EDGE, full width,
+        // transform-independent (flat outer ctx) like the pills above.
+        // Drawn LAST of the map overlays so it sits on top of the tiles
+        // at the very bottom where nothing else lives. No-op when the nav
+        // pump hasn't pushed a `rideProgress` (feature off / not nav).
+        drawProgressBar(into: ctx)
+
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
         // primary-maneuver TLV (whose enum is largely undocumented).
@@ -1884,6 +1896,22 @@ extension MapViewSource {
         self.navOverlayState = state
     }
 
+    /// Ride-progress state for the bottom-edge progress bar. `fraction`
+    /// is 0…1 (how far along the whole trip); `delay` is the coarse
+    /// road-ahead traffic level (Apple-only, whole-route — NOT per-segment
+    /// flow). The bar renders the DONE portion (left) solid and the
+    /// REMAINING portion (right) tinted by `delay`.
+    struct RideProgress {
+        var fraction: Double            // 0…1 completed
+        var delay: TrafficDelayLevel    // coarse road-ahead tint
+    }
+
+    /// Push the latest ride-progress (or `nil` to hide the bar). Mirrors
+    /// `setNavOverlay`'s shape so the nav pump drives both the same way.
+    func setRideProgress(_ progress: RideProgress?) {
+        self.rideProgress = progress
+    }
+
     fileprivate func drawNavOverlay(into ctx: CGContext) {
         guard let s = navOverlayState else { return }
 
@@ -2615,6 +2643,71 @@ extension MapViewSource {
         UIGraphicsPushContext(ctx)
         (label as NSString).draw(at: textOrigin, withAttributes: attrs)
         UIGraphicsPopContext()
+    }
+
+    // MARK: - Route progress bar
+
+    /// Height (px) of the bottom-edge progress bar. Thin — a HUD accent,
+    /// not a chunky UI element, on the 526×300 dash.
+    fileprivate static let progressBarHeight: CGFloat = 8
+
+    /// RGBA tint for the "road ahead" (remaining) portion of the bar,
+    /// keyed off the coarse `TrafficDelayLevel`. `unknown` is a neutral
+    /// mid-grey so the bar makes no green/red claim when there's no
+    /// baseline yet. These are the ONLY colours the bar uses for the
+    /// remaining side; the DONE side is always a solid bright accent.
+    fileprivate static func delayTint(_ level: TrafficDelayLevel) -> CGColor {
+        switch level {
+        case .unknown:  return CGColor(red: 0.62, green: 0.64, blue: 0.68, alpha: 0.95) // grey
+        case .clear:    return CGColor(red: 0.20, green: 0.74, blue: 0.36, alpha: 0.95) // green
+        case .moderate: return CGColor(red: 0.98, green: 0.75, blue: 0.10, alpha: 0.98) // amber
+        case .heavy:    return CGColor(red: 0.90, green: 0.20, blue: 0.18, alpha: 0.98) // red
+        }
+    }
+
+    /// Draw the ride-progress bar flush to the BOTTOM EDGE, full width.
+    /// Left = done (solid bright cyan-white accent), right = road ahead
+    /// tinted by the coarse traffic-delay level, split at the current
+    /// position by a small red position marker. Transform-independent —
+    /// called on the flat outer `ctx` after the map is composited, in
+    /// Y-DOWN pixel space, exactly like the pills/sign. No-op unless the
+    /// nav pump pushed a `rideProgress` (feature off / not navigating).
+    fileprivate func drawProgressBar(into ctx: CGContext) {
+        guard let p = rideProgress else { return }
+
+        let h = Self.progressBarHeight
+        let w = frameSize.width
+        let y = frameSize.height - h           // flush to bottom (Y-DOWN)
+        let frac = CGFloat(max(0, min(1, p.fraction)))
+        let splitX = (w * frac).rounded()
+
+        ctx.saveGState()
+
+        // Dark track backdrop under the whole bar so both halves read over
+        // bright map tiles regardless of the underlying pixels.
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.40))
+        ctx.fill(CGRect(x: 0, y: y, width: w, height: h))
+
+        // DONE portion (left) — solid bright accent.
+        if splitX > 0 {
+            ctx.setFillColor(CGColor(red: 0.30, green: 0.80, blue: 0.95, alpha: 0.98))
+            ctx.fill(CGRect(x: 0, y: y, width: splitX, height: h))
+        }
+
+        // ROAD-AHEAD portion (right) — coarse traffic tint.
+        if splitX < w {
+            ctx.setFillColor(Self.delayTint(p.delay))
+            ctx.fill(CGRect(x: splitX, y: y, width: w - splitX, height: h))
+        }
+
+        // Position marker — a slim red tick straddling the split so the
+        // rider can see exactly where "now" is on the bar.
+        let markW: CGFloat = 3
+        ctx.setFillColor(CGColor(red: 0.95, green: 0.16, blue: 0.16, alpha: 1.0))
+        ctx.fill(CGRect(x: min(max(0, splitX - markW / 2), w - markW),
+                        y: y - 2, width: markW, height: h + 4))
+
+        ctx.restoreGState()
     }
 }
 

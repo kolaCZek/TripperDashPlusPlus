@@ -93,6 +93,7 @@ final class ActiveNavLoop {
         task?.cancel()
         task = nil
         mapSource?.setNavOverlay(nil)
+        mapSource?.setRideProgress(nil)
         // Silence any tier prompt in flight and reset the "when to speak"
         // state so the next ride starts clean. NOTE: this fires on EVERY
         // teardown including final arrival — the arrival prompt is spoken
@@ -120,6 +121,7 @@ final class ActiveNavLoop {
         // the limit sign / camera pills keep tracking the rider's settings.
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
+            mapSource?.setRideProgress(nil)   // free-ride / arrived → no bar
             // Not navigating (free-ride / arrived) → drop any speak state so
             // a later route start doesn't inherit stale fired tiers.
             promptScheduler.reset()
@@ -321,6 +323,23 @@ final class ActiveNavLoop {
             unitsImperial: settings.units == .imperial
         )
         mapSource?.setNavOverlay(overlay)
+
+        // 2a. Ride progress bar (feat/route-progress-bar). Push the trip
+        //     fraction + coarse road-ahead delay level only when the rider
+        //     has opted in; when off, clear it so the bar disappears the
+        //     same tick the toggle flips. The fraction + delay level are
+        //     both pure reads off the navigator (breadcrumb-vs-planned and
+        //     live-ETA-vs-baseline) — no MapKit work here.
+        if settings.progressBarEnabled {
+            mapSource?.setRideProgress(
+                MapViewSource.RideProgress(
+                    fraction: nav.rideProgressFraction,
+                    delay: nav.trafficDelayLevel
+                )
+            )
+        } else {
+            mapSource?.setRideProgress(nil)
+        }
 
         // 2b. Spoken guidance (feat/voice-nav). Re-check the enable flag
         //     every tick so toggling voice mid-ride takes effect at once.
