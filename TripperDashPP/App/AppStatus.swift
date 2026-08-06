@@ -397,6 +397,11 @@ final class AppStatus {
     /// fresh `PlannedRoute` via `beginPlanningFromSavedRoute`.
     let savedRoutesStore = SavedRoutesStore()
 
+    /// Persisted recent-search history (feat/search-history). The
+    /// destination search sheet shows this in its empty state and records a
+    /// pick here on selection.
+    let recentDestinationsStore = RecentDestinationsStore()
+
     /// One-shot signal from the saved-route detail screen asking the
     /// picker to tear down the (possibly multi-level) Saved Routes sheet
     /// after a route was staged for navigation, so the planning UI is

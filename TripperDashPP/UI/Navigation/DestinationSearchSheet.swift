@@ -31,10 +31,54 @@ struct DestinationSearchSheet: View {
                     }
                 }
                 if search.query.isEmpty {
-                    Section("Tip") {
-                        Text("Start typing an address, city, or place name. Results are biased toward your current location.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    let recents = status.recentDestinationsStore.items
+                    if recents.isEmpty {
+                        Section("Tip") {
+                            Text("Start typing an address, city, or place name. Results are biased toward your current location.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Section {
+                            ForEach(recents) { r in
+                                Button {
+                                    onPick(r.destination)
+                                    status.recentDestinationsStore.record(r.destination)
+                                    dismiss()
+                                } label: {
+                                    Label {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(r.name).foregroundStyle(.primary)
+                                            if let line = r.addressLine, !line.isEmpty {
+                                                Text(line).font(.footnote).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    } icon: {
+                                        Image(systemName: "clock.arrow.circlepath")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .contentShape(Rectangle())
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) {
+                                        status.recentDestinationsStore.remove(id: r.id)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        } header: {
+                            HStack {
+                                Text("Recent")
+                                Spacer()
+                                Button("Clear") {
+                                    status.recentDestinationsStore.clear()
+                                }
+                                .font(.footnote)
+                                .textCase(nil)
+                            }
+                        }
                     }
                 } else if search.completions.isEmpty && !resolving {
                     Section {
@@ -92,6 +136,7 @@ struct DestinationSearchSheet: View {
         defer { resolving = false }
         do {
             let dest = try await search.resolve(completion)
+            status.recentDestinationsStore.record(dest)
             onPick(dest)
             dismiss()
         } catch {
