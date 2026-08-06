@@ -163,6 +163,11 @@ final class MapViewSource: NSObject, FrameSource {
     /// `nil` while not navigating → drawNavOverlay short-circuits.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
 
+    /// Latest ride-progress state pushed in by the nav pump. `nil` while
+    /// not navigating or when the feature is off → drawProgressBar
+    /// short-circuits (no bar drawn).
+    fileprivate var rideProgress: MapViewSource.RideProgress?
+
     /// Latest ride-relevant weather alert, pushed in by the nav pump from
     /// `WeatherAlertService`. `nil` → no pill drawn (clear weather, the
     /// common case). Rendered bottom-right so it never overlaps the route
@@ -1050,6 +1055,13 @@ extension MapViewSource {
         // No-op unless a limit is map-matched and the display mode allows.
         drawSpeedLimitSign(into: ctx)
 
+        // Route progress bar — pinned to the BOTTOM EDGE, full width,
+        // transform-independent (flat outer ctx) like the pills above.
+        // Drawn LAST of the map overlays so it sits on top of the tiles
+        // at the very bottom where nothing else lives. No-op when the nav
+        // pump hasn't pushed a `rideProgress` (feature off / not nav).
+        drawProgressBar(into: ctx)
+
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
         // primary-maneuver TLV (whose enum is largely undocumented).
@@ -1884,6 +1896,23 @@ extension MapViewSource {
         self.navOverlayState = state
     }
 
+    /// Ride-progress state for the bottom-edge progress bar. `fraction`
+    /// is 0…1 (how far along the whole trip). `waypointFractions` are the
+    /// 0…1 positions of intermediate pass-through waypoints (empty for a
+    /// direct route). The bar renders the DONE portion (left) grey and the
+    /// REMAINING portion (right) blue, with a marker at the current
+    /// position and a tick at each waypoint.
+    struct RideProgress {
+        var fraction: Double            // 0…1 completed
+        var waypointFractions: [Double] // 0…1 via-point positions
+    }
+
+    /// Push the latest ride-progress (or `nil` to hide the bar). Mirrors
+    /// `setNavOverlay`'s shape so the nav pump drives both the same way.
+    func setRideProgress(_ progress: RideProgress?) {
+        self.rideProgress = progress
+    }
+
     fileprivate func drawNavOverlay(into ctx: CGContext) {
         guard let s = navOverlayState else { return }
 
@@ -2615,6 +2644,119 @@ extension MapViewSource {
         UIGraphicsPushContext(ctx)
         (label as NSString).draw(at: textOrigin, withAttributes: attrs)
         UIGraphicsPopContext()
+    }
+
+    // MARK: - Route progress bar
+
+    /// Height (px) of the bottom-edge progress bar. Thin — a sleek HUD
+    /// accent, not a chunky UI element, on the 526×300 dash.
+    fileprivate static let progressBarHeight: CGFloat = 6
+
+    /// Fraction of the dash width the bar spans. Centred and kept short so
+    /// it doesn't collide with the weather / speed-limit pills near the
+    /// edges — 66% leaves generous margins on both sides.
+    fileprivate static let progressBarWidthFraction: CGFloat = 0.66
+
+    /// Draw the ride-progress bar centred along the BOTTOM EDGE, spanning
+    /// 66% of the dash width. DONE portion (left) is grey; the REMAINING
+    /// portion (right) is blue; a downward arrow marker sits above the
+    /// current position. No traffic tint — we have no per-segment live
+    /// traffic, so the bar makes no green/amber/red claim (a BYOK provider
+    /// would be needed; see routing-engines.md). Transform-independent —
+    /// called on the flat outer `ctx` after the map is composited, in
+    /// Y-DOWN pixel space, exactly like the pills/sign. No-op unless the
+    /// nav pump pushed a `rideProgress` (feature off / not navigating).
+    fileprivate func drawProgressBar(into ctx: CGContext) {
+        guard let p = rideProgress else { return }
+
+        let h = Self.progressBarHeight
+        let barW = (frameSize.width * Self.progressBarWidthFraction).rounded()
+        let x0 = ((frameSize.width - barW) / 2).rounded()   // centred
+        let bottomMargin: CGFloat = 12       // lift off the edge so the marker fits
+        let y = frameSize.height - h - bottomMargin          // Y-DOWN
+        let frac = CGFloat(max(0, min(1, p.fraction)))
+        let splitX = x0 + (barW * frac).rounded()
+
+        // Colours.
+        let doneGrey = CGColor(red: 0.55, green: 0.57, blue: 0.60, alpha: 0.95)
+        let aheadBlue = CGColor(red: 0.16, green: 0.52, blue: 0.96, alpha: 0.98)
+
+        let barRect = CGRect(x: x0, y: y, width: barW, height: h)
+        let radius = h / 2                         // fully rounded (pill) ends
+        let pill = CGPath(roundedRect: barRect, cornerWidth: radius,
+                          cornerHeight: radius, transform: nil)
+
+        ctx.saveGState()
+
+        // Clip everything that follows to the rounded pill so the fills and
+        // the split inherit the rounded ends.
+        ctx.addPath(pill)
+        ctx.clip()
+
+        // DONE portion (left) — grey.
+        if splitX > x0 {
+            ctx.setFillColor(doneGrey)
+            ctx.fill(CGRect(x: x0, y: y, width: splitX - x0, height: h))
+        }
+
+        // ROAD-AHEAD portion (right) — blue.
+        if splitX < x0 + barW {
+            ctx.setFillColor(aheadBlue)
+            ctx.fill(CGRect(x: splitX, y: y, width: x0 + barW - splitX, height: h))
+        }
+
+        // Waypoint ticks — a slim notch at each intermediate via-point so
+        // the rider can see the stops laid out along the whole trip. Drawn
+        // over both halves (dark, semi-transparent) so they read whether
+        // the leg is done or ahead. The final destination isn't in the
+        // list (it's the bar's end). Still clipped to the pill.
+        let tickW: CGFloat = 1.5
+        ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.85))
+        for wf in p.waypointFractions {
+            let f = CGFloat(max(0, min(1, wf)))
+            let tx = (x0 + barW * f).rounded()
+            guard tx > x0 + tickW, tx < x0 + barW - tickW else { continue }
+            ctx.fill(CGRect(x: tx - tickW / 2, y: y, width: tickW, height: h))
+        }
+
+        // Drop the clip so the outline stroke sits ON the pill edge.
+        ctx.resetClip()
+
+        // Thin black outline tracing the rounded bar.
+        ctx.addPath(pill)
+        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.9))
+        ctx.setLineWidth(1)
+        ctx.strokePath()
+
+        // Position marker — a red RIGHT-pointing chevron sitting at the
+        // split, vertically centred on the bar and taller than it, lined
+        // with thin white so it pops off the map and the bar. Shaped like
+        // the heading puck's chevron: a back NOTCH cut into the trailing
+        // edge so it reads as an arrow, not a plain triangle.
+        let markX = min(max(x0, splitX), x0 + barW)
+        let midY = y + h / 2
+        let arrowW: CGFloat = 11           // depth from back edge to tip
+        let arrowHalfH: CGFloat = 9        // half-height (overhangs the bar)
+        let notch: CGFloat = 5             // how deep the back notch bites in
+        let chevron = CGMutablePath()
+        chevron.move(to: CGPoint(x: markX + arrowW, y: midY))                 // tip (points right)
+        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY - arrowHalfH)) // top-back corner
+        chevron.addLine(to: CGPoint(x: markX - arrowW + notch, y: midY))      // back notch (bite in)
+        chevron.addLine(to: CGPoint(x: markX - arrowW, y: midY + arrowHalfH)) // bottom-back corner
+        chevron.closeSubpath()
+
+        // White outline first (stroked wider), then the red fill on top.
+        ctx.addPath(chevron)
+        ctx.setStrokeColor(CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0))
+        ctx.setLineWidth(2)
+        ctx.setLineJoin(.round)
+        ctx.strokePath()
+
+        ctx.addPath(chevron)
+        ctx.setFillColor(CGColor(red: 0.91, green: 0.20, blue: 0.17, alpha: 1.0))
+        ctx.fillPath()
+
+        ctx.restoreGState()
     }
 }
 

@@ -240,6 +240,62 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Live-traffic reroute: while ON the navigator periodically re-queries
+    /// Apple `MKDirections` (traffic-aware `expectedTravelTime`) from the
+    /// rider's live position and, if a faster alternative to the SAME
+    /// destination now exists that saves at least
+    /// `trafficRerouteSavingSeconds`, silently swaps navigation onto it —
+    /// the same swap mechanism as an off-route reroute.
+    ///
+    /// Defaults OFF (opt-in) because it is nav-critical and Apple's
+    /// traffic signal is best-effort (folds *some* current traffic into
+    /// `expectedTravelTime` when online — no structured incidents). A
+    /// rider opts in knowingly. When OFF, no extra MKDirections work is
+    /// done beyond the existing ETA re-fetch, and no traffic swap can fire.
+    var trafficRerouteEnabled: Bool = false {
+        didSet { persist() }
+    }
+
+    /// Minimum time saving (seconds) a faster live-traffic alternative
+    /// must beat the current route by before we auto-swap. Default 300 s
+    /// (5 min): high enough that ordinary ETA jitter / GPS-position noise
+    /// on the re-fetch never triggers a spurious reroute, low enough to
+    /// catch a real jam forming ahead. The settings stepper drives this
+    /// in whole minutes via `trafficRerouteSavingMinutes`.
+    var trafficRerouteSavingSeconds: TimeInterval = 300 {
+        didSet { persist() }
+    }
+
+    /// The saving threshold expressed in whole MINUTES, for the settings
+    /// stepper. Clamps to a sane 1…30 min band — below 1 min the ETA
+    /// re-fetch noise dominates, above 30 min the feature would never
+    /// fire. Round-trips through the canonical seconds store.
+    var trafficRerouteSavingMinutes: Int {
+        get { max(1, min(30, Int((trafficRerouteSavingSeconds / 60).rounded()))) }
+        set { trafficRerouteSavingSeconds = TimeInterval(max(1, min(30, newValue)) * 60) }
+    }
+
+    /// Route progress bar: draw a thin bar along the BOTTOM edge of the
+    /// streamed map showing how far along the route the rider is (filled
+    /// from the left) plus a coarse traffic-delay tint on the road AHEAD.
+    /// Defaults ON — it's an at-a-glance ride gauge, non-critical, and
+    /// costs nothing (all data is already local: breadcrumb distance vs.
+    /// planned total, and the live Apple ETA vs. the trip's own baseline
+    /// pace). When OFF, `drawProgressBar` is a no-op.
+    ///
+    /// IMPORTANT — honest scope (Martin, 8/2026): the "ahead" tint is a
+    /// SINGLE coarse colour derived from whether the live ETA is running
+    /// slower than the route's own start-of-trip average pace. It is NOT
+    /// per-segment traffic flow — Apple `MKDirections` returns only a
+    /// scalar `expectedTravelTime`, no geometry-resolved flow, so a true
+    /// yellow/red "jam at km 12" colouring is impossible on Apple and
+    /// waits on the BYOK TomTom provider (see routing-engines.md). This
+    /// bar tells the rider "the road ahead is slower than this trip has
+    /// been", not WHERE the slowdown is.
+    var progressBarEnabled: Bool = true {
+        didSet { persist() }
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -394,13 +450,13 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v7 when the message-notify toggle (messageNotifyEnabled)
-    // landed. Older blobs (v6 and earlier) are silently ignored on first
-    // read; we just rewrite them under the new key with current defaults
-    // (message notify ON, call-state card ON, lookahead ON, threshold 300 m).
-    // Phone-status telemetry is no longer a setting — it's always reported
-    // (a dropped `deviceTelemetryEnabled` key in an old blob is simply ignored).
-    private static let storeKey = "dashNavSettings.v9"
+    // Bumped to v11 when the route progress bar toggle (progressBarEnabled)
+    // landed — on top of v10's live-traffic reroute toggles
+    // (trafficRerouteEnabled / trafficRerouteSavingSeconds). Older blobs
+    // (v10 and earlier) are silently ignored on first read; we just rewrite
+    // them under the new key with current defaults (progress bar ON,
+    // traffic reroute OFF, message notify ON, call-state ON, lookahead ON).
+    private static let storeKey = "dashNavSettings.v11"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -421,6 +477,9 @@ final class DashNavSettings {
         var voiceEnabled: Bool?
         var voiceLanguage: VoiceLanguage?
         var voiceSpeedCameraEnabled: Bool?
+        var trafficRerouteEnabled: Bool?
+        var trafficRerouteSavingSeconds: TimeInterval?
+        var progressBarEnabled: Bool?
     }
 
     init() {
@@ -446,6 +505,9 @@ final class DashNavSettings {
         self.voiceEnabled = p.voiceEnabled ?? false
         self.voiceLanguage = p.voiceLanguage ?? .deviceDefault
         self.voiceSpeedCameraEnabled = p.voiceSpeedCameraEnabled ?? true
+        self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
+        self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
+        self.progressBarEnabled = p.progressBarEnabled ?? true
     }
 
     private func persist() {
@@ -464,7 +526,10 @@ final class DashNavSettings {
             speedLimitOverToleranceKmh: speedLimitOverToleranceKmh,
             voiceEnabled: voiceEnabled,
             voiceLanguage: voiceLanguage,
-            voiceSpeedCameraEnabled: voiceSpeedCameraEnabled
+            voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
+            trafficRerouteEnabled: trafficRerouteEnabled,
+            trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
+            progressBarEnabled: progressBarEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

@@ -175,6 +175,25 @@ struct StreamingView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Live traffic") {
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.trafficRerouteEnabled },
+                    set: { status.dashNavSettings.trafficRerouteEnabled = $0 }
+                )) {
+                    Text("Auto-reroute around traffic")
+                }
+                if status.dashNavSettings.trafficRerouteEnabled {
+                    Stepper(
+                        "Only if it saves ≥ \(status.dashNavSettings.trafficRerouteSavingMinutes) min",
+                        value: Binding(
+                            get: { status.dashNavSettings.trafficRerouteSavingMinutes },
+                            set: { status.dashNavSettings.trafficRerouteSavingMinutes = $0 }
+                        ),
+                        in: 1...30
+                    )
+                }
+            }
+
             // Route preferences live ONLY in the planning panel's
             // sliders button now (feat/route-waypoints). Removed from
             // here so there's a single source of truth the user edits.
@@ -191,6 +210,12 @@ struct StreamingView: View {
                 if status.mapStyleSettings.mode == .auto {
                     LabeledContent("Currently",
                                    value: status.effectiveMapStyle == .dark ? "Dark" : "Light")
+                }
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.progressBarEnabled },
+                    set: { status.dashNavSettings.progressBarEnabled = $0 }
+                )) {
+                    Text("Route progress bar")
                 }
                 Text("Auto follows local sunrise and sunset from your GPS position. Light and dark map tiles are cached separately.")
                     .font(.caption)
