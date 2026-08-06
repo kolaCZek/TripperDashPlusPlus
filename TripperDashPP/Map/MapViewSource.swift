@@ -2652,13 +2652,13 @@ extension MapViewSource {
     /// accent, not a chunky UI element, on the 526×300 dash.
     fileprivate static let progressBarHeight: CGFloat = 6
 
-    /// Fraction of the dash width the bar spans. The rider asked for a
-    /// centred bar that doesn't run the full edge — 75% leaves margins so
-    /// it reads as a deliberate gauge, not a screen border.
-    fileprivate static let progressBarWidthFraction: CGFloat = 0.75
+    /// Fraction of the dash width the bar spans. Centred and kept short so
+    /// it doesn't collide with the weather / speed-limit pills near the
+    /// edges — 66% leaves generous margins on both sides.
+    fileprivate static let progressBarWidthFraction: CGFloat = 0.66
 
     /// Draw the ride-progress bar centred along the BOTTOM EDGE, spanning
-    /// 75% of the dash width. DONE portion (left) is grey; the REMAINING
+    /// 66% of the dash width. DONE portion (left) is grey; the REMAINING
     /// portion (right) is blue; a downward arrow marker sits above the
     /// current position. No traffic tint — we have no per-segment live
     /// traffic, so the bar makes no green/amber/red claim (a BYOK provider
