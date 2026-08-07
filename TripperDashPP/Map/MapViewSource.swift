@@ -2044,7 +2044,11 @@ extension MapViewSource {
             .strokeColor: UIColor.black,
             .strokeWidth: -3.0  // negative = stroke + fill
         ]
-        let attributed = NSAttributedString(string: text, attributes: attrs)
+        // Fold to plain ASCII: the video overlay shares the dash's
+        // ASCII-only constraint, and Core Text would otherwise render
+        // diacritics the dash font can't (Martin, 8/2026). No-op on
+        // strings that are already ASCII (distances, times, "N of M").
+        let attributed = NSAttributedString(string: text.dashSafe, attributes: attrs)
         let line = CTLineCreateWithAttributedString(attributed)
 
         // Core Text draws Y-up; our outer ctx is Y-down post-flip.
