@@ -99,6 +99,11 @@ enum PolylineMath {
 
         var cursor = 0
         for (stepIdx, step) in route.steps.enumerated() {
+            // MapKit can hand back a step with an EMPTY polyline (notably the
+            // terminal "arrive" step, and occasionally on a fresh reroute
+            // result). `points()[0]` on a zero-point polyline reads past the
+            // buffer and traps — skip such steps instead of crashing.
+            guard step.polyline.pointCount > 0 else { continue }
             let stepStart = step.polyline.points()[0].coordinate
             // Nearest route vertex to this step's start, searching forward
             // from the cursor.
