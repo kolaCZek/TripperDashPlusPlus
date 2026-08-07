@@ -1910,6 +1910,12 @@ extension MapViewSource {
         /// hazard. Drawn as a coloured band on the bar so the rider sees
         /// WHERE on the route the weather hits, not just that it's coming.
         var hazardFraction: Double? = nil
+        /// 0…1 span of a contiguous hazard stretch (near edge → far edge),
+        /// or `nil` for a point hazard. When present the bar paints the
+        /// whole stretch (`hazardStartFraction`…`hazardEndFraction`)
+        /// instead of a single band at `hazardFraction`.
+        var hazardStartFraction: Double? = nil
+        var hazardEndFraction: Double? = nil
         /// Whether the hazard is a warning (red) vs a caution (amber). Only
         /// meaningful when `hazardFraction != nil`.
         var hazardIsWarning: Bool = false
@@ -2756,12 +2762,26 @@ extension MapViewSource {
             let hazardColor: CGColor = p.hazardIsWarning
                 ? CGColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1.0)   // red
                 : CGColor(red: 1.0,  green: 0.60, blue: 0.0,  alpha: 1.0)   // amber
-            let hfc = CGFloat(max(0, min(1, hf)))
-            let bandW: CGFloat = 10                       // px, glanceable
-            let cx = x0 + barW * hfc
-            let bx = max(x0, min(cx - bandW / 2, x0 + barW - bandW))
             ctx.setFillColor(hazardColor)
-            ctx.fill(CGRect(x: bx, y: y, width: bandW, height: h))
+            if let sf = p.hazardStartFraction, let ef = p.hazardEndFraction, ef > sf {
+                // Contiguous stretch: paint the whole band from the near edge
+                // to the far edge (e.g. rain from 15 km to 40 km ahead).
+                let sfc = CGFloat(max(0, min(1, sf)))
+                let efc = CGFloat(max(0, min(1, ef)))
+                let sx = x0 + barW * sfc
+                let ex = x0 + barW * efc
+                // Keep a minimum width so a thin span still reads.
+                let w = max(ex - sx, 6)
+                let bx = max(x0, min(sx, x0 + barW - w))
+                ctx.fill(CGRect(x: bx, y: y, width: min(w, x0 + barW - bx), height: h))
+            } else {
+                // Point hazard: a single glanceable band at the position.
+                let hfc = CGFloat(max(0, min(1, hf)))
+                let bandW: CGFloat = 10                       // px, glanceable
+                let cx = x0 + barW * hfc
+                let bx = max(x0, min(cx - bandW / 2, x0 + barW - bandW))
+                ctx.fill(CGRect(x: bx, y: y, width: bandW, height: h))
+            }
         }
 
         // Waypoint ticks are drawn AFTER the clip is dropped (below) so
