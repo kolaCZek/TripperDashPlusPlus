@@ -166,6 +166,23 @@ final class PlannedRoute {
         legs[legIndex].selectedOptionIndex = optionIndex
     }
 
+    /// Replace `legIndex`'s route with a freshly-computed one that is NOT
+    /// one of the leg's existing alternatives — the OFF-route / live-
+    /// traffic reroute case. The new `MKRoute` becomes the leg's single
+    /// selected option (old alternatives are dropped: they departed from
+    /// the pre-reroute position and no longer connect to the rider).
+    ///
+    /// Without this, `ActiveNavigator.installSwappedRoute` swaps
+    /// `activeRoute` but leaves the plan holding the STALE leg geometry;
+    /// the route-changed hook then rebuilds the whole-trip blue line from
+    /// that stale plan and paints the old road the rider already left —
+    /// so no line appears along the road they're actually on.
+    func replaceLegRoute(legIndex: Int, with route: MKRoute) {
+        guard legs.indices.contains(legIndex) else { return }
+        legs[legIndex].options = [RouteOption(index: 0, route: route)]
+        legs[legIndex].selectedOptionIndex = 0
+    }
+
     // MARK: - Mutation (returns the leg indices needing recompute)
 
     /// Insert a waypoint at `index` (clamped to [1, count-1] so the

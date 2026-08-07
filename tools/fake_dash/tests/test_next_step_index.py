@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Optional, Sequence
 
 
 EARTH_R = 6_371_000.0
@@ -62,8 +63,8 @@ def haversine(a: tuple[float, float], b: tuple[float, float]) -> float:
 RISING_STREAK_BREAK = 8
 
 
-def next_step_index(route_points: list[tuple[float, float]],
-                    step_starts: list[tuple[float, float]],
+def next_step_index(route_points: Sequence[tuple[float, float]],
+                    step_starts: Sequence[Optional[tuple[float, float]]],
                     segment_index: int) -> int | None:
     """Faithful mirror of the NEW `PolylineMath.nextStepIndex`.
 
@@ -78,6 +79,13 @@ def next_step_index(route_points: list[tuple[float, float]],
 
     cursor = 0
     for step_idx, start in enumerate(step_starts):
+        # Mirror of the Swift `guard step.polyline.pointCount > 0 else
+        # { continue }` — a step with an EMPTY polyline (MapKit's terminal
+        # "arrive" step, or a fresh reroute result) has no start vertex to
+        # snap, so it is skipped rather than dereferenced. `None` models an
+        # empty step polyline here.
+        if start is None:
+            continue
         best_idx = cursor
         best_dist = float("inf")
         rising = 0
@@ -274,4 +282,56 @@ def test_swift_uses_nearest_vertex_with_cursor_advance():
     assert "bestIdx + 1" in body, (
         "cursor no longer advances past the matched vertex — two steps "
         "could collapse onto one vertex"
+    )
+
+
+# ----------------------------------------------------------------------
+# Empty-step-polyline crash guard (field crash, 8/2026): riding off the
+# route triggered a reroute whose result carried a step with a ZERO-point
+# polyline (MapKit's terminal "arrive" step, and occasionally a fresh
+# reroute leg). `step.polyline.points()[0]` reads past the buffer and
+# traps — the app crashed the moment the rider left the road. The fix
+# skips empty step polylines instead of dereferencing them.
+# ----------------------------------------------------------------------
+
+def test_empty_step_polyline_is_skipped_not_dereferenced():
+    """A step with an empty polyline (modelled as None) must be skipped,
+    and the surrounding real steps must still map correctly."""
+    route = line((50.2000, 14.1000), (50.2100, 14.1000), 50)
+    # step 1 has an EMPTY polyline (None) — the crash trigger.
+    step_starts = [route[0], None, route[30]]
+    # From the start, the next real maneuver is the non-empty step 2.
+    assert next_step_index(route, step_starts, segment_index=0) == 2
+
+
+def test_all_empty_step_polylines_returns_none():
+    route = line((50.2000, 14.1000), (50.2100, 14.1000), 20)
+    assert next_step_index(route, [None, None], segment_index=0) is None
+
+
+def test_swift_guards_empty_step_polyline_in_next_step_index():
+    """Drift guard: the `pointCount > 0` skip must stay in nextStepIndex so
+    the zero-point `points()[0]` crash can't silently come back."""
+    src = _polyline_math_src()
+    idx = src.index("static func nextStepIndex")
+    body = src[idx:idx + 2600]
+    assert "pointCount > 0" in body, (
+        "empty-step-polyline guard gone from nextStepIndex — points()[0] "
+        "on a zero-point step polyline will trap again (off-route crash)"
+    )
+
+
+def test_swift_active_navigator_uses_safe_first_coordinate():
+    """The other `points()[0]` deref (ActiveNavigator's distanceToNextStep)
+    must use the safe `firstCoordinate` accessor, not a raw index."""
+    here = Path(__file__).resolve()
+    repo_root = here.parents[3]
+    nav = repo_root / "TripperDashPP" / "Navigation" / "ActiveNavigator.swift"
+    src = nav.read_text(encoding="utf-8")
+    assert "step.polyline.firstCoordinate" in src, (
+        "ActiveNavigator no longer uses the safe firstCoordinate accessor"
+    )
+    assert "step.polyline.points()[0]" not in src, (
+        "raw points()[0] deref is back in ActiveNavigator — off-route "
+        "reroute with an empty step polyline will trap again"
     )

@@ -122,4 +122,14 @@ extension MKPolyline {
         getCoordinates(&coords, range: NSRange(location: 0, length: pointCount))
         return coords
     }
+
+    /// First coordinate, or nil when the polyline is empty. Safe
+    /// alternative to `points()[0].coordinate`, which reads past the
+    /// buffer and traps on a zero-point polyline (MapKit hands those
+    /// back for the terminal "arrive" step and occasionally on a fresh
+    /// reroute result).
+    var firstCoordinate: CLLocationCoordinate2D? {
+        guard pointCount > 0 else { return nil }
+        return points()[0].coordinate
+    }
 }
