@@ -178,3 +178,94 @@ class TestSwiftDriftGuard:
         src = _swift_navigator_source()
         assert "plannedWaypointFractions" in src
         assert "RoutePoint.editableListThreshold" in src
+
+
+# --------------------------------------------------------------------------
+# Weather-hazard band position on the bar
+# --------------------------------------------------------------------------
+
+
+def hazard_fraction(ride_fraction: float, distance_ahead: float,
+                    planned_total: float) -> float | None:
+    """Mirror of the hazard-fraction calc in `ActiveNavLoop` block 2a.
+
+    The rider is at `ride_fraction` of the trip; a located hazard sits
+    `distance_ahead` metres further along the route, so its trip fraction
+    is current + ahead/total, clamped to 0…1. Returns None when there's no
+    positive planned total (can't place it) — the caller also gates on the
+    hazard actually having an ahead-distance.
+    """
+    if planned_total <= 0:
+        return None
+    return max(0.0, min(1.0, ride_fraction + distance_ahead / planned_total))
+
+
+class TestHazardFraction:
+    def test_hazard_ahead_of_rider(self):
+        # 20% done on a 100 km trip, rain 15 km ahead → 0.20 + 0.15 = 0.35.
+        assert hazard_fraction(0.20, 15_000, 100_000) == pytest.approx(0.35)
+
+    def test_hazard_at_rider(self):
+        # distance_ahead 0 → band sits exactly at the current position.
+        assert hazard_fraction(0.40, 0, 100_000) == pytest.approx(0.40)
+
+    def test_hazard_clamped_to_end(self):
+        # Hazard further than the remaining trip → clamp to the bar's end.
+        assert hazard_fraction(0.90, 50_000, 100_000) == 1.0
+
+    def test_no_planned_total_returns_none(self):
+        assert hazard_fraction(0.5, 10_000, 0) is None
+
+
+# --------------------------------------------------------------------------
+# Drift guard — the renderer + nav pump must still match this behaviour
+# --------------------------------------------------------------------------
+
+
+def _swift_mapviewsource() -> str:
+    here = Path(__file__).resolve()
+    repo_root = here.parents[3]
+    src = repo_root / "TripperDashPP" / "Map" / "MapViewSource.swift"
+    return src.read_text(encoding="utf-8")
+
+
+def _swift_navloop() -> str:
+    here = Path(__file__).resolve()
+    repo_root = here.parents[3]
+    src = repo_root / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift"
+    return src.read_text(encoding="utf-8")
+
+
+class TestProgressBarRenderDriftGuard:
+    def test_bar_left_inset_clears_maneuver_glyph(self):
+        # The bar must be laid out with an explicit LEFT inset (not a bare
+        # centred fraction) so its start clears the dash's own maneuver
+        # glyph in the top-left. Regression for the "left end hidden under
+        # the turn card" rider photo (8/2026).
+        src = _swift_mapviewsource()
+        assert "progressBarLeftInset" in src
+        assert "progressBarRightInset" in src
+
+    def test_waypoint_ticks_are_bright_and_overhang(self):
+        # Ticks must be the bright white-core + dark-outline overhang marker,
+        # not the old 1.5 px dark hairline that was invisible.
+        src = _swift_mapviewsource()
+        idx = src.index("func drawProgressBar")
+        body = src[idx:idx + 6000]
+        assert "tickOverhang" in body
+        # The old invisible hairline width must be gone.
+        assert "let tickW: CGFloat = 1.5" not in body
+
+    def test_hazard_band_drawn(self):
+        # The renderer must draw a hazard band when hazardFraction is set.
+        src = _swift_mapviewsource()
+        assert "hazardFraction" in src
+        assert "hazardIsWarning" in src
+
+    def test_navloop_computes_hazard_fraction(self):
+        # The nav pump must translate the weather alert's along-route
+        # distance into a bar fraction using the planned total.
+        src = _swift_navloop()
+        assert "hazardFraction" in src
+        assert "distanceAhead" in src
+        assert "plannedTotalDistance" in src

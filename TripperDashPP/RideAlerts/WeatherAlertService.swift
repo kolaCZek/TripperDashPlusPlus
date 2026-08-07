@@ -87,7 +87,17 @@ struct WeatherAlert: Equatable, Sendable {
     /// real distance.
     var distanceAhead: CLLocationDistance? = nil
 
-    enum Glyph: Sendable {
+    /// Along-route span (metres from the rider) of the CONTIGUOUS band of
+    /// same-or-higher-severity hazard the surfaced alert belongs to, or
+    /// `nil` for a point/at-rider hazard. `start` is the near edge,
+    /// `end` the far edge. Lets the progress bar paint the stretch where
+    /// the weather actually is (e.g. rain from 15 km to 40 km ahead)
+    /// instead of a single tick. Resolution is the adaptive sample
+    /// spacing, so edges are ±spacing.
+    var spanStartMeters: CLLocationDistance? = nil
+    var spanEndMeters: CLLocationDistance? = nil
+
+    nonisolated enum Glyph: Sendable, Equatable {
         case rain
         case storm
         case snow
@@ -121,11 +131,37 @@ final class WeatherAlertService {
     /// How far along the route to look, and how densely. Every point
     /// rides in the SAME single Open-Meteo GET (comma-separated lat/lon),
     /// so density is cheap in requests — it's the request COUNT that's
-    /// rate-limited, not the point count. 10 km spacing out to 100 km ≈
-    /// 10 look-ahead points + the rider position, once per `pollInterval`.
-    /// Rider-confirmed (Martin, 7/2026): "up to 100 km, every 10 km".
-    private static let sampleSpacingMeters: Double = 10_000
-    private static let sampleRangeMeters: Double   = 100_000
+    /// rate-limited, not the point count. The look-ahead RANGE is capped at
+    /// 100 km; the SPACING is now ADAPTIVE to the route length so a short
+    /// ride gets fine resolution (down to 1 km) and a long ride stays
+    /// coarse (up to 10 km), targeting a roughly constant sample count that
+    /// never overruns the single-GET point budget.
+    /// Rider-confirmed (Martin, 7/2026): "up to 100 km"; adaptive spacing
+    /// (Martin, 8/2026): "short trip ~1 km, long trip ~10 km".
+    private static let sampleRangeMeters: Double = 100_000
+
+    /// Adaptive-spacing knobs. `sampleTargetCount` is the number of points
+    /// we aim to spread across the WHOLE route; spacing = routeLength /
+    /// target, clamped to [min, max]. Targeting 20 across the route gives
+    /// 1 km on a ~20 km ride and saturates the 10 km ceiling by ~200 km —
+    /// matching the rider's "short ~1 km, long ~10 km". Because we only
+    /// ever SAMPLE the first `sampleRangeMeters` (100 km) of look-ahead,
+    /// the actual GET carries at most range/minSpacing = 100 points, well
+    /// within Open-Meteo's single-request budget.
+    nonisolated static let sampleTargetCount: Double = 20
+    nonisolated static let sampleMinSpacingMeters: Double = 1_000
+    nonisolated static let sampleMaxSpacingMeters: Double = 10_000
+
+    /// Pure: pick the along-route sample spacing for a route of
+    /// `routeLengthMeters`. Aims for ~`sampleTargetCount` points across the
+    /// whole route, clamped to [minSpacing, maxSpacing]. A zero/negative
+    /// length falls back to the max spacing. `nonisolated static` so it
+    /// unit-tests without the actor.
+    nonisolated static func adaptiveSpacing(routeLengthMeters: Double) -> Double {
+        guard routeLengthMeters > 0 else { return sampleMaxSpacingMeters }
+        let raw = routeLengthMeters / sampleTargetCount
+        return min(max(raw, sampleMinSpacingMeters), sampleMaxSpacingMeters)
+    }
 
     private var lastPollAt: Date?
     private var lastPollKey: String?
@@ -143,8 +179,8 @@ final class WeatherAlertService {
     }()
 
     /// Evaluate weather at `position` plus a series of points sampled
-    /// along `routeAhead` (every `sampleSpacingMeters` out to
-    /// `sampleRangeMeters`). Throttled to `pollInterval` and to ~1 km of
+    /// along `routeAhead` (spacing chosen adaptively by `adaptiveSpacing`
+    /// out to `sampleRangeMeters`). Throttled to `pollInterval` and to ~1 km of
     /// movement, so it's safe to call from the 1 Hz nav pump every tick —
     /// the actual fetch only fires when the throttle opens. Updates
     /// `current` in place; returns the new value.
@@ -164,10 +200,18 @@ final class WeatherAlertService {
         lastPollKey = key
 
         // Rider position is sample 0 (distance 0), followed by the
-        // along-route look-ahead points. All in one GET.
+        // along-route look-ahead points. All in one GET. The spacing is
+        // adaptive to how much route lies ahead (short ride → fine, long
+        // ride → coarse), capped at `sampleRangeMeters` of look-ahead.
+        // Spacing scales with the WHOLE route ahead (uncapped), so a long
+        // ride saturates the 10 km ceiling; sampling itself is still capped
+        // at `sampleRangeMeters` of look-ahead.
+        let aheadLength = Self.polylineLength(routeAhead, from: position,
+                                              maxMeters: .greatestFiniteMagnitude)
+        let spacing = Self.adaptiveSpacing(routeLengthMeters: aheadLength)
         let aheadSamples = Self.samplesAlong(
             routeAhead, from: position,
-            everyMeters: Self.sampleSpacingMeters, maxMeters: Self.sampleRangeMeters)
+            everyMeters: spacing, maxMeters: Self.sampleRangeMeters)
         let points: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)] =
             [(coord: position, distanceM: 0)] + aheadSamples
         do {
@@ -271,10 +315,13 @@ final class WeatherAlertService {
     /// route. Pure and `nonisolated` so it unit-tests without the network
     /// or the main actor.
     nonisolated static func pickAlongRoute(_ samples: [Sample]) -> WeatherAlert? {
-        let hazards: [(alert: WeatherAlert, dist: CLLocationDistance)] = samples.compactMap {
+        // Classify every sample in order, keeping its along-route distance.
+        // `nil` entries are clears (they break a contiguous hazard band).
+        let classified: [(alert: WeatherAlert, dist: CLLocationDistance)?] = samples.map {
             guard let a = classify($0, isAhead: $0.distanceM > 0) else { return nil }
             return (a, $0.distanceM)
         }
+        let hazards = classified.compactMap { $0 }
         guard !hazards.isEmpty else { return nil }
         // Highest severity first, then nearest. `max(by:)` returns the
         // element no other compares "greater" than.
@@ -285,12 +332,46 @@ final class WeatherAlertService {
             return lhs.dist > rhs.dist                            // nearer wins
         }!
         let atRider = best.dist == 0
+
+        // Compute the CONTIGUOUS span of hazard around the surfaced one:
+        // walk outward from the best sample's index over neighbouring
+        // classified (non-clear) samples of the SAME glyph, so a run of
+        // "rain, rain, rain" becomes one band. A clear sample (nil) or a
+        // different hazard type stops the walk. Only meaningful for an
+        // ahead hazard (a run needs distances > 0).
+        var spanStart: CLLocationDistance? = nil
+        var spanEnd: CLLocationDistance? = nil
+        if !atRider,
+           let bestIdx = classified.firstIndex(where: {
+               $0?.dist == best.dist && $0?.alert.glyph == best.alert.glyph
+           }) {
+            var lo = bestIdx
+            var hi = bestIdx
+            while lo - 1 >= 0, let s = classified[lo - 1], s.alert.glyph == best.alert.glyph {
+                lo -= 1
+            }
+            while hi + 1 < classified.count, let s = classified[hi + 1],
+                  s.alert.glyph == best.alert.glyph {
+                hi += 1
+            }
+            if let s = classified[lo], let e = classified[hi] {
+                // Only surface a span when it actually covers more than the
+                // single sample (a lone hazard stays a point → nil span).
+                if hi > lo {
+                    spanStart = s.dist
+                    spanEnd = e.dist
+                }
+            }
+        }
+
         return WeatherAlert(
             title: best.alert.title,
             severity: best.alert.severity,
             isAhead: !atRider,
             glyph: best.alert.glyph,
-            distanceAhead: atRider ? nil : best.dist
+            distanceAhead: atRider ? nil : best.dist,
+            spanStartMeters: spanStart,
+            spanEndMeters: spanEnd
         )
     }
 
@@ -380,6 +461,34 @@ final class WeatherAlertService {
     }
 
     // MARK: - Route geometry
+
+    /// Length (metres) of the polyline `coords` ahead of `from`, capped at
+    /// `maxMeters`. Walks from the vertex nearest `from` and sums segment
+    /// lengths, stopping once `maxMeters` is reached. Used to pick the
+    /// adaptive sample spacing. `nonisolated static` so it unit-tests
+    /// without the actor.
+    nonisolated static func polylineLength(
+        _ coords: [CLLocationCoordinate2D],
+        from: CLLocationCoordinate2D,
+        maxMeters: Double
+    ) -> Double {
+        guard coords.count >= 2 else { return 0 }
+        // Nearest vertex to start summing from (measure ahead of the rider).
+        var startIdx = 0
+        var bestDist = Double.greatestFiniteMagnitude
+        for (i, c) in coords.enumerated() {
+            let d = haversine(from, c)
+            if d < bestDist { bestDist = d; startIdx = i }
+        }
+        var total = 0.0
+        var i = startIdx
+        while i < coords.count - 1 {
+            total += haversine(coords[i], coords[i + 1])
+            if total >= maxMeters { return maxMeters }
+            i += 1
+        }
+        return total
+    }
 
     /// Sample the polyline `coords` ahead of `from`, one point every
     /// `everyMeters`, out to `maxMeters` total, returning each point with
