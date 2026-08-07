@@ -2378,6 +2378,12 @@ extension MapViewSource {
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
         for alt in alternativeRoutes {
+            // Belt-and-braces: never draw a bubble for an alt whose line the
+            // renderer skips (< 2 points). `pushAlternativeRenders` already
+            // filters these at the source, but keeping the guards symmetric
+            // means a bubble can never orphan itself from its grey line
+            // regardless of how the render list was built.
+            guard alt.coords.count > 1 else { continue }
             let c = alt.bubbleAnchor
             let dx = (c.longitude - centerLon) * pxPerDegLon
             let dy = -(c.latitude - centerLat) * pxPerDegLat   // Y-DOWN

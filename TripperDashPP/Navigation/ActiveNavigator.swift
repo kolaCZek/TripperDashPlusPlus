@@ -836,7 +836,7 @@ final class ActiveNavigator {
             self.precedingStep = stepIdx > 1 ? route.steps[stepIdx - 2] : nil
             self.distanceToNextStep = PolylineMath.haversine(
                 coord,
-                step.polyline.points()[0].coordinate
+                step.polyline.firstCoordinate ?? coord
             )
             // F2c: secondary (look-ahead) maneuver = the step AFTER the
             // departing one. The distance from the rider to the SECONDARY
@@ -907,7 +907,6 @@ final class ActiveNavigator {
         self.offRouteSince = nil
         self.isOffRoute = false
         self.remainingDistance = newRoute.distance
-        refreshOverviewCaches()
         self.legArrivalDate = Date(timeIntervalSinceNow: newRoute.expectedTravelTime)
         self.stepBeforeNext = newRoute.steps.first        // arriving (text + incoming leg)
         self.nextStep = newRoute.steps.dropFirst().first  // departing (outgoing leg)
@@ -916,6 +915,17 @@ final class ActiveNavigator {
         self.secondNextStep = newRoute.steps.dropFirst(2).first
         self.distanceToSecondNextStep = (newRoute.steps.first?.distance ?? 0)
             + (newRoute.steps.dropFirst().first?.distance ?? 0)
+        // Sync the plan's CURRENT leg to the new road BEFORE firing the
+        // hook. The route-changed hook rebuilds the whole-trip blue line
+        // from `plan`; if the plan still holds the pre-reroute leg, the
+        // hook repaints the old road the rider already left and no line
+        // shows along the road they're on now. Single-destination nav
+        // (plan == nil) relies on `setRoutePolyline(newRoute.polyline)`
+        // in the hook instead — nothing to sync.
+        if let plan, plan.legs.indices.contains(currentLegIndex) {
+            plan.replaceLegRoute(legIndex: currentLegIndex, with: newRoute)
+        }
+        refreshOverviewCaches()
         await onActiveRouteChanged?(newRoute)
     }
 

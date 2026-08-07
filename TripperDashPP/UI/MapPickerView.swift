@@ -962,14 +962,21 @@ struct MapPickerView: View {
     /// comes from the navigator's current leg selection.
     private func pushAlternativeRenders(_ alts: [MKRoute]) {
         let activeTime = status.activeNavigator.activeRoute?.expectedTravelTime ?? 0
-        let renders: [AlternativeRouteRender] = alts.map { route in
+        let renders: [AlternativeRouteRender] = alts.compactMap { route in
             let coords = route.polyline.coordinateList()
+            // Only surface an alternative that has a DRAWABLE line. The
+            // renderer skips a polyline with < 2 points (`drawAlternativeLines`
+            // guards `coords.count > 1`), but the ETA bubble is drawn from a
+            // separate `bubbleAnchor` that's always valid — so a degenerate
+            // alt (empty / single-point polyline, which MapKit occasionally
+            // returns near a fork/roundabout) produced an ORPHAN "−2 min"
+            // bubble floating with no grey line under it (field report,
+            // roundabout, 8/2026). Drop such alts entirely: no line, no bubble.
+            guard coords.count > 1 else { return nil }
             // Anchor the ETA bubble at the alt's geometric midpoint — a
             // reasonable, always-on-the-line spot that rarely collides
             // with the active route's own labels.
-            let anchor = coords.isEmpty
-                ? route.polyline.coordinate
-                : coords[coords.count / 2]
+            let anchor = coords[coords.count / 2]
             return AlternativeRouteRender(
                 id: UUID(),
                 coords: coords,
