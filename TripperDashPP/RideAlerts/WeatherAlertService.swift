@@ -97,7 +97,7 @@ struct WeatherAlert: Equatable, Sendable {
     var spanStartMeters: CLLocationDistance? = nil
     var spanEndMeters: CLLocationDistance? = nil
 
-    enum Glyph: Sendable {
+    nonisolated enum Glyph: Sendable, Equatable {
         case rain
         case storm
         case snow
@@ -148,9 +148,9 @@ final class WeatherAlertService {
     /// ever SAMPLE the first `sampleRangeMeters` (100 km) of look-ahead,
     /// the actual GET carries at most range/minSpacing = 100 points, well
     /// within Open-Meteo's single-request budget.
-    private static let sampleTargetCount: Double = 20
-    private static let sampleMinSpacingMeters: Double = 1_000
-    private static let sampleMaxSpacingMeters: Double = 10_000
+    nonisolated static let sampleTargetCount: Double = 20
+    nonisolated static let sampleMinSpacingMeters: Double = 1_000
+    nonisolated static let sampleMaxSpacingMeters: Double = 10_000
 
     /// Pure: pick the along-route sample spacing for a route of
     /// `routeLengthMeters`. Aims for ~`sampleTargetCount` points across the
