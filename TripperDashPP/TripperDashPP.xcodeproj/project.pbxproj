@@ -48,6 +48,7 @@
 		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
+		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 		A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F0 /* CallStateObserver.swift */; };
 		A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F2 /* DeviceTelemetry.swift */; };
@@ -151,6 +152,7 @@
 		A4CA110000000000000000F4 /* K1GCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GCrypto.swift; sourceTree = "<group>"; };
 		A4CA110000000000000000F6 /* MessageNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageNotification.swift; sourceTree = "<group>"; };
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
+		A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+DashSafe.swift"; sourceTree = "<group>"; };
 		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
 		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
 		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
@@ -293,6 +295,7 @@
 				A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */,
 				A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */,
 				A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */,
+				A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */,
 				A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */,
 				A4CA110000000000000000F0 /* CallStateObserver.swift */,
 				A4CA110000000000000000F2 /* DeviceTelemetry.swift */,
@@ -578,6 +581,7 @@
 				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,
 				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
+				A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
 				A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */,
 				A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */,

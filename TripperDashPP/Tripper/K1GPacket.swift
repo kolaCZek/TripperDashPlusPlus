@@ -683,10 +683,14 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x55, payload: Data([0x20]))
     }
 
-    /// `05 01 <len> <ascii+0x00>` — t3c.m(): current road name. Truncated
-    /// to 60 bytes UTF-8 + null terminator to match the Python authority.
+    /// `05 01 <len> <ascii+0x00>` — t3c.m(): current road name. Folded to
+    /// plain ASCII first (`dashSafe`) because the dash font can't render
+    /// diacritics — a Czech name like "Nižbor" arrives as mojibake and
+    /// heavier ones ("Křivoklát") can make the firmware drop the field
+    /// entirely (Martin, 8/2026). Then truncated to 60 bytes UTF-8 + null
+    /// terminator to match the Python authority.
     static func tlvRoadName(_ name: String) -> K1GSegment {
-        var bytes = Array(name.utf8.prefix(60))
+        var bytes = Array(name.dashSafe.utf8.prefix(60))
         bytes.append(0)
         return K1GSegment(type: .navInfo, sub: 0x01,
                           payload: Data(bytes))
