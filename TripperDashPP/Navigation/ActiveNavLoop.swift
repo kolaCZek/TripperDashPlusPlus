@@ -330,10 +330,28 @@ final class ActiveNavLoop {
         //     fraction is a pure read off the navigator (breadcrumb vs.
         //     planned total) — no MapKit work here.
         if settings.progressBarEnabled {
+            // Locate a known weather hazard on the bar. `distanceAhead` is
+            // how far along the route ahead of the rider the hazard sits; the
+            // rider is at `rideProgressFraction` of `plannedTotalDistance`,
+            // so the hazard's trip fraction is current + ahead/total. Only
+            // when we have a positive planned total AND an ahead-distance
+            // (a hazard AT the rider's position has distanceAhead == nil and
+            // isn't a "somewhere on the route" marker).
+            var hazardFraction: Double? = nil
+            var hazardIsWarning = false
+            if let alert = mapSource?.weatherAlert,
+               let ahead = alert.distanceAhead,
+               nav.plannedTotalDistance > 0 {
+                let hf = nav.rideProgressFraction + ahead / nav.plannedTotalDistance
+                hazardFraction = max(0, min(1, hf))
+                hazardIsWarning = alert.severity == .warning
+            }
             mapSource?.setRideProgress(
                 MapViewSource.RideProgress(
                     fraction: nav.rideProgressFraction,
-                    waypointFractions: nav.plannedWaypointFractions
+                    waypointFractions: nav.plannedWaypointFractions,
+                    hazardFraction: hazardFraction,
+                    hazardIsWarning: hazardIsWarning
                 )
             )
         } else {

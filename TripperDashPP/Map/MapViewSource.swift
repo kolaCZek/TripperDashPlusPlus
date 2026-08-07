@@ -1905,6 +1905,14 @@ extension MapViewSource {
     struct RideProgress {
         var fraction: Double            // 0…1 completed
         var waypointFractions: [Double] // 0…1 via-point positions
+        /// 0…1 position of a known weather hazard along the trip (e.g. rain
+        /// we know sits 15 km ahead), or `nil` when there's no located
+        /// hazard. Drawn as a coloured band on the bar so the rider sees
+        /// WHERE on the route the weather hits, not just that it's coming.
+        var hazardFraction: Double? = nil
+        /// Whether the hazard is a warning (red) vs a caution (amber). Only
+        /// meaningful when `hazardFraction != nil`.
+        var hazardIsWarning: Bool = false
     }
 
     /// Push the latest ride-progress (or `nil` to hide the bar). Mirrors
@@ -2661,7 +2669,24 @@ extension MapViewSource {
     /// Fraction of the dash width the bar spans. Centred and kept short so
     /// it doesn't collide with the weather / speed-limit pills near the
     /// edges — 66% leaves generous margins on both sides.
+    ///
+    /// NOTE: only used as a fallback. The bar is normally laid out with the
+    /// explicit asymmetric margins below so its LEFT end clears the dash's
+    /// own maneuver glyph (top-left turn card), which was overlapping the
+    /// start of a centred bar (rider photo, 8/2026).
     fileprivate static let progressBarWidthFraction: CGFloat = 0.66
+
+    /// Left inset (px) of the progress bar. The Tripper dash burns its own
+    /// maneuver glyph + distance card into the LEFT third of the screen
+    /// (~30% of 526 px ≈ 158 px, plus the "75 m" text below it). Start the
+    /// bar to the RIGHT of that zone so the done/grey end is never hidden
+    /// under the turn card.
+    fileprivate static let progressBarLeftInset: CGFloat = 170
+
+    /// Right inset (px) of the progress bar — matches the old centred bar's
+    /// right margin so the ahead/blue end still clears the bottom-right
+    /// weather / speed-limit pills.
+    fileprivate static let progressBarRightInset: CGFloat = 90
 
     /// Draw the ride-progress bar centred along the BOTTOM EDGE, spanning
     /// 66% of the dash width. DONE portion (left) is grey; the REMAINING
@@ -2676,8 +2701,18 @@ extension MapViewSource {
         guard let p = rideProgress else { return }
 
         let h = Self.progressBarHeight
-        let barW = (frameSize.width * Self.progressBarWidthFraction).rounded()
-        let x0 = ((frameSize.width - barW) / 2).rounded()   // centred
+        // Asymmetric layout: LEFT inset clears the dash's own maneuver glyph
+        // (top-left turn card), RIGHT inset clears the bottom-right pills.
+        // Fall back to a centred 66% bar if the insets don't fit the frame
+        // (shouldn't happen at 526 px, but keeps the bar sane on any size).
+        var x0 = Self.progressBarLeftInset
+        var barW = frameSize.width - Self.progressBarLeftInset - Self.progressBarRightInset
+        if barW < 80 {
+            barW = (frameSize.width * Self.progressBarWidthFraction).rounded()
+            x0 = ((frameSize.width - barW) / 2).rounded()
+        }
+        x0 = x0.rounded()
+        barW = barW.rounded()
         let bottomMargin: CGFloat = 12       // lift off the edge so the marker fits
         let y = frameSize.height - h - bottomMargin          // Y-DOWN
         let frac = CGFloat(max(0, min(1, p.fraction)))
@@ -2711,22 +2746,53 @@ extension MapViewSource {
             ctx.fill(CGRect(x: splitX, y: y, width: x0 + barW - splitX, height: h))
         }
 
-        // Waypoint ticks — a slim notch at each intermediate via-point so
-        // the rider can see the stops laid out along the whole trip. Drawn
-        // over both halves (dark, semi-transparent) so they read whether
-        // the leg is done or ahead. The final destination isn't in the
-        // list (it's the bar's end). Still clipped to the pill.
-        let tickW: CGFloat = 1.5
-        ctx.setFillColor(CGColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 0.85))
+        // Weather-hazard band — a coloured segment marking WHERE on the
+        // route a known hazard sits (e.g. rain 15 km ahead). Amber for a
+        // caution, red for a warning. Drawn over the blue ahead-fill (a
+        // hazard is by definition ahead of the current split), clipped to
+        // the pill, wide enough to read on the 526-px dash. Centred on the
+        // hazard fraction. Only when we actually located a hazard.
+        if let hf = p.hazardFraction {
+            let hazardColor: CGColor = p.hazardIsWarning
+                ? CGColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1.0)   // red
+                : CGColor(red: 1.0,  green: 0.60, blue: 0.0,  alpha: 1.0)   // amber
+            let hfc = CGFloat(max(0, min(1, hf)))
+            let bandW: CGFloat = 10                       // px, glanceable
+            let cx = x0 + barW * hfc
+            let bx = max(x0, min(cx - bandW / 2, x0 + barW - bandW))
+            ctx.setFillColor(hazardColor)
+            ctx.fill(CGRect(x: bx, y: y, width: bandW, height: h))
+        }
+
+        // Waypoint ticks are drawn AFTER the clip is dropped (below) so
+        // their overhang above/below the bar isn't clipped away.
+
+        // Drop the clip so the outline stroke and the overhanging waypoint
+        // ticks sit ON / around the pill edge.
+        ctx.resetClip()
+
+        // Waypoint ticks — a bright notch at each intermediate via-point so
+        // the rider can see the stops laid out along the whole trip. These
+        // used to be a 1.5 px dark hairline that was practically invisible
+        // (rider feedback, 8/2026); now they're a white tick with a dark
+        // outline that OVERHANGS the bar top and bottom so they stand out
+        // against both the grey and blue halves. The final destination
+        // isn't in the list (it's the bar's end). Drawn UNCLIPPED so the
+        // overhang shows.
+        let tickW: CGFloat = 3
+        let tickOverhang: CGFloat = 3                 // sticks out above/below
         for wf in p.waypointFractions {
             let f = CGFloat(max(0, min(1, wf)))
             let tx = (x0 + barW * f).rounded()
             guard tx > x0 + tickW, tx < x0 + barW - tickW else { continue }
-            ctx.fill(CGRect(x: tx - tickW / 2, y: y, width: tickW, height: h))
+            let tickRect = CGRect(x: tx - tickW / 2, y: y - tickOverhang,
+                                  width: tickW, height: h + tickOverhang * 2)
+            // Dark outline (slightly larger) first, then white core.
+            ctx.setFillColor(CGColor(red: 0.08, green: 0.10, blue: 0.13, alpha: 0.95))
+            ctx.fill(tickRect.insetBy(dx: -1, dy: -1))
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.98))
+            ctx.fill(tickRect)
         }
-
-        // Drop the clip so the outline stroke sits ON the pill edge.
-        ctx.resetClip()
 
         // Thin black outline tracing the rounded bar.
         ctx.addPath(pill)
