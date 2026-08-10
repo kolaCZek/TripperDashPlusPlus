@@ -13,7 +13,10 @@ import CoreLocation
 import Foundation
 import MapKit
 import Observation
+import os
 import UIKit
+
+private let shareLog = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ShareIntake")
 
 /// High-level connection lifecycle as seen by the UI. Mirrors the
 /// `BikeLink` state machine that lands in Phase 3.
@@ -686,6 +689,7 @@ final class AppStatus {
                     // Extension couldn't resolve the short-link under its
                     // network sandbox and passed the raw maps URL through —
                     // resolve it here (normal network, full redirect follow).
+                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .public)")
                     resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
                 } else {
                     resolution = SharedDeepLink.decode(url)
@@ -693,7 +697,9 @@ final class AppStatus {
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
-            _ = await beginPlanningFromShared(resolution)
+            shareLog.info("resolution=\(String(describing: resolution), privacy: .public)")
+            let staged = await beginPlanningFromShared(resolution)
+            shareLog.info("beginPlanningFromShared staged=\(staged, privacy: .public)")
         }
     }
 
