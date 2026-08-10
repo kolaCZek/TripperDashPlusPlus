@@ -36,12 +36,14 @@ final class ShareViewController: UIViewController {
 
         let resolution = await SharedDestinationResolver.resolve(text: text, url: url)
 
-        if let deepLink = SharedDeepLink.encode(resolution) {
-            await openMainApp(deepLink)
-        } else {
+        guard let deepLink = SharedDeepLink.encode(resolution) else {
             log.warning("share resolved to nothing actionable")
+            finish()
+            return
         }
-        // Always finish — even on empty, the sheet must dismiss.
+        // Open the app, THEN finish in the completion — finishing first
+        // tears the extension down and cancels the open.
+        await openMainApp(deepLink)
         finish()
     }
 
@@ -92,45 +94,27 @@ final class ShareViewController: UIViewController {
         }
     }
 
-    /// Open the main app via its custom scheme. Share extensions can't
-    /// touch UIApplication.shared, and the old `openURL:` responder-chain
-    /// trick is HARD-BLOCKED on iOS 18 ("BUG IN CLIENT OF UIKIT … Force
-    /// returning false"). Two routes that still work, tried in order:
-    ///   1. NSExtensionContext.open — the sanctioned API; returns success.
-    ///   2. Responder-chain `openURL:options:completionHandler:` (the
-    ///      non-deprecated 3-arg selector) invoked via its IMP.
-    /// Returns whether the app was opened.
+    /// Open the main app via its custom `tripperdash://` scheme.
+    ///
+    /// Share extensions can't touch `UIApplication.shared`, and the old
+    /// responder-chain `openURL:` tricks are either hard-blocked on iOS 18
+    /// ("BUG IN CLIENT OF UIKIT … Force returning false") or crash when
+    /// invoked with a wrong options type (`-[__NSDictionary0
+    /// universalLinksOnly]: unrecognized selector`). The ONE sanctioned,
+    /// crash-free path is `NSExtensionContext.open`.
+    ///
+    /// Quirk: its completion frequently reports `false` even though the app
+    /// DID open, so the boolean is logged but not treated as failure.
     @MainActor
-    @discardableResult
-    private func openMainApp(_ url: URL) async -> Bool {
-        // Route 1 — NSExtensionContext.open.
-        if let ctx = extensionContext {
-            let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                ctx.open(url) { success in cont.resume(returning: success) }
-            }
-            if ok {
-                log.info("opened via extensionContext: \(url.absoluteString, privacy: .public)")
-                return true
-            }
+    private func openMainApp(_ url: URL) async {
+        guard let ctx = extensionContext else {
+            log.error("no extensionContext to open \(url.absoluteString, privacy: .public)")
+            return
         }
-
-        // Route 2 — responder chain, non-deprecated selector via IMP.
-        let selector = sel_registerName("openURL:options:completionHandler:")
-        var responder: UIResponder? = self
-        while let r = responder {
-            if r.responds(to: selector), let method = r.method(for: selector) {
-                typealias OpenFn = @convention(c)
-                    (AnyObject, Selector, NSURL, NSDictionary, (@convention(block) (Bool) -> Void)?) -> Void
-                let fn = unsafeBitCast(method, to: OpenFn.self)
-                fn(r, selector, url as NSURL, NSDictionary(), nil)
-                log.info("opened via responder chain: \(url.absoluteString, privacy: .public)")
-                return true
-            }
-            responder = r.next
+        let reported = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            ctx.open(url) { success in cont.resume(returning: success) }
         }
-
-        log.error("could not open \(url.absoluteString, privacy: .public)")
-        return false
+        log.info("extensionContext.open reported=\(reported) for \(url.absoluteString, privacy: .public)")
     }
 
     private func finish() {
