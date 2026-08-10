@@ -41,9 +41,10 @@ final class ShareViewController: UIViewController {
             finish()
             return
         }
-        // Open the app, THEN finish in the completion — finishing first
-        // tears the extension down and cancels the open.
-        await openMainApp(deepLink)
+        // Open the app, THEN finish after a short grace period. Finishing
+        // immediately tears the extension down and cancels the launch.
+        openMainApp(deepLink)
+        try? await Task.sleep(nanoseconds: 400_000_000)
         finish()
     }
 
@@ -96,25 +97,28 @@ final class ShareViewController: UIViewController {
 
     /// Open the main app via its custom `tripperdash://` scheme.
     ///
-    /// Share extensions can't touch `UIApplication.shared`, and the old
-    /// responder-chain `openURL:` tricks are either hard-blocked on iOS 18
-    /// ("BUG IN CLIENT OF UIKIT … Force returning false") or crash when
-    /// invoked with a wrong options type (`-[__NSDictionary0
-    /// universalLinksOnly]: unrecognized selector`). The ONE sanctioned,
-    /// crash-free path is `NSExtensionContext.open`.
-    ///
-    /// Quirk: its completion frequently reports `false` even though the app
-    /// DID open, so the boolean is logged but not treated as failure.
-    @MainActor
-    private func openMainApp(_ url: URL) async {
-        guard let ctx = extensionContext else {
-            log.error("no extensionContext to open \(url.absoluteString, privacy: .public)")
-            return
+    /// `NSExtensionContext.open` is documented to work only from *Today*
+    /// widgets, not Share extensions — from here it silently reports
+    /// `false` and does nothing (that was the "dark rectangle flashes,
+    /// nothing happens" symptom). The reliable path from a Share extension
+    /// is to walk the responder chain, find the live `UIApplication`, and
+    /// call its TYPE-SAFE `open(_:options:completionHandler:)`. Casting to
+    /// `UIApplication` and calling the real Swift method (rather than an
+    /// `objc_msgSend`/IMP hack with a hand-built options dictionary) is
+    /// what avoids the earlier `-[__NSDictionary0 universalLinksOnly]`
+    /// crash: UIKit builds the correct options object internally.
+    private func openMainApp(_ url: URL) {
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let app = r as? UIApplication {
+                app.open(url, options: [:]) { ok in
+                    log.info("UIApplication.open ok=\(ok) for \(url.absoluteString, privacy: .public)")
+                }
+                return
+            }
+            responder = r.next
         }
-        let reported = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            ctx.open(url) { success in cont.resume(returning: success) }
-        }
-        log.info("extensionContext.open reported=\(reported) for \(url.absoluteString, privacy: .public)")
+        log.error("no UIApplication in responder chain for \(url.absoluteString, privacy: .public)")
     }
 
     private func finish() {
