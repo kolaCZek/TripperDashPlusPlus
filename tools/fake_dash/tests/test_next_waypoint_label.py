@@ -129,15 +129,18 @@ def test_empty_name_does_not_crash():
 # Swift-source drift guards.
 # ----------------------------------------------------------------------
 
-def test_swift_gate_requires_more_than_one_remaining_waypoint():
-    """The roadName repurposing must be gated on remainingWaypoints > 1
-    (i.e. NOT the final leg, NOT a single-destination ride) — otherwise
-    it duplicates the dash's own final-ETA fields."""
+def test_swift_gate_requires_at_least_one_remaining_waypoint():
+    """The roadName repurposing must be gated on remainingWaypoints >= 1:
+    it shows the "N min to <place>" label for every intermediate stop AND
+    for the final destination on the last leg (rider request 8/2026 — the
+    label should persist to the goal, not vanish after the last via-point),
+    but stays suppressed on a single-destination ride (remainingWaypoints
+    == 0), where the dash's own ETA field is enough."""
     src = _swift_source()
-    assert "nav.remainingWaypoints > 1" in src, (
-        "next-waypoint label gate missing or changed — must stay > 1 so "
-        "the final leg / single-destination ride doesn't show a "
-        "redundant 'next waypoint' label"
+    assert "nav.remainingWaypoints >= 1" in src, (
+        "next-waypoint label gate missing or changed — must be >= 1 so the "
+        "final leg still shows the 'N min to <destination>' label while a "
+        "plain single-destination ride (== 0) stays suppressed"
     )
 
 
