@@ -78,6 +78,8 @@
 		F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */; };
 		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
 		FE70000000000000000000A1 /* GPXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000A0 /* GPXParser.swift */; };
+		A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
+		A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
 		FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B0 /* SavedRoutesStore.swift */; };
 		FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000C0 /* RouteStartPlanner.swift */; };
 		FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000D0 /* SavedRoutesListView.swift */; };
@@ -102,6 +104,10 @@
 		A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E002 /* VoicePhrase.swift */; };
 		A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */; };
 		A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */; };
+		5E5E00000000000000000190 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000C0 /* ShareViewController.swift */; };
+		5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
+		5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
+		5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000B0 /* TripperDashShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -178,6 +184,8 @@
 		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
 		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
 		FE70000000000000000000A0 /* GPXParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXParser.swift; sourceTree = "<group>"; };
+		A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDeepLink.swift"; sourceTree = "<group>"; };
+		A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestinationResolver.swift"; sourceTree = "<group>"; };
 		FE70000000000000000000B0 /* SavedRoutesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesStore.swift; sourceTree = "<group>"; };
 		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
 		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
@@ -203,7 +211,24 @@
 		A4F0FFFF000000000000E002 /* VoicePhrase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhrase.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptScheduler.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStore.swift; sourceTree = "<group>"; };
+		5E5E000000000000000000B0 /* TripperDashShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E5E000000000000000000C0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		5E5E000000000000000000D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5E5E00000000000000000130 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A41A9C4A2FE20258009BF005 /* Frameworks */ = {
@@ -214,6 +239,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7E57000000000000000000E1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E5E00000000000000000100 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -248,6 +280,7 @@
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				7E57000000000000000000C0 /* TripperDashPPTests */,
+				5E5E000000000000000000E0 /* TripperDashShare */,
 				A41A9C4E2FE20258009BF005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -257,6 +290,7 @@
 			children = (
 				A41A9C4D2FE20258009BF005 /* TripperDashPP.app */,
 				7E57000000000000000000B0 /* TripperDashPPTests.xctest */,
+				5E5E000000000000000000B0 /* TripperDashShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -356,6 +390,8 @@
 				A4F000000000000000000E00 /* ActiveNavLoop.swift */,
 				A4F000000000000000000E70 /* ManeuverLog.swift */,
 				FE70000000000000000000A0 /* GPXParser.swift */,
+				A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */,
+				A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */,
 				FE70000000000000000000B0 /* SavedRoutesStore.swift */,
 				FE70000000000000000000C0 /* RouteStartPlanner.swift */,
 				A4F0FFFF000000000000E002 /* VoicePhrase.swift */,
@@ -423,6 +459,15 @@
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
 		};
+		5E5E000000000000000000E0 /* TripperDashShare */ = {
+			isa = PBXGroup;
+			children = (
+				5E5E000000000000000000C0 /* ShareViewController.swift */,
+				5E5E000000000000000000D0 /* Info.plist */,
+			);
+			path = TripperDashShare;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -434,10 +479,12 @@
 				A41A9C4A2FE20258009BF005 /* Frameworks */,
 				A41A9C4B2FE20258009BF005 /* Resources */,
 				A4C0DE5A000000000000DE01 /* Stamp git SHA */,
+				5E5E00000000000000000130 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5E5E00000000000000000140 /* PBXTargetDependency */,
 			);
 			name = TripperDashPP;
 			packageProductDependencies = (
@@ -466,6 +513,25 @@
 			productReference = 7E57000000000000000000B0 /* TripperDashPPTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		5E5E00000000000000000120 /* TripperDashShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */;
+			buildPhases = (
+				5E5E000000000000000000F0 /* Sources */,
+				5E5E00000000000000000100 /* Frameworks */,
+				5E5E00000000000000000110 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TripperDashShare;
+			packageProductDependencies = (
+			);
+			productName = TripperDashShare;
+			productReference = 5E5E000000000000000000B0 /* TripperDashShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -482,6 +548,9 @@
 					7E57000000000000000000D0 = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = A41A9C4C2FE20258009BF005;
+					};
+					5E5E00000000000000000120 = {
+						CreatedOnToolsVersion = 26.5;
 					};
 				};
 			};
@@ -503,10 +572,10 @@
 			targets = (
 				A41A9C4C2FE20258009BF005 /* TripperDashPP */,
 				7E57000000000000000000D0 /* TripperDashPPTests */,
+				5E5E00000000000000000120 /* TripperDashShare */,
 			);
 		};
 /* End PBXProject section */
-
 /* Begin PBXResourcesBuildPhase section */
 		A41A9C4B2FE20258009BF005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -517,6 +586,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7E57000000000000000000E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E5E00000000000000000110 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -622,6 +698,8 @@
 				F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */,
 				FE70000000000000000000F1 /* SavedRoute.swift in Sources */,
 				FE70000000000000000000A1 /* GPXParser.swift in Sources */,
+				A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */,
+				A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */,
 				FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */,
 				FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */,
 				FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */,
@@ -652,6 +730,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E5E000000000000000000F0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E5E00000000000000000190 /* ShareViewController.swift in Sources */,
+				5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */,
+				5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -659,6 +747,11 @@
 			isa = PBXTargetDependency;
 			target = A41A9C4C2FE20258009BF005 /* TripperDashPP */;
 			targetProxy = 7E5700000000000000000102 /* PBXContainerItemProxy */;
+		};
+		5E5E00000000000000000140 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5E5E00000000000000000120 /* TripperDashShare */;
+			targetProxy = 5E5E00000000000000000150 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -669,6 +762,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A41A9C4C2FE20258009BF005;
 			remoteInfo = TripperDashPP;
+		};
+		5E5E00000000000000000150 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E5E00000000000000000120;
+			remoteInfo = TripperDashShare;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -916,6 +1016,67 @@
 			};
 			name = Release;
 		};
+		5E5E00000000000000000170 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TripperDashShare/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+			};
+			name = Debug;
+		};
+		5E5E00000000000000000180 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TripperDashShare/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -942,6 +1103,15 @@
 			buildConfigurations = (
 				7E57000000000000000000F1 /* Debug */,
 				7E57000000000000000000F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E5E00000000000000000170 /* Debug */,
+				5E5E00000000000000000180 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

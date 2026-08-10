@@ -125,5 +125,27 @@
 	<key>GitCommitSHA</key>
 	<string>dev</string>
 
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Custom URL scheme — "Share to TripperDash++" handoff          -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!--
+	  The share extension resolves a shared Google/Apple Maps payload and
+	  posts a `tripperdash://plan?wp=…` (or `tripperdash://search?q=…`) deep
+	  link, which the OS routes to the main app's onOpenURL. Registering the
+	  scheme here is what makes the app the target of that open.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>eu.kolaczek.TripperDashPP.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>tripperdash</string>
+			</array>
+		</dict>
+	</array>
+
 </dict>
 </plist>

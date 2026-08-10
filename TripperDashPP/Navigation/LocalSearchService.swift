@@ -82,6 +82,34 @@ final class LocalSearchService: NSObject {
         if !query.isEmpty { applyQuery() }
     }
 
+    /// Geocode a free-text place name (e.g. a shared "Share to
+    /// TripperDash++" label from Google/Apple Maps that carried no
+    /// coordinates) into a concrete `Destination`. Natural-language
+    /// MKLocalSearch; biased toward `near` when given so an ambiguous name
+    /// resolves to the nearby match (e.g. "Zvoleněves" near Prague rather
+    /// than "Zvolen" in Slovakia). Returns nil on no results / failure.
+    func geocode(_ text: String,
+                 near: CLLocationCoordinate2D? = nil) async -> Destination? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = trimmed
+        if let near {
+            request.region = MKCoordinateRegion(
+                center: near,
+                latitudinalMeters: 200_000,
+                longitudinalMeters: 200_000)
+        }
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            guard let item = response.mapItems.first else { return nil }
+            return Destination.from(mapItem: item)
+        } catch {
+            log.debug("geocode failed for \(trimmed, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     // MARK: - Resolve
 
     /// Turn an autocomplete row into a real MKMapItem (with coords).

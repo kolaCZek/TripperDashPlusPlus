@@ -13,7 +13,10 @@ import CoreLocation
 import Foundation
 import MapKit
 import Observation
+import os
 import UIKit
+
+private let shareLog = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ShareIntake")
 
 /// High-level connection lifecycle as seen by the UI. Mirrors the
 /// `BikeLink` state machine that lands in Phase 3.
@@ -554,6 +557,152 @@ final class AppStatus {
 
     /// Last planning/recompute error, surfaced in the planning UI.
     var planError: String? = nil
+
+    // MARK: - Shared-destination entry ("Share to TripperDash++")
+
+    /// A search hint handed over from a shared link we couldn't geocode —
+    /// the planning UI reads this to pre-fill its search field so the rider
+    /// can finish the lookup manually. Cleared once consumed.
+    var pendingSearchHint: String? = nil
+
+    /// Pre-fill the planner from a resolved shared payload (Google/Apple
+    /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
+    /// exactly like a saved-route import (origin = live location, shared
+    /// stops as waypoints). A name-only payload (Google frequently shares a
+    /// place name with NO coordinates) is first geocoded via MKLocalSearch
+    /// and, if that lands, routed to directly; only if geocoding fails do we
+    /// fall back to `pendingSearchHint` so the rider can finish by hand.
+    /// Returns whether anything actionable was staged.
+    @discardableResult
+    func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
+        switch resolution {
+        case .empty:
+            return false
+
+        case .searchHint(let hint):
+            // Try to turn the bare label into a real routed destination
+            // before falling back to the manual search field.
+            if let dest = await geocodeSharedName(hint) {
+                stagePlan(to: [Waypoint(name: dest.name,
+                                        addressLine: dest.addressLine,
+                                        coordinate: dest.coordinate,
+                                        isCurrentLocation: false)])
+                return true
+            }
+            pendingSearchHint = hint
+            return true
+
+        case .waypoints(let resolved):
+            // Build a stop for each shared waypoint. A stop with coordinates
+            // is used as-is; a name-only stop (Google's route share carries
+            // daddr=<place name> with no coords) is geocoded in place so the
+            // full route — not just the located legs — is planned. Bias each
+            // geocode to the previous located stop (or the live fix) so an
+            // ambiguous name resolves near the route.
+            var stops: [Waypoint] = []
+            var lastCoord = locationService.lastFix?.coordinate
+            for r in resolved {
+                if let c = r.coordinate {
+                    stops.append(Waypoint(name: r.name?.isEmpty == false ? r.name! : "Stop \(stops.count + 1)",
+                                          addressLine: nil,
+                                          coordinate: c,
+                                          isCurrentLocation: false))
+                    lastCoord = c
+                } else if let name = r.name, !name.isEmpty {
+                    if let dest = await LocalSearchService().geocode(name, near: lastCoord) {
+                        stops.append(Waypoint(name: dest.name,
+                                              addressLine: dest.addressLine,
+                                              coordinate: dest.coordinate,
+                                              isCurrentLocation: false))
+                        lastCoord = dest.coordinate
+                    }
+                    // Unresolvable named stop: skip it rather than abort the
+                    // whole route — a later stop may still be routable.
+                }
+            }
+            guard !stops.isEmpty else {
+                // Nothing routable at all — offer the first label for manual
+                // search so the share is never a dead end.
+                if let name = resolved.first(where: { $0.name?.isEmpty == false })?.name {
+                    pendingSearchHint = name
+                    return true
+                }
+                return false
+            }
+
+            // Google's saddr is the rider's own start; if the first stop is
+            // essentially the live fix, drop it so stagePlan's origin isn't
+            // duplicated. Otherwise keep every shared stop.
+            if stops.count >= 2, let fix = locationService.lastFix?.coordinate,
+               Self.isSameSpot(stops[0].coordinate, fix) {
+                stops.removeFirst()
+            }
+            stagePlan(to: stops)
+            return true
+        }
+    }
+
+    /// Two coordinates within ~150 m of each other (used to detect that a
+    /// shared route's start point is just the rider's current location).
+    private static func isSameSpot(_ a: CLLocationCoordinate2D,
+                                   _ b: CLLocationCoordinate2D) -> Bool {
+        let la = CLLocation(latitude: a.latitude, longitude: a.longitude)
+        let lb = CLLocation(latitude: b.latitude, longitude: b.longitude)
+        return la.distance(from: lb) < 150
+    }
+
+    /// Geocode a shared place label into a routable destination, biased to
+    /// the rider's current location so an ambiguous name resolves nearby.
+    private func geocodeSharedName(_ name: String) async -> Destination? {
+        let near = locationService.lastFix?.coordinate
+        return await LocalSearchService().geocode(name, near: near)
+    }
+
+    /// Stage a `PlannedRoute` from the live location through the given stops
+    /// and kick off leg routing. Shared by the coordinate and geocoded-name
+    /// paths so both behave identically.
+    private func stagePlan(to stops: [Waypoint]) {
+        let originCoord = locationService.lastFix?.coordinate
+            ?? stops[0].coordinate
+        let origin = Waypoint.currentLocation(originCoord)
+        let plan = PlannedRoute(waypoints: [origin] + stops)
+        plannedRoute = plan
+        pendingSearchHint = nil
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
+    /// Handle a `tripperdash://` deep link (posted by the share extension
+    /// after it resolves a payload, or a direct `geo:` / maps URL the OS
+    /// routes to us). Resolves and stages a plan. Async because a Google
+    /// short-link may need a redirect follow.
+    func handleIncomingURL(_ url: URL) {
+        // Our own scheme carries the already-resolved payload in the query
+        // (coords/labels the extension extracted). Everything else is a
+        // raw shared URL we resolve here.
+        Task {
+            let resolution: ShareResolution
+            if url.scheme?.lowercased() == "tripperdash" {
+                if (url.host ?? "").lowercased() == "open",
+                   let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let rawStr = comps.queryItems?.first(where: { $0.name == "url" })?.value,
+                   let raw = URL(string: rawStr) {
+                    // Extension couldn't resolve the short-link under its
+                    // network sandbox and passed the raw maps URL through —
+                    // resolve it here (normal network, full redirect follow).
+                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .public)")
+                    resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
+                } else {
+                    resolution = SharedDeepLink.decode(url)
+                }
+            } else {
+                resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
+            }
+            shareLog.info("resolution=\(String(describing: resolution), privacy: .public)")
+            let staged = await beginPlanningFromShared(resolution)
+            shareLog.info("beginPlanningFromShared staged=\(staged, privacy: .public)")
+        }
+    }
+
 
     /// Exit planning mode and drop the staged plan.
     func cancelPlanning() {

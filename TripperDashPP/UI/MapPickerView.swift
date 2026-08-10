@@ -52,6 +52,9 @@ struct MapPickerView: View {
 
     // Sheet flags
     @State private var showSearch = false
+    /// Seed text passed into DestinationSearchSheet when opened via a
+    /// "Share to TripperDash++" fallback (un-geocodable shared link).
+    @State private var sharedSearchSeed: String? = nil
     @State private var showFavoriteEditor = false
     @State private var favoriteEditorSeed: Destination?
     /// The destination currently selected on the home map: drives both
@@ -173,9 +176,9 @@ struct MapPickerView: View {
             PrerenderProgressView(progress: prerenderProgress)
         }
         .sheet(isPresented: $showSearch) {
-            DestinationSearchSheet { dest in
+            DestinationSearchSheet(onPick: { dest in
                 handlePickedDestination(dest)
-            }
+            }, initialQuery: sharedSearchSeed)
             .environment(status)
             .environment(status.navigationStore)
         }
@@ -247,6 +250,16 @@ struct MapPickerView: View {
             if request {
                 showSavedRoutes = false
                 status.requestDismissSavedRoutes = false
+            }
+        }
+        .onChange(of: status.pendingSearchHint) { _, hint in
+            // "Share to TripperDash++" couldn't geocode the shared link but
+            // recovered a place/road label → open Search pre-filled with it
+            // so the rider finishes the lookup manually. One-shot: consume.
+            if let hint, !hint.isEmpty {
+                sharedSearchSeed = hint
+                showSearch = true
+                status.pendingSearchHint = nil
             }
         }
     }
