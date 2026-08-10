@@ -151,6 +151,15 @@ final class MapViewSource: NSObject, FrameSource {
     /// marks the origin and the destination reads from the line's end.
     private var waypointDots: [CLLocationCoordinate2D] = []
 
+    /// Thinned GPS breadcrumb of where the rider has ACTUALLY ridden, pushed
+    /// in by the nav pump from `ActiveNavigator.traveledCoordinates`. Drawn
+    /// as a grey line UNDER the blue route so the covered stretch reads as
+    /// "done" while the road ahead stays blue. Empty on a fresh ride / when
+    /// not navigating. On an out-and-back over the same road the blue route
+    /// still occupies that segment, so painting grey first and blue second
+    /// lets the blue win the overlap (rider feedback, 8/2026).
+    private var traveledCoords: [CLLocationCoordinate2D] = []
+
     /// Alternative routes for the CURRENT leg, drawn thin/grey with an
     /// ETA-delta bubble ("+5 min" / "similar"). The rider physically
     /// turning onto one of these makes ActiveNavigator swap to it (see
@@ -1309,6 +1318,34 @@ extension MapViewSource {
             }
         }
 
+        // Travelled breadcrumb (grey "already ridden" line). Drawn AFTER the
+        // alternatives but BEFORE the active blue route so that, on an
+        // out-and-back over the same road, the blue route (still present on
+        // that segment) paints over the grey — the road ahead never reads as
+        // "done". Same Y-DOWN projection as the route below.
+        if traveledCoords.count > 1 {
+            let projTr: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let px =  (c.longitude - centerLon) * pxPerDegLon
+                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+            }
+            let tp = CGMutablePath()
+            var firstT = true
+            for c in traveledCoords {
+                let pt = projTr(c)
+                if firstT { tp.move(to: pt); firstT = false }
+                else { tp.addLine(to: pt) }
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(currentStyle.traveledLineColor)
+            // Same on-screen width as the blue fill so the covered stretch
+            // reads as the route in a "done" colour, not a thinner trace.
+            ctx.setLineWidth(routeLineScreenPx / drawZoom)
+            ctx.addPath(tp)
+            ctx.strokePath()
+        }
+
         // Draw the route polyline in the same Y-DOWN coordinate space.
         // Off-corridor this still draws the (now-distant) route line so
         // the rider can see which way to get back to it. Uses the FULL
@@ -1832,6 +1869,13 @@ extension MapViewSource {
                       waypoints: [CLLocationCoordinate2D]) {
         fullRouteCoords = full
         waypointDots = waypoints
+    }
+
+    /// Push the rider's travelled breadcrumb (grey "already ridden" line).
+    /// Pass an empty array to clear (fresh ride / not navigating). Pushed
+    /// each nav tick from `ActiveNavigator.traveledCoordinates`.
+    func setTraveled(_ coords: [CLLocationCoordinate2D]) {
+        traveledCoords = coords
     }
 
     /// The coordinates the route-line draw should stroke: the full trip if

@@ -222,6 +222,18 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
     /// it (`routeCasingColor`) so it reads as a distinct marker.
     var waypointDotColor: CGColor { routeLineColor }
 
+    /// Colour of the TRAVELLED breadcrumb — the stretch the rider has
+    /// already ridden — drawn UNDER the blue active route so covered road
+    /// reads as "done". A desaturated grey, distinct from the (bluer)
+    /// alternative-line grey and clearly recessive vs the blue ahead.
+    /// Slightly lighter on Dark for legibility over the recolour.
+    var traveledLineColor: CGColor {
+        switch self {
+        case .light: return CGColor(red: 0.55, green: 0.55, blue: 0.57, alpha: 0.85)
+        case .dark:  return CGColor(red: 0.50, green: 0.52, blue: 0.55, alpha: 0.85)
+        }
+    }
+
     /// Colour of an ALTERNATIVE (not-currently-navigated) route line,
     /// drawn thin + grey so it's visibly secondary to the blue active
     /// route. Slightly lighter on Dark for legibility over the recolour.

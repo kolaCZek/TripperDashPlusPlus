@@ -974,7 +974,9 @@ struct MapPickerView: View {
     /// and push them into MapViewSource. The active route's travel time
     /// comes from the navigator's current leg selection.
     private func pushAlternativeRenders(_ alts: [MKRoute]) {
-        let activeTime = status.activeNavigator.activeRoute?.expectedTravelTime ?? 0
+        let activeRoute = status.activeNavigator.activeRoute
+        let activeTime = activeRoute?.expectedTravelTime ?? 0
+        let activeCoords = activeRoute?.polyline.coordinateList() ?? []
         let renders: [AlternativeRouteRender] = alts.compactMap { route in
             let coords = route.polyline.coordinateList()
             // Only surface an alternative that has a DRAWABLE line. The
@@ -986,6 +988,19 @@ struct MapPickerView: View {
             // bubble floating with no grey line under it (field report,
             // roundabout, 8/2026). Drop such alts entirely: no line, no bubble.
             guard coords.count > 1 else { return nil }
+            // Also drop a NEAR-DUPLICATE alt: MapKit near a roundabout often
+            // returns an "alternative" that is geometrically almost identical
+            // to the active route (it just retimes the same road). Its grey
+            // line renders directly under the blue one and is invisible, but
+            // the ETA bubble still floats — a phantom "+3 min" with no
+            // distinct route shown (field report, roundabout 50.3559,14.4549,
+            // 8/2026). Require the alt to diverge from the active line by at
+            // least `altMinDivergenceMeters` at its farthest point; otherwise
+            // it isn't a real fork worth labelling.
+            if !activeCoords.isEmpty,
+               Self.maxDivergence(of: coords, from: activeCoords) < Self.altMinDivergenceMeters {
+                return nil
+            }
             // Anchor the ETA bubble at the alt's geometric midpoint — a
             // reasonable, always-on-the-line spot that rarely collides
             // with the active route's own labels.
@@ -998,6 +1013,36 @@ struct MapPickerView: View {
             )
         }
         status.mapViewSource.setAlternativeRoutes(renders)
+    }
+
+    /// Minimum distance (metres) an alternative must diverge from the active
+    /// route at its farthest point to count as a distinct fork. Below this
+    /// the two lines overlap on screen, so a grey line + ETA bubble would be
+    /// a phantom label with no visibly separate route. One lane-plus of GPS
+    /// clearance keeps genuine short forks while dropping retimed duplicates.
+    static let altMinDivergenceMeters: CLLocationDistance = 25
+
+    /// Largest distance from any vertex of `coords` to the polyline
+    /// `reference`. A cheap "how far apart are these two lines at their most
+    /// separated" measure — enough to tell a real fork from a near-duplicate.
+    static func maxDivergence(of coords: [CLLocationCoordinate2D],
+                              from reference: [CLLocationCoordinate2D]) -> CLLocationDistance {
+        guard reference.count > 1 else { return .greatestFiniteMagnitude }
+        var worst: CLLocationDistance = 0
+        // Sample up to ~40 vertices so a dense polyline stays cheap.
+        let stride = max(1, coords.count / 40)
+        var i = 0
+        while i < coords.count {
+            let p = CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
+            var nearest = CLLocationDistance.greatestFiniteMagnitude
+            for r in reference {
+                let d = p.distance(from: CLLocation(latitude: r.latitude, longitude: r.longitude))
+                if d < nearest { nearest = d }
+            }
+            if nearest > worst { worst = nearest }
+            i += stride
+        }
+        return worst
     }
 
     /// Start navigation from a multi-stop plan. Bakes the first leg's

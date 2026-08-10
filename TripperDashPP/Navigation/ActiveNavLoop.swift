@@ -39,6 +39,11 @@ final class ActiveNavLoop {
     private weak var mapSource: MapViewSource?
     private let settings: DashNavSettings
 
+    /// Tracks the previous tick's "next waypoint" label presence so the
+    /// diagnostic only logs on a nil↔non-nil transition (feat/nav-polish
+    /// investigation into the label vanishing mid-leg). `nil` = no tick yet.
+    private var lastRoadNameWasNil: Bool?
+
     /// Optional spoken-guidance sink. Nil when the app was built/wired
     /// without voice; otherwise AppStatus injects the shared instance.
     /// Prompts only actually speak when `settings.voiceEnabled` is on —
@@ -290,12 +295,32 @@ final class ActiveNavLoop {
             // their via-points are pass-through shape, not stops, so the dash
             // reads as a single start→finish leg (matches the phone HUD).
             guard nav.plan?.isTrack != true,
-                  nav.remainingWaypoints > 1,
                   let nextName = nav.destination?.name,
                   etaSec > 0
             else { return nil }
+            // Show the label whenever there IS a named target ahead:
+            //   • remainingWaypoints > 1 → an intermediate stop ("… to Kokořín")
+            //   • remainingWaypoints == 1 → the FINAL destination on the last
+            //     leg. Previously suppressed (the dash's own ETA field already
+            //     shows time-to-arrival), but the rider wanted the "N min to
+            //     <place>" text to persist all the way to the goal, not vanish
+            //     after the last via-point (field request, 8/2026). On a
+            //     single-destination ride (remainingWaypoints == 0) the label
+            //     stays suppressed — no via-points, the ETA field is enough.
+            guard nav.remainingWaypoints >= 1 else { return nil }
             return Self.nextWaypointLabel(name: nextName, etaSeconds: etaSec)
         }()
+
+        // DIAGNOSTIC (feat/nav-polish): the "next waypoint" label vanished
+        // mid-leg with ~30 min still to the stop (field report, Praha→Kokořín
+        // →Sítná→Zvoleněves, 8/2026) — NOT at a leg boundary. Log every
+        // transition of the label's presence with all four gating inputs so
+        // the next ride pinpoints which one dropped (isTrack flip? waypoint
+        // count? nil destination name? etaSec→0?). Cheap: fires only on change.
+        if (roadName == nil) != (lastRoadNameWasNil ?? false) || lastRoadNameWasNil == nil {
+            log.info("nextWaypointLabel \(roadName == nil ? "CLEARED" : "set", privacy: .public) — isTrack=\(nav.plan?.isTrack == true, privacy: .public) remainingWaypoints=\(nav.remainingWaypoints, privacy: .public) destName=\(nav.destination?.name ?? "nil", privacy: .public) etaSec=\(Int(etaSec), privacy: .public)")
+            lastRoadNameWasNil = (roadName == nil)
+        }
 
         // 1. Push to wire.
         await bikeLink.sendActiveNav(
@@ -323,6 +348,12 @@ final class ActiveNavLoop {
             unitsImperial: settings.units == .imperial
         )
         mapSource?.setNavOverlay(overlay)
+
+        // 2a-pre. Travelled breadcrumb → grey "already ridden" line under the
+        //     blue route. Pushed every tick (cheap array handoff); the
+        //     renderer paints it before the active route so the road ahead
+        //     stays blue even on an out-and-back over the same segment.
+        mapSource?.setTraveled(nav.traveledCoordinates)
 
         // 2a. Ride progress bar (feat/route-progress-bar). Push the trip
         //     fraction only when the rider has opted in; when off, clear it
