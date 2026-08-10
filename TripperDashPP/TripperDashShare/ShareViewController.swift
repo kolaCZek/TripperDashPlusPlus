@@ -36,7 +36,21 @@ final class ShareViewController: UIViewController {
 
         let resolution = await SharedDestinationResolver.resolve(text: text, url: url)
 
-        guard let deepLink = SharedDeepLink.encode(resolution) else {
+        // Prefer the fully-resolved deep link. But if the extension couldn't
+        // resolve anything (e.g. a short-link redirect that fails under the
+        // extension's tighter network sandbox — Apple's maps.apple/p/… is a
+        // repeat offender), DON'T give up: hand the raw shared URL to the app
+        // via tripperdash://open?url=… . The app runs with a normal network
+        // stack and more time, and its handleIncomingURL re-resolves the raw
+        // maps URL there. Never a silent dead end.
+        let deepLink: URL
+        if let encoded = SharedDeepLink.encode(resolution) {
+            deepLink = encoded
+        } else if let raw = url ?? SharedDestinationResolver.firstURL(in: text),
+                  let passthrough = Self.rawURLDeepLink(raw) {
+            log.info("extension could not resolve; passing raw URL to app: \(raw.absoluteString, privacy: .public)")
+            deepLink = passthrough
+        } else {
             log.warning("share resolved to nothing actionable")
             finish()
             return
@@ -46,6 +60,16 @@ final class ShareViewController: UIViewController {
         openMainApp(deepLink)
         try? await Task.sleep(nanoseconds: 400_000_000)
         finish()
+    }
+
+    /// Wrap a raw shared maps URL in `tripperdash://open?url=<encoded>` so
+    /// the main app can resolve it itself when the extension couldn't.
+    private static func rawURLDeepLink(_ raw: URL) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = SharedDeepLink.scheme
+        comps.host = "open"
+        comps.queryItems = [URLQueryItem(name: "url", value: raw.absoluteString)]
+        return comps.url
     }
 
     /// Pull the first URL and/or text string out of every attachment across

@@ -679,7 +679,17 @@ final class AppStatus {
         Task {
             let resolution: ShareResolution
             if url.scheme?.lowercased() == "tripperdash" {
-                resolution = SharedDeepLink.decode(url)
+                if (url.host ?? "").lowercased() == "open",
+                   let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let rawStr = comps.queryItems?.first(where: { $0.name == "url" })?.value,
+                   let raw = URL(string: rawStr) {
+                    // Extension couldn't resolve the short-link under its
+                    // network sandbox and passed the raw maps URL through —
+                    // resolve it here (normal network, full redirect follow).
+                    resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
+                } else {
+                    resolution = SharedDeepLink.decode(url)
+                }
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
