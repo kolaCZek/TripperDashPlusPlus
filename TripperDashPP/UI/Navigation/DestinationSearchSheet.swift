@@ -17,9 +17,15 @@ struct DestinationSearchSheet: View {
     /// Caller hook. Sheet auto-dismisses after invoking this.
     let onPick: (Destination) -> Void
 
+    /// Optional text to seed the search field with on first appear — used
+    /// by "Share to TripperDash++" when a shared link couldn't be geocoded
+    /// but yielded a place/road label to look up manually.
+    var initialQuery: String? = nil
+
     @State private var search = LocalSearchService()
     @State private var resolving: Bool = false
     @State private var resolveError: String?
+    @State private var didSeed = false
 
     var body: some View {
         NavigationStack {
@@ -126,6 +132,14 @@ struct DestinationSearchSheet: View {
             .task {
                 // Seed the search bias from current GPS, if available.
                 search.biasCenter = status.locationService.lastFix?.coordinate
+                // "Share to TripperDash++" fallback: pre-fill the query with
+                // the label recovered from an un-geocodable shared link so
+                // the rider just picks from the results. Once only.
+                if !didSeed, let seed = initialQuery,
+                   !seed.trimmingCharacters(in: .whitespaces).isEmpty {
+                    search.query = seed
+                    didSeed = true
+                }
             }
         }
     }

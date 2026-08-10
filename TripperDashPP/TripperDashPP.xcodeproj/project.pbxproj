@@ -78,6 +78,8 @@
 		F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */; };
 		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
 		FE70000000000000000000A1 /* GPXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000A0 /* GPXParser.swift */; };
+		A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
+		A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
 		FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B0 /* SavedRoutesStore.swift */; };
 		FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000C0 /* RouteStartPlanner.swift */; };
 		FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000D0 /* SavedRoutesListView.swift */; };
@@ -178,6 +180,8 @@
 		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
 		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
 		FE70000000000000000000A0 /* GPXParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXParser.swift; sourceTree = "<group>"; };
+		A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDeepLink.swift"; sourceTree = "<group>"; };
+		A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestinationResolver.swift"; sourceTree = "<group>"; };
 		FE70000000000000000000B0 /* SavedRoutesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesStore.swift; sourceTree = "<group>"; };
 		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
 		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
@@ -356,6 +360,8 @@
 				A4F000000000000000000E00 /* ActiveNavLoop.swift */,
 				A4F000000000000000000E70 /* ManeuverLog.swift */,
 				FE70000000000000000000A0 /* GPXParser.swift */,
+				A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */,
+				A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */,
 				FE70000000000000000000B0 /* SavedRoutesStore.swift */,
 				FE70000000000000000000C0 /* RouteStartPlanner.swift */,
 				A4F0FFFF000000000000E002 /* VoicePhrase.swift */,
@@ -622,6 +628,8 @@
 				F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */,
 				FE70000000000000000000F1 /* SavedRoute.swift in Sources */,
 				FE70000000000000000000A1 /* GPXParser.swift in Sources */,
+				A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */,
+				A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */,
 				FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */,
 				FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */,
 				FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */,

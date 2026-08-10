@@ -555,6 +555,83 @@ final class AppStatus {
     /// Last planning/recompute error, surfaced in the planning UI.
     var planError: String? = nil
 
+    // MARK: - Shared-destination entry ("Share to TripperDash++")
+
+    /// A search hint handed over from a shared link we couldn't geocode —
+    /// the planning UI reads this to pre-fill its search field so the rider
+    /// can finish the lookup manually. Cleared once consumed.
+    var pendingSearchHint: String? = nil
+
+    /// Pre-fill the planner from a resolved shared payload (Google/Apple
+    /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
+    /// exactly like a saved-route import (origin = live location, shared
+    /// stops as waypoints); a bare search hint → `pendingSearchHint` for
+    /// the search field. Returns whether anything actionable was staged.
+    @discardableResult
+    func beginPlanningFromShared(_ resolution: ShareResolution) -> Bool {
+        switch resolution {
+        case .empty:
+            return false
+
+        case .searchHint(let hint):
+            pendingSearchHint = hint
+            return true
+
+        case .waypoints(let resolved):
+            // Keep only stops we could geocode; a name-only stop with no
+            // coordinate can't route, so if NONE have coords fall back to a
+            // search hint from the first named stop.
+            let located = resolved.filter { $0.coordinate != nil }
+            guard !located.isEmpty else {
+                if let name = resolved.first(where: { $0.name?.isEmpty == false })?.name {
+                    pendingSearchHint = name
+                    return true
+                }
+                return false
+            }
+
+            let originCoord = locationService.lastFix?.coordinate
+                ?? located[0].coordinate!
+            let origin = Waypoint.currentLocation(originCoord)
+
+            let stops: [Waypoint] = located.enumerated().map { idx, r in
+                let fallback = located.count == 1
+                    ? "Shared destination"
+                    : (idx == located.count - 1 ? "Route end" : "Stop \(idx + 1)")
+                return Waypoint(name: r.name?.isEmpty == false ? r.name! : fallback,
+                                addressLine: nil,
+                                coordinate: r.coordinate!,
+                                isCurrentLocation: false)
+            }
+
+            let plan = PlannedRoute(waypoints: [origin] + stops)
+            plannedRoute = plan
+            pendingSearchHint = nil
+            Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+            return true
+        }
+    }
+
+    /// Handle a `tripperdash://` deep link (posted by the share extension
+    /// after it resolves a payload, or a direct `geo:` / maps URL the OS
+    /// routes to us). Resolves and stages a plan. Async because a Google
+    /// short-link may need a redirect follow.
+    func handleIncomingURL(_ url: URL) {
+        // Our own scheme carries the already-resolved payload in the query
+        // (coords/labels the extension extracted). Everything else is a
+        // raw shared URL we resolve here.
+        Task {
+            let resolution: ShareResolution
+            if url.scheme?.lowercased() == "tripperdash" {
+                resolution = SharedDeepLink.decode(url)
+            } else {
+                resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
+            }
+            _ = beginPlanningFromShared(resolution)
+        }
+    }
+
+
     /// Exit planning mode and drop the staged plan.
     func cancelPlanning() {
         plannedRoute = nil

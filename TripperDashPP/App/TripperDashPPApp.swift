@@ -19,6 +19,13 @@ struct TripperDashPPApp: App {
         WindowGroup {
             RootView()
                 .environment(status)
+                .onOpenURL { url in
+                    // "Share to TripperDash++": the share extension posts a
+                    // tripperdash:// deep link; the OS may also hand us raw
+                    // geo:/maps URLs. Both funnel through AppStatus, which
+                    // resolves and stages a plan (pre-filling the planner).
+                    status.handleIncomingURL(url)
+                }
                 .task {
                     // Once-per-launch eviction sweep — removes stale
                     // map tiles and brings the cache under its size

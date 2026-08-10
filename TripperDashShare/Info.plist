@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+	<!--
+	  Share Extension Info.plist for the "Share to TripperDash++" target.
+
+	  NSExtensionActivationRule decides when the extension appears in the
+	  share sheet. We want it for shares that carry EITHER a URL (Google
+	  Maps share link, Apple Maps link) OR a piece of text (some shares
+	  hand over "Place name\nhttps://…"). One URL or one text string is
+	  enough — never require both, or Google Maps' URL-only share won't
+	  offer us.
+	-->
+
+	<key>CFBundleDisplayName</key>
+	<string>TripperDash++</string>
+
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!--
+			  Predicate form of the activation rule. Offer the extension
+			  whenever the share contains at least one web URL OR at least
+			  one text item. Keeps us out of photo/file-only shares.
+			-->
+			<key>NSExtensionActivationRule</key>
+			<string>SUBQUERY (
+				extensionItems,
+				$item,
+				SUBQUERY (
+					$item.attachments,
+					$att,
+					ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.url"
+					|| ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text"
+				).@count &gt; 0
+			).@count &gt; 0</string>
+		</dict>
+	</dict>
+
+</dict>
+</plist>
