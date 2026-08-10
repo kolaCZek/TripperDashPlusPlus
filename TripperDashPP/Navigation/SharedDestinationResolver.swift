@@ -212,13 +212,20 @@ enum SharedDestinationResolver {
             }
             var route: [ResolvedWaypoint] = []
             for key in ["saddr", "daddr"] {
-                if let v = qval(key), !v.isEmpty {
-                    if let c = parseLatLonPair(v) {
+                guard let raw = qval(key), !raw.isEmpty else { continue }
+                // Google packs multiple destinations into one daddr joined by
+                // "to:" (e.g. "Zvoleněves to:Prague"). Split into segments.
+                let decoded = (raw.removingPercentEncoding ?? raw)
+                    .replacingOccurrences(of: "+", with: " ")
+                let segments = decoded
+                    .components(separatedBy: "to:")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                for seg in segments {
+                    if let c = parseLatLonPair(seg) {
                         route.append(ResolvedWaypoint(coordinate: c))
                     } else {
-                        let clean = (v.removingPercentEncoding ?? v)
-                            .replacingOccurrences(of: "+", with: " ")
-                        route.append(ResolvedWaypoint(name: clean))
+                        route.append(ResolvedWaypoint(name: seg))
                     }
                 }
             }

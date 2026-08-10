@@ -156,12 +156,19 @@ def parse_google(url):
     route = []
     for key in ("saddr", "daddr"):
         v = qv(key)
-        if v:
-            c = parse_latlon_pair(v)
+        if not v:
+            continue
+        # Google joins multiple destinations in one daddr with "to:".
+        decoded = unquote(v).replace("+", " ")
+        for seg in decoded.split("to:"):
+            seg = seg.strip()
+            if not seg:
+                continue
+            c = parse_latlon_pair(seg)
             if c:
                 route.append({"coord": c, "name": None})
             else:
-                route.append({"coord": None, "name": unquote(v).replace("+", " ")})
+                route.append({"coord": None, "name": seg})
     if route:
         return route
 
@@ -300,6 +307,17 @@ class GoogleMapsTests(unittest.TestCase):
         self.assertIsNone(wps[0]["name"])
         self.assertIsNone(wps[1]["coord"])
         self.assertEqual(wps[1]["name"], "Zvoleněves")
+
+    def test_saddr_daddr_multi_stop_to(self):
+        # Google multi-stop share packs extra destinations into daddr via
+        # "to:" — my location -> Zvoleněves -> Prague.
+        kind, wps = parse(
+            url="https://www.google.com/maps?saddr=50.2326535,14.1760055&daddr=Zvolen%C4%9Bves+to:Prague&dirflg=dh")
+        self.assertEqual(kind, "waypoints")
+        self.assertEqual(len(wps), 3)
+        self.assertAlmostEqual(wps[0]["coord"][0], 50.2326535, places=4)
+        self.assertEqual(wps[1]["name"], "Zvoleněves")
+        self.assertEqual(wps[2]["name"], "Prague")
 
 
 class TextFallbackTests(unittest.TestCase):
