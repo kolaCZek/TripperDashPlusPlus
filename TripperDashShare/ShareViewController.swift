@@ -92,22 +92,45 @@ final class ShareViewController: UIViewController {
         }
     }
 
-    /// Open the main app via its custom scheme. Extensions can't call
-    /// UIApplication.shared.open, so walk the responder chain to find an
-    /// `open(_:options:completionHandler:)` and invoke it.
+    /// Open the main app via its custom scheme. Share extensions can't
+    /// touch UIApplication.shared, and the old `openURL:` responder-chain
+    /// trick is HARD-BLOCKED on iOS 18 ("BUG IN CLIENT OF UIKIT … Force
+    /// returning false"). Two routes that still work, tried in order:
+    ///   1. NSExtensionContext.open — the sanctioned API; returns success.
+    ///   2. Responder-chain `openURL:options:completionHandler:` (the
+    ///      non-deprecated 3-arg selector) invoked via its IMP.
+    /// Returns whether the app was opened.
     @MainActor
-    private func openMainApp(_ url: URL) async {
+    @discardableResult
+    private func openMainApp(_ url: URL) async -> Bool {
+        // Route 1 — NSExtensionContext.open.
+        if let ctx = extensionContext {
+            let ok = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+                ctx.open(url) { success in cont.resume(returning: success) }
+            }
+            if ok {
+                log.info("opened via extensionContext: \(url.absoluteString, privacy: .public)")
+                return true
+            }
+        }
+
+        // Route 2 — responder chain, non-deprecated selector via IMP.
+        let selector = sel_registerName("openURL:options:completionHandler:")
         var responder: UIResponder? = self
-        let selector = sel_registerName("openURL:")
         while let r = responder {
-            if r.responds(to: selector) {
-                _ = r.perform(selector, with: url)
-                log.info("opened main app: \(url.absoluteString, privacy: .public)")
-                return
+            if r.responds(to: selector), let method = r.method(for: selector) {
+                typealias OpenFn = @convention(c)
+                    (AnyObject, Selector, NSURL, NSDictionary, (@convention(block) (Bool) -> Void)?) -> Void
+                let fn = unsafeBitCast(method, to: OpenFn.self)
+                fn(r, selector, url as NSURL, NSDictionary(), nil)
+                log.info("opened via responder chain: \(url.absoluteString, privacy: .public)")
+                return true
             }
             responder = r.next
         }
-        log.error("could not find a responder to open \(url.absoluteString, privacy: .public)")
+
+        log.error("could not open \(url.absoluteString, privacy: .public)")
+        return false
     }
 
     private func finish() {
