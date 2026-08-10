@@ -363,27 +363,63 @@ enum SharedDestinationResolver {
 
     // MARK: - Redirect follow (real network)
 
-    /// Follow a short-link's redirect to its expanded URL. Bounded, HEAD
-    /// first (falls back to GET), returns nil on any failure so the caller
-    /// degrades to the text fallback.
+    /// Follow a short-link's redirect to its expanded URL. Bounded. Tries,
+    /// in order: (1) a redirect-capturing delegate that grabs the `Location`
+    /// of the FIRST 3xx (works even when URLSession's auto-follow chokes on a
+    /// cross-host hop like maps.apple → maps.apple.com), then (2) plain
+    /// auto-follow via `response.url`. Sends an iOS User-Agent because some
+    /// map endpoints only emit the 301 for a mobile UA. Returns nil on any
+    /// failure so the caller degrades to the text fallback.
     static func followRedirect(_ url: URL) async -> URL? {
-        var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 8
+        let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+            + "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+
+        func request(_ method: String) -> URLRequest {
+            var r = URLRequest(url: url)
+            r.httpMethod = method
+            r.timeoutInterval = 10
+            r.setValue(ua, forHTTPHeaderField: "User-Agent")
+            return r
+        }
+
         let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: config)
-        do {
-            let (_, response) = try await session.data(for: request)
-            if let final = response.url, final != url { return final }
-        } catch {
-            // HEAD can be rejected; try a GET.
-            request.httpMethod = "GET"
-            if let (_, response) = try? await session.data(for: request),
-               let final = response.url, final != url {
+        config.waitsForConnectivity = true
+
+        // (1) Capture the Location of the first redirect explicitly.
+        let capture = RedirectCapturer()
+        let capSession = URLSession(configuration: config, delegate: capture, delegateQueue: nil)
+        for method in ["HEAD", "GET"] {
+            if let _ = try? await capSession.data(for: request(method)) {
+                if let loc = capture.location, loc != url { return loc }
+            } else if let loc = capture.location, loc != url {
+                return loc
+            }
+        }
+
+        // (2) Fall back to whatever URLSession auto-followed to.
+        let plain = URLSession(configuration: config)
+        for method in ["HEAD", "GET"] {
+            if let (_, resp) = try? await plain.data(for: request(method)),
+               let final = resp.url, final != url {
                 return final
             }
         }
         return nil
+    }
+}
+
+/// Captures the `Location` target of the first HTTP redirect it sees and
+/// lets the redirect proceed. Used by `followRedirect` so a short-link's
+/// expanded URL is recovered even when a plain `response.url` read misses it.
+private final class RedirectCapturer: NSObject, URLSessionTaskDelegate {
+    private(set) var location: URL?
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        if location == nil { location = request.url }
+        completionHandler(request)   // keep following
     }
 }
