@@ -590,37 +590,62 @@ final class AppStatus {
             return true
 
         case .waypoints(let resolved):
-            // Keep only stops we could geocode from the link itself.
-            let located = resolved.filter { $0.coordinate != nil }
-            guard !located.isEmpty else {
-                // No coords in the link — try geocoding the first named stop
-                // (e.g. Google shared a place name only), else search hint.
-                if let name = resolved.first(where: { $0.name?.isEmpty == false })?.name {
-                    if let dest = await geocodeSharedName(name) {
-                        stagePlan(to: [Waypoint(name: dest.name,
-                                                addressLine: dest.addressLine,
-                                                coordinate: dest.coordinate,
-                                                isCurrentLocation: false)])
-                        return true
+            // Build a stop for each shared waypoint. A stop with coordinates
+            // is used as-is; a name-only stop (Google's route share carries
+            // daddr=<place name> with no coords) is geocoded in place so the
+            // full route — not just the located legs — is planned. Bias each
+            // geocode to the previous located stop (or the live fix) so an
+            // ambiguous name resolves near the route.
+            var stops: [Waypoint] = []
+            var lastCoord = locationService.lastFix?.coordinate
+            for r in resolved {
+                if let c = r.coordinate {
+                    stops.append(Waypoint(name: r.name?.isEmpty == false ? r.name! : "Stop \(stops.count + 1)",
+                                          addressLine: nil,
+                                          coordinate: c,
+                                          isCurrentLocation: false))
+                    lastCoord = c
+                } else if let name = r.name, !name.isEmpty {
+                    if let dest = await LocalSearchService().geocode(name, near: lastCoord) {
+                        stops.append(Waypoint(name: dest.name,
+                                              addressLine: dest.addressLine,
+                                              coordinate: dest.coordinate,
+                                              isCurrentLocation: false))
+                        lastCoord = dest.coordinate
                     }
+                    // Unresolvable named stop: skip it rather than abort the
+                    // whole route — a later stop may still be routable.
+                }
+            }
+            guard !stops.isEmpty else {
+                // Nothing routable at all — offer the first label for manual
+                // search so the share is never a dead end.
+                if let name = resolved.first(where: { $0.name?.isEmpty == false })?.name {
                     pendingSearchHint = name
                     return true
                 }
                 return false
             }
 
-            let stops: [Waypoint] = located.enumerated().map { idx, r in
-                let fallback = located.count == 1
-                    ? "Shared destination"
-                    : (idx == located.count - 1 ? "Route end" : "Stop \(idx + 1)")
-                return Waypoint(name: r.name?.isEmpty == false ? r.name! : fallback,
-                                addressLine: nil,
-                                coordinate: r.coordinate!,
-                                isCurrentLocation: false)
+            // Google's saddr is the rider's own start; if the first stop is
+            // essentially the live fix, drop it so stagePlan's origin isn't
+            // duplicated. Otherwise keep every shared stop.
+            if stops.count >= 2, let fix = locationService.lastFix?.coordinate,
+               Self.isSameSpot(stops[0].coordinate, fix) {
+                stops.removeFirst()
             }
             stagePlan(to: stops)
             return true
         }
+    }
+
+    /// Two coordinates within ~150 m of each other (used to detect that a
+    /// shared route's start point is just the rider's current location).
+    private static func isSameSpot(_ a: CLLocationCoordinate2D,
+                                   _ b: CLLocationCoordinate2D) -> Bool {
+        let la = CLLocation(latitude: a.latitude, longitude: a.longitude)
+        let lb = CLLocation(latitude: b.latitude, longitude: b.longitude)
+        return la.distance(from: lb) < 150
     }
 
     /// Geocode a shared place label into a routable destination, biased to

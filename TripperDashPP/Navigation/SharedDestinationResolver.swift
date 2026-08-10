@@ -203,6 +203,28 @@ enum SharedDestinationResolver {
             if !out.isEmpty { return out }
         }
 
+        // --- saddr/daddr query route (Google's "directions" share) ---
+        // e.g. ?saddr=50.23,14.17&daddr=Zvoleněves — start + destination,
+        // each either "lat,lon" or a place name (name geocoded downstream).
+        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            func qval(_ k: String) -> String? {
+                comps.queryItems?.first { $0.name.lowercased() == k }?.value
+            }
+            var route: [ResolvedWaypoint] = []
+            for key in ["saddr", "daddr"] {
+                if let v = qval(key), !v.isEmpty {
+                    if let c = parseLatLonPair(v) {
+                        route.append(ResolvedWaypoint(coordinate: c))
+                    } else {
+                        let clean = (v.removingPercentEncoding ?? v)
+                            .replacingOccurrences(of: "+", with: " ")
+                        route.append(ResolvedWaypoint(name: clean))
+                    }
+                }
+            }
+            if !route.isEmpty { return route }
+        }
+
         // --- /place/ single ---
         var placeName: String?
         if let r = path.range(of: "/place/") {

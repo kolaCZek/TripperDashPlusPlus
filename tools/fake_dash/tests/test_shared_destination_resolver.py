@@ -144,6 +144,27 @@ def parse_google(url):
         if out:
             return out
 
+    # saddr/daddr query route (Google's "directions" share).
+    q0 = parse_qs(parsed.query)
+
+    def qv(k):
+        for key in q0:
+            if key.lower() == k:
+                return q0[key][0]
+        return None
+
+    route = []
+    for key in ("saddr", "daddr"):
+        v = qv(key)
+        if v:
+            c = parse_latlon_pair(v)
+            if c:
+                route.append({"coord": c, "name": None})
+            else:
+                route.append({"coord": None, "name": unquote(v).replace("+", " ")})
+    if route:
+        return route
+
     place_name = None
     m = re.search(r"/place/", path)
     if m:
@@ -267,6 +288,18 @@ class GoogleMapsTests(unittest.TestCase):
         kind, wps = parse(url="https://maps.google.com/?q=50.1,14.2")
         self.assertEqual(kind, "waypoints")
         self.assertAlmostEqual(wps[0]["coord"][1], 14.2)
+
+    def test_saddr_daddr_route(self):
+        # Google "directions" share: start coords + named destination
+        # (the exact shape from a real maps.app.goo.gl route link).
+        kind, wps = parse(
+            url="https://www.google.com/maps?saddr=50.2326281,14.1760057&daddr=Zvolen%C4%9Bves&dirflg=dh")
+        self.assertEqual(kind, "waypoints")
+        self.assertEqual(len(wps), 2)
+        self.assertAlmostEqual(wps[0]["coord"][0], 50.2326281, places=4)
+        self.assertIsNone(wps[0]["name"])
+        self.assertIsNone(wps[1]["coord"])
+        self.assertEqual(wps[1]["name"], "Zvoleněves")
 
 
 class TextFallbackTests(unittest.TestCase):
