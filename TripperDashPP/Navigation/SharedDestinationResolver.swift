@@ -74,8 +74,9 @@ enum SharedDestinationResolver {
         let primaryURL = url ?? Self.firstURL(in: text)
 
         if let u = primaryURL {
-            // Google short-links carry no coords — expand first.
-            if Self.isGoogleShortLink(u), let expanded = await urlFollower(u) {
+            // Short-links carry no coords — expand first. Covers Google
+            // (maps.app.goo.gl) AND the new Apple short form (maps.apple/p/…).
+            if Self.isShortLink(u), let expanded = await urlFollower(u) {
                 let r = parse(url: expanded, text: text)
                 if case .empty = r {} else { return r }
             }
@@ -95,8 +96,8 @@ enum SharedDestinationResolver {
         if let u = url {
             let host = (u.host ?? "").lowercased()
 
-            // --- Apple Maps ---
-            if host.contains("maps.apple.com") {
+            // --- Apple Maps (incl. new maps.apple short host & /place) ---
+            if host.contains("maps.apple") {
                 if let wps = parseAppleMaps(u), !wps.isEmpty {
                     return .waypoints(wps)
                 }
@@ -155,8 +156,10 @@ enum SharedDestinationResolver {
         }
         if !out.isEmpty { return out }
 
-        // Single place: ll / sll / q + optional name.
-        let name = value("q").flatMap { v -> String? in
+        // Single place: ll / sll / q / coordinate + optional name.
+        // The new maps.apple.com/place?… form carries `name=` and
+        // `coordinate=lat,lon`; older forms use `q`.
+        let name = value("name") ?? value("q").flatMap { v -> String? in
             // `q` can be "lat,lon" OR a place name.
             parseLatLonPair(v) == nil ? v : nil
         }
@@ -287,9 +290,18 @@ enum SharedDestinationResolver {
 
     // MARK: - Text helpers
 
-    static func isGoogleShortLink(_ url: URL) -> Bool {
+    static func isShortLink(_ url: URL) -> Bool {
         let h = (url.host ?? "").lowercased()
-        return h == "maps.app.goo.gl" || h == "goo.gl" || h.hasSuffix(".app.goo.gl")
+        // Google short-links.
+        if h == "maps.app.goo.gl" || h == "goo.gl" || h.hasSuffix(".app.goo.gl") {
+            return true
+        }
+        // New Apple short form: https://maps.apple/p/<id> (host has no .com,
+        // path starts with /p/). Redirects to maps.apple.com/place?…
+        if h == "maps.apple" && url.path.hasPrefix("/p/") {
+            return true
+        }
+        return false
     }
 
     /// First http(s) URL embedded in free text.

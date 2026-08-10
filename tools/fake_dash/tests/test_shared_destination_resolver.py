@@ -105,9 +105,13 @@ def parse_apple(url):
     if out:
         return out
     name = None
-    qv = val("q")
-    if qv and parse_latlon_pair(qv) is None:
-        name = qv
+    nv = val("name")
+    if nv:
+        name = nv
+    else:
+        qv = val("q")
+        if qv and parse_latlon_pair(qv) is None:
+            name = qv
     for key in ("ll", "sll", "q", "coordinate"):
         v = val(key)
         if v:
@@ -174,7 +178,7 @@ def parse(url=None, text=None):
     if url:
         host = (urlparse(url).netloc or "").lower()
         scheme = (urlparse(url).scheme or "").lower()
-        if "maps.apple.com" in host:
+        if "maps.apple" in host:
             wps = parse_apple(url)
             if wps:
                 return ("waypoints", wps)
@@ -224,6 +228,15 @@ class AppleMapsTests(unittest.TestCase):
         self.assertEqual(kind, "waypoints")
         self.assertIsNone(wps[0]["coord"])
         self.assertEqual(wps[0]["name"], "Okor Castle")
+
+    def test_new_place_endpoint_coordinate_and_name(self):
+        # New maps.apple.com/place?… form (what maps.apple/p/<id> redirects to).
+        kind, wps = parse(
+            url="https://maps.apple.com/place?address=Zvolen&coordinate=48.576456,19.122979&name=Zvolen&map=explore")
+        self.assertEqual(kind, "waypoints")
+        self.assertAlmostEqual(wps[0]["coord"][0], 48.576456, places=4)
+        self.assertAlmostEqual(wps[0]["coord"][1], 19.122979, places=4)
+        self.assertEqual(wps[0]["name"], "Zvolen")
 
 
 class GoogleMapsTests(unittest.TestCase):
