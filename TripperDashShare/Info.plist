@@ -17,6 +17,32 @@
 	<key>CFBundleDisplayName</key>
 	<string>TripperDash++</string>
 
+	<!--
+	  These keys are normally injected by GENERATE_INFOPLIST_FILE. Because
+	  this target supplies a custom Info.plist (GENERATE_INFOPLIST_FILE=NO
+	  to avoid the "Multiple commands produce Info.plist" clash), they must
+	  be present here explicitly — otherwise the built .appex has an EMPTY
+	  CFBundleIdentifier and Xcode rejects it with "Embedded binary's bundle
+	  identifier is not prefixed with the parent app's bundle identifier."
+	  Each resolves from the target's build settings at build time.
+	-->
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
