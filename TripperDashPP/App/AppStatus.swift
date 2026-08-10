@@ -565,34 +565,49 @@ final class AppStatus {
     /// Pre-fill the planner from a resolved shared payload (Google/Apple
     /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
     /// exactly like a saved-route import (origin = live location, shared
-    /// stops as waypoints); a bare search hint → `pendingSearchHint` for
-    /// the search field. Returns whether anything actionable was staged.
+    /// stops as waypoints). A name-only payload (Google frequently shares a
+    /// place name with NO coordinates) is first geocoded via MKLocalSearch
+    /// and, if that lands, routed to directly; only if geocoding fails do we
+    /// fall back to `pendingSearchHint` so the rider can finish by hand.
+    /// Returns whether anything actionable was staged.
     @discardableResult
-    func beginPlanningFromShared(_ resolution: ShareResolution) -> Bool {
+    func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
         switch resolution {
         case .empty:
             return false
 
         case .searchHint(let hint):
+            // Try to turn the bare label into a real routed destination
+            // before falling back to the manual search field.
+            if let dest = await geocodeSharedName(hint) {
+                stagePlan(to: [Waypoint(name: dest.name,
+                                        addressLine: dest.addressLine,
+                                        coordinate: dest.coordinate,
+                                        isCurrentLocation: false)])
+                return true
+            }
             pendingSearchHint = hint
             return true
 
         case .waypoints(let resolved):
-            // Keep only stops we could geocode; a name-only stop with no
-            // coordinate can't route, so if NONE have coords fall back to a
-            // search hint from the first named stop.
+            // Keep only stops we could geocode from the link itself.
             let located = resolved.filter { $0.coordinate != nil }
             guard !located.isEmpty else {
+                // No coords in the link — try geocoding the first named stop
+                // (e.g. Google shared a place name only), else search hint.
                 if let name = resolved.first(where: { $0.name?.isEmpty == false })?.name {
+                    if let dest = await geocodeSharedName(name) {
+                        stagePlan(to: [Waypoint(name: dest.name,
+                                                addressLine: dest.addressLine,
+                                                coordinate: dest.coordinate,
+                                                isCurrentLocation: false)])
+                        return true
+                    }
                     pendingSearchHint = name
                     return true
                 }
                 return false
             }
-
-            let originCoord = locationService.lastFix?.coordinate
-                ?? located[0].coordinate!
-            let origin = Waypoint.currentLocation(originCoord)
 
             let stops: [Waypoint] = located.enumerated().map { idx, r in
                 let fallback = located.count == 1
@@ -603,13 +618,29 @@ final class AppStatus {
                                 coordinate: r.coordinate!,
                                 isCurrentLocation: false)
             }
-
-            let plan = PlannedRoute(waypoints: [origin] + stops)
-            plannedRoute = plan
-            pendingSearchHint = nil
-            Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+            stagePlan(to: stops)
             return true
         }
+    }
+
+    /// Geocode a shared place label into a routable destination, biased to
+    /// the rider's current location so an ambiguous name resolves nearby.
+    private func geocodeSharedName(_ name: String) async -> Destination? {
+        let near = locationService.lastFix?.coordinate
+        return await LocalSearchService().geocode(name, near: near)
+    }
+
+    /// Stage a `PlannedRoute` from the live location through the given stops
+    /// and kick off leg routing. Shared by the coordinate and geocoded-name
+    /// paths so both behave identically.
+    private func stagePlan(to stops: [Waypoint]) {
+        let originCoord = locationService.lastFix?.coordinate
+            ?? stops[0].coordinate
+        let origin = Waypoint.currentLocation(originCoord)
+        let plan = PlannedRoute(waypoints: [origin] + stops)
+        plannedRoute = plan
+        pendingSearchHint = nil
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
 
     /// Handle a `tripperdash://` deep link (posted by the share extension
@@ -627,7 +658,7 @@ final class AppStatus {
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
-            _ = beginPlanningFromShared(resolution)
+            _ = await beginPlanningFromShared(resolution)
         }
     }
 
