@@ -95,6 +95,53 @@ def test_all_buttons_decode_via_last_payload_byte():
         assert segs[0].payload[-1] == int(b)
 
 
+# --- Context-dependent buttons (music skip, remove-wp, exit-nav) -------
+#
+# On-bike capture btn-20260811-083111.jsonl proved the dash sends DIFFERENT
+# codes for the same physical stick depending on which of its own screens
+# is up. These pin the exact bytes captured so the harness ↔ phone contract
+# never drifts from what the real dash emits.
+
+def test_context_button_codes_match_capture():
+    # (Button, exact 1-byte segment hex seen in the field log)
+    cases = {
+        Button.NEXT_TRACK: "0900000109",       # next song
+        Button.PREV_TRACK: "090000010A",       # previous song
+        Button.REMOVE_WAYPOINT: "0900000120",  # remove upcoming waypoint
+        Button.EXIT_NAV: "0900000112",         # exit navigation
+    }
+    for b, expected_hex in cases.items():
+        seg = build_button_segment(b)
+        assert seg.hex == expected_hex, f"{b.name}: {seg.hex} != {expected_hex}"
+        # And it round-trips through decode the same way the phone reads it.
+        segs = decode_packet(build_button_packet(b))
+        assert segs[0].payload[-1] == int(b)
+
+
+def test_swift_dashbutton_enum_has_context_cases():
+    """The Swift DashButton enum must map the four new context codes so the
+    inbound decode surfaces them instead of dropping them as unmapped."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[3]
+    src = (root / "TripperDashPP" / "Tripper" / "K1GPacket.swift").read_text()
+    assert "case prevTrack     = 0x0a" in src
+    assert "case nextTrack     = 0x09" in src
+    assert "case removeWaypoint = 0x20" in src
+    assert "case exitNav       = 0x12" in src
+
+
+def test_swift_wires_context_buttons_to_actions():
+    """AppStatus.wireDashButtons must route the four new codes to real app
+    behaviour (music skip, leg skip, exit-nav) — not leave them as no-ops."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[3]
+    src = (root / "TripperDashPP" / "App" / "AppStatus.swift").read_text()
+    assert "self.dashMediaControl.skipToNext()" in src
+    assert "self.dashMediaControl.skipToPrevious()" in src
+    assert "self.activeNavigator.skipCurrentLeg()" in src
+    assert "self.activeNavigator.onExitNavRequested?()" in src
+
+
 def test_button_ack_packet_decodes_back():
     pkt = build_button_ack_packet(0x18, seq=0x05)
     segs = decode_packet(pkt)

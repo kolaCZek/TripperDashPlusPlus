@@ -397,6 +397,14 @@ final class ActiveNavigator {
     /// second hook to forget.
     var onRerouteRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> MKRoute?))?
 
+    /// Rider-initiated "exit navigation" (dash in-menu button `0x12`).
+    /// Fired when the rider ends the whole ride from the dash. The View
+    /// (MapPickerView) registers its full `stopNavigation()` teardown here
+    /// — stream stop, tile/polyline/route-cache clear, staged-destination
+    /// reset, slide back to the picker — so the dash button takes the exact
+    /// same path as tapping "End" in the app. Nil when no session owns it.
+    var onExitNavRequested: (@MainActor () -> Void)?
+
     /// Live-traffic reroute hook. Returns Apple's current traffic-aware
     /// route ALTERNATIVES from the rider's live position to the current
     /// destination (i.e. `MKDirections` with `requestsAlternateRoutes`),
@@ -955,6 +963,35 @@ final class ActiveNavigator {
         // (the caller below does that once seed() returns).
         seed(route: route, destination: destWp.asDestination)
         await onActiveRouteChanged?(route)
+    }
+
+    // MARK: - Manual leg skip (dash "remove waypoint" button)
+
+    /// Skip the CURRENT leg's end waypoint and jump straight to the next
+    /// leg — the dash's in-menu "remove waypoint" action (button `0x20`).
+    /// Mirrors the automatic `advanceToNextLeg` used on arrival, but is
+    /// rider-initiated: it drops the upcoming intermediate stop and routes
+    /// to the one after it.
+    ///
+    /// Returns `true` if a leg was skipped. Returns `false` (no-op) when
+    /// not plan-navigating or already on the final leg — there is no
+    /// intermediate waypoint left to remove, so the press is a safe no-op
+    /// (exit-nav is the separate `0x12` action for ending the whole ride).
+    @discardableResult
+    func skipCurrentLeg() async -> Bool {
+        guard isNavigating, let plan else {
+            log.info("skipCurrentLeg: not plan-navigating — ignored")
+            return false
+        }
+        // Only intermediate legs can be skipped; the last leg's waypoint is
+        // the final destination (use exit-nav to end the ride instead).
+        guard currentLegIndex + 1 < plan.legs.count else {
+            log.info("skipCurrentLeg: already on the final leg — nothing to remove")
+            return false
+        }
+        log.info("skipCurrentLeg: rider removed waypoint at leg \(self.currentLegIndex + 1) of \(plan.legs.count)")
+        await advanceToNextLeg(in: plan)
+        return true
     }
 
     // MARK: - ETA refresh (F6 — periodic Apple re-fetch)

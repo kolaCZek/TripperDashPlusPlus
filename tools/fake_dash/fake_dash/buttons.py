@@ -23,12 +23,27 @@ from .protocol import Segment, build_envelope
 
 
 class Button(enum.IntEnum):
-    """Wire codes the bike sends inside a `09 00 0001 XX` segment."""
+    """Wire codes the bike sends inside a `09 00 0001 XX` segment.
+
+    The dash sends CONTEXT-DEPENDENT codes, not raw stick directions — the
+    same physical stick emits different codes depending on which dash
+    screen is up. All confirmed from on-bike captures 2026-08-11
+    (btn-*.jsonl):
+      Map screen:        RIGHT 0x13 / LEFT 0x14 / DOWN 0x15 / CLICK 0x18
+      Now-playing:       PREV_TRACK 0x0a / NEXT_TRACK 0x09
+      In-menu:           REMOVE_WAYPOINT 0x20 / EXIT_NAV 0x12
+    """
 
     RIGHT = 0x13
     LEFT = 0x14
     DOWN = 0x15
     CLICK = 0x18
+    # Now-playing screen (same left/right stick, different codes).
+    NEXT_TRACK = 0x09
+    PREV_TRACK = 0x0A
+    # In-menu actions.
+    REMOVE_WAYPOINT = 0x20
+    EXIT_NAV = 0x12
 
     @classmethod
     def from_name(cls, name: str) -> "Button":
