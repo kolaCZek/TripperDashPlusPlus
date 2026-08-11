@@ -496,17 +496,11 @@ extension K1GPacket {
     /// then immediately left onto Y"). The first byte is the same
     /// glyph enum as the primary maneuver TLV (0x02). The second
     /// byte is undocumented in better-dash and in the Tripper Android
-    /// decomp; we send 0x00 as a safe placeholder.
-    ///
-    /// **F2c TODO**: field-test to determine the second byte's
-    /// semantics. Hypotheses worth pcap-bisecting:
-    ///   - reserved / padding (most likely, since `0x00` works for the
-    ///     primary case and the dash silently accepts it)
-    ///   - exit counter for a secondary roundabout (so the rider sees
-    ///     "1st exit, then 2nd exit" stacked)
-    ///   - bit-flags (CW vs CCW for the secondary glyph, mirrored
-    ///     handedness, etc.)
-    /// Until field test, treat as 0x00.
+    /// decomp; we send 0x00 as a safe placeholder, which the dash
+    /// silently accepts for the primary case. If a future field test
+    /// ever decodes the second byte's semantics (reserved/padding,
+    /// secondary-roundabout exit counter, or handedness bit-flags),
+    /// pass it via `flags`; until then 0x00 is correct.
     static func tlvSecondaryManeuver(code: UInt8, flags: UInt8 = 0x00) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code, flags]))
     }
