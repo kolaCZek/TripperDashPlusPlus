@@ -49,7 +49,6 @@ final class VoiceNavigator: NSObject {
     /// Priority of a spoken prompt. A higher-priority prompt interrupts a
     /// lower-priority one that is mid-sentence.
     enum Priority: Int, Comparable {
-        case info = 0        // reserved (e.g. speed-camera chime) — lowest
         case maneuver = 1    // "in 300 m, turn right"
         case critical = 2    // arrival, reroute — always cut through
         static func < (l: Priority, r: Priority) -> Bool { l.rawValue < r.rawValue }
