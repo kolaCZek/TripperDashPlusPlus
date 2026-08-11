@@ -256,19 +256,23 @@ final class BikeLink {
         // what keeps the event stream flowing on picky firmwares.
         if let s = socket {
             let ack = K1GPacket.makeButtonAck(code: code, seq: seq.consume())
+            ButtonLog.shared.recordEvent(event: "note", code: code, detail: "ack sent: \(ack.prefix(16).hexString)")
             #if DEBUG
             self.log.info("BTN pipeline: code=0x\(String(format: "%02X", code), privacy: .public) → sending ack \(ack.prefix(16).hexString, privacy: .public)")
             #endif
             Task { try? await s.send(ack) }
         } else {
+            ButtonLog.shared.recordEvent(event: "note", code: code, detail: "socket==nil, NO ack sent")
             #if DEBUG
             self.log.info("BTN pipeline: code=0x\(String(format: "%02X", code), privacy: .public) but socket==nil → NO ack sent")
             #endif
         }
         guard let button = K1GPacket.DashButton(code: code) else {
+            ButtonLog.shared.recordEvent(event: "unmapped", code: code, detail: "acked only, no DashButton mapping")
             log.info("RX button code 0x\(String(format: "%02X", code), privacy: .public) NOT mapped to a DashButton — acked only, no action")
             return
         }
+        ButtonLog.shared.recordEvent(event: "note", code: code, detail: "routed \(String(describing: button)), hooked=\(self.onButton != nil)")
         #if DEBUG
         self.log.info("BTN pipeline: code=0x\(String(format: "%02X", code), privacy: .public) → \(String(describing: button), privacy: .public) → routing to onButton (hooked=\(self.onButton != nil, privacy: .public))")
         #endif
@@ -500,6 +504,9 @@ final class BikeLink {
             shouldAutoReconnect = true
             reconnectDeadline = nil
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
+            // Rotate the button wire log per connection so each diagnostic
+            // ride gets its own file. No-op unless the diagnostic opt-in is on.
+            ButtonLog.shared.startSession()
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
             self.connectTask = nil
@@ -737,22 +744,21 @@ final class BikeLink {
             var packetCount: UInt64 = 0
             for await packet in socket.inbound {
                 packetCount &+= 1
+                // BUTTON WIRE DIAGNOSTIC (feat/button-wire-logging): persist
+                // EVERY inbound packet raw to the phone's disk via ButtonLog
+                // (Documents/button-logs/*.jsonl). The rider can only bring a
+                // PHONE to the bike — no laptop for `log stream` — so the
+                // ground-truth bytes must land on-device, retrievable later via
+                // the Files app. Gated (DEBUG build + runtime opt-in), so it's
+                // a no-op on normal rides. Also mirror to the console in DEBUG.
+                ButtonLog.shared.recordRaw(packet)
                 #if DEBUG
-                // BUTTON WIRE DIAGNOSTIC (feat/button-wire-logging): dump EVERY
-                // inbound packet raw, at .info so it lands in the default Xcode
-                // console / `log stream` without a debug-level predicate. The
-                // fake_dash harness sends buttons as textbook `09 00 0001 XX`,
-                // but on a real bike the zoom buttons do nothing — meaning the
-                // dash almost certainly frames button events differently, and
-                // that frame is INVISIBLE today (an undecodable packet only hit
-                // a .debug log with the byte COUNT, not the bytes). Raw hex here
-                // is the ground truth we need off the actual hardware. Capped at
-                // 64 B preview so a stray large packet can't flood the log.
                 let rawPreview = packet.prefix(64).hexString
                 self.log.info("RX raw #\(packetCount, privacy: .public): \(packet.count, privacy: .public) B  \(rawPreview, privacy: .public)\(packet.count > 64 ? " …" : "", privacy: .public)")
                 #endif
                 let segs = K1GPacket.decode(packet)
                 if segs.isEmpty {
+                    ButtonLog.shared.recordEvent(event: "note", detail: "no decodable segments in \(packet.count)B packet")
                     #if DEBUG
                     // Promote the "nothing decoded" case to .info WITH the bytes:
                     // if the dash's button frame doesn't match our K1G decoder,
@@ -770,18 +776,21 @@ final class BikeLink {
                     if seg.type == 0x09 && seg.sub == 0x00 {
                         if seg.payload.count >= 3 {
                             let byte = seg.payload[seg.payload.index(seg.payload.startIndex, offsetBy: 2)]
+                            ButtonLog.shared.recordEvent(event: "button", code: byte, detail: "0900 payload=\(seg.payload.hexString)")
                             self.log.info("RX button: code=0x\(String(format: "%02X", byte), privacy: .public) (payload=\(seg.payload.hexString, privacy: .public))")
                             self.handleButton(code: byte)
                         } else {
                             // Short 0x09 payload — the trailing code byte isn't
                             // where we expect it. Log the WHOLE payload so we can
                             // see the real frame shape from the bike.
+                            ButtonLog.shared.recordEvent(event: "unmapped", detail: "0900 SHORT payload (\(seg.payload.count)B)=\(seg.payload.hexString)")
                             self.log.info("RX button (SHORT payload, \(seg.payload.count, privacy: .public) B, code not at offset 2): payload=\(seg.payload.hexString, privacy: .public)")
                         }
                     } else if seg.type == 0x09 {
                         // A 0x09 event with a DIFFERENT sub-type — the real dash
                         // may frame joystick events under a sub we don't handle.
                         // Surface it so we learn the actual sub byte.
+                        ButtonLog.shared.recordEvent(event: "unmapped", detail: "0x09 sub=0x\(String(format: "%02X", seg.sub)) payload=\(seg.payload.hexString)")
                         self.log.info("RX 0x09 event with sub=0x\(String(format: "%02X", seg.sub), privacy: .public) (NOT 0x00): payload=\(seg.payload.hexString, privacy: .public)")
                     } else {
                         self.log.info("RX seg type=0x\(String(format: "%02X", seg.type), privacy: .public) sub=0x\(String(format: "%02X", seg.sub), privacy: .public) len=\(seg.payload.count)")

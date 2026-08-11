@@ -296,6 +296,19 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// DIAGNOSTIC opt-in: persist every inbound K1G packet raw to the phone's
+    /// disk (`Documents/button-logs/*.jsonl`) so a rider with ONLY a phone at
+    /// the bike (no laptop) can capture the real joystick wire bytes and pull
+    /// them off later via the Files app. Default OFF — normal rides spend no
+    /// IO on it. Only meaningful in DEBUG builds (release never compiles the
+    /// writer in). Mirrored into `ButtonLog.isEnabled` on set + at load.
+    var buttonWireLoggingEnabled: Bool = false {
+        didSet {
+            ButtonLog.isEnabled = buttonWireLoggingEnabled
+            persist()
+        }
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -480,6 +493,7 @@ final class DashNavSettings {
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
+        var buttonWireLoggingEnabled: Bool?
     }
 
     init() {
@@ -508,6 +522,12 @@ final class DashNavSettings {
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
         self.progressBarEnabled = p.progressBarEnabled ?? true
+        // Setting this fires the didSet (load() is a method, not the init
+        // body), which mirrors into ButtonLog.isEnabled and re-persists the
+        // same blob — harmless, same as every other observed field above.
+        // The explicit mirror line is belt-and-suspenders.
+        self.buttonWireLoggingEnabled = p.buttonWireLoggingEnabled ?? false
+        ButtonLog.isEnabled = self.buttonWireLoggingEnabled
     }
 
     private func persist() {
@@ -529,7 +549,8 @@ final class DashNavSettings {
             voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
-            progressBarEnabled: progressBarEnabled
+            progressBarEnabled: progressBarEnabled,
+            buttonWireLoggingEnabled: buttonWireLoggingEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
