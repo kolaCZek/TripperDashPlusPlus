@@ -553,11 +553,30 @@ extension K1GPacket {
 
     /// `05 08 0004 <ascii_HHMM>` — t3c.e(): ETA as 4 ASCII bytes, e.g.
     /// "18:32" → `31 38 33 32`. Caller passes a Date; we format in the
-    /// device's local timezone, 24-hour, zero-padded.
-    static func tlvEta(date: Date, calendar: Calendar = .current) -> K1GSegment {
+    /// device's local timezone as 4 ASCII digits HHMM, zero-padded.
+    ///
+    /// `is24Hour` picks the hour convention of the string we BUILD (real-bike
+    /// ground truth, Martin 8/2026): the dash formats ETA per its OWN clock
+    /// menu and there is no wire flag we can drive (`tlvEtaFormat` is pinned —
+    /// see below), so to match the OEM app we format the value itself.
+    ///   * 24-hour → hour as-is: 14:33 → "1433" → dash shows `14:33`.
+    ///   * 12-hour → hour % 12 (noon/midnight → 12): 14:33 → "0233" → dash
+    ///     shows `02:33` (no AM/PM — the dash font has no meridiem glyph,
+    ///     matching the observed OEM "humpácky" render).
+    /// Minutes are always the real minutes, zero-padded. The hour is kept
+    /// 2-digit zero-padded because the wire field is a fixed 4-digit HHMM
+    /// block (better-dash `_NAV_FULL` = "0303"); the dash draws the colon.
+    static func tlvEta(date: Date, is24Hour: Bool = true, calendar: Calendar = .current) -> K1GSegment {
         let comps = calendar.dateComponents([.hour, .minute], from: date)
-        let h = comps.hour ?? 0
+        let h24 = comps.hour ?? 0
         let m = comps.minute ?? 0
+        let h: Int
+        if is24Hour {
+            h = h24
+        } else {
+            let mod = h24 % 12
+            h = mod == 0 ? 12 : mod
+        }
         let s = String(format: "%02d%02d", h, m)
         return K1GSegment(type: .navInfo, sub: 0x08,
                           payload: Data(s.utf8))
@@ -694,7 +713,7 @@ extension K1GPacket {
             segs.append(tlvSecondaryUnit(unit))
         }
         if let eta = eta {
-            segs.append(tlvEta(date: eta))
+            segs.append(tlvEta(date: eta, is24Hour: is24Hour))
             // ETA format flag MUST immediately follow the ETA value —
             // the dash reads the 0x54 flag to interpret the 0x08 HH:MM
             // payload, and drops a "dangling" ETA whose format flag

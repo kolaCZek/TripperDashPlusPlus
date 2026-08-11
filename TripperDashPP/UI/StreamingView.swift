@@ -78,14 +78,6 @@ struct StreamingView: View {
                         Text(c.label).tag(c)
                     }
                 }
-                Picker("Bubble bottom row", selection: Binding(
-                    get: { status.dashNavSettings.bottomLine },
-                    set: { status.dashNavSettings.bottomLine = $0 }
-                )) {
-                    ForEach(DashNavSettings.BottomLineMode.allCases) { b in
-                        Text(b.label).tag(b)
-                    }
-                }
             }
 
             Section("Voice guidance") {

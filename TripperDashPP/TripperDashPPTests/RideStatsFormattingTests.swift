@@ -38,6 +38,48 @@ struct RideStatsFormattingTests {
         #expect(F.distance(-5, imperial: false) == "0.0 km")
     }
 
+    // MARK: Decimal separator
+
+    @Test func distanceCommaDecimalSeparator() {
+        #expect(F.distance(12_400, imperial: false, useCommaDecimal: true) == "12,4 km")
+        #expect(F.distance(12_070.08, imperial: true, useCommaDecimal: true) == "7,5 mi")
+    }
+
+    @Test func distanceCommaSeparatorNoOpAboveHundred() {
+        // No decimal point in the whole-number regime → comma flag is inert.
+        #expect(F.distance(142_300, imperial: false, useCommaDecimal: true) == "142 km")
+    }
+
+    @Test func distancePeriodIsDefault() {
+        #expect(F.distance(12_400, imperial: false) == "12.4 km")
+    }
+
+    // MARK: Clock (app-side 24/12h)
+
+    @Test func clock24Hour() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        // 2000-01-01 14:33 UTC
+        let d = cal.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: 14, minute: 33))!
+        #expect(F.clock(d, is24Hour: true, calendar: cal) == "14:33")
+    }
+
+    @Test func clock12HourAfternoon() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let d = cal.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: 14, minute: 33))!
+        #expect(F.clock(d, is24Hour: false, calendar: cal) == "2:33 PM")
+    }
+
+    @Test func clock12HourNoonAndMidnight() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let noon = cal.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: 12, minute: 0))!
+        let midnight = cal.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: 0, minute: 5))!
+        #expect(F.clock(noon, is24Hour: false, calendar: cal) == "12:00 PM")
+        #expect(F.clock(midnight, is24Hour: false, calendar: cal) == "12:05 AM")
+    }
+
     // MARK: Speed
 
     @Test func speedMetric() {

@@ -2,39 +2,42 @@
 //  DashNavSettings.swift
 //  TripperDashPP
 //
-//  Phase 9e — dash display preferences for the active-nav TLV stream.
+//  Phase 9e / display-prefs — dash + app display preferences.
 //
-//  These four settings control how the dash renders the active-nav bubble
-//  during navigation. Each one maps to a specific TLV in
-//  `K1GPacket.makeActiveNav`:
+//  REAL-BIKE GROUND TRUTH (Martin road-tested, 8/2026): the Tripper dash
+//  owns 12/24h, decimal separator, and km/miles through its OWN separate,
+//  undocumented in-bike settings menu — NOT through our active-nav TLV
+//  stream. Trying to drive them from the phone is pointless; the dash
+//  formats whatever it receives per its local settings. So these are now
+//  APP-GLOBAL DISPLAY PREFERENCES: they format every time / number /
+//  distance shown in the app UI, and the rider is expected to set the
+//  matching preference in the bike's own menu. Defaults are seeded from the
+//  phone locale (`*.deviceDefault`): metric/imperial, decimal separator,
+//  24/12h.
 //
-//   - `units` → primary/total distance unit byte (`05 06`, `05 46`)
-//   - `decimalSeparator` → comma vs period (`05 0A`)
-//   - `clockFormat` → how we format the local-time string handed to
-//     `tlvEta`. NOTE: it no longer changes the `05 54` ETA-format byte —
-//     that byte is pinned to `0x30` because the dash rejects any other
-//     value (a 12h `0x31` guess blanked the ETA on the real dash, 6/2026).
-//     So the ETA always renders 24-hour on the dash for now; driving a
-//     true 12h render is blocked on a 12h-mode OEM capture.
-//   - `bottomLine` → user's preferred bottom row (ETA vs distance). As of
-//     6/2026 this is NOT enforced by omitting TLVs: the active-nav loop
-//     mirrors the OEM app and sends ETA + total-distance + remaining-time
-//     together every tick (the only wire layout the dash is known to
-//     accept). The OLD code omitted the ETA TLV when bottomLine ==
-//     .distance to make the bubble "pick" distance — that produced two
-//     field-confirmed bugs (blank ETA, and "switch to km does nothing")
-//     and diverged from the real-phone capture, so it was removed. Which
-//     field the dash shows in its bottom row is a dash-side decision we
-//     don't yet know how to drive deterministically (likely the
-//     undecoded `05 0C` field). The `bottomLine` preference still persists
-//     the user's choice, but nothing gates the ETA TLV on it anymore.
+//   - `units` → app-wide distance/speed unit for the UI. We STILL send the
+//     distance TLVs on the wire as before (`05 06`/`05 46`); the bike
+//     re-chews them per its own unit setting. The toggle no longer pretends
+//     to drive the wire — it drives the app UI.
+//   - `decimalSeparator` → app-wide decimal separator for every UI number.
+//     No wire effect (the bike formats its own numbers).
+//   - `clockFormat` → formats every time string in the app UI, AND the ETA
+//     string we build for the dash (24h → `14:33`, 12h → `2:33`, hour % 12,
+//     no AM/PM, no extra leading zero) so our output matches the OEM app.
+//     The dash then renders it per its own clock setting (observed quirk:
+//     it shows ETA "humpácky" — 14:22 as `02:22`, bare hour, no AM/PM —
+//     that formatting is dash-side and buggy, nothing we can fix on the
+//     wire).
 //
-//  Persisted in UserDefaults under "dashNavSettings.v11". An earlier v2
-//  carried four diagnostic toggles for the Bug 3 clock-shift A/B test;
-//  once the root cause was found (initial-burst packet 3 carried a stale
-//  set-clock TLV — fixed in 807081a) the toggles were retired and the key
-//  bumped. Old lower-versioned blobs are ignored on read; we just rewrite
-//  to the current key.
+//  The old `bottomLine` (ETA-vs-distance bubble bottom row) preference was
+//  REMOVED entirely: the road test confirmed flipping it changes neither
+//  wire nor dash render — it did nothing. The active-nav loop already sent
+//  ETA + total-distance + remaining-time together every tick (the only wire
+//  layout the dash accepts) and no longer gated anything on `bottomLine`.
+//
+//  Persisted in UserDefaults under "dashNavSettings.v11". Removing the
+//  `bottomLine` field from `Persisted` is decode-safe: an older blob just
+//  carries an extra key that Codable ignores; a new blob simply omits it.
 //
 
 import Foundation
@@ -54,6 +57,17 @@ final class DashNavSettings {
             case .imperial: return "Imperial (mi / ft)"
             }
         }
+
+        /// Seed the default from the phone's region. `Locale.measurementSystem`
+        /// reports `.metric`, `.us`, or `.uk` — treat US as imperial and
+        /// everything else (incl. UK, which is mixed but road-distances-metric
+        /// enough here) as metric. The rider can override in settings.
+        static var deviceDefault: UnitSystem {
+            if #available(iOS 16, *) {
+                return Locale.current.measurementSystem == .us ? .imperial : .metric
+            }
+            return Locale.current.usesMetricSystem ? .metric : .imperial
+        }
     }
 
     enum DecimalSeparator: String, Codable, CaseIterable, Identifiable {
@@ -65,6 +79,12 @@ final class DashNavSettings {
             case .period: return "Period (1.2 km)"
             case .comma:  return "Comma (1,2 km)"
             }
+        }
+
+        /// Seed from the phone's locale decimal separator. The rider can
+        /// override in settings.
+        static var deviceDefault: DecimalSeparator {
+            Locale.current.decimalSeparator == "," ? .comma : .period
         }
     }
 
@@ -78,21 +98,15 @@ final class DashNavSettings {
             case .h12: return "12-hour"
             }
         }
-    }
 
-    /// Mutex toggle for the bottom row of the active-nav bubble on the
-    /// dash. The dash bubble has room for ONE of ETA or total distance,
-    /// not both. Riders typically prefer ETA on long highway stretches
-    /// and remaining distance in town.
-    enum BottomLineMode: String, Codable, CaseIterable, Identifiable {
-        case eta
-        case distance
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .eta:      return "ETA (arrival time)"
-            case .distance: return "Distance remaining"
-            }
+        /// Seed from the phone's clock preference. We probe a short
+        /// time-format template for the current locale: if it lacks an "a"
+        /// (AM/PM) designator the phone is on 24-hour time. The rider can
+        /// override in settings.
+        static var deviceDefault: ClockFormat {
+            let fmt = DateFormatter.dateFormat(fromTemplate: "j", options: 0,
+                                               locale: Locale.current) ?? "HH"
+            return fmt.contains("a") ? .h12 : .h24
         }
     }
 
@@ -120,19 +134,15 @@ final class DashNavSettings {
 
     // MARK: - State
 
-    var units: UnitSystem = .metric {
+    var units: UnitSystem = UnitSystem.deviceDefault {
         didSet { persist() }
     }
 
-    var decimalSeparator: DecimalSeparator = .period {
+    var decimalSeparator: DecimalSeparator = DecimalSeparator.deviceDefault {
         didSet { persist() }
     }
 
-    var clockFormat: ClockFormat = .h24 {
-        didSet { persist() }
-    }
-
-    var bottomLine: BottomLineMode = .eta {
+    var clockFormat: ClockFormat = ClockFormat.deviceDefault {
         didSet { persist() }
     }
 
@@ -484,7 +494,6 @@ final class DashNavSettings {
         var units: UnitSystem
         var decimalSeparator: DecimalSeparator
         var clockFormat: ClockFormat
-        var bottomLine: BottomLineMode
         // Optional so we can still decode older blobs that lack these
         // fields — Codable's silent ignore handles forward additions
         // when the keys are optional. Defaults applied in load().
@@ -516,7 +525,6 @@ final class DashNavSettings {
         self.units = p.units
         self.decimalSeparator = p.decimalSeparator
         self.clockFormat = p.clockFormat
-        self.bottomLine = p.bottomLine
         self.lookaheadEnabled = p.lookaheadEnabled ?? true
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
@@ -545,7 +553,6 @@ final class DashNavSettings {
             units: units,
             decimalSeparator: decimalSeparator,
             clockFormat: clockFormat,
-            bottomLine: bottomLine,
             lookaheadEnabled: lookaheadEnabled,
             lookaheadThresholdMeters: lookaheadThresholdMeters,
             callStateEnabled: callStateEnabled,
