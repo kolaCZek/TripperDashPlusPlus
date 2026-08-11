@@ -26,6 +26,7 @@
 
 import Foundation
 import MediaPlayer
+import os.log
 
 /// Thin wrapper over the system music player for dash-driven track skip.
 /// Stateless: it holds no queue of its own, it just forwards skip commands
