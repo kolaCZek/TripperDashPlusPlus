@@ -85,7 +85,8 @@ def test_button_fans_out_to_registered_peer(running_server):
     Simulate a phone: open a UDP socket, send a single 'wake' packet
     so the server registers us as a peer, then ask via the control
     socket to fire a RIGHT button. We should receive a K1G envelope
-    containing segment type=0x09 sub=0x00 payload=00 01 13.
+    containing segment type=0x09 sub=0x00 with a 1-byte payload = 13
+    (the real dash's `09 00 0001 XX` shape — code as the trailing byte).
     """
     server, sock_path, k1g_port = running_server
 
@@ -114,7 +115,7 @@ def test_button_fans_out_to_registered_peer(running_server):
 
         segs = decode_packet(data)
         assert any(
-            s.type == 0x09 and s.sub == 0x00 and len(s.payload) == 3 and s.payload[2] == int(Button.RIGHT)
+            s.type == 0x09 and s.sub == 0x00 and s.payload[-1] == int(Button.RIGHT)
             for s in segs
         ), f"no RIGHT button segment in {[(s.type, s.sub, s.payload.hex()) for s in segs]}"
     finally:

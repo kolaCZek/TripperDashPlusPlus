@@ -418,6 +418,10 @@ final class AppStatus {
     /// through `onRerouteRequested` in init below.
     let activeNavigator = ActiveNavigator()
 
+    /// System music-player control for the dash now-playing screen's
+    /// prev/next-track buttons. Stateless wrapper; see DashMediaControl.
+    let dashMediaControl = DashMediaControl()
+
     /// User-facing dash display preferences (units, decimal separator,
     /// clock format, ETA-vs-distance bottom row). Persisted, observable.
     let dashNavSettings = DashNavSettings()
@@ -887,11 +891,20 @@ final class AppStatus {
     /// launch; `BikeLink` invokes `onButton` on the main actor after it has
     /// already sent the wire ack.
     ///
-    /// Phase 1+2 mapping:
-    ///   RIGHT → zoom the map in     (bias over autozoom, auto-reverts)
-    ///   LEFT  → zoom the map out
-    ///   DOWN  → reserved (unused for now)
-    ///   CLICK → reserved (Phase 3: on-map menu — kept in reserve)
+    /// The dash sends CONTEXT-DEPENDENT codes (it knows which of its own
+    /// screens is up), so each maps to a semantic action rather than a raw
+    /// stick direction. Confirmed from on-bike captures 2026-08-11:
+    ///   Map screen:
+    ///     RIGHT → zoom in    LEFT → zoom out
+    ///     DOWN  → reserved    CLICK → reserved (Phase 3 on-map menu)
+    ///   Now-playing screen (same stick, different codes):
+    ///     nextTrack → skip forward   prevTrack → skip back
+    ///   In-menu:
+    ///     removeWaypoint → skip the upcoming intermediate stop
+    ///     exitNav        → end the whole ride (same as tapping "End")
+    ///
+    /// The dash handles "open menu" and the "up" that opens it locally and
+    /// never sends them to the phone, so there is nothing to wire for those.
     private func wireDashButtons() {
         bikeLink.onButton = { [weak self] button in
             guard let self else { return }
@@ -903,6 +916,14 @@ final class AppStatus {
             case .down, .click:
                 // Reserved — no action yet (see Phase 3 menu idea).
                 break
+            case .nextTrack:
+                self.dashMediaControl.skipToNext()
+            case .prevTrack:
+                self.dashMediaControl.skipToPrevious()
+            case .removeWaypoint:
+                Task { await self.activeNavigator.skipCurrentLeg() }
+            case .exitNav:
+                self.activeNavigator.onExitNavRequested?()
             }
         }
     }

@@ -774,17 +774,22 @@ final class BikeLink {
                     // this loop exists during bring-up. Log them at INFO
                     // so they're visible in the default Xcode console.
                     if seg.type == 0x09 && seg.sub == 0x00 {
-                        if seg.payload.count >= 3 {
-                            let byte = seg.payload[seg.payload.index(seg.payload.startIndex, offsetBy: 2)]
+                        // The button code is the LAST byte of the segment
+                        // payload — as the DashButton doc says: "the trailing
+                        // byte of the 09 00 0001 XX segment". The REAL dash
+                        // sends len=0x0001 → a 1-byte payload (e.g. 0900 0001
+                        // 14 = LEFT), NOT the 3-byte shape fake_dash happened
+                        // to emit. Reading a fixed offset 2 dropped every real
+                        // button on the floor (all unmapped → dead zoom). Take
+                        // the last byte so both the 1-byte bike frame and the
+                        // longer harness frame decode identically.
+                        if let byte = seg.payload.last {
                             ButtonLog.shared.recordEvent(event: "button", code: byte, detail: "0900 payload=\(seg.payload.hexString)")
                             self.log.info("RX button: code=0x\(String(format: "%02X", byte), privacy: .public) (payload=\(seg.payload.hexString, privacy: .public))")
                             self.handleButton(code: byte)
                         } else {
-                            // Short 0x09 payload — the trailing code byte isn't
-                            // where we expect it. Log the WHOLE payload so we can
-                            // see the real frame shape from the bike.
-                            ButtonLog.shared.recordEvent(event: "unmapped", detail: "0900 SHORT payload (\(seg.payload.count)B)=\(seg.payload.hexString)")
-                            self.log.info("RX button (SHORT payload, \(seg.payload.count, privacy: .public) B, code not at offset 2): payload=\(seg.payload.hexString, privacy: .public)")
+                            ButtonLog.shared.recordEvent(event: "unmapped", detail: "0900 EMPTY payload")
+                            self.log.info("RX button: EMPTY payload (0900 with no code byte)")
                         }
                     } else if seg.type == 0x09 {
                         // A 0x09 event with a DIFFERENT sub-type — the real dash

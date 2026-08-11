@@ -943,6 +943,13 @@ struct MapPickerView: View {
     /// Wire the shared route-changed hook (covers initial bake, reroute,
     /// AND multi-stop leg advance — all funnel through here).
     private func installRouteChangedHook() {
+        // Dash "exit navigation" button (0x12) → same teardown as tapping
+        // "End" in the app. Registered alongside the route-changed hook so
+        // it shares the session's lifecycle; cleared in stopNavigation().
+        status.activeNavigator.onExitNavRequested = { [weak status] in
+            guard status != nil else { return }
+            self.stopNavigation()
+        }
         status.activeNavigator.onActiveRouteChanged = { [weak status] newRoute in
             guard let status else { return }
             // (1) Polyline first — pure CPU CGContext path, BG/lock safe.
@@ -1089,6 +1096,7 @@ struct MapPickerView: View {
     private func stopNavigation() {
         status.activeNavigator.stop()
         status.activeNavigator.onActiveRouteChanged = nil
+        status.activeNavigator.onExitNavRequested = nil
         if status.isStreaming {
             status.stopStreaming()
         }

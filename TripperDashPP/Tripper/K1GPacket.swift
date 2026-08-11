@@ -355,17 +355,32 @@ extension K1GPacket {
     //   09 00 0001 15  DOWN   → echo 06 80 0001 15
     //   09 00 0001 18  CLICK  → echo 06 80 0001 18
 
-    /// The four physical inputs the Tripper joystick sends while streaming.
+    /// The joystick / control inputs the Tripper sends while streaming.
     /// Raw values are the trailing byte of the `09 00 0001 XX` segment.
+    ///
+    /// The dash sends CONTEXT-DEPENDENT codes, not raw stick directions:
+    /// the same physical left/right stick emits `0x14`/`0x13` on the map
+    /// (→ zoom) but `0x0a`/`0x09` when the now-playing screen is up
+    /// (→ track skip). We therefore map each code to a SEMANTIC action.
+    /// Codes confirmed from on-bike captures 2026-08-11 (btn-*.jsonl):
+    /// map: RIGHT 0x13 / LEFT 0x14 / DOWN 0x15 / CLICK 0x18; now-playing:
+    /// prevTrack 0x0a / nextTrack 0x09; in-menu: removeWaypoint 0x20 /
+    /// exitNav 0x12. Menu open + the "up" that opens it are handled on the
+    /// dash locally and never reach the phone (verified: 6 s of radio
+    /// silence across those presses in the capture).
     enum DashButton: UInt8, Equatable, Sendable {
-        case right = 0x13
-        case left  = 0x14
-        case down  = 0x15
-        case click = 0x18
+        case right         = 0x13
+        case left          = 0x14
+        case down          = 0x15
+        case click         = 0x18
+        case prevTrack     = 0x0a
+        case nextTrack     = 0x09
+        case removeWaypoint = 0x20
+        case exitNav       = 0x12
 
         /// Decode the trailing byte of a `09 00 …` button segment. Returns
         /// `nil` for any unrecognised code (older firmware quirks, the
-        /// `q3c.U2/V2/…` click-family bytes we don't map to navigation).
+        /// non-button `09 04`/`09 06` status bytes, etc.).
         init?(code: UInt8) {
             self.init(rawValue: code)
         }
