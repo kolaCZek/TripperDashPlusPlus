@@ -319,6 +319,29 @@ final class DashNavSettings {
         #endif
     }
 
+    /// DIAGNOSTIC opt-in: persist per-maneuver navigation state to the phone's
+    /// disk (`Documents/maneuver-logs/*.jsonl`) so a route can be replayed /
+    /// grepped offline after a ride. Same shape and rationale as
+    /// `buttonWireLoggingEnabled`: **default ON in DEBUG** (zero setup at the
+    /// bike), OFF in release (the writer isn't compiled in anyway). The
+    /// Settings toggle exists to turn it OFF. Mirrored into
+    /// `ManeuverLog.isEnabled` on set + at load.
+    var maneuverLoggingEnabled: Bool = Self.maneuverLoggingDefault {
+        didSet {
+            ManeuverLog.isEnabled = maneuverLoggingEnabled
+            persist()
+        }
+    }
+
+    /// DEBUG-aware default for `maneuverLoggingEnabled` (see above).
+    static var maneuverLoggingDefault: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -504,6 +527,7 @@ final class DashNavSettings {
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
         var buttonWireLoggingEnabled: Bool?
+        var maneuverLoggingEnabled: Bool?
     }
 
     init() {
@@ -538,6 +562,8 @@ final class DashNavSettings {
         // The explicit mirror line is belt-and-suspenders.
         self.buttonWireLoggingEnabled = p.buttonWireLoggingEnabled ?? Self.buttonWireLoggingDefault
         ButtonLog.isEnabled = self.buttonWireLoggingEnabled
+        self.maneuverLoggingEnabled = p.maneuverLoggingEnabled ?? Self.maneuverLoggingDefault
+        ManeuverLog.isEnabled = self.maneuverLoggingEnabled
     }
 
     private func persist() {
@@ -560,7 +586,8 @@ final class DashNavSettings {
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
             progressBarEnabled: progressBarEnabled,
-            buttonWireLoggingEnabled: buttonWireLoggingEnabled
+            buttonWireLoggingEnabled: buttonWireLoggingEnabled,
+            maneuverLoggingEnabled: maneuverLoggingEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
