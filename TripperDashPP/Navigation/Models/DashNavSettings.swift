@@ -303,7 +303,7 @@ final class DashNavSettings {
     /// ManeuverLog — zero setup at the bike), OFF in release (where the writer
     /// isn't compiled in anyway). The Settings toggle is there to turn it OFF.
     /// Mirrored into `ButtonLog.isEnabled` on set + at load.
-    var buttonWireLoggingEnabled: Bool = Self.buttonWireLoggingDefault {
+    var buttonWireLoggingEnabled: Bool = DashNavSettings.buttonWireLoggingDefault {
         didSet {
             ButtonLog.isEnabled = buttonWireLoggingEnabled
             persist()
@@ -326,7 +326,7 @@ final class DashNavSettings {
     /// bike), OFF in release (the writer isn't compiled in anyway). The
     /// Settings toggle exists to turn it OFF. Mirrored into
     /// `ManeuverLog.isEnabled` on set + at load.
-    var maneuverLoggingEnabled: Bool = Self.maneuverLoggingDefault {
+    var maneuverLoggingEnabled: Bool = DashNavSettings.maneuverLoggingDefault {
         didSet {
             ManeuverLog.isEnabled = maneuverLoggingEnabled
             persist()
