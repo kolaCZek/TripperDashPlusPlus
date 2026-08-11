@@ -26,7 +26,7 @@ The detailed phased build plan lives **outside this repo** in the author's priva
 - **Bundle ID**: `eu.kolaczek.TripperDashPP`
 - **Distribution**: Free Apple Developer account (Personal Team, 7-day cert renewal via Xcode). No paid-only entitlements are used in MVP.
 - **Maps**: **OSM Carto raster basemap** (keyless XYZ, `tile.openstreetmap.org/{z}/{x}/{y}.png` — note: no `{s}` subdomain shard, so `subdomains` is empty and URL-building must not substitute `{s}`), fetched over cellular and cached on disk. One basemap, two palettes via a user **Light / Dark / Auto** setting: **Light** is the raw OSM raster; **Dark** is the *same* tile recoloured at composite time — a CPU-side `invert ∘ hue-rotate(180°)` colour matrix (`TileColorTransform.swift`, vImage/Accelerate so it survives the screen locking), which keeps OSM's semantics (water blue, parks green) instead of the orange/magenta a plain invert gives. Attribution is `© OpenStreetMap contributors`. Auto follows local sunrise/sunset from the GPS fix (see `SolarClock` / `MapStyleResolver`). Because dark is a recolour of the light raster, both palettes share **one** disk cache namespace (`RouteTiles/osm/…`) — one fetch, one cached PNG serves both (half the traffic, half the disk; the raw tile is kept so the filter can be retuned without re-fetching). The provider is a one-line table swap in `MapStyle.swift`; **no third-party map SDK, no API key.** Routing and place search use Apple MapKit (`MKDirections`, `MKLocalSearch`, `MKLocalSearchCompleter`).
-- **Apple frameworks in use**: `Network`, `VideoToolbox`, `Security` (RSA via SecKey), `CoreLocation`, `MapKit`, `Accelerate`/vImage (`TileColorTransform` dark recolour), `AVFoundation` (silent-audio wakelock), `CoreGraphics`/`ImageIO` (CGContext frame composition), `UIKit` (battery state), `CallKit` (incoming-call mirror), `SwiftUI`. **Not** used despite being obvious guesses: `CryptoKit` (we use `Security` for the RSA the dash expects) and `BackgroundTasks`/`BGTaskScheduler` (the wakelock is location+audio, not a scheduled BG task).
+- **Apple frameworks in use**: `Network`, `VideoToolbox`, `Security` (RSA via SecKey), `CoreLocation`, `MapKit`, `Accelerate`/vImage (`TileColorTransform` dark recolour), `AVFoundation` (silent-audio wakelock + `AVSpeechSynthesizer` offline voice guidance), `CoreGraphics`/`ImageIO` (CGContext frame composition), `UIKit` (battery state), `CallKit` (incoming-call mirror), `MediaPlayer` (`MPMusicPlayerController` next/prev track from dash buttons), `SwiftUI`. **Not** used despite being obvious guesses: `CryptoKit` (we use `Security` for the RSA the dash expects) and `BackgroundTasks`/`BGTaskScheduler` (the wakelock is location+audio, not a scheduled BG task).
 - **Keyless ride-data services (cellular, no account)**: Open-Meteo (weather pill — samples the route ahead every 10 km out to 100 km in one multi-point request, reports the nearest hazard's along-route distance) and OpenStreetMap Overpass (speed-camera overlay) — both keyless, consistent with the free-account stance.
 
 ## Architecture summary (one screen)
@@ -78,6 +78,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 | `HeartbeatLoop.swift` | (n/a — bike is passive) | 1 Hz `0044` + `0030` status pair once connected |
 | `DeviceTelemetry.swift` | (status payload source) | live phone status for heartbeat (battery/charge/GPS/signal) — see `06 04`/`06 0F`/`06 03`/`06 01`/`06 08` TLVs |
 | `CallStateObserver.swift` | (n/a — phone-side only) | CallKit `CXCallObserver` → OEM incoming-call card on the dash |
+| `DashMediaControl.swift` | (n/a — phone-side only) | dash LEFT/RIGHT-hold buttons → `MPMusicPlayerController` next/prev track |
 
 **Drift policy:** when `tools/fake_dash/fake_dash/protocol.py` changes its wire format, the matching `K1G*.swift` constant **must** change in the same commit, and the integration test should pin the new shape. **But the integration test is not the protocol authority** — `better-dash` is. The real dash validates `outer_len`, `seg_count` (hardcoded for status templates, `count+1` for Q3C envelopes), the outbound type-byte family (`{0x02, 0x05, 0x06, 0x08}` — never `0x07`, which is inbound-only), and the rolling sequence byte. fake_dash checks none of these; both can pass and the bike still drops the packet. See the `royal-enfield-tripper-dash` skill (`references/k1g-wire-protocol.md`) before editing any `Tripper/` file.
 
@@ -95,11 +96,12 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 ```
 TripperDashPP/TripperDashPP.xcodeproj/   # Xcode project (committed; xcuserdata gitignored)
 TripperDashPP/                           # App source
-├── App/          # @main, AppStatus (shared observable state), LocationService, SilentAudioKeeper
+├── App/          # @main, AppStatus (shared observable state), LocationService, SilentAudioKeeper, VoiceNavigator (offline spoken turn-by-turn)
 ├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, RideStatsPanel, InteractiveMapView)
 │   └── Navigation/   # search / preview / favorites / saved-routes sheets, NavigationHUD, RouteProgressMap, QuickAccessTiles, PrerenderProgressView
 ├── Tripper/      # K1G control plane (BikeLink, DashSocket, K1GPacket, RsaHandshake, HeartbeatLoop, K1GConstants),
-│   #              plus DeviceTelemetry (phone status), CallStateObserver (OEM incoming-call mirror)
+│   #              plus DeviceTelemetry (phone status), CallStateObserver (OEM incoming-call mirror),
+│   #              DashMediaControl (dash buttons → next/prev track), ButtonLog (joystick event decode/ack)
 ├── Stream/       # VideoToolbox H.264 encoder + RTP packetizer (FrameSource, H264Encoder, RtpStreamer, RtpPacketizer)
 ├── Map/          # OSM raster tile pipeline + BG-safe CGContext frame source
 │   #              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock)
