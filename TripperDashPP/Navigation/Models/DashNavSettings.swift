@@ -26,8 +26,8 @@
 //     and diverged from the real-phone capture, so it was removed. Which
 //     field the dash shows in its bottom row is a dash-side decision we
 //     don't yet know how to drive deterministically (likely the
-//     undecoded `05 0C` field); `includeEtaTlv` is retained below but is
-//     currently advisory only.
+//     undecoded `05 0C` field). The `bottomLine` preference still persists
+//     the user's choice, but nothing gates the ETA TLV on it anymore.
 //
 //  Persisted in UserDefaults under "dashNavSettings.v11". An earlier v2
 //  carried four diagnostic toggles for the Bug 3 clock-shift A/B test;
@@ -469,14 +469,6 @@ final class DashNavSettings {
 
     var useCommaDecimal: Bool { decimalSeparator == .comma }
     var is24Hour: Bool { clockFormat == .h24 }
-    /// ADVISORY ONLY as of 6/2026. The active-nav loop no longer omits the
-    /// ETA TLV when this is false — it mirrors the OEM app and always sends
-    /// ETA + total-distance + remaining-time together. Kept so the UI toggle
-    /// still persists the user's preference and so a future, capture-verified
-    /// bottom-row selector (likely the `05 0C` field) can consume it. Do NOT
-    /// re-wire this to gate TLV emission — that was the blank-ETA / broken-km
-    /// bug.
-    var includeEtaTlv: Bool { bottomLine == .eta }
 
     // MARK: - Persistence
 

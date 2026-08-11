@@ -42,10 +42,6 @@ nonisolated enum K1G {
     /// open_listen_socket_2002`).
     static let rxPort: UInt16 = 2002
 
-    /// **Deprecated**: use `txPort` / `rxPort`. Kept until callers migrate.
-    @available(*, deprecated, renamed: "txPort")
-    static var controlPort: UInt16 { txPort }
-
     /// UDP port the dash listens on for the H.264 RTP stream.
     static let rtpPort: UInt16 = 5000
 
