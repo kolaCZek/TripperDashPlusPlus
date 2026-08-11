@@ -84,52 +84,18 @@ final class MapViewSource: NSObject, FrameSource {
     private var frameIndex: UInt64 = 0
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
-    // MARK: - Adaptive frame cadence (battery saver)
+    // MARK: - Fixed frame cadence
     //
-    // The render Task still *ticks* at `targetFps` (6 Hz) so heading/zoom
-    // lerps stay smooth and we react to motion within ~166 ms — but the
-    // EXPENSIVE work (CGContext composite → VideoToolbox encode → RTP send,
-    // plus the per-frame q3c.g projection kick) only runs when the emit gate
-    // below says the picture actually changed. Two independent savings:
-    //   1. Adaptive fps: at a standstill with a settled view we drop to a
-    //      1 Hz keep-alive; the instant the rider moves OR the map rotates/
-    //      zooms (e.g. turning the bars at a red light) we snap back to the
-    //      full 6 Hz so the animation stays fluid.
-    //   2. Skip-identical: even nominally "active" ticks whose fingerprint
-    //      matches the last emitted frame are suppressed until the keep-alive
-    //      falls due.
-    // Moving (city/highway) → fingerprint changes every fix → full 6 fps,
-    // exactly as before. The win is concentrated in stop-and-go time.
+    // The render Task ticks at `targetFps` (6 Hz) and emits EVERY tick —
+    // CGContext composite → VideoToolbox encode → RTP send, plus the
+    // per-frame projection kick — including at a standstill. An earlier
+    // adaptive scheme (drop to 1 Hz + skip identical frames when parked)
+    // was removed on rider request: at 526×300 / ~1 Mbps the idle battery
+    // saving was negligible and the dropped cadence occasionally read as a
+    // frozen picture. Fixed 6 fps is simpler and looks consistently live.
 
-    /// Heading (0.5°) + zoom (0.02) quantised so a settled view yields a
-    /// stable fingerprint while an in-progress rotation/zoom keeps changing
-    /// it (and thus holds 6 fps until it lands). Everything else that can
-    /// change at a standstill (weather pill, cameras, maneuver glyph, style)
-    /// is picked up by the ≤1 s keep-alive, so it's deliberately excluded
-    /// to keep the fingerprint cheap and jitter-proof.
-    private struct RenderFingerprint: Equatable {
-        var headingHalfDeg: Int
-        var zoomCenti: Int
-    }
-
-    /// GPS speed at/above which we treat the rider as "moving" and force the
-    /// full cadence regardless of fingerprint. 0.7 m/s ≈ 2.5 km/h — above
-    /// walking-the-bike noise, below any real ride speed. Uses CoreLocation
-    /// `speed` (not position deltas) so a stationary GPS jitter can't fake
-    /// motion and pin us at 6 fps over a red light.
-    private static let motionThresholdMPS: Double = 0.7
-
-    /// Standstill keep-alive ceiling. With nothing moving we still emit one
-    /// frame per second so the dash projection surface + q3c.g refresh tick
-    /// stays alive (the OEM app streams continuously; 1 fps is the floor we
-    /// trust the firmware to hold the last bitmap through).
-    private static let idleKeepAliveInterval: CFTimeInterval = 1.0
-
-    private var lastEmittedFingerprint: RenderFingerprint?
-    /// Monotonic (CACurrentMediaTime) timestamp of the last emitted frame.
-    private var lastEmitMediaTime: CFTimeInterval = 0
     /// Stream start on the same monotonic clock — PTS base so RTP 90 kHz
-    /// timestamps stay real-time-correct under a variable cadence.
+    /// timestamps stay real-time-correct.
     private var streamStartMediaTime: CFTimeInterval = 0
 
     private var pixelBufferPool: CVPixelBufferPool?
@@ -540,14 +506,11 @@ final class MapViewSource: NSObject, FrameSource {
     func start(onFrame: @escaping (CVPixelBuffer, CMTime) -> Void) {
         self.onFrame = onFrame
         self.frameIndex = 0
-        // Reset the adaptive-cadence clock + gate state for a fresh stream.
         self.streamStartMediaTime = CACurrentMediaTime()
-        self.lastEmitMediaTime = 0
-        self.lastEmittedFingerprint = nil
         preparePool()
         subscribeLocation()
         startTimer()
-        log.info("MapViewSource started (prerendered tiles + CGContext, adaptive \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
+        log.info("MapViewSource started (prerendered tiles + CGContext, fixed \(self.targetFps) fps, \(Int(self.frameSize.width))x\(Int(self.frameSize.height)))")
     }
 
     func stop() {
@@ -959,61 +922,28 @@ extension MapViewSource {
     private func tickOnMain() async {
         guard onFrame != nil else { return }
 
-        // 1. Advance the cheap per-tick animation state EVERY tick (6 Hz),
-        //    even when we end up skipping the expensive emit below. This is
-        //    what keeps a rotation/zoom in-progress dribbling forward and,
-        //    crucially, keeps the fingerprint *changing* while it settles —
-        //    so the gate holds the full cadence until the animation lands,
-        //    then naturally relaxes to the keep-alive once it's still.
+        // 1. Advance the per-tick animation state (heading + zoom lerps)
+        //    every tick (6 Hz) so an in-progress rotation/zoom dribbles
+        //    forward smoothly before we render.
         updateHeading()
         updateZoom()
 
-        // 2. Emit gate. Force the full cadence whenever the rider is moving
-        //    (GPS speed), otherwise emit only when the view fingerprint
-        //    changed or the ≤1 s keep-alive falls due.
+        // 2. Render + emit this tick unconditionally (fixed 6 fps).
         let now = CACurrentMediaTime()
-        let moving = (lastFix?.speed ?? -1) >= Self.motionThresholdMPS
-        let fingerprint = currentFingerprint()
-        let changed = (fingerprint != lastEmittedFingerprint)
-        let keepAliveDue = (now - lastEmitMediaTime) >= Self.idleKeepAliveInterval
-
-        guard moving || changed || keepAliveDue else {
-            // Standstill, settled view, keep-alive not yet due → skip the
-            // CGContext composite + encode + RTP send entirely. The heartbeat
-            // loop (separate 1 Hz task) keeps the K1G link up meanwhile; the
-            // dash holds the last projected bitmap.
-            return
-        }
 
         guard let buffer = renderMapViewToPixelBuffer() else { return }
 
-        // Real-time PTS from the monotonic clock (NOT frameIndex / fps) so the
-        // RTP 90 kHz timestamps stay wall-clock-correct under a variable
-        // cadence — a fixed-step PTS would make a 1 fps idle stretch look like
-        // it played back 6× too fast once motion resumes.
+        // Real-time PTS from the monotonic clock (NOT frameIndex / fps) so
+        // the RTP 90 kHz timestamps stay wall-clock-correct — robust even
+        // if a tick is ever late under load.
         let elapsed = max(0.0, now - streamStartMediaTime)
         let pts = CMTime(seconds: elapsed, preferredTimescale: 90_000)
         frameIndex &+= 1
-        lastEmittedFingerprint = fingerprint
-        lastEmitMediaTime = now
         if frameIndex % 60 == 0 {
             let state = UIApplication.shared.applicationState.rawValue
-            log.info("frame tick #\(self.frameIndex, privacy: .public) (appState=\(state, privacy: .public), moving=\(moving, privacy: .public))")
+            log.info("frame tick #\(self.frameIndex, privacy: .public) (appState=\(state, privacy: .public))")
         }
         onFrame?(buffer, pts)
-    }
-
-    /// Quantised snapshot of the only continuously-varying inputs to the
-    /// rendered picture at a standstill (post-lerp heading + zoom). Coarse
-    /// buckets (0.5° / 0.02×) so a fully settled view yields a stable value
-    /// — the lerps decay geometrically and would otherwise never compare
-    /// exactly equal, defeating the skip. A live rotation/zoom still moves
-    /// across buckets every tick and holds the full cadence until it lands.
-    private func currentFingerprint() -> RenderFingerprint {
-        RenderFingerprint(
-            headingHalfDeg: Int((lastHeading * 2).rounded()),
-            zoomCenti: Int((currentZoom * 50).rounded())
-        )
     }
 
     private func renderMapViewToPixelBuffer() -> CVPixelBuffer? {
