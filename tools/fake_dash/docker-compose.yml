@@ -36,5 +36,10 @@ services:
       FAKE_DASH_CAPTURES_DIR: "/captures"
       FAKE_DASH_KEYS_DIR: "/keys"
       FAKE_DASH_LOG_LEVEL: "INFO"
+      # Set to 1 (e.g. via `make fake-dash-sniff`) to enable the nav-info TLV
+      # sniffer — decodes the phone's 0x05 active-nav fields and enables the
+      # `snap mark|diff|dump` control commands for capturing OEM-app setting
+      # bytes (12/24h, bubble bottom row). Empty/unset = off (normal harness).
+      FAKE_DASH_SNIFF: "${FAKE_DASH_SNIFF:-}"
       PYTHONUNBUFFERED: "1"
     command: ["server"]

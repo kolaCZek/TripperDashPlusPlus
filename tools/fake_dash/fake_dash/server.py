@@ -33,6 +33,7 @@ from pathlib import Path
 
 from .buttons import Button, build_button_packet
 from .control_socket import ControlServer, DEFAULT_SOCKET_PATH
+from .nav_sniffer import NavSnapshot, describe_field
 from .protocol import (
     BIKE_ANNOUNCE_HEX,
     RollingSeq,
@@ -77,6 +78,13 @@ class PhonePeer:
     # Set after the first empty K1G envelope (heartbeat) is logged at INFO.
     # Subsequent ones drop to DEBUG.
     empty_envelope_logged: bool = False
+    # Rolling nav-info TLV snapshot for the sniffer (--sniff). Holds the
+    # latest value of every 0x05/0x06 field this peer has sent, so we can
+    # diff across an OEM-app toggle flip. None until the sniffer is enabled.
+    snap: "NavSnapshot | None" = None
+    # Operator-captured baseline snapshot (set via `fake-dash snap mark`),
+    # compared against the live `snap` when `fake-dash snap diff` is called.
+    snap_baseline: "NavSnapshot | None" = None
 
 
 class FakeDashServer:
@@ -96,6 +104,7 @@ class FakeDashServer:
         captures_dir: str | Path = "/captures",
         bike_ssid: str = DEFAULT_BIKE_SSID,
         enable_beacon: bool = True,
+        enable_sniff: bool = False,
         control_socket_path: str | Path = DEFAULT_SOCKET_PATH,
     ) -> None:
         self.bind_addr = bind_addr
@@ -103,6 +112,7 @@ class FakeDashServer:
         self.rtp_port = rtp_port
         self.bike_ssid = bike_ssid
         self.enable_beacon = enable_beacon
+        self.enable_sniff = enable_sniff
 
         self._private_key = load_or_generate_key(keys_dir)
         self._handshake = HandshakeState(expected_ssid=bike_ssid)
@@ -127,6 +137,7 @@ class FakeDashServer:
         self._control = ControlServer(
             socket_path=control_socket_path,
             on_button=self.send_button,
+            on_sniff=self._handle_sniff_command if enable_sniff else None,
         )
 
     # ------------------------------------------------------------------ lifecycle
@@ -346,6 +357,16 @@ class FakeDashServer:
                 )
             return
 
+        # Type 0x05: nav-info TLV family (active-nav packet). This is where
+        # the interesting settings live (ETA format, decimal separator, the
+        # suspected bottom-row selector). When --sniff is on, decode + diff
+        # every field so an operator can flip a toggle in the OEM app and see
+        # exactly which byte moved. Without --sniff we stay quiet (these fire
+        # several times a second during navigation).
+        if seg.type == 0x05 and self.enable_sniff:
+            self._sniff_segment(seg, peer)
+            return
+
         log.info(
             "RX %s: unhandled seg type=0x%02X sub=0x%02X len=%d",
             peer.addr,
@@ -353,6 +374,63 @@ class FakeDashServer:
             seg.sub,
             len(seg.payload),
         )
+
+    def _sniff_segment(self, seg: Segment, peer: PhonePeer) -> None:
+        """
+        Sniffer hook (--sniff): record a nav-info field into the peer's rolling
+        snapshot and log it the first time we see it or when its value changes.
+        Steady-state fields (that repeat unchanged every tick) are logged once
+        then go quiet, so a toggle flip in the OEM app stands out as the only
+        new CHANGED line.
+        """
+        if peer.snap is None:
+            peer.snap = NavSnapshot()
+        changed = peer.snap.observe(seg.type, seg.sub, seg.payload)
+        if changed:
+            log.info("SNIFF %s: %s", peer.addr, describe_field(seg.type, seg.sub, seg.payload))
+
+    def _handle_sniff_command(self, action: str) -> str:
+        """
+        Control-socket handler for `fake-dash snap <mark|diff|dump>`.
+
+        Operates on the most-recently-active phone peer (the one that sent a
+        packet last) — during a capture there is only one phone, so this is
+        unambiguous.
+
+          * mark — snapshot the current nav-info wire state as the baseline.
+          * diff — compare live state vs the baseline; the changed field(s)
+                   are the wire effect of whatever you just toggled in the app.
+          * dump — list every nav-info field currently known.
+        """
+        peer = self._most_recent_peer()
+        if peer is None:
+            return "ERR no phone peer yet (start navigation in the app first)"
+        if peer.snap is None:
+            return "ERR no nav-info fields seen yet (is navigation running?)"
+
+        if action == "mark":
+            peer.snap_baseline = peer.snap.copy()
+            return f"OK baseline marked ({len(peer.snap_baseline.fields)} fields)"
+        if action == "diff":
+            if peer.snap_baseline is None:
+                return "ERR no baseline — run `snap mark` before flipping the toggle"
+            lines = peer.snap_baseline.diff(peer.snap)
+            if not lines:
+                return "OK no change since baseline (toggle had no wire effect?)"
+            return "CHANGED since baseline:\n" + "\n".join(lines)
+        if action == "dump":
+            keys = sorted(peer.snap.fields)
+            body = "\n".join(
+                "  " + describe_field(t, s, peer.snap.fields[(t, s)]) for (t, s) in keys
+            )
+            return f"OK {len(keys)} fields:\n{body}"
+        return f"ERR unknown sniff action {action!r} (use mark|diff|dump)"
+
+    def _most_recent_peer(self) -> "PhonePeer | None":
+        with self._peers_lock:
+            if not self._peers:
+                return None
+            return max(self._peers.values(), key=lambda p: p.last_seen)
 
     def _handle_auth_request(self, peer: PhonePeer) -> None:
         log.info("AUTH ← %s: pubkey request, sending modulus + exponent", peer.addr)

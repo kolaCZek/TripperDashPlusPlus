@@ -57,9 +57,11 @@ class ControlServer:
         *,
         socket_path: str | Path = DEFAULT_SOCKET_PATH,
         on_button: Callable[[Button], int],
+        on_sniff: "Callable[[str], str] | None" = None,
     ) -> None:
         self.socket_path = str(socket_path)
         self._on_button = on_button
+        self._on_sniff = on_sniff
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -153,6 +155,19 @@ class ControlServer:
                 conn.sendall(f"OK {n}\n".encode("utf-8"))
             return
 
+        # SNIFF <mark|diff|dump> — nav-info TLV sniffer control. `mark` snapshots
+        # the current wire state as a baseline; `diff` compares the live state
+        # against that baseline (use across an OEM-app toggle flip); `dump`
+        # prints every field currently known. Only wired when the server was
+        # started with --sniff.
+        if cmd == "SNIFF" and len(parts) == 2:
+            if self._on_sniff is None:
+                conn.sendall(b"ERR sniffer disabled (start server with --sniff)\n")
+                return
+            reply = self._on_sniff(parts[1].lower())
+            conn.sendall((reply.rstrip("\n") + "\n").encode("utf-8"))
+            return
+
         conn.sendall(f"ERR unknown command {cmd!r}\n".encode("utf-8"))
 
 
@@ -167,6 +182,9 @@ class ControlClient:
 
     def send_button(self, button: Button, timeout: float = 3.0) -> str:
         return self._roundtrip(f"BUTTON {button.name.lower()}\n", timeout)
+
+    def send_sniff(self, action: str, timeout: float = 3.0) -> str:
+        return self._roundtrip(f"SNIFF {action.lower()}\n", timeout)
 
     def ping(self, timeout: float = 1.0) -> str:
         return self._roundtrip("PING\n", timeout)

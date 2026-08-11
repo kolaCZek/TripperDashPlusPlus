@@ -95,6 +95,14 @@ def _make_parser() -> argparse.ArgumentParser:
         help="Disable the 1 Hz UDP broadcast beacon",
     )
     srv.add_argument(
+        "--sniff",
+        action="store_true",
+        default=bool(os.environ.get("FAKE_DASH_SNIFF")),
+        help="Enable the nav-info TLV sniffer: decode/log every 0x05 active-nav "
+        "field and expose `fake-dash snap mark|diff|dump` for capturing the "
+        "wire effect of OEM-app settings (12/24h, bottom row).",
+    )
+    srv.add_argument(
         "--log-level",
         default=os.environ.get("FAKE_DASH_LOG_LEVEL", "INFO"),
         help="DEBUG, INFO, WARNING, ERROR (default: INFO)",
@@ -135,6 +143,25 @@ def _make_parser() -> argparse.ArgumentParser:
         help=f"Raw mode only: target K1G port (default: {DEFAULT_K1G_PORT})",
     )
 
+    # snap -------------------------------------------------------------
+    snap = sub.add_parser(
+        "snap",
+        help="Nav-info TLV sniffer control (server must run with --sniff). "
+        "Capture the wire effect of an OEM-app setting: `snap mark`, flip "
+        "the toggle in the app, then `snap diff`.",
+    )
+    snap.add_argument(
+        "action",
+        choices=["mark", "diff", "dump"],
+        help="mark = snapshot baseline; diff = show what changed since "
+        "baseline; dump = list every nav-info field currently seen",
+    )
+    snap.add_argument(
+        "--socket",
+        default=os.environ.get("FAKE_DASH_CONTROL_SOCKET", DEFAULT_SOCKET_PATH),
+        help=f"Path to the fake_dash control socket (default: {DEFAULT_SOCKET_PATH})",
+    )
+
     return p
 
 
@@ -150,6 +177,7 @@ def _run_server(args: argparse.Namespace) -> int:
         captures_dir=args.captures_dir,
         bike_ssid=args.ssid,
         enable_beacon=not args.no_beacon,
+        enable_sniff=args.sniff,
     )
     server.start()
     try:
@@ -212,6 +240,43 @@ def _run_button(args: argparse.Namespace) -> int:
     return 0 if reply.startswith("OK") else 1
 
 
+def _run_snap(args: argparse.Namespace) -> int:
+    """
+    Drive the nav-info sniffer over the control socket.
+
+    Typical capture session (server started with --sniff, OEM app navigating
+    against the emulator):
+
+        fake-dash snap mark          # baseline the current wire state
+        # …flip 12/24h (or bottom-row) in the Royal Enfield app…
+        fake-dash snap diff          # the CHANGED line is the control byte
+
+    `snap dump` lists every nav-info field currently known, handy for a first
+    look at what the OEM app streams.
+    """
+    _setup_logging("INFO")
+    log = logging.getLogger("fake_dash.cli")
+    client = ControlClient(socket_path=args.socket)
+    try:
+        reply = client.send_sniff(args.action)
+    except (FileNotFoundError, ConnectionRefusedError) as exc:
+        log.error(
+            "Control socket %s not reachable (%s). Is the fake_dash server "
+            "running with --sniff? (`make fake-dash-sniff`)",
+            args.socket,
+            exc,
+        )
+        return 1
+    except OSError as exc:
+        log.error("Control socket I/O failed: %s", exc)
+        return 1
+
+    # Multi-line replies (diff/dump) print verbatim so the operator sees the
+    # full field list; the leading OK/CHANGED/ERR token drives the exit code.
+    print(reply)
+    return 0 if reply.startswith(("OK", "CHANGED")) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _make_parser()
     args = parser.parse_args(argv)
@@ -220,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_server(args)
     if cmd == "button":
         return _run_button(args)
+    if cmd == "snap":
+        return _run_snap(args)
     parser.error(f"unknown command {cmd!r}")
     return 2  # unreachable
 
