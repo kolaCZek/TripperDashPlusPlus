@@ -164,23 +164,6 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
-    /// Phase 9h: mirror incoming MESSAGES onto the dash the same way the OEM
-    /// app does — the `km3.z()` burst of a plaintext `06 09` unread count plus
-    /// up to five AES-encrypted slots (content `0524…`, sender `0527…`,
-    /// timestamp `052A…`). See `MessageNotification` + the
-    /// `message-notification-wire-protocol.md` skill reference. Defaults to
-    /// ON. When OFF, `BikeLink.sendMessageNotification` is a no-op so nothing
-    /// message-related ever reaches the wire.
-    ///
-    /// NOTE: unlike call-state, iOS has no general incoming-SMS API, so this
-    /// only surfaces messages from whatever source the app actually feeds
-    /// into `MessageFeed` (its own push extension, or a user/test entry) —
-    /// the toggle gates the wire path regardless of where the message came
-    /// from.
-    var messageNotifyEnabled: Bool = true {
-        didSet { persist() }
-    }
-
     /// Ride-alerts: surface ride-relevant WEATHER (rain/ice/storm/strong
     /// gusts/fog) as a compact pill burned into the bottom-right of the
     /// streamed map. Sourced keyless from Open-Meteo (WeatherKit needs a
@@ -515,7 +498,6 @@ final class DashNavSettings {
         var lookaheadEnabled: Bool?
         var lookaheadThresholdMeters: Double?
         var callStateEnabled: Bool?
-        var messageNotifyEnabled: Bool?
         var weatherAlertsEnabled: Bool?
         var speedCamerasEnabled: Bool?
         var speedLimitDisplay: SpeedLimitDisplay?
@@ -545,7 +527,6 @@ final class DashNavSettings {
         self.lookaheadEnabled = p.lookaheadEnabled ?? true
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
-        self.messageNotifyEnabled = p.messageNotifyEnabled ?? true
         self.weatherAlertsEnabled = p.weatherAlertsEnabled ?? true
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
         self.speedLimitDisplay = p.speedLimitDisplay ?? .always
@@ -575,7 +556,6 @@ final class DashNavSettings {
             lookaheadEnabled: lookaheadEnabled,
             lookaheadThresholdMeters: lookaheadThresholdMeters,
             callStateEnabled: callStateEnabled,
-            messageNotifyEnabled: messageNotifyEnabled,
             weatherAlertsEnabled: weatherAlertsEnabled,
             speedCamerasEnabled: speedCamerasEnabled,
             speedLimitDisplay: speedLimitDisplay,
