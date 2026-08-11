@@ -426,6 +426,13 @@ final class MapViewSource: NSObject, FrameSource {
         zoomOsd = (symbol: zoomIn ? "＋" : "－",
                    until: Date().addingTimeInterval(1.2),
                    atLimit: atLimit)
+        #if DEBUG
+        // Final stage of the button pipeline: confirm the zoom actually moved
+        // (or was clamped). If the console shows the BikeLink "routing to
+        // onButton" line but NOT this one, the hook wiring is the break; if it
+        // shows this but the dash view doesn't change, the bias→render path is.
+        log.info("BTN zoom: \(zoomIn ? "IN" : "OUT", privacy: .public) bias \(before, format: .fixed(precision: 3), privacy: .public) → \(self.userZoomBias, format: .fixed(precision: 3), privacy: .public)\(atLimit ? " (AT LIMIT, no change)" : "", privacy: .public)")
+        #endif
     }
 
     /// Ease the manual bias back toward 1.0 once the rider has stopped
