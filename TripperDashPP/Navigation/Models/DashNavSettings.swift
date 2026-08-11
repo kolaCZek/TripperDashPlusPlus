@@ -296,6 +296,52 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// DIAGNOSTIC opt-in: persist every inbound K1G packet raw to the phone's
+    /// disk (`Documents/button-logs/*.jsonl`) so a rider with ONLY a phone at
+    /// the bike (no laptop) can capture the real joystick wire bytes and pull
+    /// them off later via the Files app. **Default ON in DEBUG** (like
+    /// ManeuverLog — zero setup at the bike), OFF in release (where the writer
+    /// isn't compiled in anyway). The Settings toggle is there to turn it OFF.
+    /// Mirrored into `ButtonLog.isEnabled` on set + at load.
+    var buttonWireLoggingEnabled: Bool = Self.buttonWireLoggingDefault {
+        didSet {
+            ButtonLog.isEnabled = buttonWireLoggingEnabled
+            persist()
+        }
+    }
+
+    /// DEBUG-aware default for `buttonWireLoggingEnabled` (see above).
+    static var buttonWireLoggingDefault: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// DIAGNOSTIC opt-in: persist per-maneuver navigation state to the phone's
+    /// disk (`Documents/maneuver-logs/*.jsonl`) so a route can be replayed /
+    /// grepped offline after a ride. Same shape and rationale as
+    /// `buttonWireLoggingEnabled`: **default ON in DEBUG** (zero setup at the
+    /// bike), OFF in release (the writer isn't compiled in anyway). The
+    /// Settings toggle exists to turn it OFF. Mirrored into
+    /// `ManeuverLog.isEnabled` on set + at load.
+    var maneuverLoggingEnabled: Bool = Self.maneuverLoggingDefault {
+        didSet {
+            ManeuverLog.isEnabled = maneuverLoggingEnabled
+            persist()
+        }
+    }
+
+    /// DEBUG-aware default for `maneuverLoggingEnabled` (see above).
+    static var maneuverLoggingDefault: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -480,6 +526,8 @@ final class DashNavSettings {
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
+        var buttonWireLoggingEnabled: Bool?
+        var maneuverLoggingEnabled: Bool?
     }
 
     init() {
@@ -508,6 +556,14 @@ final class DashNavSettings {
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
         self.progressBarEnabled = p.progressBarEnabled ?? true
+        // Setting this fires the didSet (load() is a method, not the init
+        // body), which mirrors into ButtonLog.isEnabled and re-persists the
+        // same blob — harmless, same as every other observed field above.
+        // The explicit mirror line is belt-and-suspenders.
+        self.buttonWireLoggingEnabled = p.buttonWireLoggingEnabled ?? Self.buttonWireLoggingDefault
+        ButtonLog.isEnabled = self.buttonWireLoggingEnabled
+        self.maneuverLoggingEnabled = p.maneuverLoggingEnabled ?? Self.maneuverLoggingDefault
+        ManeuverLog.isEnabled = self.maneuverLoggingEnabled
     }
 
     private func persist() {
@@ -529,7 +585,9 @@ final class DashNavSettings {
             voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
-            progressBarEnabled: progressBarEnabled
+            progressBarEnabled: progressBarEnabled,
+            buttonWireLoggingEnabled: buttonWireLoggingEnabled,
+            maneuverLoggingEnabled: maneuverLoggingEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

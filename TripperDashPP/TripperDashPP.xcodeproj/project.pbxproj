@@ -108,6 +108,7 @@
 		5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
 		5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
 		5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000B0 /* TripperDashShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B71A000000000000000000C2 /* ButtonLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B71A000000000000000000C1 /* ButtonLog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -214,6 +215,7 @@
 		5E5E000000000000000000B0 /* TripperDashShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E5E000000000000000000C0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		5E5E000000000000000000D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B71A000000000000000000C1 /* ButtonLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonLog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -335,6 +337,7 @@
 				A4CA110000000000000000F2 /* DeviceTelemetry.swift */,
 				A4CA110000000000000000F4 /* K1GCrypto.swift */,
 				A4CA110000000000000000F6 /* MessageNotification.swift */,
+				B71A000000000000000000C1 /* ButtonLog.swift */,
 			);
 			path = Tripper;
 			sourceTree = "<group>";
@@ -712,6 +715,7 @@
 				A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */,
 				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
 				A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */,
+				B71A000000000000000000C2 /* ButtonLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
