@@ -63,10 +63,7 @@ final class DashNavSettings {
         /// everything else (incl. UK, which is mixed but road-distances-metric
         /// enough here) as metric. The rider can override in settings.
         static var deviceDefault: UnitSystem {
-            if #available(iOS 16, *) {
-                return Locale.current.measurementSystem == .us ? .imperial : .metric
-            }
-            return Locale.current.usesMetricSystem ? .metric : .imperial
+            Locale.current.measurementSystem == .us ? .imperial : .metric
         }
     }
 
