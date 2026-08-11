@@ -34,6 +34,8 @@ struct FreeRideHUD: View {
     let stats: RideStats
     /// Rider unit preference for the distance readout.
     let imperial: Bool
+    /// Rider decimal-separator preference for the distance readout.
+    var useCommaDecimal: Bool = false
     /// Current GPS fix for the position-only map puck.
     let position: CLLocationCoordinate2D?
 
@@ -87,7 +89,7 @@ struct FreeRideHUD: View {
                 slot(title: "Duration", value: RideStatsFormatting.duration(stats.elapsedSeconds), icon: "clock")
                 Divider().frame(height: 32)
                 slot(title: "Distance",
-                     value: RideStatsFormatting.distance(stats.distanceMeters, imperial: imperial),
+                     value: RideStatsFormatting.distance(stats.distanceMeters, imperial: imperial, useCommaDecimal: useCommaDecimal),
                      icon: "ruler")
             }
             .padding(12)

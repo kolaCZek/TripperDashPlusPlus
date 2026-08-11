@@ -616,7 +616,12 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
-        NavigationHUD(isReconnecting: status.bikeLink.state == .reconnecting)
+        NavigationHUD(
+            isReconnecting: status.bikeLink.state == .reconnecting,
+            imperial: status.dashNavSettings.units == .imperial,
+            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
+            is24Hour: status.dashNavSettings.is24Hour
+        )
             .environment(status.activeNavigator)
             .onAppear {
                 forwardFixesToNavigator()
@@ -657,6 +662,7 @@ struct MapPickerView: View {
         FreeRideHUD(
             stats: status.rideStats.stats,
             imperial: status.dashNavSettings.units == .imperial,
+            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
             position: status.locationService.lastFix?.coordinate
         )
         .padding(.horizontal, 12)

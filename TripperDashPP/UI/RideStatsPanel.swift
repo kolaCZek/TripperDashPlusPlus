@@ -34,6 +34,7 @@ struct RideStatsPanel: View {
 
     private var stats: RideStats { status.rideStats.stats }
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
+    private var useCommaDecimal: Bool { status.dashNavSettings.decimalSeparator == .comma }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -58,7 +59,7 @@ struct RideStatsPanel: View {
             }
 
             // Hero: distance ridden.
-            Text(RideStatsFormatting.distance(stats.distanceMeters, imperial: imperial))
+            Text(RideStatsFormatting.distance(stats.distanceMeters, imperial: imperial, useCommaDecimal: useCommaDecimal))
                 .font(.system(size: 40, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())

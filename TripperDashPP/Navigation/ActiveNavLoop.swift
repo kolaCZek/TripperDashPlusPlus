@@ -224,8 +224,9 @@ final class ActiveNavLoop {
         // AND the remaining-time (05 0B) TLVs together in EVERY packet —
         // it does NOT omit one of them to pick the dash's bottom row.
         //
-        // The previous code gated ETA vs remaining-time on `bottomLine`
-        // (an XOR), which had two field-confirmed bugs (Martin, 6/2026):
+        // The previous code gated ETA vs remaining-time on a `bottomLine`
+        // preference (an XOR), which had two field-confirmed bugs (Martin,
+        // 6/2026):
         //   * choosing "distance remaining" dropped ETA and sent a
         //     remaining-TIME duration instead of letting the dash show the
         //     km-to-destination total — "switch to km doesn't work";

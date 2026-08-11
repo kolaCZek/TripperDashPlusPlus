@@ -29,6 +29,13 @@ struct NavigationHUD: View {
     /// only has the navigator in its environment.
     var isReconnecting: Bool = false
 
+    /// Rider display preferences, injected from MapPickerView (the HUD only
+    /// has the navigator in its environment). Default to metric / 24-hour so
+    /// previews and any un-wired call sites still compile and read sanely.
+    var imperial: Bool = false
+    var useCommaDecimal: Bool = false
+    var is24Hour: Bool = true
+
     var body: some View {
         VStack(spacing: 16) {
             if isReconnecting { reconnectBanner }
@@ -257,15 +264,24 @@ struct NavigationHUD: View {
 
     private var distanceToNext: String {
         let m = nav.distanceToNextStep
-        if m < 100 { return String(format: "%.0f m", m) }
-        if m < 1000 { return String(format: "%.0f m", (m / 10).rounded() * 10) }
-        return String(format: "%.1f km", m / 1000)
+        // Sub-km: show fine metres/feet (dash-parity close-in). ≥1 km: hand
+        // off to the shared km/mi formatter so units + decimal separator match
+        // the rest of the app.
+        if m < 1000 {
+            let rounded = m < 100 ? m : (m / 10).rounded() * 10
+            return imperial ? String(format: "%.0f ft", rounded * 3.280839895013123)
+                            : String(format: "%.0f m", rounded)
+        }
+        return RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: useCommaDecimal)
     }
 
     private var distanceRemaining: String {
         let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance
-        if m < 1000 { return String(format: "%.0f m", m) }
-        return String(format: "%.1f km", m / 1000)
+        if m < 1000 {
+            return imperial ? String(format: "%.0f ft", m * 3.280839895013123)
+                            : String(format: "%.0f m", m)
+        }
+        return RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: useCommaDecimal)
     }
 
     /// Seconds the ETA card should display: final-destination ETA when the
@@ -285,10 +301,7 @@ struct NavigationHUD: View {
 
     private var arrivalTime: String {
         let arr = Date().addingTimeInterval(etaCardSeconds)
-        let f = DateFormatter()
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f.string(from: arr)
+        return RideStatsFormatting.clock(arr, is24Hour: is24Hour)
     }
 
     /// Same formatting as `timeRemaining`, but for the FINAL destination
@@ -304,10 +317,7 @@ struct NavigationHUD: View {
     /// Same formatting as `arrivalTime`, but for the FINAL destination.
     private var finalArrivalTime: String {
         let arr = Date().addingTimeInterval(nav.finalDestinationEtaSeconds)
-        let f = DateFormatter()
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f.string(from: arr)
+        return RideStatsFormatting.clock(arr, is24Hour: is24Hour)
     }
 
     /// SF Symbol for the UPCOMING maneuver. Reads the navigator's DERIVED

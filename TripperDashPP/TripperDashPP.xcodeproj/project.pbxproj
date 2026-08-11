@@ -91,6 +91,7 @@
 		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
+		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
 		7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A8 /* NextWaypointLabelTests.swift */; };
 		A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */; };
 		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
@@ -198,6 +199,7 @@
 		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
+		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A8 /* NextWaypointLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWaypointLabelTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhraseTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
@@ -451,6 +453,7 @@
 				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
+				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
 				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
 				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
@@ -724,6 +727,7 @@
 				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
+				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
 				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
 				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
