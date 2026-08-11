@@ -12,19 +12,20 @@
 //  packetizer can either bundle them with the IDR (Tripper expects this)
 //  or send them standalone.
 //
-//  Configuration: baseline profile, ~1.2 Mbps, keyframe every 12 frames
-//  (2 s at 6 fps). The encoder constructor takes fps as a parameter —
-//  RtpStreamer hands it `source.targetFps` (currently 6 fps in
-//  MapViewSource). These match what the Tripper dash tolerates per
-//  better-dash captures: stock phone app runs at 4 fps, 8–12 is the
+//  Configuration: baseline profile, ~1.0 Mbps (1024 kbps), keyframe
+//  every 12 frames (2 s at 6 fps). The encoder constructor takes fps as
+//  a parameter — RtpStreamer hands it `source.targetFps` (currently 6
+//  fps in MapViewSource). These match what the Tripper dash tolerates
+//  per better-dash captures: stock phone app runs at 4 fps, 8–12 is the
 //  upper reliable limit (above that the dash decoder blinks). Bitrate
-//  climbed 450 → 800 → 1200 kbps: at 526×300 the map is dense with fine
-//  street-label text AND the sharp high-contrast blue route overlay,
-//  both of which H.264 quantization smears / blocks (mosquito noise on
-//  the route edge) at low rates. 1.2 Mbps is a deliberate high setting —
-//  FIELD-VERIFY the dash jitter buffer keeps up on Wi-Fi (decoder blink
-//  / stutter = too high, back off toward 800). High profile + B-frames
-//  break the firmware decoder, so those stay off regardless of bitrate.
+//  climbed 450 → 800 → 1200 then settled at 1024 kbps: at 526×300 the
+//  map is dense with fine street-label text AND the sharp high-contrast
+//  blue route overlay, both of which H.264 quantization smears / blocks
+//  (mosquito noise on the route edge) at low rates — but 1.2 Mbps made
+//  the dash hitch (occasional apparent framerate drop) as the small
+//  jitter buffer couldn't keep up. 1024 kbps + a wider 3× burst window
+//  (DataRateLimits below) is the sweet spot: sharp, and smooth on Wi-Fi.
+//  High profile + B-frames break the firmware decoder, so those stay off.
 //
 
 import CoreMedia
@@ -80,7 +81,7 @@ final class H264Encoder {
         width: Int32 = 526,
         height: Int32 = 300,
         fps: Int32 = 6,
-        bitrate: Int32 = 1_200_000,
+        bitrate: Int32 = 1_024_000,
         keyframeInterval: Int32 = 12
     ) {
         self.width = width
@@ -144,9 +145,14 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
             (kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: keyframeInterval)),
             (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: keyframeInterval / fps)),
-            // Data-rate limit: keep bursts close to target bitrate so we
-            // don't overflow the Tripper's small jitter buffer.
-            (kVTCompressionPropertyKey_DataRateLimits, [NSNumber(value: bitrate / 8 * 2), NSNumber(value: 1)] as CFArray),
+            // Data-rate limit: cap bursts so we don't overflow the
+            // Tripper's small jitter buffer. Headroom is 3× the average
+            // (was 2×) over a 1 s window — at 1.2 Mbps the tight 2× cap
+            // made the encoder hard-clip complex frames (route line + text)
+            // in bursts, which the dash showed as an occasional hitch /
+            // apparent framerate drop. 3× lets a heavy frame through
+            // without starving the next, at a modestly higher peak.
+            (kVTCompressionPropertyKey_DataRateLimits, [NSNumber(value: bitrate / 8 * 3), NSNumber(value: 1)] as CFArray),
         ]
         for (key, value) in props {
             let s = VTSessionSetProperty(session, key: key, value: value)
