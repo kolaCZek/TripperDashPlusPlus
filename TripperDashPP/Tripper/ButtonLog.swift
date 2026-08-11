@@ -70,10 +70,17 @@ final class ButtonLog: @unchecked Sendable {
     #endif
 
     /// Runtime opt-in, mirrored from `DashNavSettings.buttonWireLoggingEnabled`.
-    /// Default OFF — the rider enables it in Settings before the diagnostic
-    /// ride, so normal rides never spend IO on this. Set from the main actor
-    /// when settings load / change.
+    /// **Default ON in DEBUG** so a debug build captures a button trail with
+    /// zero setup — exactly like `ManeuverLog` — instead of making the rider
+    /// hunt for a toggle at the bike. Release builds never compile the writer
+    /// in (`isCompiledIn == false`), so this default is DEBUG-only in effect.
+    /// The Settings toggle exists to turn it OFF, not ON. `nonisolated(unsafe)`
+    /// — coarse debug toggle, not hot-path shared state.
+    #if DEBUG
+    nonisolated(unsafe) static var isEnabled = true
+    #else
     nonisolated(unsafe) static var isEnabled = false
+    #endif
 
     /// Both gates must be true to write anything.
     private static var isActive: Bool { isCompiledIn && isEnabled }
