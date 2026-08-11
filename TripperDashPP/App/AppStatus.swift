@@ -1035,7 +1035,7 @@ final class AppStatus {
     /// fix / route install). Turning back ON does nothing here — the next
     /// fix re-polls weather, and the next route install re-prefetches
     /// cameras. Same self-re-registering `withObservationTracking` idiom
-    /// as the call-state / message observers.
+    /// as the call-state observer.
     private func wireRideAlerts() {
         observeWeatherToggle()
         observeSpeedCameraToggle()
