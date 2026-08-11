@@ -436,11 +436,11 @@ FINE_OSM_ZOOM = 16
 # higher-detail z=13 tiles still blanket the frame at the widest zoom-out.
 COARSE_GRID = 7
 BASE_GRID = 5
-FINE_GRID = 5
+FINE_GRID = 7
 
 # Band edges + hysteresis margin — MUST match MapViewSource.selectLayer.
 COARSE_EDGE = 0.85
-FINE_EDGE = 1.9
+FINE_EDGE = 1.3
 LAYER_MARGIN = 0.08
 
 
@@ -490,7 +490,7 @@ def test_fine_layer_covers_close_zoom_in():
     (FINE_EDGE - margin) up to the maximum manual zoom-in (bias ceiling
     2.5). Below the handoff base is still active and fully covers."""
     for eff in [FINE_EDGE - LAYER_MARGIN, 2.0, 2.25, 2.5]:
-        black, samples = _layer_black_frames(FINE_OSM_ZOOM, 5, eff)
+        black, samples = _layer_black_frames(FINE_OSM_ZOOM, FINE_GRID, eff)
         assert samples > 0
         assert black == 0, f"fine layer black corners at eff={eff}: {black}/{samples}"
 
@@ -537,6 +537,14 @@ def test_layer_zoom_and_grid_match_swift():
     )
     assert m_cg, "could not find coarse gridSide in buildQualityLayers"
     assert int(m_cg.group(1)) == COARSE_GRID, m_cg.group(1)
+    # Fine composite gridSide is likewise passed explicitly; assert it
+    # matches FINE_GRID (bumped 5->7 so z=16 covers the frame from a
+    # lower fineEdge without black corners).
+    m_fg = re.search(
+        r"zoom: MapViewSource\.fineLayerZoom,\s*\n\s*gridSide: (\d+)", src
+    )
+    assert m_fg, "could not find fine gridSide in buildQualityLayers"
+    assert int(m_fg.group(1)) == FINE_GRID, m_fg.group(1)
     # Every gridSide MUST stay odd (Pitfall 11).
     assert COARSE_GRID % 2 == 1 and BASE_GRID % 2 == 1 and FINE_GRID % 2 == 1
 

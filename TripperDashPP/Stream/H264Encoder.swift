@@ -12,14 +12,17 @@
 //  packetizer can either bundle them with the IDR (Tripper expects this)
 //  or send them standalone.
 //
-//  Configuration: baseline profile, ~450 kbps, keyframe every 12 frames
+//  Configuration: baseline profile, ~800 kbps, keyframe every 12 frames
 //  (2 s at 6 fps). The encoder constructor takes fps as a parameter —
 //  RtpStreamer hands it `source.targetFps` (currently 6 fps in
 //  MapViewSource). These match what the Tripper dash tolerates per
 //  better-dash captures: stock phone app runs at 4 fps, 8–12 is the
-//  upper reliable limit (above that the dash decoder blinks), bitrate
-//  300–450 kbps keeps Wi-Fi and the dash jitter buffer happy. High
-//  profile + B-frames break the firmware decoder.
+//  upper reliable limit (above that the dash decoder blinks). Bitrate
+//  was 450 kbps but the map — dense with fine street-label text — came
+//  out soft under H.264 quantization at 526×300; bumped to 800 kbps for
+//  a sharper picture. Field-verify the dash jitter buffer stays happy
+//  on Wi-Fi (decoder blink = too high). High profile + B-frames break
+//  the firmware decoder, so those stay off regardless of bitrate.
 //
 
 import CoreMedia
@@ -75,7 +78,7 @@ final class H264Encoder {
         width: Int32 = 526,
         height: Int32 = 300,
         fps: Int32 = 6,
-        bitrate: Int32 = 450_000,
+        bitrate: Int32 = 800_000,
         keyframeInterval: Int32 = 12
     ) {
         self.width = width
