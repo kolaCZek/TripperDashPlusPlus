@@ -2266,10 +2266,10 @@ extension MapViewSource {
         // a coloured border so it reads over both light and dark tiles.
         let margin: CGFloat = 12
         let padX: CGFloat = 9
-        let glyphSize: CGFloat = 22
+        let glyphSize: CGFloat = 26
         let gap: CGFloat = 7
-        let fontSize: CGFloat = 15
-        let pillH: CGFloat = 34
+        let fontSize: CGFloat = 18
+        let pillH: CGFloat = 40
 
         // Compose the pill text: bare hazard noun, plus the along-route
         // distance when the hazard is ahead (not at the rider). e.g.
@@ -2471,7 +2471,7 @@ extension MapViewSource {
 
     /// One upright rounded pill centred at `p` carrying the ETA-delta text.
     private func drawEtaBubble(into ctx: CGContext, at p: CGPoint, label: String) {
-        let fontSize: CGFloat = 15
+        let fontSize: CGFloat = 18
         let ink = UIColor(cgColor: currentStyle.alternativeBubbleInk)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
@@ -2604,7 +2604,7 @@ extension MapViewSource {
         // is just clutter on the tiny dash. Bold for legibility.
         if let limit = camera.maxspeedKmh {
             let label = "\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"
-            let fontSize: CGFloat = 13
+            let fontSize: CGFloat = 16
             let textW = CGFloat(label.count) * fontSize * 0.58
             let padX: CGFloat = 5
             let pillH: CGFloat = fontSize + 6
