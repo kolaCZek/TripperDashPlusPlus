@@ -287,10 +287,16 @@ final class MapViewSource: NSObject, FrameSource {
         // per layer): coarse z=12 covers the wide zoom-out AND overlaps up
         // into the base band (base z=15 only fully covers the frame from
         // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
-        // cover); fine z=16 (gridSide 5) only fully covers from ~1.82× in,
-        // so its edge sits at 1.9 where base still fully covers too.
+        // fine z=16 (gridSide 7) fully covers the frame from ~1.07× in
+        // (verified test_composite_coverage per layer), so its edge sits
+        // at 1.15 where base (covers to ~2.0×) still fully covers too.
+        // Set low (1.15) so the sharp z=16 streets are engaged for
+        // essentially all normal riding/standstill framing; base z=15
+        // only takes over on a deliberate wide zoom-out. Keeping the edge
+        // BELOW the resting autozoom band avoids a base/fine quality
+        // flicker when the zoom breathes around the handoff at standstill.
         let coarseEdge: CGFloat = 0.85
-        let fineEdge: CGFloat = 1.9
+        let fineEdge: CGFloat = 1.15
         let margin: CGFloat = 0.08   // hysteresis half-width
 
         switch activeLayer {
@@ -601,7 +607,7 @@ final class MapViewSource: NSObject, FrameSource {
         let fine = RouteTileCache(
             style: style,
             zoom: MapViewSource.fineLayerZoom,
-            gridSide: 5,
+            gridSide: 7,
             bakeAheadMeters: 2000
         )
         Task { @MainActor in

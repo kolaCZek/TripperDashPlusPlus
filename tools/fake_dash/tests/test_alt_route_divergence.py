@@ -8,7 +8,7 @@ be KEPT.
 
 import unittest
 
-from alt_route_divergence_mirror import (
+from tests.alt_route_divergence_mirror import (
     ALT_MIN_DIVERGENCE_M,
     is_distinct_fork,
     max_divergence,
