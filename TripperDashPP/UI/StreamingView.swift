@@ -132,13 +132,6 @@ struct StreamingView: View {
                 }
 
                 Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.messageNotifyEnabled },
-                    set: { status.dashNavSettings.messageNotifyEnabled = $0 }
-                )) {
-                    Text("Incoming message")
-                }
-
-                Toggle(isOn: Binding(
                     get: { status.dashNavSettings.weatherAlertsEnabled },
                     set: { status.dashNavSettings.weatherAlertsEnabled = $0 }
                 )) {

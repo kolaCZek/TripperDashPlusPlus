@@ -60,27 +60,25 @@ def camera_label(maxspeed_kmh: int, imperial: bool) -> str:
     """Mirror of drawCameraMarker's label construction.
 
     OSM `maxspeed` is always km/h (European dataset). Metric shows it
-    verbatim; imperial converts to mph (rounded) and swaps the unit. The
-    numeric conversion goes through the shared `displayLimit` helper in
-    Swift (same one the posted-limit sign uses) so the pill and the sign
-    can never disagree; the pill additionally appends the unit string.
+    verbatim; imperial converts to mph (rounded). The numeric conversion
+    goes through the shared `displayLimit` helper in Swift (same one the
+    posted-limit sign uses) so the pill and the sign can never disagree.
+    The pill shows the BARE NUMBER — no unit suffix (rider feedback
+    8/2026: "50" not "50 km/h"; the camera pictograph already frames it
+    as a speed).
     """
     if imperial:
-        value = round(maxspeed_kmh / KMH_PER_MPH)
-        unit = "mph"
-    else:
-        value = maxspeed_kmh
-        unit = "km/h"
-    return f"{value} {unit}"
+        return f"{round(maxspeed_kmh / KMH_PER_MPH)}"
+    return f"{maxspeed_kmh}"
 
 
 @pytest.mark.parametrize("kmh,expected", [
-    (50, "50 km/h"),
-    (90, "90 km/h"),
-    (130, "130 km/h"),
-    (30, "30 km/h"),
+    (50, "50"),
+    (90, "90"),
+    (130, "130"),
+    (30, "30"),
 ])
-def test_metric_label_is_verbatim_kmh(kmh, expected):
+def test_metric_label_is_bare_kmh_number(kmh, expected):
     assert camera_label(kmh, imperial=False) == expected
 
 
@@ -92,14 +90,14 @@ def test_metric_label_is_verbatim_kmh(kmh, expected):
     (100, 62),    # 62.14 → 62
 ])
 def test_imperial_label_converts_kmh_to_mph(kmh, expected_mph):
-    assert camera_label(kmh, imperial=True) == f"{expected_mph} mph"
+    assert camera_label(kmh, imperial=True) == f"{expected_mph}"
 
 
 def test_imperial_is_always_lower_number_than_metric():
     """mph value is always a smaller number than the same km/h speed —
     a quick sanity net that the conversion isn't inverted."""
     for kmh in (30, 50, 80, 130):
-        mph = int(camera_label(kmh, imperial=True).split()[0])
+        mph = int(camera_label(kmh, imperial=True))
         assert mph < kmh
 
 
@@ -142,15 +140,23 @@ def test_speed_label_is_beside_not_beneath():
     assert "p.x - approxW / 2" not in src, "old beneath-the-icon label placement still present"
 
 
-def test_label_carries_unit_string():
-    """Both unit strings must be in the renderer so the label reads
-    e.g. '50 km/h' / '31 mph', not a bare number."""
+def test_label_is_bare_number_and_bold():
+    """The pill shows the bare speed number (no unit suffix) in bold.
+    Rider feedback 8/2026: "50" not "50 km/h", bold for legibility."""
     src = _map_source_src()
-    assert '"mph"' in src and '"km/h"' in src, "marker label must carry the unit"
-    # The km/h → mph conversion lives in the shared `displayLimit` helper
-    # (post-merge with the global-units PR): the pill and the posted-limit
-    # sign both call it, so the factor is pinned there once.
+    # Label is the bare displayLimit value with no unit concatenation.
+    assert 'let label = "\\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"' in src, (
+        "camera pill label must be the bare displayLimit number, no unit"
+    )
+    # The old unit-appended label must be gone so it can't drift back.
+    assert 'let unit = speedLimitImperial ? "mph" : "km/h"' not in src, (
+        "retired unit suffix still present on the camera pill"
+    )
+    # The km/h → mph conversion still lives in the shared `displayLimit`
+    # helper (the pill and the posted-limit sign both call it).
     assert "Double(kmh) / 1.609344" in src, "km/h → mph conversion factor drifted"
+    # The pill text is drawn bold.
+    assert "fontSize: fontSize, bold: true)" in src, "camera pill text must be bold"
 
 
 # ----------------------------------------------------------------------

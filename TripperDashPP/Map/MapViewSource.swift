@@ -2266,10 +2266,10 @@ extension MapViewSource {
         // a coloured border so it reads over both light and dark tiles.
         let margin: CGFloat = 12
         let padX: CGFloat = 9
-        let glyphSize: CGFloat = 22
+        let glyphSize: CGFloat = 26
         let gap: CGFloat = 7
-        let fontSize: CGFloat = 15
-        let pillH: CGFloat = 34
+        let fontSize: CGFloat = 18
+        let pillH: CGFloat = 40
 
         // Compose the pill text: bare hazard noun, plus the along-route
         // distance when the hazard is ahead (not at the rider). e.g.
@@ -2471,7 +2471,7 @@ extension MapViewSource {
 
     /// One upright rounded pill centred at `p` carrying the ETA-delta text.
     private func drawEtaBubble(into ctx: CGContext, at p: CGPoint, label: String) {
-        let fontSize: CGFloat = 15
+        let fontSize: CGFloat = 18
         let ink = UIColor(cgColor: currentStyle.alternativeBubbleInk)
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
@@ -2598,14 +2598,13 @@ extension MapViewSource {
         // (moved from beneath the icon on rider feedback 6/2026). Skip for
         // section cameras without a number to avoid clutter. The value
         // goes through the shared `displayLimit` helper (#4) so the radar
-        // pill and the posted-limit sign can never disagree; unlike the
-        // sign (a disc whose shape implies the unit) the pill has no such
-        // affordance, so we append an explicit km/h / mph unit here.
+        // pill and the posted-limit sign can never disagree. The number is
+        // shown WITHOUT a unit (rider feedback 8/2026: "50" not "50 km/h")
+        // — the camera pictograph already frames it as a speed, so the unit
+        // is just clutter on the tiny dash. Bold for legibility.
         if let limit = camera.maxspeedKmh {
-            let value = Self.displayLimit(kmh: limit, imperial: speedLimitImperial)
-            let unit = speedLimitImperial ? "mph" : "km/h"
-            let label = "\(value) \(unit)"
-            let fontSize: CGFloat = 13
+            let label = "\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"
+            let fontSize: CGFloat = 16
             let textW = CGFloat(label.count) * fontSize * 0.58
             let padX: CGFloat = 5
             let pillH: CGFloat = fontSize + 6
