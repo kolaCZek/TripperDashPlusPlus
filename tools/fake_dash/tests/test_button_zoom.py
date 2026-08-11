@@ -14,6 +14,8 @@ from fake_dash.buttons import (
     Button,
     build_button_ack_packet,
     build_button_ack_segment,
+    build_button_packet,
+    build_button_segment,
 )
 from fake_dash.protocol import decode_packet
 
@@ -49,6 +51,48 @@ def test_button_ack_echoes_same_code():
     for code in (0x13, 0x14, 0x15, 0x18):
         seg = build_button_ack_segment(code)
         assert seg.payload[0] == code
+
+
+# --- Button EVENT wire shape (bike → phone) ----------------------------
+#
+# REGRESSION (2026-08-11 on-bike capture): the real dash sends a button as
+# `09 00 0001 XX` — a 1-BYTE payload with the code as the trailing byte —
+# NOT the `09 00 0003 0001XX` (3-byte payload) the harness used to emit.
+# The phone decoded from a fixed payload offset 2, so every real press fell
+# through as "unmapped" and zoom was dead. These pins lock the harness to
+# the real single-byte shape, and the phone now reads the LAST payload byte.
+
+def test_button_event_segment_is_single_byte_payload():
+    seg = build_button_segment(Button.LEFT)
+    assert seg.type == 0x09
+    assert seg.sub == 0x00
+    # The code is the WHOLE payload — one byte — with the TLV length field
+    # (0001) emitted by Segment.hex, not baked into the payload.
+    assert seg.payload == b"\x14"
+    assert seg.hex == "09000001" + "14"
+
+
+def test_button_event_matches_on_bike_capture():
+    # The button SEGMENT the bike sent for a LEFT press in the field log
+    # (btn-20260811-080512.jsonl) was `09 00 0001 14`. The harness wraps it
+    # in its own (richer) K1G envelope, but the segment bytes on the wire —
+    # and the decode — must match the bike exactly.
+    pkt = build_button_packet(Button.LEFT, seq=0)
+    assert "0900000114" in pkt.hex()
+    # And it round-trips: decode → last payload byte == the button code, the
+    # exact operation the phone's inbound loop now performs.
+    segs = decode_packet(pkt)
+    btn_segs = [s for s in segs if s.type == 0x09 and s.sub == 0x00]
+    assert len(btn_segs) == 1
+    assert btn_segs[0].hex == "09000001" + "14"
+    assert btn_segs[0].payload[-1] == Button.LEFT
+
+
+def test_all_buttons_decode_via_last_payload_byte():
+    for b in (Button.RIGHT, Button.LEFT, Button.DOWN, Button.CLICK):
+        segs = decode_packet(build_button_packet(b))
+        # Mirror of the Swift `seg.payload.last` decode.
+        assert segs[0].payload[-1] == int(b)
 
 
 def test_button_ack_packet_decodes_back():
