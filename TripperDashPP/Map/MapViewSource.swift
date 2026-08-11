@@ -385,9 +385,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// map returns to fully-automatic framing on its own.
     private var lastZoomBiasNudge: Date?
 
-    /// Multiplicative step per LEFT/RIGHT press (~40% per nudge) so a
-    /// couple of clicks visibly changes the zoom.
-    private let zoomBiasStep: CGFloat = 1.4
+    /// Multiplicative step per LEFT/RIGHT press (2× per nudge) so ONE press
+    /// is a big, obvious zoom change — riders found ~40% (1.4) a click-fest
+    /// when trying to zoom right out to see the next town(s). At 2.0 a
+    /// single press doubles/halves the bias; ~2 presses span most of the
+    /// range.
+    private let zoomBiasStep: CGFloat = 2.0
     /// How far the rider can bias the autozoom in each direction. The
     /// lower bound is deliberately generous (0.15) so a few LEFT presses
     /// pull the map way out — far enough to see the next town or two on
