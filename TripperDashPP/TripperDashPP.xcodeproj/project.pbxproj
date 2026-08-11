@@ -484,8 +484,8 @@
 				A41A9C492FE20258009BF005 /* Sources */,
 				A41A9C4A2FE20258009BF005 /* Frameworks */,
 				A41A9C4B2FE20258009BF005 /* Resources */,
-				A4C0DE5A000000000000DE01 /* Stamp git SHA */,
 				5E5E00000000000000000130 /* Embed Foundation Extensions */,
+				A4C0DE5A000000000000DE01 /* Stamp git SHA */,
 			);
 			buildRules = (
 			);
