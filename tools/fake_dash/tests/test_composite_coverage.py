@@ -440,7 +440,7 @@ FINE_GRID = 7
 
 # Band edges + hysteresis margin — MUST match MapViewSource.selectLayer.
 COARSE_EDGE = 0.85
-FINE_EDGE = 1.3
+FINE_EDGE = 1.15
 LAYER_MARGIN = 0.08
 
 

@@ -287,14 +287,16 @@ final class MapViewSource: NSObject, FrameSource {
         // per layer): coarse z=12 covers the wide zoom-out AND overlaps up
         // into the base band (base z=15 only fully covers the frame from
         // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
-        // fine z=16 (gridSide 7) fully covers the frame from ~1.08× in
+        // fine z=16 (gridSide 7) fully covers the frame from ~1.07× in
         // (verified test_composite_coverage per layer), so its edge sits
-        // at 1.3 where base (covers to ~2.0×) still fully covers too.
-        // Lowered 1.9→1.3 so the sharp z=16 streets engage during normal
-        // riding, not only at extreme manual zoom-in — the base z=15
-        // stitch was upscaled and soft at typical framing.
+        // at 1.15 where base (covers to ~2.0×) still fully covers too.
+        // Set low (1.15) so the sharp z=16 streets are engaged for
+        // essentially all normal riding/standstill framing; base z=15
+        // only takes over on a deliberate wide zoom-out. Keeping the edge
+        // BELOW the resting autozoom band avoids a base/fine quality
+        // flicker when the zoom breathes around the handoff at standstill.
         let coarseEdge: CGFloat = 0.85
-        let fineEdge: CGFloat = 1.3
+        let fineEdge: CGFloat = 1.15
         let margin: CGFloat = 0.08   // hysteresis half-width
 
         switch activeLayer {
