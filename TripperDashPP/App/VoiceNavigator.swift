@@ -10,18 +10,23 @@
 //  via `AVSpeechSynthesizer` — consistent with the app's free-account
 //  stance (no cloud TTS, no API key).
 //
-//  ── Audio session coexistence (the load-bearing detail) ──────────────
+//  ── Audio session ownership (the load-bearing detail) ───────────────
 //
-//  `SilentAudioKeeper` already owns the shared `AVAudioSession`, holding it
-//  in `.playback` + `.mixWithOthers` so the ride wakelock survives the lock
-//  screen without silencing the rider's music. VoiceNavigator MUST share
-//  that one session, not open a competing one. The only thing it changes is
-//  DUCKING: right before it speaks it re-asserts the category WITH
-//  `.duckOthers` so music/podcasts dip for the duration of the prompt, then
-//  it restores the plain `.mixWithOthers` category on `didFinish` so the
-//  wakelock's silent loop keeps mixing at full level afterwards. Because the
-//  synthesizer routes through the same active session, the wakelock is never
-//  torn down and re-armed — no gap where iOS could suspend the app.
+//  VoiceNavigator OWNS the shared `AVAudioSession` for spoken guidance.
+//  It configures the session as `.playback` + `.mixWithOthers` (so the
+//  rider's music/podcast keeps playing) and, crucially, keeps it ACTIVE
+//  for the whole ride so a prompt can play over the LOCKED screen — the
+//  `audio` UIBackgroundMode in Info.plist is what makes that legal, and
+//  it is backed by this real audio feature (not a silent-loop wakelock).
+//  Right before it speaks it re-asserts the category WITH `.duckOthers`
+//  so music dips for the prompt, then restores plain `.mixWithOthers` on
+//  `didFinish`. The session is activated on `startSession()` (called when
+//  streaming begins) and never torn down mid-ride, so there is no gap
+//  where a prompt would be routed to a dead session.
+//
+//  NOTE: the app's background survival does NOT depend on audio — that is
+//  owned entirely by CoreLocation `Always` updates (see `LocationService`).
+//  Audio here is purely the spoken-guidance feature.
 //
 //  ── Queueing / priority ──────────────────────────────────────────────
 //
@@ -107,12 +112,43 @@ final class VoiceNavigator: NSObject {
         duckOthers(false)
     }
 
+    // MARK: - Session lifecycle
+
+    /// Activate the shared audio session for the ride. Called when
+    /// streaming starts. Configures `.playback` + `.mixWithOthers` and
+    /// activates it so spoken prompts can play over the locked screen
+    /// (backed by the `audio` UIBackgroundMode). Idempotent — iOS
+    /// tolerates re-activating an already-active session.
+    func startSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers])
+            try session.setActive(true, options: [])
+            log.info("audio session active (playback/voicePrompt, mixWithOthers)")
+        } catch {
+            log.error("startSession failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Deactivate the shared audio session on nav/stream teardown so we
+    /// stop holding audio focus. Notifies others so their audio un-ducks.
+    func stopSession() {
+        stop()
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setActive(false, options: [.notifyOthersOnDeactivation])
+            log.info("audio session deactivated")
+        } catch {
+            log.error("stopSession failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     // MARK: - Ducking
 
     /// Re-assert the shared audio session's category with or without
     /// `.duckOthers`. We never call `setActive(false)` here — the session
-    /// is owned by `SilentAudioKeeper` and must stay active for the
-    /// wakelock. We only flip the ducking option, which iOS applies live.
+    /// stays active for the whole ride (see `startSession`/`stopSession`).
+    /// We only flip the ducking option, which iOS applies live.
     private func duckOthers(_ duck: Bool) {
         let session = AVAudioSession.sharedInstance()
         var options: AVAudioSession.CategoryOptions = [.mixWithOthers]

@@ -66,7 +66,6 @@
 		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
 		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
 		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
-		A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */; };
 		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
 		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
 		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
@@ -174,7 +173,6 @@
 		CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotterPark.swift; sourceTree = "<group>"; };
 		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
-		A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SilentAudioKeeper.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
@@ -306,7 +304,6 @@
 				A486F0412FE2034700AA36C3 /* AppStatus.swift */,
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
 				A4B6F0002FE6000000AA36C3 /* LocationService.swift */,
-				A4B6F0022FE6000000AA36C3 /* SilentAudioKeeper.swift */,
 				A4F0FFFF000000000000E001 /* VoiceNavigator.swift */,
 			);
 			path = App;
@@ -693,7 +690,6 @@
 				7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
-				A4B6F0032FE6000000AA36C3 /* SilentAudioKeeper.swift in Sources */,
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
 				B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */,
 				B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */,
