@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
 		A55E7000000000000A55E702 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E701 /* Assets.xcassets */; };
+		A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */; };
 		A4F000000000000000000001 /* NavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000000 /* NavigationStore.swift */; };
 		A4F000000000000000000011 /* LocalSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000010 /* LocalSearchService.swift */; };
 		A4F000000000000000000021 /* RoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000020 /* RoutingService.swift */; };
@@ -150,6 +151,7 @@
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
 		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
@@ -279,6 +281,7 @@
 				7E5700000000000000000A50 /* RideStats */,
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A55E7000000000000A55E701 /* Assets.xcassets */,
+				A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				7E57000000000000000000C0 /* TripperDashPPTests */,
@@ -585,6 +588,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A55E7000000000000A55E702 /* Assets.xcassets in Resources */,
+				A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

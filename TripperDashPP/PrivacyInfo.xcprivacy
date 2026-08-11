@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Apple privacy manifest (required for App Store review).
+
+	  TripperDash++ streams a navigation map to the bike's dash. It reads
+	  precise location to place the rider on the map and renders/streams it
+	  locally + over the bike's Wi-Fi AP. Nothing is uploaded to a server we
+	  run: tiles come FROM OpenStreetMap and routing FROM Apple MapKit, but
+	  no user data is sent TO a backend, so location is NOT "linked to the
+	  user's identity" and is NOT used for tracking.
+	-->
+
+	<!-- We do not track users across apps/websites (no ad/analytics SDKs). -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+
+	<!-- No tracking domains. -->
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!-- Data the app collects. Precise location, used only for app
+	     functionality (showing/streaming the map), not linked to identity,
+	     not used for tracking. -->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePreciseLocation</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Required Reason APIs actually called by the app. -->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<!-- UserDefaults: persist saved routes, recent destinations, nav
+		     + map-style settings, and the bike host/SSID. Reason CA92.1 =
+		     access info stored only for the app itself. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<!-- File timestamp: TileDiskCache reads contentModificationDate to
+		     evict stale OSM tiles (LRU / max-age). Reason C617.1 = access
+		     timestamps for files inside the app's own container. -->
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

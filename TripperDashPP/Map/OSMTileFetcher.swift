@@ -26,9 +26,9 @@
 //    - Disk-cache first → in practice only the FIRST trip into a
 //      neighbourhood hits the network
 //
-//  Future swap-in: change `baseURLTemplate` to e.g.
-//  "https://tiles.kolaczek.cz/{z}/{x}/{y}.png" for a self-hosted
-//  tile server. No other changes needed.
+//  Each end user runs their own copy from their own IP on their own
+//  network, so tile requests are naturally distributed rather than
+//  funnelled through one server — well within the policy's intent.
 //
 
 import Foundation
