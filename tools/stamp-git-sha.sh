@@ -37,6 +37,13 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+if [ ! -f "${PLIST}" ] && [ -n "${PROCESSED_INFOPLIST_PATH:-}" ]; then
+    # The bundled Info.plist isn't in place yet (script phase ran before
+    # ProcessInfoPlistFile — happens on clean builds). Fall back to the
+    # processed plist Xcode has already generated, which becomes the bundle
+    # Info.plist. Stamping it here means the SHA still lands in the app.
+    PLIST="${PROCESSED_INFOPLIST_PATH}"
+fi
 if [ -f "${PLIST}" ]; then
     /usr/libexec/PlistBuddy -c "Set :GitCommitSHA ${GIT_SHA}" "${PLIST}" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :GitCommitSHA string ${GIT_SHA}" "${PLIST}"
