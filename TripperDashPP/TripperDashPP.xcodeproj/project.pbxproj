@@ -615,6 +615,7 @@
 			files = (
 			);
 			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
 			);
 			name = "Stamp git SHA into Info.plist";
 			outputPaths = (
