@@ -14,6 +14,7 @@ import SwiftUI
 
 struct StreamingView: View {
     @Environment(AppStatus.self) private var status
+    @Environment(\.dismiss) private var dismiss
 
     /// Allow editing the SSID/IP only when we're not actively connected
     /// or mid-handshake. Idle and error states are both safe entry
@@ -248,6 +249,11 @@ struct StreamingView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { dismiss() }
+            }
+        }
     }
 }
 
