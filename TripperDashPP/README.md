@@ -5,7 +5,7 @@ iOS app source (Swift 6 / SwiftUI, iOS 18+).
 ## Layout
 
 ```
-App/         @main + AppStatus (shared observable state) + LocationService + SilentAudioKeeper + VoiceNavigator (offline AVSpeechSynthesizer)
+App/         @main + AppStatus (shared observable state) + LocationService + VoiceNavigator (offline AVSpeechSynthesizer)
 UI/          SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, InteractiveMapView)
   Navigation/  destination search / route preview / favorite-editor sheets, NavigationHUD, QuickAccessTiles, RouteProgressMap
 Tripper/     K1G control plane — BikeLink, DashSocket (BSD UDP), K1GPacket, RsaHandshake, HeartbeatLoop,
@@ -24,9 +24,12 @@ Info.plist
 TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride-stats formatting, next-waypoint label)
 ```
 
-Background keep-alive (CoreLocation Always + silent audio via `SilentAudioKeeper`) and the
-H.264 session auto-rebuild live in `App/` (`AppStatus`, `SilentAudioKeeper`) and
+Background keep-alive (CoreLocation Always updates) and the
+H.264 session auto-rebuild live in `App/` (`AppStatus`, `LocationService`) and
 `Stream/H264Encoder.swift` respectively — there is no separate `Background/` group.
+Spoken guidance (`VoiceNavigator`) owns the shared `AVAudioSession` so prompts
+play over the locked screen; the `audio` background mode is backed by that real
+feature, not a silent-loop wakelock.
 (An AVKit PiP anchor was a third wakelock until Phase 8d, when it was removed — the
 tile-cache + CGContext path is background-safe without it.)
 

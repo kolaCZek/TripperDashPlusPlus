@@ -23,7 +23,7 @@
 //  Output:
 //  -------
 //  526×300 BGRA pixel buffer at 6 fps emitted to the encoder. The
-//  silent-audio wakelock (SilentAudioKeeper) keeps the encoder pipeline
+//  CoreLocation `Always` wakelock keeps the encoder pipeline
 //  + Swift Concurrency executor alive on lock screen; the tile cache
 //  supplies the visual content. (PiP was the old keep-alive; removed in
 //  Phase 8d — the tile + CGContext path is BG-safe without it.)
@@ -465,7 +465,7 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
-    /// without PiP. AVAudioSession (SilentAudioKeeper) keeps the
+    /// without PiP. The CoreLocation `Always` wakelock keeps the
     /// process awake on lock screen.
 
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {

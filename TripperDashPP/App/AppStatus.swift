@@ -90,10 +90,11 @@ final class AppStatus {
         didSet { applyKeepAwake() }
     }
 
-    /// Reflects whether the location + audio wakelocks are active right
-    /// now. Used by the UI to show a "Background mode active" badge.
+    /// Reflects whether the location wakelock is active right now. Used
+    /// by the UI to show a "Background mode active" badge. Background
+    /// survival is owned entirely by CoreLocation `Always` updates.
     var backgroundKeepAliveActive: Bool {
-        wakelockToken != nil || audioKeeper.isRunning
+        wakelockToken != nil
     }
 
     /// Shared CLLocationManager: serves the wakelock, the Phase 5 map
@@ -107,12 +108,11 @@ final class AppStatus {
     /// only — not wired to any K1G dash TLV.
     let rideStats: RideStatsService
 
-    private let audioKeeper = SilentAudioKeeper()
     private var wakelockToken: UUID?
 
-    /// Spoken turn-by-turn guidance. Shares the one AVAudioSession owned by
-    /// `audioKeeper` (it only flips ducking, never deactivates the session),
-    /// so voice prompts and the wakelock's silent loop coexist. Held for the
+    /// Spoken turn-by-turn guidance. Owns the shared `AVAudioSession`,
+    /// holding it in `.playback` + `.mixWithOthers` and keeping it active
+    /// for the ride so prompts play over the lock screen. Held for the
     /// app's lifetime; only actually speaks while `dashNavSettings.voiceEnabled`.
     let voiceNavigator = VoiceNavigator()
 
@@ -377,14 +377,14 @@ final class AppStatus {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)
             }
-            audioKeeper.start()
+            voiceNavigator.startSession()
             UIApplication.shared.isIdleTimerDisabled = true
         } else {
             if let token = wakelockToken {
                 locationService.stop(token: token)
                 wakelockToken = nil
             }
-            audioKeeper.stop()
+            voiceNavigator.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
     }
