@@ -8,6 +8,7 @@
 //
 
 import Testing
+import Foundation
 import CoreLocation
 @testable import TripperDashPP
 
