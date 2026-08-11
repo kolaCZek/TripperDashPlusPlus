@@ -621,12 +621,21 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
-        NavigationHUD(
-            isReconnecting: status.bikeLink.state == .reconnecting,
-            imperial: status.dashNavSettings.units == .imperial,
-            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
-            is24Hour: status.dashNavSettings.is24Hour
-        )
+        VStack(spacing: 0) {
+            // Demo mode: the interactive map is unmounted while streaming, so
+            // the on-screen dash preview is the only place the rider sees the
+            // projected map + native bubble. Show it above the HUD.
+            if status.bikeLink.isDemo && status.isStreaming {
+                DashPreviewPanel(demoModel: status.demoDashModel)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            NavigationHUD(
+                isReconnecting: status.bikeLink.state == .reconnecting,
+                imperial: status.dashNavSettings.units == .imperial,
+                useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
+                is24Hour: status.dashNavSettings.is24Hour
+            )
             .environment(status.activeNavigator)
             .onAppear {
                 forwardFixesToNavigator()
@@ -640,6 +649,7 @@ struct MapPickerView: View {
                     finishArrival()
                 }
             }
+        }
     }
 
     @ViewBuilder
@@ -664,13 +674,20 @@ struct MapPickerView: View {
     /// via `rideStatsPanel` in `pickingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
-        FreeRideHUD(
-            stats: status.rideStats.stats,
-            imperial: status.dashNavSettings.units == .imperial,
-            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
-            position: status.locationService.lastFix?.coordinate
-        )
-        .padding(.horizontal, 12)
+        VStack(spacing: 0) {
+            if status.bikeLink.isDemo && status.isStreaming {
+                DashPreviewPanel(demoModel: status.demoDashModel)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            FreeRideHUD(
+                stats: status.rideStats.stats,
+                imperial: status.dashNavSettings.units == .imperial,
+                useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
+                position: status.locationService.lastFix?.coordinate
+            )
+            .padding(.horizontal, 12)
+        }
     }
 
     // MARK: - Control button
@@ -727,14 +744,25 @@ struct MapPickerView: View {
     /// already laid out, tapping this arms `pendingAutoStart`: the rider
     /// has signalled intent to ride, so navigation auto-starts the moment
     /// the link reaches `.connected` (no second tap on "Start").
+    /// CTA label — reflects demo mode (no dash to connect to) vs the real
+    /// connect flow, and whether a plan is already laid out.
+    private var connectLabel: String {
+        if status.bikeLink.demoMode {
+            return isPlanning ? "Start demo & navigation" : "Start demo"
+        }
+        return isPlanning ? "Connect & start navigation" : "Connect to dash"
+    }
+
     @ViewBuilder
     private var connectControl: some View {
         Button {
             if isPlanning { pendingAutoStart = true }
             status.bikeLink.connect()
         } label: {
-            Label(isPlanning ? "Connect & start navigation" : "Connect to dash",
-                  systemImage: "antenna.radiowaves.left.and.right")
+            Label(connectLabel,
+                  systemImage: status.bikeLink.demoMode
+                      ? "play.rectangle.on.rectangle"
+                      : "antenna.radiowaves.left.and.right")
                 .frame(maxWidth: .infinity).padding()
                 .background(Color.accentColor.opacity(0.15))
         }

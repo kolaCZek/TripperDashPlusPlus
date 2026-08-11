@@ -102,6 +102,8 @@
 		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
 		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
 		A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E001 /* VoiceNavigator.swift */; };
+		A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D00001 /* DemoDashModel.swift */; };
+		A4DE70000000000000E00101 /* DashPreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000E00001 /* DashPreviewPanel.swift */; };
 		A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E002 /* VoicePhrase.swift */; };
 		A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */; };
 		A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */; };
@@ -211,6 +213,8 @@
 		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E001 /* VoiceNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNavigator.swift; sourceTree = "<group>"; };
+		A4DE70000000000000D00001 /* DemoDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDashModel.swift; sourceTree = "<group>"; };
+		A4DE70000000000000E00001 /* DashPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPreviewPanel.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E002 /* VoicePhrase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhrase.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptScheduler.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStore.swift; sourceTree = "<group>"; };
@@ -307,6 +311,7 @@
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
 				A4B6F0002FE6000000AA36C3 /* LocationService.swift */,
 				A4F0FFFF000000000000E001 /* VoiceNavigator.swift */,
+				A4DE70000000000000D00001 /* DemoDashModel.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -315,6 +320,7 @@
 			isa = PBXGroup;
 			children = (
 				A486F0442FE2034700AA36C3 /* MapPickerView.swift */,
+				A4DE70000000000000E00001 /* DashPreviewPanel.swift */,
 				5BC2EE418D3B446F3426DE0A /* MapPreviewView.swift */,
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
@@ -715,6 +721,8 @@
 				7E5700000000000000000A62 /* GPXExporter.swift in Sources */,
 				7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */,
 				A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */,
+				A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */,
+				A4DE70000000000000E00101 /* DashPreviewPanel.swift in Sources */,
 				A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */,
 				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
 				A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */,

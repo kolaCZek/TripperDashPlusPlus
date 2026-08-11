@@ -51,6 +51,14 @@ final class ActiveNavLoop {
     /// takes effect immediately.
     private weak var voice: VoiceNavigator?
 
+    /// Optional demo-mode sink. Nil in normal (real-dash) operation; when the
+    /// link is faked (`BikeLink.isDemo`), AppStatus injects the shared
+    /// `DemoDashModel` so each tick also publishes a native-bubble snapshot
+    /// (maneuver + ETA + distance-to-next) for the on-screen dash preview. This
+    /// mirrors the values that would otherwise ride the K1G TLV bytes to the
+    /// real dash firmware, which the video frame does NOT contain.
+    private let demo: DemoDashModel?
+
     /// Pure "when to speak" decision state (per-maneuver fired tiers). Reset
     /// on stop() and whenever the upcoming maneuver identity changes.
     private var promptScheduler = VoicePromptScheduler()
@@ -66,13 +74,15 @@ final class ActiveNavLoop {
         navigator: ActiveNavigator,
         mapSource: MapViewSource,
         settings: DashNavSettings,
-        voice: VoiceNavigator? = nil
+        voice: VoiceNavigator? = nil,
+        demo: DemoDashModel? = nil
     ) {
         self.bikeLink = bikeLink
         self.navigator = navigator
         self.mapSource = mapSource
         self.settings = settings
         self.voice = voice
+        self.demo = demo
     }
 
     /// Start the 1 Hz pump. Idempotent — calling start twice without a
@@ -99,6 +109,9 @@ final class ActiveNavLoop {
         task = nil
         mapSource?.setNavOverlay(nil)
         mapSource?.setRideProgress(nil)
+        // Demo mode: clear the on-screen native-bubble snapshot so the preview
+        // stops showing a stale maneuver after the ride ends.
+        demo?.bubble = nil
         // Silence any tier prompt in flight and reset the "when to speak"
         // state so the next ride starts clean. NOTE: this fires on EVERY
         // teardown including final arrival — the arrival prompt is spoken
@@ -127,6 +140,9 @@ final class ActiveNavLoop {
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
             mapSource?.setRideProgress(nil)   // free-ride / arrived → no bar
+            // Demo: no maneuver while free-riding / arrived → clear the
+            // on-screen native bubble so the preview shows a clean map.
+            demo?.bubble = nil
             // Not navigating (free-ride / arrived) → drop any speak state so
             // a later route start doesn't inherit stale fired tiers.
             promptScheduler.reset()
@@ -349,6 +365,21 @@ final class ActiveNavLoop {
             unitsImperial: settings.units == .imperial
         )
         mapSource?.setNavOverlay(overlay)
+
+        // 2-demo. Push the SAME semantic values to the on-screen dash preview's
+        //     native-bubble snapshot. On real hardware these ride the K1G TLV
+        //     bytes to the dash firmware (which draws the glyph-in-a-circle +
+        //     ETA itself); the video frame does NOT contain them, so demo mode
+        //     reproduces them here from the exact values we'd have sent. No-op
+        //     (nil sink) in normal operation.
+        demo?.bubble = DemoNavBubble(
+            maneuver: kind,
+            etaDate: etaDate,
+            distanceToNextMeters: distNext,
+            roadName: roadName,
+            imperial: settings.units == .imperial,
+            is24Hour: settings.is24Hour
+        )
 
         // 2a-pre. Travelled breadcrumb → grey "already ridden" line under the
         //     blue route. Pushed every tick (cheap array handoff); the

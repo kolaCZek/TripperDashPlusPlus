@@ -28,6 +28,18 @@ struct StreamingView: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Demo mode", isOn: Binding(
+                    get: { status.bikeLink.demoMode },
+                    set: { status.bikeLink.demoMode = $0 }
+                ))
+                .disabled(!isEditableState)
+            } header: {
+                Text("Demo mode")
+            } footer: {
+                Text("Simulate the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
+            }
+
             Section("Connection") {
                 LabeledContent("State", value: status.connectionState.rawValue)
                 if isEditableState {

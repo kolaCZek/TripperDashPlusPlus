@@ -64,11 +64,33 @@ final class BikeLink {
         }
     }
 
+    /// Demo mode: when true, `connect()` FAKES an established link — no UDP
+    /// socket, no RSA handshake, no heartbeat/reconnect — so the app can run
+    /// its full real pipeline (real GPS, real routing, real map compositing,
+    /// real voice) without the physical dash. The composited video frame and
+    /// the native nav bubble are mirrored on-screen instead of shoved into the
+    /// void over Wi-Fi (see `DemoDashModel` + `AppStatus` frame mirror).
+    /// Persisted like `bikeHost`/`ssid` so a reviewer's choice survives relaunch.
+    var demoMode: Bool {
+        didSet {
+            UserDefaults.standard.set(demoMode, forKey: Self.demoModeKey)
+        }
+    }
+
     private static let bikeHostKey = "BikeLink.bikeHost"
     private static let ssidKey = "BikeLink.ssid"
+    private static let demoModeKey = "BikeLink.demoMode"
+
+    /// True while the link is a faked demo link (persisted flag). Used by
+    /// `AppStatus` to route the streaming path to the on-screen mirror instead
+    /// of the UDP streamer, and by the UI to relabel the connect CTA / banner.
+    var isDemo: Bool { demoMode }
 
     /// Convenience for downstream components (RTP streamer) that need
-    /// the dash IP without poking at the link's internals.
+    /// the dash IP without poking at the link's internals. In demo mode we
+    /// still return `bikeHost` while "connected" so callers that gate on a
+    /// non-nil host (e.g. `AppStatus.startStreaming`) proceed — nothing real
+    /// is ever sent to it.
     var dashHost: String? { state == .connected ? bikeHost : nil }
 
     // MARK: - Private
@@ -139,6 +161,7 @@ final class BikeLink {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
         self.ssid = d.string(forKey: Self.ssidKey) ?? "RE_FAKE_260616"
+        self.demoMode = d.bool(forKey: Self.demoModeKey)
     }
 
     // MARK: - API
@@ -174,6 +197,21 @@ final class BikeLink {
             return
         case .connecting, .handshaking, .connected:
             log.warning("connect() called while in state \(String(describing: self.state))")
+            return
+        }
+        // Demo mode: fake an established link. We skip the socket + RSA
+        // handshake entirely, jump straight to `.connected`, and start NONE of
+        // the real machinery (path monitor already armed above is harmless — it
+        // never drives a demo link because we never arm `shouldAutoReconnect`).
+        // Everything downstream keys off `state == .connected` and the demo
+        // guards on the send helpers, so the rest of the app runs its real
+        // pipeline against a link that quietly swallows nothing (no socket).
+        if demoMode {
+            lastError = nil
+            state = .connected
+            // Deliberately do NOT set shouldAutoReconnect / heartbeat /
+            // inbound loop — there is no socket to beat on or listen to.
+            log.info("Demo mode: fake link connected (no socket, no handshake)")
             return
         }
         connectTask = Task { await self.runConnectFlow() }
@@ -213,6 +251,7 @@ final class BikeLink {
     /// Sequence mirrors better-dash `send_nav_mode_kick`:
     /// `q3c.z2` (open nav screen) → `q3c.q` (enter nav context).
     func sendNavStart() async {
+        guard !demoMode else { return }   // demo link has no socket — nothing to kick
         guard state == .connected, let s = socket else { return }
         let z2 = K1GPacket.makeStartNav(seq: seq.consume())
         let q  = K1GPacket.makeNavContext(seq: seq.consume())
@@ -229,6 +268,7 @@ final class BikeLink {
     /// RTP UDP connection is .ready and the first H.264 frame is on the
     /// way. No-op if not connected.
     func sendProjectionOn() async {
+        guard !demoMode else { return }   // demo: no socket, nothing to latch
         guard state == .connected, let s = socket else { return }
         let w = K1GPacket.makeProjectionOn(seq: seq.consume())
         do {
@@ -285,6 +325,7 @@ final class BikeLink {
     /// Sequence mirrors NavigationFragment.Y7:
     /// `q3c.h` (stop-frames) → `q3c.x` (projection off).
     func sendNavStop() async {
+        guard !demoMode else { return }   // demo: no socket, nothing to tear down
         guard state == .connected, let s = socket else { return }
         let h = K1GPacket.makeProjectionStop(seq: seq.consume())
         let x = K1GPacket.makeProjectionOff(seq: seq.consume())
@@ -320,6 +361,7 @@ final class BikeLink {
         is24Hour: Bool,
         remainingSeconds: TimeInterval?
     ) async {
+        guard !demoMode else { return }   // demo: bubble is mirrored on-screen, not sent
         guard state == .connected, let s = socket else { return }
         let pkt = K1GPacket.makeActiveNav(
             seq: seq.consume(),
