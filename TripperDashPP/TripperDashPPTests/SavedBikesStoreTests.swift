@@ -90,26 +90,4 @@ struct SavedBikesStoreTests {
         let s = SavedBikesStore(defaults: suite)
         #expect(s.selectedID == s.bikes.first?.id)
     }
-
-    // MARK: - Migration
-
-    @Test func seedsFromLegacySSIDWhenEmpty() {
-        let s = freshStore()
-        s.seedIfEmpty(legacySSID: "RE_1234_ABCDE")
-        #expect(s.bikes.map(\.ssid) == ["RE_1234_ABCDE"])
-        #expect(s.selected?.ssid == "RE_1234_ABCDE")
-    }
-
-    @Test func migrationSkipsPlaceholder() {
-        let s = freshStore()
-        s.seedIfEmpty(legacySSID: "RE_FAKE_260616")
-        #expect(s.bikes.isEmpty) // dev placeholder must not seed a real bike
-    }
-
-    @Test func migrationSkipsWhenNonEmpty() {
-        let s = freshStore()
-        _ = s.add(ssid: "RE_REAL")
-        s.seedIfEmpty(legacySSID: "RE_OTHER")
-        #expect(s.bikes.map(\.ssid) == ["RE_REAL"]) // no double-seed
-    }
 }

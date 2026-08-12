@@ -163,10 +163,8 @@ final class AppStatus {
         // moment we can connect them.
         bikeLink.settings = dashNavSettings
 
-        // Migrate the legacy single-SSID setting into the garage on first
-        // launch of the multi-bike build, then point the link at the active
-        // bike so the banner + connect flow agree from the start.
-        savedBikes.seedIfEmpty(legacySSID: bikeLink.ssid)
+        // Point the link at the active bike (if any) so the banner + connect
+        // flow agree from the start.
         if let active = savedBikes.selected {
             bikeLink.ssid = active.ssid
         }

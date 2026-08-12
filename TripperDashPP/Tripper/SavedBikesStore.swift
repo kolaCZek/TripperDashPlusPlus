@@ -148,18 +148,4 @@ final class SavedBikesStore {
         selectedID = id
         persist()
     }
-
-    // MARK: - Migration
-
-    /// One-time migration from the legacy single-SSID setting: if the garage
-    /// is empty and the legacy `BikeLink.ssid` holds a real SSID (not the dev
-    /// placeholder), seed the garage with it so existing users don't lose
-    /// their bike on upgrade. No-op once any bike exists.
-    func seedIfEmpty(legacySSID: String) {
-        guard bikes.isEmpty else { return }
-        let ssid = legacySSID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !ssid.isEmpty, !ssid.hasPrefix("RE_FAKE_") else { return }
-        add(ssid: ssid)
-        log.info("Seeded garage from legacy SSID")
-    }
 }
