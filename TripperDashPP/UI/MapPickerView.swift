@@ -758,7 +758,7 @@ struct MapPickerView: View {
             return "Add your bike"
         }
         if bikes.count == 1 {
-            return isPlanning ? "Connect & start navigation" : "Connect to \(bikes[0].ssid)"
+            return isPlanning ? "Connect & start navigation" : "Connect to \(bikes[0].displayName)"
         }
         // Multiple bikes → the tap opens a chooser.
         return isPlanning ? "Choose bike & start navigation" : "Connect to bike…"
@@ -802,7 +802,7 @@ struct MapPickerView: View {
                             isPresented: $showBikePicker,
                             titleVisibility: .visible) {
             ForEach(status.savedBikes.bikes) { bike in
-                Button(bike.ssid) { beginConnect(to: bike) }
+                Button(bike.displayName) { beginConnect(to: bike) }
             }
             Button("Cancel", role: .cancel) {}
         }

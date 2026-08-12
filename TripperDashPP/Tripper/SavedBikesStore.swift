@@ -20,17 +20,36 @@
 import Foundation
 import os
 
-/// One bike in the garage. Flat and Codable — the SSID is both the display
-/// name and the connection key.
+/// One bike in the garage. Flat and Codable. `name` is the rider-facing
+/// label shown everywhere (e.g. "Guerrilla"); `ssid` is the Tripper AP
+/// Wi-Fi network used to connect. `name` decodes tolerantly so older
+/// records written before names existed still load (falling back to the
+/// SSID via `displayName`).
 struct SavedBike: Codable, Identifiable, Hashable, Sendable {
     var id: UUID
+    var name: String
     var ssid: String
     var addedAt: Date
 
-    init(ssid: String, addedAt: Date = .now) {
+    /// What to show in lists/banners: the rider's name, or the SSID when
+    /// the name is empty (legacy records / not yet named).
+    var displayName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ssid : name
+    }
+
+    init(name: String, ssid: String, addedAt: Date = .now) {
         self.id = UUID()
+        self.name = name
         self.ssid = ssid
         self.addedAt = addedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.ssid = try c.decode(String.self, forKey: .ssid)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt) ?? .now
     }
 }
 
@@ -111,23 +130,26 @@ final class SavedBikesStore {
 
     // MARK: - Mutation
 
-    /// Add a bike by SSID. Trims whitespace, ignores an empty name, and
-    /// de-duplicates case-insensitively (adding an existing SSID is a no-op
-    /// that just selects it). The first bike added becomes the active one.
-    /// Returns the bike that is now active for this SSID (new or existing).
+    /// Add a bike with a rider-facing name + its Wi-Fi SSID. Trims both,
+    /// ignores an empty SSID, and de-duplicates case-insensitively by SSID
+    /// (adding an existing network just re-selects that bike, and refreshes
+    /// its name if a non-empty one was given). The first bike added becomes
+    /// the active one. Returns the resulting bike (new or existing).
     @discardableResult
-    func add(ssid rawSSID: String) -> SavedBike? {
+    func add(name rawName: String, ssid rawSSID: String) -> SavedBike? {
         let ssid = rawSSID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ssid.isEmpty else { return nil }
 
-        // Already in the garage? Just make it active.
-        if let existing = bikes.first(where: { $0.ssid.caseInsensitiveCompare(ssid) == .orderedSame }) {
-            selectedID = existing.id
+        // Already in the garage (same network)? Re-select it, update its name.
+        if let idx = bikes.firstIndex(where: { $0.ssid.caseInsensitiveCompare(ssid) == .orderedSame }) {
+            if !name.isEmpty { bikes[idx].name = name }
+            selectedID = bikes[idx].id
             persist()
-            return existing
+            return bikes[idx]
         }
 
-        let bike = SavedBike(ssid: ssid)
+        let bike = SavedBike(name: name, ssid: ssid)
         bikes.append(bike)
         if selectedID == nil { selectedID = bike.id } // first bike is active
         persist()

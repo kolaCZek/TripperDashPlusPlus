@@ -43,6 +43,7 @@
 		6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */; };
 		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
 		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
+		A4DE70000000000000B11001 /* AddBikeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000B10001 /* AddBikeSheet.swift */; };
 		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
 		A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0602FE2DD0800AA36C3 /* DashSocket.swift */; };
 		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
@@ -153,6 +154,7 @@
 		7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveMapView.swift; sourceTree = "<group>"; };
 		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
+		A4DE70000000000000B10001 /* AddBikeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBikeSheet.swift; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
 		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -329,6 +331,7 @@
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
+				A4DE70000000000000B10001 /* AddBikeSheet.swift */,
 				7E5700000000000000000A57 /* RideStatsPanel.swift */,
 				A4F0FFFF000000000000A003 /* Navigation */,
 			);
@@ -703,6 +706,7 @@
 				7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */,
 				7E5700000000000000000A56 /* RideStatsService.swift in Sources */,
 				A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */,
+				A4DE70000000000000B11001 /* AddBikeSheet.swift in Sources */,
 				7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,

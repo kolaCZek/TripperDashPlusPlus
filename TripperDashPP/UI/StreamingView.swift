@@ -16,8 +16,8 @@ struct StreamingView: View {
     @Environment(AppStatus.self) private var status
     @Environment(\.dismiss) private var dismiss
 
-    /// Draft SSID for the "add bike" field.
-    @State private var newBikeSSID: String = ""
+    /// Presents the "add bike" form sheet.
+    @State private var showAddBike = false
 
     /// Allow connecting/editing the garage only when we're not actively
     /// connected or mid-handshake. Idle and error states are both safe
@@ -29,16 +29,21 @@ struct StreamingView: View {
         }
     }
 
-    /// One bike in the garage list: SSID on the lead, a Connect button on
-    /// the trail. Connect is disabled while demo mode is on (nothing to
-    /// connect to) or the link is busy.
+    /// One bike in the garage list: the rider's name on top, its Wi-Fi SSID
+    /// as a monospaced subtitle, a Connect button on the trail. Connect is
+    /// disabled while demo mode is on (nothing to connect to) or the link
+    /// is busy.
     @ViewBuilder
     private func bikeRow(_ bike: SavedBike) -> some View {
         HStack {
             Image(systemName: "bicycle")
                 .foregroundStyle(.secondary)
-            Text(bike.ssid)
-                .font(.body.monospaced())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bike.displayName)
+                Text(bike.ssid)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Button("Connect") {
                 status.connect(to: bike)
@@ -49,23 +54,14 @@ struct StreamingView: View {
         }
     }
 
-    /// The "add a bike" input row: an SSID text field + Add button. Add is
-    /// disabled until something non-empty is typed.
+    /// The "add a bike" row: a button that opens a short form sheet where the
+    /// rider names the bike and enters its Wi-Fi SSID.
     @ViewBuilder
     private var addBikeRow: some View {
-        HStack {
-            TextField("Add bike Wi-Fi (RE_XXXX_XXXXX)", text: $newBikeSSID)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .font(.body.monospaced())
-            Button {
-                status.savedBikes.add(ssid: newBikeSSID)
-                newBikeSSID = ""
-            } label: {
-                Image(systemName: "plus.circle.fill")
-            }
-            .buttonStyle(.borderless)
-            .disabled(newBikeSSID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        Button {
+            showAddBike = true
+        } label: {
+            Label("Add bike", systemImage: "plus.circle.fill")
         }
     }
 
@@ -292,6 +288,11 @@ struct StreamingView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showAddBike) {
+            AddBikeSheet { name, ssid in
+                status.savedBikes.add(name: name, ssid: ssid)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Done") { dismiss() }
