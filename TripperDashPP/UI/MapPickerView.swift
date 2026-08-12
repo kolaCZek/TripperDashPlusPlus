@@ -44,6 +44,9 @@ struct MapPickerView: View {
     /// cancelled connect, or if the plan disappears. Deliberately NOT set
     /// by the plain "Connect to dash" (no plan) path, nor by reconnects.
     @State private var pendingAutoStart = false
+    /// Presents the bike chooser (confirmationDialog) when the rider taps
+    /// Connect with more than one saved bike.
+    @State private var showBikePicker = false
 
     /// Tile pre-render progress (0.0 = idle/done, 0…<1 = in flight).
     /// We use a single shared sheet that watches `prerenderActive`.
@@ -750,14 +753,42 @@ struct MapPickerView: View {
         if status.bikeLink.demoMode {
             return isPlanning ? "Start demo & navigation" : "Start demo"
         }
-        return isPlanning ? "Connect & start navigation" : "Connect to dash"
+        let bikes = status.savedBikes.bikes
+        if bikes.isEmpty {
+            return "Add your bike"
+        }
+        if bikes.count == 1 {
+            return isPlanning ? "Connect & start navigation" : "Connect to \(bikes[0].ssid)"
+        }
+        // Multiple bikes → the tap opens a chooser.
+        return isPlanning ? "Choose bike & start navigation" : "Connect to bike…"
+    }
+
+    /// Arm auto-start (when a plan is laid out) and kick off the connect
+    /// flow for a specific bike. Shared by the single-bike tap and the
+    /// multi-bike picker.
+    private func beginConnect(to bike: SavedBike) {
+        if isPlanning { pendingAutoStart = true }
+        status.connect(to: bike)
     }
 
     @ViewBuilder
     private var connectControl: some View {
         Button {
-            if isPlanning { pendingAutoStart = true }
-            status.bikeLink.connect()
+            let bikes = status.savedBikes.bikes
+            if status.bikeLink.demoMode {
+                // Demo: no bike to pick, fake the link directly.
+                if isPlanning { pendingAutoStart = true }
+                status.bikeLink.connect()
+            } else if bikes.isEmpty {
+                // Nothing saved yet — send the rider to the garage.
+                showSettings = true
+            } else if bikes.count == 1 {
+                beginConnect(to: bikes[0])
+            } else {
+                // More than one bike → let the rider choose.
+                showBikePicker = true
+            }
         } label: {
             Label(connectLabel,
                   systemImage: status.bikeLink.demoMode
@@ -767,6 +798,14 @@ struct MapPickerView: View {
                 .background(Color.accentColor.opacity(0.15))
         }
         .buttonStyle(.plain)
+        .confirmationDialog("Connect to which bike?",
+                            isPresented: $showBikePicker,
+                            titleVisibility: .visible) {
+            ForEach(status.savedBikes.bikes) { bike in
+                Button(bike.ssid) { beginConnect(to: bike) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     /// Connecting / handshaking progress + Cancel. When auto-start is

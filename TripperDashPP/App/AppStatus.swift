@@ -73,6 +73,15 @@ final class AppStatus {
     var bikeSsid: String? { bikeLink.ssid }
     var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
+    /// Connect to a specific saved bike: make it the active bike, point the
+    /// link's SSID at it, and start the connect flow. Used by the settings
+    /// per-row Connect button and the home-screen multi-bike picker.
+    func connect(to bike: SavedBike) {
+        savedBikes.select(id: bike.id)
+        bikeLink.ssid = bike.ssid
+        bikeLink.connect()
+    }
+
     // MARK: - Streaming
 
     var metrics: StreamMetrics = .zero
@@ -112,6 +121,12 @@ final class AppStatus {
     /// only — not wired to any K1G dash TLV.
     let rideStats: RideStatsService
 
+    /// The rider's garage — saved bikes (by Wi-Fi SSID), add/remove/select.
+    /// Drives which SSID the connect flow targets; the dash IP is a global
+    /// constant (192.168.1.1), never per-bike. Owned here as the single
+    /// source of truth for both the settings list and the home-screen picker.
+    let savedBikes = SavedBikesStore()
+
     private var wakelockToken: UUID?
 
     /// Spoken turn-by-turn guidance. Owns the shared `AVAudioSession`,
@@ -147,6 +162,14 @@ final class AppStatus {
         // exist as inline stored properties, so this is the first
         // moment we can connect them.
         bikeLink.settings = dashNavSettings
+
+        // Migrate the legacy single-SSID setting into the garage on first
+        // launch of the multi-bike build, then point the link at the active
+        // bike so the banner + connect flow agree from the start.
+        savedBikes.seedIfEmpty(legacySSID: bikeLink.ssid)
+        if let active = savedBikes.selected {
+            bikeLink.ssid = active.ssid
+        }
 
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we

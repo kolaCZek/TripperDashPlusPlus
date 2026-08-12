@@ -16,13 +16,57 @@ struct StreamingView: View {
     @Environment(AppStatus.self) private var status
     @Environment(\.dismiss) private var dismiss
 
-    /// Allow editing the SSID/IP only when we're not actively connected
-    /// or mid-handshake. Idle and error states are both safe entry
-    /// points for retrying with different credentials.
+    /// Draft SSID for the "add bike" field.
+    @State private var newBikeSSID: String = ""
+
+    /// Allow connecting/editing the garage only when we're not actively
+    /// connected or mid-handshake. Idle and error states are both safe
+    /// entry points for (re)connecting.
     private var isEditableState: Bool {
         switch status.bikeLink.state {
         case .idle, .error: return true
         case .connecting, .handshaking, .reconnecting, .connected: return false
+        }
+    }
+
+    /// One bike in the garage list: SSID (with an active checkmark) on the
+    /// lead, a Connect button on the trail. Connect is disabled while demo
+    /// mode is on (nothing to connect to) or the link is busy.
+    @ViewBuilder
+    private func bikeRow(_ bike: SavedBike) -> some View {
+        HStack {
+            Image(systemName: status.savedBikes.selectedID == bike.id
+                  ? "checkmark.circle.fill" : "bicycle")
+                .foregroundStyle(status.savedBikes.selectedID == bike.id ? Color.accentColor : .secondary)
+            Text(bike.ssid)
+                .font(.body.monospaced())
+            Spacer()
+            Button("Connect") {
+                status.connect(to: bike)
+                dismiss()
+            }
+            .buttonStyle(.borderless)
+            .disabled(status.bikeLink.demoMode || !isEditableState)
+        }
+    }
+
+    /// The "add a bike" input row: an SSID text field + Add button. Add is
+    /// disabled until something non-empty is typed.
+    @ViewBuilder
+    private var addBikeRow: some View {
+        HStack {
+            TextField("Add bike Wi-Fi (RE_XXXX_XXXXX)", text: $newBikeSSID)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .font(.body.monospaced())
+            Button {
+                status.savedBikes.add(ssid: newBikeSSID)
+                newBikeSSID = ""
+            } label: {
+                Image(systemName: "plus.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .disabled(newBikeSSID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
@@ -40,25 +84,29 @@ struct StreamingView: View {
                 Text("Simulate the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
             }
 
-            Section("Connection") {
-                LabeledContent("State", value: status.connectionState.rawValue)
-                if isEditableState {
-                    TextField("Bike Wi-Fi (SSID)", text: Binding(
-                        get: { status.bikeLink.ssid },
-                        set: { status.bikeLink.ssid = $0 }
-                    ))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    TextField("Dash IP", text: Binding(
-                        get: { status.bikeLink.bikeHost },
-                        set: { status.bikeLink.bikeHost = $0 }
-                    ))
-                    .keyboardType(.numbersAndPunctuation)
-                    .autocorrectionDisabled()
+            Section {
+                if status.savedBikes.bikes.isEmpty {
+                    Text("No bikes yet. Add your Tripper's Wi-Fi network below (RE_XXXX_XXXXX).")
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
                 } else {
-                    LabeledContent("Wi-Fi", value: status.bikeSsid ?? "—")
-                    LabeledContent("Dash host", value: status.bikeLink.bikeHost)
+                    ForEach(status.savedBikes.bikes) { bike in
+                        bikeRow(bike)
+                    }
+                    .onDelete { offsets in
+                        for i in offsets { status.savedBikes.remove(id: status.savedBikes.bikes[i].id) }
+                    }
                 }
+                addBikeRow
+            } header: {
+                Text("Bikes")
+            } footer: {
+                Text("Each bike is your Tripper's Wi-Fi network. The dash IP is always 192.168.1.1.")
+            }
+
+            Section("Connection state") {
+                LabeledContent("State", value: status.connectionState.rawValue)
+                LabeledContent("Active bike", value: status.savedBikes.selected?.ssid ?? "—")
                 if let err = status.lastError {
                     LabeledContent("Error") {
                         Text(err).foregroundStyle(.red)

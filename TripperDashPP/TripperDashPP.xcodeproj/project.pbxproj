@@ -48,6 +48,7 @@
 		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
 		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
+		A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A10001 /* SavedBikesStore.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
@@ -90,6 +91,7 @@
 		7E5700000000000000000A52 /* RideStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A51 /* RideStats.swift */; };
 		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
 		A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */; };
+		A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */; };
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
 		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
@@ -155,6 +157,7 @@
 		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
+		A4DE70000000000000A10001 /* SavedBikesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStore.swift; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
@@ -201,6 +204,7 @@
 		7E5700000000000000000A51 /* RideStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStats.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
 		A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPersistenceTests.swift; sourceTree = "<group>"; };
+		A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStoreTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
@@ -335,6 +339,7 @@
 			isa = PBXGroup;
 			children = (
 				A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */,
+				A4DE70000000000000A10001 /* SavedBikesStore.swift */,
 				A486F0602FE2DD0800AA36C3 /* DashSocket.swift */,
 				A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */,
 				A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */,
@@ -461,6 +466,7 @@
 				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
 				A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */,
+				A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
@@ -670,6 +676,7 @@
 				A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */,
 				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,
 				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
+				A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */,
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
 				A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
@@ -738,6 +745,7 @@
 				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
 				A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */,
+				A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
