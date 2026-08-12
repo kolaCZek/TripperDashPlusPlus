@@ -57,6 +57,11 @@ final class AppStatus {
     /// and mirrors it into `connectionState` for the UI.
     let bikeLink: BikeLink = BikeLink()
 
+    /// Joins the phone to a Tripper's Wi-Fi AP from inside the app (paid
+    /// Hotspot Configuration entitlement). Used to register the network when
+    /// a bike is added and to auto-join it right before connecting.
+    let wifiJoiner = WiFiJoiner()
+
     /// Computed view of the link state in UI-friendly terms.
     var connectionState: BikeConnectionState {
         if streamer?.state == .running { return .streaming }
@@ -73,13 +78,46 @@ final class AppStatus {
     var bikeSsid: String? { bikeLink.ssid }
     var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
-    /// Connect to a specific saved bike: make it the active bike, point the
-    /// link's SSID at it, and start the connect flow. Used by the settings
-    /// per-row Connect button and the home-screen multi-bike picker.
+    /// Connect to a specific saved bike: make it the active bike, ensure the
+    /// phone is on that bike's Wi-Fi (joining it if needed — the AP has no
+    /// internet, so we must be associated before the dash handshake), then
+    /// start the K1G connect flow. Demo mode skips the Wi-Fi step entirely
+    /// (there's no real AP to join).
     func connect(to bike: SavedBike) {
         savedBikes.select(id: bike.id)
         bikeLink.ssid = bike.ssid
-        bikeLink.connect()
+
+        if bikeLink.demoMode {
+            bikeLink.connect()
+            return
+        }
+
+        Task { @MainActor in
+            let outcome = await wifiJoiner.ensureJoined(ssid: bike.ssid)
+            switch outcome {
+            case .alreadyJoined, .joined:
+                bikeLink.connect()
+            case .failed(let reason):
+                bikeLink.reportJoinFailure("Couldn't join \(bike.displayName)'s Wi-Fi: \(reason)")
+            }
+        }
+    }
+
+    /// Add a bike to the garage AND register its Wi-Fi network with iOS, so
+    /// the phone knows the AP (fixed WPA2 passphrase) and can auto-join it on
+    /// later rides. SSID + name come from the add-bike form.
+    func addBike(name: String, ssid: String) {
+        guard let bike = savedBikes.add(name: name, ssid: ssid) else { return }
+        Task { @MainActor in await wifiJoiner.register(ssid: bike.ssid) }
+    }
+
+    /// Remove a bike from the garage AND drop its Wi-Fi configuration from
+    /// iOS, so we don't leave orphan networks behind.
+    func removeBike(id: UUID) {
+        guard let bike = savedBikes.bikes.first(where: { $0.id == id }) else { return }
+        let ssid = bike.ssid
+        savedBikes.remove(id: id)
+        wifiJoiner.unregister(ssid: ssid)
     }
 
     // MARK: - Streaming

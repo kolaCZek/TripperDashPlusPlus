@@ -80,7 +80,7 @@ struct StreamingView: View {
                         bikeRow(bike)
                     }
                     .onDelete { offsets in
-                        for i in offsets { status.savedBikes.remove(id: status.savedBikes.bikes[i].id) }
+                        for i in offsets { status.removeBike(id: status.savedBikes.bikes[i].id) }
                     }
                 }
                 addBikeRow
@@ -277,7 +277,7 @@ struct StreamingView: View {
         }
         .sheet(isPresented: $showAddBike) {
             AddBikeSheet { name, ssid in
-                status.savedBikes.add(name: name, ssid: ssid)
+                status.addBike(name: name, ssid: ssid)
             }
         }
         .toolbar {

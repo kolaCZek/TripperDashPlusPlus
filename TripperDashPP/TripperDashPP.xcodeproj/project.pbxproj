@@ -49,6 +49,7 @@
 		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
 		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
 		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
+		A4DE70000000000000C11001 /* WiFiJoiner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000C10001 /* WiFiJoiner.swift */; };
 		A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A10001 /* SavedBikesStore.swift */; };
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
@@ -158,6 +159,8 @@
 		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
+		A4DE70000000000000C10001 /* WiFiJoiner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiJoiner.swift; sourceTree = "<group>"; };
+		A4DE70000000000000C20001 /* TripperDashPP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TripperDashPP.entitlements; sourceTree = "<group>"; };
 		A4DE70000000000000A10001 /* SavedBikesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStore.swift; sourceTree = "<group>"; };
 		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
@@ -290,6 +293,7 @@
 				A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */,
 				A55E7000000000000A55E701 /* Assets.xcassets */,
 				A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */,
+				A4DE70000000000000C20001 /* TripperDashPP.entitlements */,
 				A486F0432FE2034700AA36C3 /* App */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				7E57000000000000000000C0 /* TripperDashPPTests */,
@@ -341,6 +345,7 @@
 			isa = PBXGroup;
 			children = (
 				A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */,
+				A4DE70000000000000C10001 /* WiFiJoiner.swift */,
 				A4DE70000000000000A10001 /* SavedBikesStore.swift */,
 				A486F0602FE2DD0800AA36C3 /* DashSocket.swift */,
 				A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */,
@@ -675,6 +680,7 @@
 				A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */,
 				A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */,
 				A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */,
+				A4DE70000000000000C11001 /* WiFiJoiner.swift in Sources */,
 				A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */,
 				A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */,
 				A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */,
@@ -931,6 +937,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = "TripperDashPP/TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -970,6 +977,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = "TripperDashPP/TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
