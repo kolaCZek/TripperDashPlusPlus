@@ -224,7 +224,7 @@ final class BikeLink {
     func reportJoinFailure(_ message: String) {
         log.error("Wi-Fi join failed: \(message, privacy: .public)")
         lastError = message
-        state = .error
+        state = .error(message)
     }
 
     /// Tear everything down and return to `.idle`. Safe to call at any
