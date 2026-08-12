@@ -29,15 +29,14 @@ struct StreamingView: View {
         }
     }
 
-    /// One bike in the garage list: SSID (with an active checkmark) on the
-    /// lead, a Connect button on the trail. Connect is disabled while demo
-    /// mode is on (nothing to connect to) or the link is busy.
+    /// One bike in the garage list: SSID on the lead, a Connect button on
+    /// the trail. Connect is disabled while demo mode is on (nothing to
+    /// connect to) or the link is busy.
     @ViewBuilder
     private func bikeRow(_ bike: SavedBike) -> some View {
         HStack {
-            Image(systemName: status.savedBikes.selectedID == bike.id
-                  ? "checkmark.circle.fill" : "bicycle")
-                .foregroundStyle(status.savedBikes.selectedID == bike.id ? Color.accentColor : .secondary)
+            Image(systemName: "bicycle")
+                .foregroundStyle(.secondary)
             Text(bike.ssid)
                 .font(.body.monospaced())
             Spacer()
@@ -86,30 +85,16 @@ struct StreamingView: View {
                     }
                 }
                 addBikeRow
-            } header: {
-                Text("Bikes")
-            }
 
-            Section {
                 Toggle("Demo mode", isOn: Binding(
                     get: { status.bikeLink.demoMode },
                     set: { status.bikeLink.demoMode = $0 }
                 ))
                 .disabled(!isEditableState)
             } header: {
-                Text("Demo mode")
+                Text("Bikes")
             } footer: {
-                Text("Simulate the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
-            }
-
-            Section("Connection state") {
-                LabeledContent("State", value: status.connectionState.rawValue)
-                LabeledContent("Active bike", value: status.savedBikes.selected?.ssid ?? "—")
-                if let err = status.lastError {
-                    LabeledContent("Error") {
-                        Text(err).foregroundStyle(.red)
-                    }
-                }
+                Text("Demo mode simulates the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
             }
 
             Section("Dash display") {
