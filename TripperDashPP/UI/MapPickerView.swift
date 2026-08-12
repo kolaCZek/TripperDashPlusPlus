@@ -389,7 +389,12 @@ struct MapPickerView: View {
                 // below) — it covers a lot of the map on smaller phones and
                 // must be closeable without waiting out the whole session.
                 if status.rideStats.stats.startedAt != nil, selectedDestination == nil, !rideStatsDismissed {
-                    RideStatsPanel(onClose: { rideStatsDismissed = true })
+                    RideStatsPanel(onClose: {
+                        rideStatsDismissed = true
+                        // Drop the on-disk copy too, so closing the summary
+                        // means it won't re-appear on the next app launch.
+                        status.rideStats.acknowledgeSummary()
+                    })
                         .padding(.horizontal, 10)
                 }
                 if let dest = selectedDestination {
