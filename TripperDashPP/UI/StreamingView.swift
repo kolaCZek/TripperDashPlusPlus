@@ -73,18 +73,6 @@ struct StreamingView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Demo mode", isOn: Binding(
-                    get: { status.bikeLink.demoMode },
-                    set: { status.bikeLink.demoMode = $0 }
-                ))
-                .disabled(!isEditableState)
-            } header: {
-                Text("Demo mode")
-            } footer: {
-                Text("Simulate the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
-            }
-
-            Section {
                 if status.savedBikes.bikes.isEmpty {
                     Text("No bikes yet. Add your Tripper's Wi-Fi network below (RE_XXXX_XXXXX).")
                         .foregroundStyle(.secondary)
@@ -100,8 +88,18 @@ struct StreamingView: View {
                 addBikeRow
             } header: {
                 Text("Bikes")
+            }
+
+            Section {
+                Toggle("Demo mode", isOn: Binding(
+                    get: { status.bikeLink.demoMode },
+                    set: { status.bikeLink.demoMode = $0 }
+                ))
+                .disabled(!isEditableState)
+            } header: {
+                Text("Demo mode")
             } footer: {
-                Text("Each bike is your Tripper's Wi-Fi network. The dash IP is always 192.168.1.1.")
+                Text("Simulate the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
             }
 
             Section("Connection state") {
