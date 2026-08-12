@@ -16,9 +16,12 @@ struct StreamingView: View {
     @Environment(AppStatus.self) private var status
     @Environment(\.dismiss) private var dismiss
 
-    /// Allow editing the SSID/IP only when we're not actively connected
-    /// or mid-handshake. Idle and error states are both safe entry
-    /// points for retrying with different credentials.
+    /// Presents the "add bike" form sheet.
+    @State private var showAddBike = false
+
+    /// Allow connecting/editing the garage only when we're not actively
+    /// connected or mid-handshake. Idle and error states are both safe
+    /// entry points for (re)connecting.
     private var isEditableState: Bool {
         switch status.bikeLink.state {
         case .idle, .error: return true
@@ -26,32 +29,68 @@ struct StreamingView: View {
         }
     }
 
+    /// One bike in the garage list: the rider's name on top, its Wi-Fi SSID
+    /// as a monospaced subtitle, a Connect button on the trail. Connect is
+    /// disabled while demo mode is on (nothing to connect to) or the link
+    /// is busy.
+    @ViewBuilder
+    private func bikeRow(_ bike: SavedBike) -> some View {
+        HStack {
+            Image(systemName: "bicycle")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(bike.displayName)
+                Text(bike.ssid)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Connect") {
+                status.connect(to: bike)
+                dismiss()
+            }
+            .buttonStyle(.borderless)
+            .disabled(status.bikeLink.demoMode || !isEditableState)
+        }
+    }
+
+    /// The "add a bike" row: a button that opens a short form sheet where the
+    /// rider names the bike and enters its Wi-Fi SSID.
+    @ViewBuilder
+    private var addBikeRow: some View {
+        Button {
+            showAddBike = true
+        } label: {
+            Label("Add bike", systemImage: "plus.circle.fill")
+        }
+    }
+
     var body: some View {
         Form {
-            Section("Connection") {
-                LabeledContent("State", value: status.connectionState.rawValue)
-                if isEditableState {
-                    TextField("Bike Wi-Fi (SSID)", text: Binding(
-                        get: { status.bikeLink.ssid },
-                        set: { status.bikeLink.ssid = $0 }
-                    ))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    TextField("Dash IP", text: Binding(
-                        get: { status.bikeLink.bikeHost },
-                        set: { status.bikeLink.bikeHost = $0 }
-                    ))
-                    .keyboardType(.numbersAndPunctuation)
-                    .autocorrectionDisabled()
+            Section {
+                if status.savedBikes.bikes.isEmpty {
+                    Text("No bikes yet. Add your Tripper's Wi-Fi network below (RE_XXXX_XXXXX).")
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
                 } else {
-                    LabeledContent("Wi-Fi", value: status.bikeSsid ?? "—")
-                    LabeledContent("Dash host", value: status.bikeLink.bikeHost)
-                }
-                if let err = status.lastError {
-                    LabeledContent("Error") {
-                        Text(err).foregroundStyle(.red)
+                    ForEach(status.savedBikes.bikes) { bike in
+                        bikeRow(bike)
+                    }
+                    .onDelete { offsets in
+                        for i in offsets { status.savedBikes.remove(id: status.savedBikes.bikes[i].id) }
                     }
                 }
+                addBikeRow
+
+                Toggle("Demo mode", isOn: Binding(
+                    get: { status.bikeLink.demoMode },
+                    set: { status.bikeLink.demoMode = $0 }
+                ))
+                .disabled(!isEditableState)
+            } header: {
+                Text("Bikes")
+            } footer: {
+                Text("Demo mode simulates the dash on-screen without the bike — for trying the app without hardware. Everything else (GPS, routing, voice) stays real; nothing is sent over Wi-Fi.")
             }
 
             Section("Dash display") {
@@ -249,6 +288,11 @@ struct StreamingView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showAddBike) {
+            AddBikeSheet { name, ssid in
+                status.savedBikes.add(name: name, ssid: ssid)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Done") { dismiss() }

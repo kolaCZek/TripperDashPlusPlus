@@ -44,6 +44,9 @@ struct MapPickerView: View {
     /// cancelled connect, or if the plan disappears. Deliberately NOT set
     /// by the plain "Connect to dash" (no plan) path, nor by reconnects.
     @State private var pendingAutoStart = false
+    /// Presents the bike chooser (confirmationDialog) when the rider taps
+    /// Connect with more than one saved bike.
+    @State private var showBikePicker = false
 
     /// Tile pre-render progress (0.0 = idle/done, 0…<1 = in flight).
     /// We use a single shared sheet that watches `prerenderActive`.
@@ -621,12 +624,21 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
-        NavigationHUD(
-            isReconnecting: status.bikeLink.state == .reconnecting,
-            imperial: status.dashNavSettings.units == .imperial,
-            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
-            is24Hour: status.dashNavSettings.is24Hour
-        )
+        VStack(spacing: 0) {
+            // Demo mode: the interactive map is unmounted while streaming, so
+            // the on-screen dash preview is the only place the rider sees the
+            // projected map + native bubble. Show it above the HUD.
+            if status.bikeLink.isDemo && status.isStreaming {
+                DashPreviewPanel(demoModel: status.demoDashModel)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            NavigationHUD(
+                isReconnecting: status.bikeLink.state == .reconnecting,
+                imperial: status.dashNavSettings.units == .imperial,
+                useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
+                is24Hour: status.dashNavSettings.is24Hour
+            )
             .environment(status.activeNavigator)
             .onAppear {
                 forwardFixesToNavigator()
@@ -640,6 +652,7 @@ struct MapPickerView: View {
                     finishArrival()
                 }
             }
+        }
     }
 
     @ViewBuilder
@@ -664,13 +677,20 @@ struct MapPickerView: View {
     /// via `rideStatsPanel` in `pickingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
-        FreeRideHUD(
-            stats: status.rideStats.stats,
-            imperial: status.dashNavSettings.units == .imperial,
-            useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
-            position: status.locationService.lastFix?.coordinate
-        )
-        .padding(.horizontal, 12)
+        VStack(spacing: 0) {
+            if status.bikeLink.isDemo && status.isStreaming {
+                DashPreviewPanel(demoModel: status.demoDashModel)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            FreeRideHUD(
+                stats: status.rideStats.stats,
+                imperial: status.dashNavSettings.units == .imperial,
+                useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
+                position: status.locationService.lastFix?.coordinate
+            )
+            .padding(.horizontal, 12)
+        }
     }
 
     // MARK: - Control button
@@ -727,18 +747,65 @@ struct MapPickerView: View {
     /// already laid out, tapping this arms `pendingAutoStart`: the rider
     /// has signalled intent to ride, so navigation auto-starts the moment
     /// the link reaches `.connected` (no second tap on "Start").
+    /// CTA label — reflects demo mode (no dash to connect to) vs the real
+    /// connect flow, and whether a plan is already laid out.
+    private var connectLabel: String {
+        if status.bikeLink.demoMode {
+            return isPlanning ? "Start demo & navigation" : "Start demo"
+        }
+        let bikes = status.savedBikes.bikes
+        if bikes.isEmpty {
+            return "Add your bike"
+        }
+        if bikes.count == 1 {
+            return isPlanning ? "Connect & start navigation" : "Connect to \(bikes[0].displayName)"
+        }
+        // Multiple bikes → the tap opens a chooser.
+        return isPlanning ? "Choose bike & start navigation" : "Connect to bike…"
+    }
+
+    /// Arm auto-start (when a plan is laid out) and kick off the connect
+    /// flow for a specific bike. Shared by the single-bike tap and the
+    /// multi-bike picker.
+    private func beginConnect(to bike: SavedBike) {
+        if isPlanning { pendingAutoStart = true }
+        status.connect(to: bike)
+    }
+
     @ViewBuilder
     private var connectControl: some View {
         Button {
-            if isPlanning { pendingAutoStart = true }
-            status.bikeLink.connect()
+            let bikes = status.savedBikes.bikes
+            if status.bikeLink.demoMode {
+                // Demo: no bike to pick, fake the link directly.
+                if isPlanning { pendingAutoStart = true }
+                status.bikeLink.connect()
+            } else if bikes.isEmpty {
+                // Nothing saved yet — send the rider to the garage.
+                showSettings = true
+            } else if bikes.count == 1 {
+                beginConnect(to: bikes[0])
+            } else {
+                // More than one bike → let the rider choose.
+                showBikePicker = true
+            }
         } label: {
-            Label(isPlanning ? "Connect & start navigation" : "Connect to dash",
-                  systemImage: "antenna.radiowaves.left.and.right")
+            Label(connectLabel,
+                  systemImage: status.bikeLink.demoMode
+                      ? "play.rectangle.on.rectangle"
+                      : "antenna.radiowaves.left.and.right")
                 .frame(maxWidth: .infinity).padding()
                 .background(Color.accentColor.opacity(0.15))
         }
         .buttonStyle(.plain)
+        .confirmationDialog("Connect to which bike?",
+                            isPresented: $showBikePicker,
+                            titleVisibility: .visible) {
+            ForEach(status.savedBikes.bikes) { bike in
+                Button(bike.displayName) { beginConnect(to: bike) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     /// Connecting / handshaking progress + Cancel. When auto-start is

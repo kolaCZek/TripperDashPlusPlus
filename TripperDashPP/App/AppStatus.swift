@@ -9,6 +9,7 @@
 //  4 (encoder → fps / kbps), and 6 (Nav → currentDestination, route).
 //
 
+import CoreImage
 import CoreLocation
 import Foundation
 import MapKit
@@ -72,11 +73,23 @@ final class AppStatus {
     var bikeSsid: String? { bikeLink.ssid }
     var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
+    /// Connect to a specific saved bike: make it the active bike, point the
+    /// link's SSID at it, and start the connect flow. Used by the settings
+    /// per-row Connect button and the home-screen multi-bike picker.
+    func connect(to bike: SavedBike) {
+        savedBikes.select(id: bike.id)
+        bikeLink.ssid = bike.ssid
+        bikeLink.connect()
+    }
+
     // MARK: - Streaming
 
     var metrics: StreamMetrics = .zero
     private(set) var streamer: RtpStreamer?
-    var isStreaming: Bool { streamer?.state == .running }
+    /// True while a demo-mode projection is running (no RtpStreamer exists —
+    /// frames are mirrored to `demoDashModel` instead of encoded to UDP).
+    private(set) var isDemoStreaming: Bool = false
+    var isStreaming: Bool { streamer?.state == .running || isDemoStreaming }
 
     // MARK: - Background keep-alive (Phase 6)
 
@@ -108,6 +121,12 @@ final class AppStatus {
     /// only — not wired to any K1G dash TLV.
     let rideStats: RideStatsService
 
+    /// The rider's garage — saved bikes (by Wi-Fi SSID), add/remove/select.
+    /// Drives which SSID the connect flow targets; the dash IP is a global
+    /// constant (192.168.1.1), never per-bike. Owned here as the single
+    /// source of truth for both the settings list and the home-screen picker.
+    let savedBikes = SavedBikesStore()
+
     private var wakelockToken: UUID?
 
     /// Spoken turn-by-turn guidance. Owns the shared `AVAudioSession`,
@@ -115,6 +134,20 @@ final class AppStatus {
     /// for the ride so prompts play over the lock screen. Held for the
     /// app's lifetime; only actually speaks while `dashNavSettings.voiceEnabled`.
     let voiceNavigator = VoiceNavigator()
+
+    /// Demo-mode presentation model — the on-screen stand-in for the physical
+    /// Tripper dash. Populated only while `bikeLink.isDemo` is streaming: the
+    /// mapViewSource frame callback mirrors the composited video into
+    /// `latestFrame`, and `ActiveNavLoop` pushes the native-bubble snapshot.
+    /// Held for the app's lifetime (cheap, empty when not in demo); the
+    /// `DashPreviewPanel` binds to it.
+    let demoDashModel = DemoDashModel()
+
+    /// Reused Core Image context for converting demo-mirror CVPixelBuffers
+    /// (BGRA) into CGImages. Creating a CIContext is expensive, so we cache a
+    /// single instance and reuse it for every 6 Hz frame. `@ObservationIgnored`
+    /// — it's plumbing, never observed by the UI.
+    @ObservationIgnored private lazy var demoCIContext = CIContext(options: nil)
 
     init() {
         // The trip computer shares the one LocationService (already
@@ -129,6 +162,12 @@ final class AppStatus {
         // exist as inline stored properties, so this is the first
         // moment we can connect them.
         bikeLink.settings = dashNavSettings
+
+        // Point the link at the active bike (if any) so the banner + connect
+        // flow agree from the start.
+        if let active = savedBikes.selected {
+            bikeLink.ssid = active.ssid
+        }
 
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we
@@ -220,6 +259,49 @@ final class AppStatus {
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
     func startStreaming() {
+        guard bikeLink.dashHost != nil else { return }
+
+        // ── Demo mode: fake dash, no UDP ────────────────────────────────
+        // In demo mode there is no RtpStreamer and no encoder — instead we
+        // start the SAME MapViewSource frame pump and mirror each composited
+        // 526×300 buffer onto `demoDashModel.latestFrame` for the on-screen
+        // dash preview. The ActiveNavLoop still runs (its K1G TLV sends are
+        // no-ops via BikeLink's demo guards) and pushes the native-bubble
+        // snapshot into `demoDashModel.bubble`. Everything else (GPS, MapKit
+        // routing, tile bake, voice) is fully real.
+        if bikeLink.isDemo {
+            guard !isDemoStreaming else { return }
+            isDemoStreaming = true
+
+            let ctx = demoCIContext
+            let model = demoDashModel
+            mapViewSource.start { pixelBuffer, _ in
+                // Fires on MapViewSource's background render queue. Convert
+                // the BGRA CVPixelBuffer to a CGImage here (cheap, off-main),
+                // then hop to the main actor to publish for SwiftUI.
+                let ci = CIImage(cvPixelBuffer: pixelBuffer)
+                let w = CVPixelBufferGetWidth(pixelBuffer)
+                let h = CVPixelBufferGetHeight(pixelBuffer)
+                guard let cg = ctx.createCGImage(ci, from: CGRect(x: 0, y: 0, width: w, height: h)) else { return }
+                Task { @MainActor in model.latestFrame = cg }
+            }
+
+            let loop = ActiveNavLoop(
+                bikeLink: bikeLink,
+                navigator: activeNavigator,
+                mapSource: mapViewSource,
+                settings: dashNavSettings,
+                voice: voiceNavigator,
+                demo: demoDashModel
+            )
+            voiceNavigator.enabled = dashNavSettings.voiceEnabled
+            loop.start()
+            activeNavLoop = loop
+            rideStats.begin()
+            applyKeepAwake()
+            return
+        }
+
         guard streamer == nil, let host = bikeLink.dashHost else { return }
 
         let source = mapViewSource   // shared instance, lazily created
@@ -274,6 +356,20 @@ final class AppStatus {
     }
 
     func stopStreaming() {
+        // ── Demo mode teardown ──────────────────────────────────────────
+        if isDemoStreaming {
+            isDemoStreaming = false
+            activeNavLoop?.stop()
+            activeNavLoop = nil
+            voiceNavigator.stop()
+            mapViewSource.stop()
+            demoDashModel.clear()
+            rideStats.end()
+            metrics = .zero
+            applyKeepAwake()
+            return
+        }
+
         // Tell the dash to leave nav projection BEFORE we yank the
         // encoder — it expects (h, x) before the frames stop, otherwise
         // it sometimes wedges on the last bitmap until the next reboot.
