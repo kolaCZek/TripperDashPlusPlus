@@ -17,19 +17,37 @@
 //      multi-leg day reads as one ride.
 //    • Totals are held frozen on screen after arrival until the rider
 //      starts moving again (a new route) or the session ends.
-//    • The accumulator is in-memory ONLY. Killing the app zeroes it —
-//      there is deliberately no cross-launch persistence, so a fresh
-//      launch always starts a fresh ride.
-//    • reset() zeroes mid-session; AppStatus calls it when the bike link
-//      goes fully down (user disconnect, or auto-reconnect gives up after
-//      the 10-min budget = motorcycle switched off).
+//    • The LIVE accumulator is in-memory. To survive the arrival→sleep→
+//      kill cycle (iOS suspends and then terminates the app once the
+//      streaming wakelock drops at arrival), the LAST ride summary is
+//      persisted to UserDefaults at each teardown (`end()`/`pause()`) and
+//      restored on launch, so reopening the app shows the last ride's
+//      summary panel instead of a blank picker. The restored ride is
+//      STALE, not a continuation: the first `begin()` of a genuinely new
+//      ride zeroes it (see `restoredFromDisk`).
+//    • reset() zeroes mid-session AND clears the persisted copy; AppStatus
+//      calls it when the bike link goes fully down (user disconnect, or
+//      auto-reconnect gives up after the 10-min budget = motorcycle off).
+//
+//  Why persist only at teardown (not per-fix): a long ride's `trackPoints`
+//  is thousands of points, so writing it on every 1 Hz fix would be wasteful.
+//  The reported failure is arrival → app killed while backgrounded, and
+//  `end()` runs at that arrival teardown — so the summary is on disk before
+//  the app can be terminated. A crash mid-ride loses at most the current
+//  in-flight leg, which is acceptable for a summary panel.
 //
 
 import Foundation
+import os
 
 @MainActor
 @Observable
 final class RideStatsService {
+
+    private static let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RideStats")
+
+    /// UserDefaults key holding the last ride's persisted `RideStats` (JSON).
+    private static let storageKey = "RideStats.lastRide.v1"
 
     /// The live accumulator. Views read this; all math is in RideStats.
     private(set) var stats = RideStats()
@@ -39,9 +57,18 @@ final class RideStatsService {
 
     private weak var location: LocationService?
     private var sub: LocationSubscription?
+    private let defaults: UserDefaults
 
-    init(location: LocationService) {
+    /// True when `stats` was rehydrated from disk on launch and no new ride
+    /// has begun yet. The restored ride is a FINISHED ride from a previous
+    /// app session shown for reference — the next `begin()` must zero it so a
+    /// new ride doesn't fold onto last time's totals. Cleared by `begin()`.
+    private var restoredFromDisk = false
+
+    init(location: LocationService, defaults: UserDefaults = .standard) {
         self.location = location
+        self.defaults = defaults
+        restoreLastRide()
     }
 
     // MARK: - Lifecycle
@@ -49,12 +76,22 @@ final class RideStatsService {
     /// Begin folding fixes into the accumulator. Called when streaming
     /// starts. Idempotent — a second call while running is a no-op.
     ///
-    /// Deliberately does NOT reset: starting a new route after an arrival
-    /// resumes onto the existing totals (the held, frozen numbers), so a
-    /// day of back-to-back legs reads as one continuous ride. Zeroing is
-    /// reset()'s job and only happens when the whole session ends.
+    /// Deliberately does NOT reset for an in-memory continuation: starting a
+    /// new route after an arrival WITHIN the same app session resumes onto
+    /// the existing totals (the held, frozen numbers), so a day of
+    /// back-to-back legs reads as one continuous ride.
+    ///
+    /// EXCEPTION: if the totals were rehydrated from disk on launch
+    /// (`restoredFromDisk`), they belong to a PREVIOUS app session and must
+    /// NOT be continued — zero them first so the new ride starts clean.
     func begin() {
         guard state != .running else { return }
+        if restoredFromDisk {
+            // The on-screen numbers are last session's ride, shown for
+            // reference. A genuinely new ride starts fresh.
+            stats = RideStats()
+            restoredFromDisk = false
+        }
         state = .running
         sub = location?.subscribeFixes { [weak self] fix in
             // LocationService fires subscribers on the main actor (fresh
@@ -65,10 +102,12 @@ final class RideStatsService {
         }
     }
 
-    /// Keep totals but stop folding new fixes.
+    /// Keep totals but stop folding new fixes. Persists the frozen summary so
+    /// it survives an app kill (e.g. iOS terminating the backgrounded app).
     func pause() {
         guard state == .running else { return }
         state = .paused
+        persistLastRide()
     }
 
     /// Resume folding after a pause.
@@ -81,18 +120,56 @@ final class RideStatsService {
     /// fully down (user disconnect, or auto-reconnect exhausts its budget
     /// = motorcycle off). Drops any live subscription and returns to idle
     /// so the post-arrival panel (gated on `stats.startedAt`) disappears.
+    /// Also clears the persisted copy — the session is over, so a relaunch
+    /// should NOT resurrect this ride's summary.
     func reset() {
         sub = nil
         stats = RideStats()
         state = .idle
+        restoredFromDisk = false
+        defaults.removeObject(forKey: Self.storageKey)
     }
 
     /// Streaming stopped — drop the subscription, keep totals on screen.
     /// The frozen numbers stay visible (via the post-arrival panel) until
-    /// the next ride resumes folding or reset() ends the session.
+    /// the next ride resumes folding or reset() ends the session. Persists
+    /// the summary so it survives the arrival→sleep→kill cycle: this runs at
+    /// the arrival teardown, before iOS can terminate the backgrounded app.
     func end() {
         sub = nil
         if state == .running { state = .paused }
+        persistLastRide()
+    }
+
+    // MARK: - Persistence
+
+    /// Write the current `stats` to disk as the "last ride" summary. Called
+    /// at each teardown (`end()`/`pause()`). Skips empty rides (no
+    /// `startedAt`) so a stop before any fix doesn't leave a blank record.
+    private func persistLastRide() {
+        guard stats.startedAt != nil else { return }
+        do {
+            let data = try JSONEncoder().encode(stats)
+            defaults.set(data, forKey: Self.storageKey)
+        } catch {
+            Self.log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Rehydrate the last ride's summary from disk on launch. The restored
+    /// ride is a finished, reference-only summary (`restoredFromDisk = true`,
+    /// state stays `.idle`) — the picker shows its RideStatsPanel, and the
+    /// next `begin()` zeroes it for a fresh ride.
+    private func restoreLastRide() {
+        guard let data = defaults.data(forKey: Self.storageKey) else { return }
+        do {
+            stats = try JSONDecoder().decode(RideStats.self, from: data)
+            restoredFromDisk = true
+            Self.log.info("Restored last ride summary from disk")
+        } catch {
+            Self.log.error("Failed to restore last ride: \(error.localizedDescription, privacy: .public) — clearing")
+            defaults.removeObject(forKey: Self.storageKey)
+        }
     }
 
     // MARK: - Fold
