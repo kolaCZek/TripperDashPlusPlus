@@ -130,6 +130,19 @@ final class RideStatsService {
         defaults.removeObject(forKey: Self.storageKey)
     }
 
+    /// The rider dismissed the post-arrival summary panel (its close
+    /// button). Drop the persisted copy so a relaunch doesn't resurrect a
+    /// summary the rider has already seen and closed — without this the
+    /// on-disk record would re-hydrate and the panel would reappear on the
+    /// next launch. Only clears disk + the restored flag: the live in-memory
+    /// `stats` stay (the UI hides the panel via its own transient
+    /// `rideStatsDismissed` flag), so a back-to-back next leg still resumes
+    /// onto the same totals within this session.
+    func acknowledgeSummary() {
+        defaults.removeObject(forKey: Self.storageKey)
+        restoredFromDisk = false
+    }
+
     /// Streaming stopped — drop the subscription, keep totals on screen.
     /// The frozen numbers stay visible (via the post-arrival panel) until
     /// the next ride resumes folding or reset() ends the session. Persists

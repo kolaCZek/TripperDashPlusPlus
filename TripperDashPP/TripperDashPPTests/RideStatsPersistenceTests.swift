@@ -94,4 +94,20 @@ struct RideStatsPersistenceTests {
         svc.end()
         #expect(suite.data(forKey: Self.storageKey) == nil)
     }
+
+    @Test func acknowledgeSummaryClearsDiskSoItWontReappear() {
+        // Closing the restored summary panel must drop the on-disk copy, so
+        // a subsequent launch does NOT resurrect the already-seen summary.
+        let suite = freshSuite()
+        seed(sampleRide(), into: suite)
+
+        let svc = RideStatsService(location: LocationService(), defaults: suite)
+        #expect(svc.stats.startedAt != nil) // restored & panel-eligible
+        svc.acknowledgeSummary()
+        #expect(suite.data(forKey: Self.storageKey) == nil)
+
+        // Next launch sees nothing to restore → no panel.
+        let svc2 = RideStatsService(location: LocationService(), defaults: suite)
+        #expect(svc2.stats.startedAt == nil)
+    }
 }
