@@ -265,8 +265,7 @@ final class ActiveNavLoop {
         // per-leg ETA + the final-ETA pill); the dash bubble has no room
         // for two numbers, so it only ever shows the whole-trip arrival.
         // (Martin, 6/2026.) `etaSec` itself is untouched and still feeds
-        // the ManeuverLog line below, so the debug trail keeps recording
-        // the per-leg estimate alongside the other leg-scoped fields.
+        // the bike ETA bubble below alongside the other leg-scoped fields.
         let finalEtaSec: TimeInterval = nav.finalDestinationEtaSeconds
         let etaDate: Date? = finalEtaSec > 0 ? Date(timeIntervalSinceNow: finalEtaSec) : nil
         let remainingSecs: TimeInterval? = finalEtaSec > 0 ? finalEtaSec : nil
@@ -453,37 +452,7 @@ final class ActiveNavLoop {
             imperial: settings.units == .imperial
         )
 
-        // 3. Internal file-based debug log of this nav tick (GPS + glyph +
-        //    distances + reroute + active-route identity). Non-blocking:
-        //    `record` only snapshots these values and hands them to its own
-        //    serial queue for the file write. See `ManeuverLog`. Internal /
-        //    local-only debug trail — never transmitted.
-        ManeuverLog.shared.record(
-            coordinate: nav.currentCoordinate,
-            maneuver: kind,
-            wireByte: kind.wireByte,
-            // Log the CORRECTED upcoming text (arriving step's
-            // instructions), so the recorded text matches the glyph and a
-            // replay over this log is a faithful regression fixture rather
-            // than re-capturing the old maneuver-ahead-of-arrow drift.
-            instructions: upcomingInstructions,
-            distanceToNextStep: distNext,
-            remainingDistance: distTotal,
-            etaSeconds: etaSec,
-            isRerouting: isRerouting,
-            destination: nav.destination?.name,
-            routeStepCount: nav.activeRoute?.steps.count ?? 0,
-            routeDistanceMeters: nav.activeRoute?.distance ?? 0,
-            secondaryWireByte: secondaryManeuverByte,
-            secondaryDistanceMeters: emitSecondary ? distSecond : nil,
-            // Polyline diagnostics: only near the maneuver (≤150 m) so the
-            // log doesn't bloat. Lets a replay recompute ManeuverGeometry's
-            // exact angle. `prevPolyTail` is the ARRIVING leg (ends at the
-            // node, incoming bearing); `nextPolyHead` is the DEPARTING leg
-            // (leaves the node, outgoing bearing).
-            prevPolyTail: distNext <= 150 ? Self.polyTail(arrivingStep?.polyline) : nil,
-            nextPolyHead: distNext <= 150 ? Self.polyHead(departingStep?.polyline) : nil
-        )
+        // 3. (Removed) the per-maneuver file-based diagnostic writer.
     }
 
     // MARK: - Spoken guidance
@@ -548,27 +517,6 @@ final class ActiveNavLoop {
         hasher.combine(latq)
         hasher.combine(lonq)
         return hasher.finalize()
-    }
-
-    /// Vertices spanning ~25 m walking back from the polyline END (the
-    /// maneuver node), [lat,lon] rounded to 6 dp (~0.1 m). Mirrors the
-    /// incoming-bearing anchor in `ManeuverGeometry`.
-    private static func polyTail(_ pl: MKPolyline?) -> [[Double]]? {
-        coords(pl).map { Array($0.suffix(8)) }
-    }
-
-    /// Vertices spanning ~25 m forward from the polyline START. Mirrors the
-    /// outgoing-bearing anchor.
-    private static func polyHead(_ pl: MKPolyline?) -> [[Double]]? {
-        coords(pl).map { Array($0.prefix(8)) }
-    }
-
-    private static func coords(_ pl: MKPolyline?) -> [[Double]]? {
-        guard let pl, pl.pointCount > 0 else { return nil }
-        var c = [CLLocationCoordinate2D](repeating: .init(), count: pl.pointCount)
-        pl.getCoordinates(&c, range: NSRange(location: 0, length: pl.pointCount))
-        return c.map { [Double(round($0.latitude * 1e6) / 1e6),
-                        Double(round($0.longitude * 1e6) / 1e6)] }
     }
 
     /// "<time> to <name>" for the multi-stop roadName-TLV label — TIME

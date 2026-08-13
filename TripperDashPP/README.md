@@ -14,7 +14,7 @@ Stream/      VideoToolbox H.264 encoder + RTP packetizer — FrameSource, H264En
 Map/         OSM raster tile pipeline + BG-safe CGContext frame source
              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock)
 Navigation/  routing + search + active-nav loop + on-route geometry (ActiveNavigator, ActiveNavLoop,
-             RoutingService, LocalSearchService, NavigationStore, PolylineMath, GPXParser, SavedRoutesStore, ManeuverLog,
+             RoutingService, LocalSearchService, NavigationStore, PolylineMath, GPXParser, SavedRoutesStore,
              VoicePhrase + VoicePromptScheduler — spoken-prompt phrasing/tiers for VoiceNavigator)
   Models/    Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings
 RideAlerts/  keyless ride enrichment — WeatherAlertService (Open-Meteo, whole-route look-ahead),

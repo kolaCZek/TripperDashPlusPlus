@@ -217,9 +217,9 @@ final class ActiveNavigator {
     private(set) var isRerouting: Bool = false
 
     /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.
-    /// Read-only for consumers (e.g. `ManeuverLog` records where each glyph
-    /// was shown). `nil` until the first fix lands. Minimal surface: the
-    /// navigator already digests the fix; we just retain its coordinate.
+    /// Read-only for consumers. `nil` until the first fix lands. Minimal
+    /// surface: the navigator already digests the fix; we just retain its
+    /// coordinate.
     private(set) var currentCoordinate: CLLocationCoordinate2D?
 
     // MARK: - Route overview geometry (feat/nav-route-overview-map)
