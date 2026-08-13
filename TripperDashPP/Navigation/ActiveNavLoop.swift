@@ -158,14 +158,12 @@ final class ActiveNavLoop {
         // Snapshot — keep this synchronous so the values are consistent
         // across the wire packet and the overlay.
         //
-        // `nextStep` (departing) / `stepBeforeNext` (arriving) are kept for
-        // the geometry-replay diagnostics in the log; the maneuver the
-        // rider actually sees comes from the navigator's DERIVED model
-        // (`upcomingManeuver` / `upcomingInstructions` / `lookaheadManeuver`),
+        // `stepBeforeNext` (arriving) provides the maneuver text + incoming
+        // leg; the maneuver the rider actually sees comes from the
+        // navigator's DERIVED model (`upcomingManeuver` / `lookaheadManeuver`),
         // which resolves Apple's end-of-polyline text convention in one
         // place so the bubble text can't drift a maneuver ahead of the arrow.
         let arrivingStep: MKRoute.Step? = nav.stepBeforeNext   // text + incoming leg
-        let departingStep: MKRoute.Step? = nav.nextStep        // outgoing leg
         let distNext: Double = nav.distanceToNextStep
         let distTotal: Double = nav.remainingDistance
         let etaSec: TimeInterval = nav.etaSeconds
@@ -185,7 +183,6 @@ final class ActiveNavLoop {
             if isRerouting { return .recalculating }
             return nav.upcomingManeuver ?? .straight
         }()
-        let upcomingInstructions: String? = nav.upcomingInstructions
 
         // Pre-compute wire values.
         //
