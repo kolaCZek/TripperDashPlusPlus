@@ -148,6 +148,21 @@ final class LocationService: NSObject {
 
     // MARK: - Public API
 
+    /// Request location authorization from a UI affordance (the permissions
+    /// sheet's "Set" button). Escalates one step: undetermined → whenInUse,
+    /// whenInUse → always. A no-op once already Always or denied (in the
+    /// denied case the user must go to iOS Settings — the sheet links there).
+    func requestAuthorization() {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            manager.requestAlwaysAuthorization()
+        default:
+            break
+        }
+    }
+
     /// Acquire a slot. Returns an opaque token; release it via `stop(token:)`
     /// or just let it deinit. The service auto-picks the highest mode
     /// across all active slots.
