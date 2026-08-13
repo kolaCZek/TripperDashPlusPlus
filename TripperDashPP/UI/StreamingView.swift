@@ -19,6 +19,9 @@ struct StreamingView: View {
     /// Presents the "add bike" form sheet.
     @State private var showAddBike = false
 
+    /// Presents the permissions checklist sheet.
+    @State private var showPermissions = false
+
     /// Allow connecting/editing the garage only when we're not actively
     /// connected or mid-handshake. Idle and error states are both safe
     /// entry points for (re)connecting.
@@ -257,6 +260,11 @@ struct StreamingView: View {
                 Link(destination: URL(string: "https://github.com/kolaCZek/TripperDashPlusPlus/issues/new")!) {
                     Label("Report a bug", systemImage: "ladybug")
                 }
+                Button {
+                    showPermissions = true
+                } label: {
+                    Label("Check permissions", systemImage: "checkmark.shield")
+                }
                 Link(destination: URL(string: "https://github.com/sponsors/kolaCZek")!) {
                     Label("Donate", systemImage: "heart")
                 }
@@ -264,6 +272,9 @@ struct StreamingView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPermissions) {
+            PermissionsView()
+        }
         .sheet(isPresented: $showAddBike) {
             AddBikeSheet { name, ssid in
                 status.savedBikes.add(name: name, ssid: ssid)
