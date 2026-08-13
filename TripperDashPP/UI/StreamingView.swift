@@ -249,30 +249,6 @@ struct StreamingView: View {
 
             MapCacheSection()
 
-            #if DEBUG
-            Section("Diagnostics") {
-                Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.buttonWireLoggingEnabled },
-                    set: { status.dashNavSettings.buttonWireLoggingEnabled = $0 }
-                )) {
-                    Text("Log button wire bytes")
-                }
-                Text("Writes every inbound packet from the dash to Documents/button-logs/*.jsonl so joystick/zoom button events can be debugged from the phone alone. Retrieve via Files → On My iPhone → TripperDashPP. Debug builds only; leave OFF for normal rides.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.maneuverLoggingEnabled },
-                    set: { status.dashNavSettings.maneuverLoggingEnabled = $0 }
-                )) {
-                    Text("Log maneuvers")
-                }
-                Text("Writes each navigation maneuver (turn, distance, GPS) to Documents/maneuver-logs/*.jsonl so a route can be replayed and grepped offline after a ride. Retrieve via Files → On My iPhone → TripperDashPP. Debug builds only; leave OFF for normal rides.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            #endif
-
             Section("About") {
                 LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildCommitSHA))")
                 // NOTE: the parenthesised value is the short git commit SHA
