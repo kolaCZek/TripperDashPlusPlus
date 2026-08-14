@@ -110,7 +110,7 @@ If this saves your sanity on a long ride, you can throw a coffee my way:
 - ☕ [GitHub Sponsors](https://github.com/sponsors/kolaCZek)
 - [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kolaczek)
 
-This project is **source-available under the [PolyForm Noncommercial License](LICENSE)**: read it, build it for your own bike, fork it, send PRs. What you *can't* do is sell it or ship a commercial clone (e.g. a paid App Store copy). The official TripperDash++ on the App Store — and any donations — stay with the original author. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.
+This project is **source-available under the [PolyForm Noncommercial License](LICENSE)**: read it, build it for your own bike, fork it, send PRs. What you *can't* do is sell it or ship a commercial clone (e.g. a paid App Store copy). The official TripperDash++ on the App Store stays with the original author. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.
 
 ## License
 
