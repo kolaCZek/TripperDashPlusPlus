@@ -2,7 +2,7 @@
 
 > Stream live, full-color turn-by-turn navigation from your iPhone to the **Royal Enfield Tripper Dash** TFT (Himalayan 450 / Guerrilla 450) — even with your phone's screen off.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue.svg)](LICENSE)
 [![Platform: iOS 18+](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)]()
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
 [![fake_dash CI](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml/badge.svg)](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml)
@@ -96,7 +96,7 @@ The Tripper Dash (big round map-capable TFT) ships on:
 
 - This project **reverse engineers an unencrypted-by-design Wi-Fi protocol** between the official RE phone app and the Tripper Dash for **interoperability** — protected under [Article 6 of EU Directive 2009/24/EC](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009L0024). Not affiliated with, endorsed by, or sanctioned by Royal Enfield or Eicher Motors.
 - **Don't read your phone while riding.** The whole point of this app is so you don't have to — but it doesn't replace common sense. Plan your route at a stop. Glance at the dash, not the phone.
-- **Use at your own risk.** The MIT license applies: no warranty, no liability. If your bike catches fire because of bad RTP packets, that's on you (and also extremely unlikely).
+- **Use at your own risk.** No warranty, no liability (see [LICENSE](LICENSE)). If your bike catches fire because of bad RTP packets, that's on you (and also extremely unlikely).
 
 ## Contributing
 
@@ -109,11 +109,13 @@ If this saves your sanity on a long ride, you can throw a coffee my way:
 - ☕ [GitHub Sponsors](https://github.com/sponsors/kolaCZek)
 - [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kolaczek)
 
-This is and will remain MIT-licensed. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.
+This project is **source-available under the [PolyForm Noncommercial License](LICENSE)**: read it, build it for your own bike, fork it, send PRs. What you *can't* do is sell it or ship a commercial clone (e.g. a paid App Store copy). The official TripperDash++ on the App Store — and any donations — stay with the original author. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.
 
 ## License
 
-[MIT](LICENSE) © 2026 Martin Kolací
+**[PolyForm Noncommercial 1.0.0](LICENSE)** © 2026 Martin Kolací
+
+Noncommercial use — personal, hobby, research, educational — is free. **Commercial use (including paid distribution on any app store) requires a separate license from the author.** Not affiliated with Royal Enfield or Eicher Motors.
 
 ---
 

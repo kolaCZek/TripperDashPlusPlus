@@ -60,7 +60,14 @@ Be excellent to each other. This is a hobby project; nobody is paid to be here, 
 
 ## License of contributions
 
-By submitting a PR you agree your contribution is MIT-licensed under the same terms as the rest of the project. If you contribute substantial code I may ask you to add yourself to a future `CONTRIBUTORS.md`.
+The project is released under the [PolyForm Noncommercial License](LICENSE), but that license alone would stop even *me* from shipping the official app commercially (the App Store build, paid or not, is a commercial distribution). So contributions need a small extra grant:
+
+**By submitting a PR you agree that:**
+
+1. Your contribution is licensed to everyone under the same **PolyForm Noncommercial** terms as the rest of the project; **and**
+2. You additionally grant **Martin Kolací (@kolaCZek)** a perpetual, worldwide, royalty-free license to use your contribution **without the noncommercial restriction** — so the official TripperDash++ can be published on the App Store and dual-licensed if needed.
+
+In plain terms: everyone keeps the code free for noncommercial use, and only the original author can distribute it commercially. If you contribute substantial code I may ask you to add yourself to a future `CONTRIBUTORS.md`.
 
 ## Questions?
 
