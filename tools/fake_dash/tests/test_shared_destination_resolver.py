@@ -24,6 +24,10 @@ SWIFT_DEEPLINK = (
     Path(__file__).resolve().parents[3]
     / "TripperDashPP/Navigation/SharedDeepLink.swift"
 )
+SWIFT_SHARE = (
+    Path(__file__).resolve().parents[3]
+    / "TripperDashPP/TripperDashShare/ShareViewController.swift"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +206,21 @@ def parse_google(url):
     return None
 
 
+def is_supported_maps_url(url):
+    """Mirror of Swift SharedDestinationResolver.isSupportedMapsURL: True for
+    Google Maps / Apple Maps / geo: URLs, False for everything else."""
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    if scheme == "geo":
+        return True
+    host = (parsed.netloc or "").lower()
+    if "google." in host or "goo.gl" in host:
+        return True
+    if "maps.apple" in host:
+        return True
+    return False
+
+
 def parse(url=None, text=None):
     if url:
         host = (urlparse(url).netloc or "").lower()
@@ -336,6 +355,37 @@ class TextFallbackTests(unittest.TestCase):
         self.assertEqual(kind, "empty")
 
 
+class UnsupportedSourceTests(unittest.TestCase):
+    def test_supported_google(self):
+        self.assertTrue(is_supported_maps_url(
+            "https://www.google.com/maps/place/X/@49.9,14.0,15z"))
+
+    def test_supported_google_shortlink(self):
+        self.assertTrue(is_supported_maps_url("https://maps.app.goo.gl/abcd"))
+
+    def test_supported_apple(self):
+        self.assertTrue(is_supported_maps_url(
+            "https://maps.apple.com/?ll=50.07,14.43"))
+
+    def test_supported_apple_shortform(self):
+        self.assertTrue(is_supported_maps_url("https://maps.apple/p/xyz123"))
+
+    def test_supported_geo_uri(self):
+        self.assertTrue(is_supported_maps_url("geo:50.07,14.43"))
+
+    def test_unsupported_waze(self):
+        self.assertFalse(is_supported_maps_url(
+            "https://waze.com/ul?ll=50.07,14.43"))
+
+    def test_unsupported_random_article(self):
+        self.assertFalse(is_supported_maps_url(
+            "https://example.com/blog/best-roads"))
+
+    def test_unsupported_bing_maps(self):
+        self.assertFalse(is_supported_maps_url(
+            "https://www.bing.com/maps?cp=50.07~14.43"))
+
+
 class ValidationTests(unittest.TestCase):
     def test_null_island_rejected(self):
         self.assertIsNone(valid_coord(0, 0))
@@ -372,6 +422,14 @@ class SwiftDriftGuards(unittest.TestCase):
 
     def test_graceful_search_hint_fallback(self):
         self.assertIn("searchHint", self.resolver)
+
+    def test_unsupported_source_guard_present(self):
+        # Resolver exposes the supported-source check; the Share extension
+        # uses it to reject non-Maps shares with a friendly alert.
+        self.assertIn("isSupportedMapsURL", self.resolver)
+        share = SWIFT_SHARE.read_text(encoding="utf-8")
+        self.assertIn("isSupportedMapsURL", share)
+        self.assertIn("showUnsupported", share)
 
     def test_deeplink_roundtrip_contract(self):
         # encode + decode both present, scheme constant matches Info.plist
