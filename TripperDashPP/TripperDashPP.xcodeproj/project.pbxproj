@@ -937,7 +937,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = "TripperDashPP/TripperDashPP.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -977,7 +977,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = "TripperDashPP/TripperDashPP.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
