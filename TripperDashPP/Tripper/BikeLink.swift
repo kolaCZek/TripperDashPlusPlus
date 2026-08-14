@@ -217,6 +217,16 @@ final class BikeLink {
         connectTask = Task { await self.runConnectFlow() }
     }
 
+    /// Report a Wi-Fi join failure from the app layer (AppStatus.connect):
+    /// the phone couldn't associate with the bike's AP, so there's no point
+    /// starting the handshake. Surface it as a normal link error so the UI
+    /// shows the reason and offers a retry.
+    func reportJoinFailure(_ message: String) {
+        log.error("Wi-Fi join failed: \(message, privacy: .public)")
+        lastError = message
+        state = .error(message)
+    }
+
     /// Tear everything down and return to `.idle`. Safe to call at any
     /// time — including mid-handshake, in which case it cancels the
     /// in-flight connect Task so the user isn't stuck staring at a

@@ -1268,7 +1268,7 @@ private struct StatusBanner: View {
         case .reconnecting: "Reconnecting to dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
-        case .error:        "Error — see settings"
+        case .error:        "Connection failed — tap to retry"
         }
     }
 }
