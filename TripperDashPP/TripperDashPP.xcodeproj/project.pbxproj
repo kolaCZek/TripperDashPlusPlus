@@ -115,6 +115,12 @@
 		5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
 		5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
 		5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000B0 /* TripperDashShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A4C7000000000000000A1001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
+		A4C7000000000000000A2001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
+		A4C7000000000000000B1001 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000B0001 /* LiveActivityController.swift */; };
+		A4C7000000000000000C2001 /* RideLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000C0001 /* RideLiveActivity.swift */; };
+		A4C7000000000000000D2001 /* TripperDashWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */; };
+		A4C700000000000000101001 /* TripperDashWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000F0001 /* TripperDashWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -229,6 +235,12 @@
 		5E5E000000000000000000B0 /* TripperDashShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E5E000000000000000000C0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		5E5E000000000000000000D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A4C7000000000000000A0001 /* RideActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideActivityAttributes.swift; sourceTree = "<group>"; };
+		A4C7000000000000000B0001 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
+		A4C7000000000000000C0001 /* RideLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideLiveActivity.swift; sourceTree = "<group>"; };
+		A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashWidgetsBundle.swift; sourceTree = "<group>"; };
+		A4C7000000000000000E0001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A4C7000000000000000F0001 /* TripperDashWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -239,6 +251,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */,
+				A4C700000000000000101001 /* TripperDashWidgets.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -261,6 +274,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5E5E00000000000000000100 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4C700000000000000110001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -295,9 +315,11 @@
 				A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */,
 				A4DE70000000000000C20001 /* TripperDashPP.entitlements */,
 				A486F0432FE2034700AA36C3 /* App */,
+				A4C7000000000000000A1000 /* LiveActivity */,
 				A486F0472FE2034700AA36C3 /* UI */,
 				7E57000000000000000000C0 /* TripperDashPPTests */,
 				5E5E000000000000000000E0 /* TripperDashShare */,
+				A4C7000000000000000D1000 /* TripperDashWidgets */,
 				A41A9C4E2FE20258009BF005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -308,6 +330,7 @@
 				A41A9C4D2FE20258009BF005 /* TripperDashPP.app */,
 				7E57000000000000000000B0 /* TripperDashPPTests.xctest */,
 				5E5E000000000000000000B0 /* TripperDashShare.appex */,
+				A4C7000000000000000F0001 /* TripperDashWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -491,6 +514,25 @@
 			path = TripperDashShare;
 			sourceTree = "<group>";
 		};
+		A4C7000000000000000A1000 /* LiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				A4C7000000000000000A0001 /* RideActivityAttributes.swift */,
+				A4C7000000000000000B0001 /* LiveActivityController.swift */,
+			);
+			path = LiveActivity;
+			sourceTree = "<group>";
+		};
+		A4C7000000000000000D1000 /* TripperDashWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				A4C7000000000000000C0001 /* RideLiveActivity.swift */,
+				A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */,
+				A4C7000000000000000E0001 /* Info.plist */,
+			);
+			path = TripperDashWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -508,6 +550,7 @@
 			);
 			dependencies = (
 				5E5E00000000000000000140 /* PBXTargetDependency */,
+				A4C700000000000000141000 /* PBXTargetDependency */,
 			);
 			name = TripperDashPP;
 			packageProductDependencies = (
@@ -555,6 +598,25 @@
 			productReference = 5E5E000000000000000000B0 /* TripperDashShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		A4C7000000000000000F1000 /* TripperDashWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A4C700000000000000160000 /* Build configuration list for PBXNativeTarget "TripperDashWidgets" */;
+			buildPhases = (
+				A4C700000000000000120000 /* Sources */,
+				A4C700000000000000110001 /* Frameworks */,
+				A4C700000000000000130000 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TripperDashWidgets;
+			packageProductDependencies = (
+			);
+			productName = TripperDashWidgets;
+			productReference = A4C7000000000000000F0001 /* TripperDashWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -573,6 +635,9 @@
 						TestTargetID = A41A9C4C2FE20258009BF005;
 					};
 					5E5E00000000000000000120 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					A4C7000000000000000F1000 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 				};
@@ -596,6 +661,7 @@
 				A41A9C4C2FE20258009BF005 /* TripperDashPP */,
 				7E57000000000000000000D0 /* TripperDashPPTests */,
 				5E5E00000000000000000120 /* TripperDashShare */,
+				A4C7000000000000000F1000 /* TripperDashWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -617,6 +683,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5E5E00000000000000000110 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4C700000000000000130000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -736,6 +809,8 @@
 				7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */,
 				A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */,
 				A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */,
+				A4C7000000000000000A1001 /* RideActivityAttributes.swift in Sources */,
+				A4C7000000000000000B1001 /* LiveActivityController.swift in Sources */,
 				A4DE70000000000000E00101 /* DashPreviewPanel.swift in Sources */,
 				A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */,
 				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
@@ -771,6 +846,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A4C700000000000000120000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4C7000000000000000C2001 /* RideLiveActivity.swift in Sources */,
+				A4C7000000000000000D2001 /* TripperDashWidgetsBundle.swift in Sources */,
+				A4C7000000000000000A2001 /* RideActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -783,6 +868,11 @@
 			isa = PBXTargetDependency;
 			target = 5E5E00000000000000000120 /* TripperDashShare */;
 			targetProxy = 5E5E00000000000000000150 /* PBXContainerItemProxy */;
+		};
+		A4C700000000000000141000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A4C7000000000000000F1000 /* TripperDashWidgets */;
+			targetProxy = A4C700000000000000151000 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -800,6 +890,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 5E5E00000000000000000120;
 			remoteInfo = TripperDashShare;
+		};
+		A4C700000000000000151000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A4C7000000000000000F1000;
+			remoteInfo = TripperDashWidgets;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -1110,6 +1207,73 @@
 			};
 			name = Release;
 		};
+		A4C700000000000000170000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash Widgets";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+			};
+			name = Debug;
+		};
+		A4C700000000000000180000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash Widgets";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1145,6 +1309,15 @@
 			buildConfigurations = (
 				5E5E00000000000000000170 /* Debug */,
 				5E5E00000000000000000180 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A4C700000000000000160000 /* Build configuration list for PBXNativeTarget "TripperDashWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A4C700000000000000170000 /* Debug */,
+				A4C700000000000000180000 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

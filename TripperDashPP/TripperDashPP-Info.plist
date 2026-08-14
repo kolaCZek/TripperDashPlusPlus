@@ -24,6 +24,16 @@
 	</array>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Live Activities (Lock Screen + Dynamic Island ride card)      -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- Enables ActivityKit. The ride Live Activity is started/updated/ended
+	     from LiveActivityController and rendered by the TripperDashWidgets
+	     extension. ActivityKit is free (no paid-only entitlement). -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+
+	<!-- ───────────────────────────────────────────────────────────── -->
 	<!-- Privacy strings (required by the App Store / iOS prompts)    -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
