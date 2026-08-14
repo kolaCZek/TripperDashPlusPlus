@@ -135,5 +135,21 @@
 		</dict>
 	</array>
 
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Launch screen: dark backdrop + centred app logo. iOS 13+ uses  -->
+	<!-- the UILaunchScreen dictionary instead of a storyboard/xib.      -->
+	<!-- Required for App Store submission and to opt into full native   -->
+	<!-- screen resolution (no letterboxing).                            -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<true/>
+	</dict>
+
 </dict>
 </plist>
