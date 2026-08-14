@@ -34,6 +34,19 @@ final class ShareViewController: UIViewController {
         let (text, url) = await extractPayload()
         log.info("share payload text=\(text ?? "nil", privacy: .public) url=\(url?.absoluteString ?? "nil", privacy: .public)")
 
+        // Reject shares from unsupported apps up front. If the payload carries
+        // a URL (directly or embedded in the text) and it isn't a Google/Apple
+        // Maps or geo: link, we can't do anything useful with it — tell the
+        // rider instead of silently opening the app with junk. A text-only
+        // share with no URL (a bare "lat,lon" pair or a place name) still
+        // flows through to the resolver as before.
+        if let shared = url ?? SharedDestinationResolver.firstURL(in: text),
+           !SharedDestinationResolver.isSupportedMapsURL(shared) {
+            log.warning("unsupported share source: \(shared.absoluteString, privacy: .public)")
+            showUnsupported()
+            return
+        }
+
         let resolution = await SharedDestinationResolver.resolve(text: text, url: url)
 
         // Prefer the fully-resolved deep link. But if the extension couldn't
@@ -147,5 +160,23 @@ final class ShareViewController: UIViewController {
 
     private func finish() {
         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+    }
+
+    /// Friendly dead-end for shares from apps we can't parse. Shows a simple
+    /// alert explaining only Google Maps / Apple Maps links are supported,
+    /// then closes the extension when the rider taps OK. Runs on the main
+    /// actor because it touches UIKit.
+    @MainActor
+    private func showUnsupported() {
+        let alert = UIAlertController(
+            title: "Unsupported share",
+            message: "TripperDash++ can only import places and routes shared "
+                + "from Google Maps or Apple Maps. Please share from one of "
+                + "those apps.",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            self?.finish()
+        })
+        present(alert, animated: true)
     }
 }

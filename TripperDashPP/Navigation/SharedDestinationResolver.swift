@@ -319,6 +319,20 @@ enum SharedDestinationResolver {
 
     // MARK: - Text helpers
 
+    /// Whether a shared URL comes from a source we can actually parse:
+    /// Google Maps (incl. short-links), Apple Maps (incl. the maps.apple/p/
+    /// short form), or a bare `geo:` URI. Anything else (Waze, a browser
+    /// sharing a random article, another navigation app) is unsupported and
+    /// the Share extension surfaces a friendly "only Google/Apple Maps"
+    /// message instead of silently handing junk to the app.
+    static func isSupportedMapsURL(_ url: URL) -> Bool {
+        if url.scheme?.lowercased() == "geo" { return true }
+        let h = (url.host ?? "").lowercased()
+        if h.contains("google.") || h.contains("goo.gl") { return true }
+        if h.contains("maps.apple") { return true }
+        return false
+    }
+
     static func isShortLink(_ url: URL) -> Bool {
         let h = (url.host ?? "").lowercased()
         // Google short-links.
