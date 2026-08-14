@@ -160,7 +160,7 @@ final class BikeLink {
     init() {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
-        self.ssid = d.string(forKey: Self.ssidKey) ?? "RE_FAKE_260616"
+        self.ssid = d.string(forKey: Self.ssidKey) ?? ""
         self.demoMode = d.bool(forKey: Self.demoModeKey)
     }
 

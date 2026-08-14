@@ -75,7 +75,15 @@ final class AppStatus {
         }
     }
 
-    var bikeSsid: String? { bikeLink.ssid }
+    /// SSID shown in the status banner. In demo mode there is no real
+    /// network, so surface a clearly-synthetic placeholder instead of the
+    /// last real SSID. When nothing is configured yet (no bike, no demo),
+    /// return nil so the banner shows no SSID chip at all.
+    var bikeSsid: String? {
+        if bikeLink.demoMode { return "RE_DEMO_000001" }
+        let s = bikeLink.ssid
+        return s.isEmpty ? nil : s
+    }
     var lastError: String? { bikeLink.lastError ?? metrics.lastError }
 
     /// Connect to a specific saved bike: make it the active bike, ensure the
