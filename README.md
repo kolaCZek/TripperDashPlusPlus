@@ -107,7 +107,7 @@ Contributions, bug reports, and tested-bike confirmations are very welcome. See 
 If this saves your sanity on a long ride, you can throw a coffee my way:
 
 - ☕ [GitHub Sponsors](https://github.com/sponsors/kolaCZek)
-- 🇨🇿 Czech bank account / Revolut — see Sponsors page
+- [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kolaczek)
 
 This is and will remain MIT-licensed. Sponsorship buys me time to fix bugs and test on more models, not exclusive features.
 
