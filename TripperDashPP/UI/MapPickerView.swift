@@ -751,7 +751,7 @@ struct MapPickerView: View {
     /// connect flow, and whether a plan is already laid out.
     private var connectLabel: String {
         if status.bikeLink.demoMode {
-            return isPlanning ? "Start demo & navigation" : "Start demo"
+            return isPlanning ? "Connect (demo) & start navigation" : "Connect (demo)"
         }
         let bikes = status.savedBikes.bikes
         if bikes.isEmpty {
