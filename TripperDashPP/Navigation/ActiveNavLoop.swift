@@ -59,6 +59,13 @@ final class ActiveNavLoop {
     /// real dash firmware, which the video frame does NOT contain.
     private let demo: DemoDashModel?
 
+    /// Optional Live Activity sink. When present (real ride AND the user hasn't
+    /// disabled Live Activities), each tick pushes the same maneuver + distance
+    /// + ETA snapshot that feeds the dash bubble to the Lock Screen / Dynamic
+    /// Island. The controller throttles internally, so the raw 1 Hz feed here is
+    /// fine. Lifecycle (start/end) is owned by AppStatus, not this loop.
+    private let liveActivity: LiveActivityController?
+
     /// Pure "when to speak" decision state (per-maneuver fired tiers). Reset
     /// on stop() and whenever the upcoming maneuver identity changes.
     private var promptScheduler = VoicePromptScheduler()
@@ -75,7 +82,8 @@ final class ActiveNavLoop {
         mapSource: MapViewSource,
         settings: DashNavSettings,
         voice: VoiceNavigator? = nil,
-        demo: DemoDashModel? = nil
+        demo: DemoDashModel? = nil,
+        liveActivity: LiveActivityController? = nil
     ) {
         self.bikeLink = bikeLink
         self.navigator = navigator
@@ -83,6 +91,7 @@ final class ActiveNavLoop {
         self.settings = settings
         self.voice = voice
         self.demo = demo
+        self.liveActivity = liveActivity
     }
 
     /// Start the 1 Hz pump. Idempotent — calling start twice without a
@@ -373,6 +382,23 @@ final class ActiveNavLoop {
             etaDate: etaDate,
             distanceToNextMeters: distNext,
             roadName: roadName,
+            imperial: settings.units == .imperial,
+            is24Hour: settings.is24Hour
+        )
+
+        // 2-live. Push the SAME snapshot to the Live Activity (Lock Screen +
+        //     Dynamic Island). No-op (nil sink) unless this is a real ride with
+        //     Live Activities enabled. The controller throttles internally, so
+        //     the raw 1 Hz feed is fine — it only forwards changes a rider would
+        //     notice (glyph, distance bucket, ETA minute, ≥1% progress).
+        liveActivity?.update(
+            symbol: kind.sfSymbol,
+            distanceMeters: distNext,
+            etaDate: etaDate,
+            maneuverText: roadName,
+            remainingMeters: distTotal,
+            progress: nav.rideProgressFraction,
+            isRerouting: isRerouting,
             imperial: settings.units == .imperial,
             is24Hour: settings.is24Hour
         )

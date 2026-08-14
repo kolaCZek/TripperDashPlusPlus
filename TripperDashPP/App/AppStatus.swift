@@ -324,13 +324,18 @@ final class AppStatus {
                 Task { @MainActor in model.latestFrame = cg }
             }
 
+            let liveAct = LiveActivityController()
+            liveAct.start(destinationName: stagedDestination?.name)
+            self.liveActivity = liveAct
+
             let loop = ActiveNavLoop(
                 bikeLink: bikeLink,
                 navigator: activeNavigator,
                 mapSource: mapViewSource,
                 settings: dashNavSettings,
                 voice: voiceNavigator,
-                demo: demoDashModel
+                demo: demoDashModel,
+                liveActivity: liveAct
             )
             voiceNavigator.enabled = dashNavSettings.voiceEnabled
             loop.start()
@@ -376,12 +381,17 @@ final class AppStatus {
         // Regular 1 Hz active-nav pump — feeds maneuver glyph + distance
         // + road name overlay onto the streamed map frames and sends
         // the K1G active-nav TLV bursts to the dash bubble.
+        let liveAct = LiveActivityController()
+        liveAct.start(destinationName: stagedDestination?.name)
+        self.liveActivity = liveAct
+
         let loop = ActiveNavLoop(
             bikeLink: bikeLink,
             navigator: activeNavigator,
             mapSource: mapViewSource,
             settings: dashNavSettings,
-            voice: voiceNavigator
+            voice: voiceNavigator,
+            liveActivity: liveAct
         )
         // Keep the synth's cheap enable gate in sync with the setting so a
         // stale prompt can't slip out between ticks after the rider toggles
@@ -399,6 +409,8 @@ final class AppStatus {
             isDemoStreaming = false
             activeNavLoop?.stop()
             activeNavLoop = nil
+            liveActivity?.end()
+            liveActivity = nil
             voiceNavigator.stop()
             mapViewSource.stop()
             demoDashModel.clear()
@@ -414,6 +426,8 @@ final class AppStatus {
         let link = bikeLink
         activeNavLoop?.stop()
         activeNavLoop = nil
+        liveActivity?.end()
+        liveActivity = nil
         // Silence spoken guidance on teardown. On a MANUAL stop this cuts any
         // prompt mid-sentence (rider ended the ride — no reason to keep
         // talking). On ARRIVAL, onArrived speaks its confirmation AFTER this
@@ -582,6 +596,11 @@ final class AppStatus {
     /// (we need a live `mapSource` and `bikeLink.connected` first). Held
     /// here so we can stop it from `stopStreaming()`.
     @ObservationIgnored private var activeNavLoop: ActiveNavLoop?
+
+    /// Live Activity controller (Lock Screen + Dynamic Island ride card).
+    /// Created on `startStreaming`, fed by `ActiveNavLoop`, ended on
+    /// `stopStreaming`. nil while not streaming.
+    @ObservationIgnored private var liveActivity: LiveActivityController?
 
     /// One-shot route calculator used by the route preview sheet and
     /// by the navigator's reroute callback.
