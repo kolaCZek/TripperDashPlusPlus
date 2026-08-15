@@ -91,6 +91,33 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 - **Commit messages**: imperative present (`Add K1G handshake`, not `Added` / `Adds`). Reference issue numbers when relevant. Conventional Commits are nice-to-have, not enforced.
 - **Branch-first workflow.** `main` is a working, on-bike-validated build and must stay always-shippable. Do **not** develop features or non-trivial fixes directly on `main` — cut a dedicated branch (`feat/…`, `fix/…`, `chore/…`, `docs/…`), do the work and field-test there, and only merge back into `main` once it's debugged. Prefer a PR (the `fake_dash` CI runs on it); `--no-ff` or `--squash` the merge so a feature is one revertable unit. Trivial one-liners may still go straight on `main`. Don't force-push `main`.
 
+## Versioning & releases
+
+**Semantic versioning: `MAJOR.MINOR.PATCH`** (e.g. `1.0.1`). Always three numbers.
+
+- **PATCH** (`1.0.0` → `1.0.1`) — small fixes, cosmetics, bug fixes, tweaks. Nothing new for the user, it just works better (e.g. speed-camera marker cleanup, along-route alert fix).
+- **MINOR** (`1.0.x` → `1.1.0`) — a new, backward-compatible feature the user gains (new alert type, new screen, another voice language).
+- **MAJOR** (`1.x` → `2.0.0`) — big rework / breaking change of behaviour. Rare.
+
+**A merge to `main` does NOT imply a new release.** `main` accumulates merged work; a version is *cut* deliberately when we decide the accumulated changes are worth shipping. Several PRs can land on `main` under the same unreleased version, then one release bundles them.
+
+**Two iOS version numbers (don't confuse them):**
+1. **Marketing Version** (`CFBundleShortVersionString`) = the semver above, e.g. `1.0.1` — what testers/users see. Bumped per semver only when cutting a release.
+2. **Build number** (`CFBundleVersion`) = a monotonic integer (`1`, `2`, `3`, …). **Must increase on EVERY upload to App Store Connect**, including multiple builds of the same marketing version. ASC rejects a duplicate build number. So `1.0.1` may span builds 5, 6, 7 as we iterate.
+
+**Release procedure (when cutting a version):**
+1. Merge the intended PR(s) into `main`.
+2. In Xcode: bump **build number** always; bump **Marketing Version** per semver if this is a new release.
+3. Archive → Distribute → App Store Connect → Upload.
+4. Processing done → **internal testers** get it immediately (no review) — verify on-device.
+5. Promote to the **external group** (Beta Riders) for wider testing.
+6. Tag the release in git: `vMAJOR.MINOR.PATCH` (e.g. `v1.0.1`) + a GitHub release.
+
+**TestFlight review rules:**
+- **Internal testing** — never reviewed; every build is available right after processing. Iterate here.
+- **External testing** — beta review (~1 day) mainly on a **new marketing version** or a significant feature/permission/compliance change. A new *build* of the same version usually auto-approves without review.
+- **App Store (public) release** — full App Review every time (~1–2 days, stricter). Only relevant once we ship publicly beyond beta.
+
 ## Folder layout
 
 ```
