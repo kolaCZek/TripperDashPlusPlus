@@ -37,6 +37,11 @@ final class ActiveNavLoop {
     private weak var bikeLink: BikeLink?
     private weak var navigator: ActiveNavigator?
     private weak var mapSource: MapViewSource?
+    /// Live GPS source for the speed-camera announcer: it needs the rider's
+    /// coordinate AND course-over-ground each tick to reject cameras that
+    /// sit behind the rider (already passed). The navigator only retains the
+    /// coordinate, not the heading, so the loop reads the fix directly.
+    private weak var location: LocationService?
     private let settings: DashNavSettings
 
     /// Tracks the previous tick's "next waypoint" label presence so the
@@ -74,6 +79,19 @@ final class ActiveNavLoop {
     /// it once per reroute episode, not every tick while it's in flight.
     private var spokeReroutingForEpisode = false
 
+    /// Pure "when to warn about a speed camera" decision state. Fires the
+    /// spoken camera callout ONCE per camera as the rider closes in on it
+    /// from ahead. Reset on stop() and on reroute, same discipline as the
+    /// maneuver prompt scheduler.
+    private var cameraAnnouncer = SpeedCameraAnnouncer()
+
+    /// Speed cameras loaded for the current route, in the primitive form the
+    /// announcer consumes. Pushed by AppStatus via `setSpeedCameras(_:)`
+    /// whenever the camera prefetch completes or the toggle flips. Held as a
+    /// plain value so the announcer stays CoreLocation-free and the tick is a
+    /// cheap array read.
+    private var speedCameraTargets: [SpeedCameraAnnouncer.Target] = []
+
     private var task: Task<Void, Never>?
 
     init(
@@ -81,6 +99,7 @@ final class ActiveNavLoop {
         navigator: ActiveNavigator,
         mapSource: MapViewSource,
         settings: DashNavSettings,
+        location: LocationService? = nil,
         voice: VoiceNavigator? = nil,
         demo: DemoDashModel? = nil,
         liveActivity: LiveActivityController? = nil
@@ -89,6 +108,7 @@ final class ActiveNavLoop {
         self.navigator = navigator
         self.mapSource = mapSource
         self.settings = settings
+        self.location = location
         self.voice = voice
         self.demo = demo
         self.liveActivity = liveActivity
@@ -128,9 +148,28 @@ final class ActiveNavLoop {
         // it is not clipped by this stop (a fresh utterance re-arms audio).
         promptScheduler.reset()
         spokeReroutingForEpisode = false
+        cameraAnnouncer.reset()
     }
 
-    // MARK: - Tick
+    // MARK: - Speed cameras
+
+    /// Update the set of speed cameras the announcer considers each tick.
+    /// Called by AppStatus when the camera prefetch completes, when the
+    /// route changes (reroute / leg advance), or when the toggle flips.
+    /// Passing an empty array (toggle off) silences camera callouts. A fresh
+    /// camera set also re-arms the announcer so a camera that was already
+    /// fired against the OLD list can warn again if it reappears — matches
+    /// the "new route → new warnings" expectation on a reroute.
+    func setSpeedCameras(_ cameras: [SpeedCamera]) {
+        speedCameraTargets = cameras.map {
+            SpeedCameraAnnouncer.Target(
+                id: $0.id,
+                latitude: $0.coordinate.latitude,
+                longitude: $0.coordinate.longitude
+            )
+        }
+        cameraAnnouncer.reset()
+    }
 
     private func tick() async {
         guard let bikeLink = bikeLink,
@@ -156,6 +195,7 @@ final class ActiveNavLoop {
             // a later route start doesn't inherit stale fired tiers.
             promptScheduler.reset()
             spokeReroutingForEpisode = false
+            cameraAnnouncer.reset()
             mapSource?.setSpeedLimitConfig(
                 mode: settings.speedLimitDisplay.rawValue,
                 toleranceKmh: settings.speedLimitOverToleranceKmh,
@@ -463,6 +503,15 @@ final class ActiveNavLoop {
         emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
                   arrivingStep: arrivingStep)
 
+        // 2b-cam. Spoken speed-camera proximity warning
+        //     (feat/speed-camera-voice-alert). The camera phrase existed but
+        //     nothing ever spoke it; this fires it ONCE per camera as the
+        //     rider closes in on one that's ahead. Suppressed during a
+        //     reroute (stale route → don't chase cameras off the old line).
+        if !isRerouting {
+            emitCameraVoice()
+        }
+
         // Keep the speed-limit sign's policy in sync with settings every
         // tick — a few cheap value writes, so flipping the display mode,
         // the over-limit tolerance, or km/h ⇄ mph mid-ride re-evaluates the
@@ -524,6 +573,39 @@ final class ActiveNavLoop {
             return
         }
         voice.speak(phrase, language: lang.rawValue, priority: .maneuver)
+    }
+
+    // MARK: - Speed-camera voice
+
+    /// Decide + fire the spoken speed-camera warning for this tick. Pure
+    /// decision logic lives in `SpeedCameraAnnouncer` (when/which camera);
+    /// this method wires it to the live GPS fix and the `VoiceNavigator`.
+    ///
+    /// Gated on THREE settings: voice output on, the camera map layer on
+    /// (no layer → no cameras loaded), and the dedicated camera-voice
+    /// toggle. Spoken at `.maneuver` priority — a safety callout worth
+    /// hearing, but it must not cut through a `.critical` reroute/arrival
+    /// sentence mid-word.
+    private func emitCameraVoice() {
+        guard let voice,
+              settings.voiceEnabled,
+              settings.speedCamerasEnabled,
+              settings.voiceSpeedCameraEnabled,
+              !speedCameraTargets.isEmpty,
+              let fix = location?.lastFix
+        else { return }
+
+        guard let cam = cameraAnnouncer.onTick(
+            riderLat: fix.coordinate.latitude,
+            riderLon: fix.coordinate.longitude,
+            headingDegrees: fix.course,
+            cameras: speedCameraTargets
+        ) else { return }
+        _ = cam   // the phrase is camera-agnostic; the target only drives timing
+
+        let lang = settings.voiceLanguage
+        voice.speak(VoicePhrase.speedCamera(lang),
+                    language: lang.rawValue, priority: .maneuver)
     }
 
     /// Stable per-maneuver identity token from the arriving step's polyline.

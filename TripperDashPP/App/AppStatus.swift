@@ -341,6 +341,7 @@ final class AppStatus {
                 navigator: activeNavigator,
                 mapSource: mapViewSource,
                 settings: dashNavSettings,
+                location: locationService,
                 voice: voiceNavigator,
                 demo: demoDashModel,
                 liveActivity: liveAct
@@ -398,6 +399,7 @@ final class AppStatus {
             navigator: activeNavigator,
             mapSource: mapViewSource,
             settings: dashNavSettings,
+            location: locationService,
             voice: voiceNavigator,
             liveActivity: liveAct
         )
@@ -1138,6 +1140,7 @@ final class AppStatus {
         speedCameraPrefetchTask?.cancel()
         guard dashNavSettings.speedCamerasEnabled else {
             mapViewSource.setSpeedCameras([])
+            activeNavLoop?.setSpeedCameras([])
             return
         }
         let coords = route.polyline.coordinateList()
@@ -1147,9 +1150,11 @@ final class AppStatus {
             let cams = await SpeedCameraService.shared.camerasAlong(route: coords)
             guard !Task.isCancelled else { return }
             // Re-check the toggle after the network await.
-            self.mapViewSource.setSpeedCameras(
-                self.dashNavSettings.speedCamerasEnabled ? cams : []
-            )
+            let effective = self.dashNavSettings.speedCamerasEnabled ? cams : []
+            self.mapViewSource.setSpeedCameras(effective)
+            // Hand the same set to the active-nav loop so the voice announcer
+            // can warn when the rider approaches one (feat/speed-camera-voice-alert).
+            self.activeNavLoop?.setSpeedCameras(effective)
         }
     }
 
