@@ -129,6 +129,76 @@ struct SpeedCameraAnnouncer {
         return best
     }
 
+    /// Max lateral offset (metres) a camera's projection may sit off the
+    /// route polyline and still be treated as "on this road." Beyond this
+    /// the camera is on a parallel/adjacent road the route never takes and
+    /// must not warn. 60 m clears dual carriageways and wide junctions
+    /// while rejecting a genuinely different road.
+    static let maxLateralOffsetMeters: Double = 60
+
+    /// Along-route variant of `onTick`. Preferred WHENEVER navigation is
+    /// active and a route polyline is known: it decides "ahead" and
+    /// "distance" by projecting the rider and each camera onto the route
+    /// polyline and comparing arc-lengths, so a camera just past a sharp
+    /// bend is correctly reported as (say) 300 m ahead instead of being
+    /// rejected by a straight-line heading cone.
+    ///
+    /// - Parameters:
+    ///   - riderLat/riderLon: current GPS fix.
+    ///   - routeAhead: the route polyline from (around) the rider's current
+    ///     position onward, as plain `[(lat, lon)]`. The caller passes the
+    ///     navigator's route-ahead coordinates. When this has < 2 points
+    ///     (no usable route) the method falls back to the cone-based
+    ///     `onTick` using `headingDegrees`.
+    ///   - headingDegrees: only used for the fallback path (see `onTick`).
+    ///   - cameras: cameras currently loaded for the route.
+    ///
+    /// Firing discipline (once per camera, nearest-first, `reset()` clears)
+    /// is identical to `onTick` — only the ahead/distance test changes.
+    mutating func onTickAlongRoute(riderLat: Double,
+                                   riderLon: Double,
+                                   routeAhead: [(lat: Double, lon: Double)],
+                                   headingDegrees: Double,
+                                   cameras: [Target]) -> Target? {
+        guard riderLat.isFinite, riderLon.isFinite else { return nil }
+
+        let projection = RouteProjection(
+            coords: routeAhead.map { RouteProjection.Point(latitude: $0.lat, longitude: $0.lon) })
+
+        // No usable polyline → keep the old cone behaviour. Should not
+        // normally happen while navigating, but it's the safe fallback.
+        guard projection.isUsable else {
+            return onTick(riderLat: riderLat, riderLon: riderLon,
+                          headingDegrees: headingDegrees, cameras: cameras)
+        }
+
+        let rider = RouteProjection.Point(latitude: riderLat, longitude: riderLon)
+
+        var best: Target?
+        var bestDistance = Double.infinity
+
+        for cam in cameras {
+            if firedIDs.contains(cam.id) { continue }
+            let camTarget = RouteProjection.Target(
+                id: cam.id, latitude: cam.latitude, longitude: cam.longitude)
+            guard let ahead = projection.alongRouteDistanceAhead(
+                rider: rider,
+                target: camTarget,
+                maxLateralMeters: Self.maxLateralOffsetMeters)
+            else { continue }
+            guard ahead <= Self.warnRadiusMeters else { continue }
+            if ahead < bestDistance {
+                bestDistance = ahead
+                best = cam
+            }
+        }
+
+        if let best {
+            firedIDs.insert(best.id)
+        }
+        return best
+    }
+
     /// Forget all announced cameras (e.g. nav stopped or rerouted). Next
     /// tick starts fresh so the same road can warn again.
     mutating func reset() {

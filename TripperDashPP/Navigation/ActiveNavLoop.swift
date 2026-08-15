@@ -595,12 +595,33 @@ final class ActiveNavLoop {
               let fix = location?.lastFix
         else { return }
 
-        guard let cam = cameraAnnouncer.onTick(
-            riderLat: fix.coordinate.latitude,
-            riderLon: fix.coordinate.longitude,
-            headingDegrees: fix.course,
-            cameras: speedCameraTargets
-        ) else { return }
+        // Along-route decision when we have the route polyline: a camera
+        // just past a sharp bend is measured by DISTANCE ALONG THE ROAD, not
+        // a straight-line heading cone (which would reject it). The
+        // navigator's `routeAheadCoordinates` is already trimmed to the
+        // rider's current segment onward, so the projection stays cheap and
+        // the rider sits near the head of the polyline. Falls back to the
+        // cone path inside the announcer when the polyline is unusable.
+        let routeAhead: [(lat: Double, lon: Double)] = navigator?
+            .routeAheadCoordinates
+            .map { ($0.latitude, $0.longitude) } ?? []
+
+        let cam: SpeedCameraAnnouncer.Target?
+        if routeAhead.count >= 2 {
+            cam = cameraAnnouncer.onTickAlongRoute(
+                riderLat: fix.coordinate.latitude,
+                riderLon: fix.coordinate.longitude,
+                routeAhead: routeAhead,
+                headingDegrees: fix.course,
+                cameras: speedCameraTargets)
+        } else {
+            cam = cameraAnnouncer.onTick(
+                riderLat: fix.coordinate.latitude,
+                riderLon: fix.coordinate.longitude,
+                headingDegrees: fix.course,
+                cameras: speedCameraTargets)
+        }
+        guard let cam else { return }
         _ = cam   // the phrase is camera-agnostic; the target only drives timing
 
         let lang = settings.voiceLanguage

@@ -72,6 +72,7 @@
 		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
 		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
 		B1DEA1E700000000000000F1 /* SpeedCameraAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */; };
+		B1DEA1E700000000000000F3 /* RouteProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F2 /* RouteProjection.swift */; };
 		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
 		B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000E0 /* MaxspeedParser.swift */; };
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
@@ -102,6 +103,7 @@
 		A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */; };
 		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
 		A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */; };
+		A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */; };
 		A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */; };
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
@@ -194,6 +196,7 @@
 		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncer.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000F2 /* RouteProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjection.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000E0 /* MaxspeedParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxspeedParser.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
@@ -225,6 +228,7 @@
 		A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhraseTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncerTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjectionTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStoreTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
@@ -393,6 +397,7 @@
 				B1DEA1E700000000000000A0 /* WeatherAlertService.swift */,
 				B1DEA1E700000000000000B0 /* SpeedCameraService.swift */,
 				B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */,
+				B1DEA1E700000000000000F2 /* RouteProjection.swift */,
 				B1DEA1E700000000000000E0 /* MaxspeedParser.swift */,
 				B1DEA1E700000000000000D0 /* SpeedLimitService.swift */,
 			);
@@ -506,6 +511,7 @@
 				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
 				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
 				A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */,
+				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
 				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
 			);
 			path = TripperDashPPTests;
@@ -795,6 +801,7 @@
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
 				B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */,
 				B1DEA1E700000000000000F1 /* SpeedCameraAnnouncer.swift in Sources */,
+				B1DEA1E700000000000000F3 /* RouteProjection.swift in Sources */,
 				B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */,
 				B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */,
 				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
@@ -840,6 +847,7 @@
 				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
 				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
 				A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */,
+				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
 				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
