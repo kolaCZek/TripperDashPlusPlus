@@ -3,7 +3,7 @@
 //  TripperDashPP
 //
 //  The rider's "garage": a managed list of bikes, each identified by its
-//  Tripper AP Wi-Fi SSID (RE_XXXX_XXXXX). Replaces the single free-text SSID
+//  Tripper AP Wi-Fi SSID (RE_XXXX_XXXXXX). Replaces the single free-text SSID
 //  field in the Connection settings — the rider adds/removes bikes and picks
 //  which one to connect to.
 //
