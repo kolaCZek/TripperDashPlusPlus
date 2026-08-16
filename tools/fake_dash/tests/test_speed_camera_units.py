@@ -166,8 +166,9 @@ def test_camera_badge_and_sign_share_display_helper():
     src = mapsource_src()
     # The single converter exists...
     assert "static func displayLimit(kmh: Int, imperial: Bool)" in src
-    # ...and is called in BOTH the camera badge and the limit sign.
-    assert src.count("Self.displayLimit(kmh:") >= 2
+    # ...and is still called by the posted-limit sign. (The camera marker no
+    # longer draws a number as of 8/2026, so only the sign uses it now.)
+    assert src.count("Self.displayLimit(kmh:") >= 1
     # The sign no longer has its own inline imperial conversion.
     assert "? Int((Double(kmh) / 1.609344).rounded())\n            : kmh" not in src
 

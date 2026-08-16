@@ -125,61 +125,56 @@ def test_marker_body_is_enlarged():
 
 
 # ----------------------------------------------------------------------
-# Swift-source drift: speed label BESIDE (to the right of) the icon.
+# Swift-source drift: the speed number was REMOVED from the camera marker.
+#
+# Rider feedback (on-dash, 8/2026): the speed number on a pill next to the
+# camera pictograph looked cluttered/ugly on the small TFT after H.264
+# subsampling, clashing with the dedicated speed-limit roundel. The marker
+# is now the pictograph ALONE; the posted limit still shows on the
+# speed-limit sign. These guards keep the pill from silently drifting back.
 # ----------------------------------------------------------------------
 
-def test_speed_label_is_beside_not_beneath():
-    """The label must be positioned to the RIGHT of the disc (pillX uses
-    p.x + r), not centred beneath it (the old `p.x - approxW/2`,
-    `p.y + r`)."""
+def test_camera_marker_has_no_speed_pill():
+    """The camera marker must NOT draw a speed pill/number beside it.
+    The whole `pillX = p.x + r ...` right-side placement was removed."""
     src = _map_source_src()
-    assert "let pillX = p.x + r + 2 + gap" in src, (
-        "speed pill must sit to the right of the marker (p.x + r ...)"
+    assert "let pillX = p.x + r + 2 + gap" not in src, (
+        "speed pill beside the camera marker is back — it was removed 8/2026"
     )
-    # Old beneath-the-icon placement must be gone.
-    assert "p.x - approxW / 2" not in src, "old beneath-the-icon label placement still present"
+    # The old beneath-the-icon placement must also stay gone.
+    assert "p.x - approxW / 2" not in src, "old beneath-the-icon label placement is back"
 
 
-def test_label_is_bare_number_and_bold():
-    """The pill shows the bare speed number (no unit suffix) in bold.
-    Rider feedback 8/2026: "50" not "50 km/h", bold for legibility."""
+def test_camera_marker_draws_no_number_label():
+    """No speed-number label is rendered on the camera marker at all."""
     src = _map_source_src()
-    # Label is the bare displayLimit value with no unit concatenation.
-    assert 'let label = "\\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"' in src, (
-        "camera pill label must be the bare displayLimit number, no unit"
+    assert 'let label = "\\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"' not in src, (
+        "camera marker is drawing a speed-number label again — removed 8/2026"
     )
-    # The old unit-appended label must be gone so it can't drift back.
-    assert 'let unit = speedLimitImperial ? "mph" : "km/h"' not in src, (
-        "retired unit suffix still present on the camera pill"
+    # A comment documenting the removal should be present so the intent is
+    # obvious to the next reader (and this test's reason is discoverable).
+    assert "speed number" in src.lower() and "removed" in src.lower(), (
+        "the removal rationale comment vanished from drawCameraMarker"
     )
-    # The km/h → mph conversion still lives in the shared `displayLimit`
-    # helper (the pill and the posted-limit sign both call it).
-    assert "Double(kmh) / 1.609344" in src, "km/h → mph conversion factor drifted"
-    # The pill text is drawn bold.
-    assert "fontSize: fontSize, bold: true)" in src, "camera pill text must be bold"
 
 
 # ----------------------------------------------------------------------
 # Swift-source drift: units-toggle plumbing.
 #
-# Post-merge architecture: the camera pill no longer carries its own
-# `speedCameraImperial` flag. It reads the same `speedLimitImperial`
-# flag the posted-limit sign uses, set via `setSpeedLimitConfig`, and
-# converts through the shared `displayLimit` helper — one source of
-# truth so the radar pill and the limit sign can't disagree on units.
+# The shared `displayLimit` helper and the `speedLimitImperial` flag stay —
+# they are still used by the posted-limit SIGN (the camera marker no longer
+# uses them since its number was removed). One source of truth for the sign.
 # ----------------------------------------------------------------------
 
-def test_units_come_from_shared_display_helper():
+def test_shared_display_helper_and_units_flag_remain():
     src = _map_source_src()
     assert "speedLimitImperial" in src, "shared units flag missing on MapViewSource"
     assert "static func displayLimit(kmh: Int, imperial: Bool)" in src, (
-        "shared displayLimit helper missing — pill/sign would diverge"
+        "shared displayLimit helper missing — the speed-limit sign needs it"
     )
-    # The pill must go through the shared helper, not a private conversion.
-    assert "Self.displayLimit(kmh: limit, imperial: speedLimitImperial)" in src, (
-        "camera pill must read its value from the shared displayLimit helper"
-    )
-    # The retired per-camera flag must be gone so it can't drift back.
+    # The km/h → mph conversion still lives in the shared helper.
+    assert "Double(kmh) / 1.609344" in src, "km/h → mph conversion factor drifted"
+    # The retired per-camera flag must stay gone.
     assert "speedCameraImperial" not in src, (
         "retired speedCameraImperial flag still present — should use speedLimitImperial"
     )
@@ -205,12 +200,13 @@ def test_units_flag_is_driven_from_settings():
     )
 
 
-def test_cull_margin_clears_the_side_pill():
-    """The off-frame cull margin must be wide enough on the X axis to keep
-    a marker whose right-side speed pill is still partly visible."""
+def test_cull_margin_is_generous_on_x():
+    """The off-frame cull margin must stay wide on the X axis so a marker
+    near the edge isn't culled too early (kept generous even though the
+    side speed pill was removed 8/2026)."""
     src = _map_source_src()
     m = re.search(r"sx > -(\d+),\s*sx < w \+ (\d+)", src)
     assert m, "camera cull guard not found"
-    assert int(m.group(1)) >= 60 and int(m.group(2)) >= 60, (
-        "cull margin must clear the ~66 px side pill"
+    assert int(m.group(1)) >= 20 and int(m.group(2)) >= 20, (
+        "cull margin must stay generous enough to keep edge markers"
     )
