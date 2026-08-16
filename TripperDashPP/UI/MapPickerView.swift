@@ -958,7 +958,11 @@ struct MapPickerView: View {
     /// Push the route geometry into the renderer + bake fresh tiles.
     /// Called both at navigation start AND on every reroute / leg
     /// advance (via the `onActiveRouteChanged` callback).
-    private func installRouteGeometry(_ route: MKRoute) async {
+    /// Synchronous part of route install: attach polyline + route to the
+    /// renderer and kick off best-effort corridor prefetches (cameras,
+    /// limits). Does NOT bake tiles — that's `prerenderRouteTiles`, run in
+    /// the background so the dash link is never blocked on OSM downloads.
+    private func installRouteGeometrySync(_ route: MKRoute) {
         status.mapViewSource.setRoutePolyline(route.polyline)
         // Bake in the renderer's current palette. `currentStyle` is set by
         // the Auto resolver / manual picker before navigation starts (see
@@ -971,6 +975,13 @@ struct MapPickerView: View {
         // Prefetch OSM speed-limit ways along the same corridor (best-
         // effort, disk-cached, gated on the Speed limit display mode).
         status.prefetchSpeedLimits(for: route)
+    }
+
+    /// Bake the fast-start tile window for `route` and install it in the
+    /// renderer. Runs in the background AFTER streaming has started, so a
+    /// stalled tile fetch (no connectivity) can't delay the dash projection.
+    /// Until this completes the renderer falls back to the vector map.
+    private func prerenderRouteTiles(_ route: MKRoute) async {
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         prerenderProgress = 0
         prerenderActive = true
@@ -1149,11 +1160,19 @@ struct MapPickerView: View {
             // Resolve Light/Dark/Auto for the current position+time before
             // the first bake, so the ride opens in the right palette.
             status.primeMapStyleForStart()
-            await installRouteGeometry(firstLeg)
-            // Push the FULL trip geometry + via-stops so the dash shows
-            // the whole route (blue line spanning every leg) with a dot at
-            // each intermediate waypoint — not just the active leg up to
-            // the next stop (rider feedback 2026-08).
+            // Attach the route polyline + full trip context and kick off the
+            // tile prerender, but DO NOT await the prerender here. The dash
+            // link must not be held hostage to OSM tile downloads: in a spot
+            // with no connectivity (e.g. an underground car park) the tile
+            // fetch can stall indefinitely (`waitsForConnectivity`), and if
+            // `startStreaming()` sits behind that await the dash never gets
+            // its projection-on + RTP stream and times out on its side
+            // ("timeout" on the bike — field report 2026-08). So: install
+            // geometry synchronously, start streaming immediately (the
+            // renderer draws the vector fallback — route line on a coloured
+            // background — until tiles arrive), and let the prerender fill in
+            // the real map in the background when connectivity returns.
+            installRouteGeometrySync(firstLeg)
             installFullRouteContext(plan: plan)
             await status.activeNavigator.start(plan: plan)
             // Planning UI is consumed — drop it so picking returns to
@@ -1163,6 +1182,11 @@ struct MapPickerView: View {
                 status.startStreaming()
             }
             transitioning = false
+            // Fire-and-forget the tile prerender AFTER the stream is live.
+            // If it stalls on connectivity the ride still works (vector
+            // fallback); when tiles land, `setTileCache` swaps in the real
+            // map mid-ride.
+            Task { @MainActor in await prerenderRouteTiles(firstLeg) }
         }
     }
 
