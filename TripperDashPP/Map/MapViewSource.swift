@@ -1041,12 +1041,24 @@ extension MapViewSource {
     /// Steps: pick nearest tile → rotate context to heading-up →
     /// draw cropped tile → polyline → user dot in the center.
     private func drawTileCacheFrame(into ctx: CGContext) {
-        guard lastFix != nil else { return }
+        // If we can't yet composite from baked tiles — no GPS fix, or the
+        // tile layer isn't ready (still baking, or a slow/failed fetch, e.g.
+        // a tester in India on LTE reported "map gone black when starting
+        // the route", 8/2026) — do NOT leave the frame on the bare void
+        // colour (that's the black screen). Fall back to the vector-only
+        // frame so the route line + slate map is always visible.
+        guard lastFix != nil else {
+            drawVectorOnlyFrame(into: ctx)
+            return
+        }
         // Pick the quality layer for the current effective zoom. Falls
         // back to base if the preferred sibling layer isn't baked yet.
         let layerBefore = activeLayer
         guard let cache = activeTileCache(forEffectiveZoom: effectiveZoom),
-              let fix = lastFix else { return }
+              let fix = lastFix else {
+            drawVectorOnlyFrame(into: ctx)
+            return
+        }
         // A layer switch invalidates the hint index (it points into the
         // previous cache's tiles[]). Reset so nearestTile does a fresh
         // full scan on the new layer rather than trusting a stale hint.
