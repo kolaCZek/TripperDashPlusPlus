@@ -103,11 +103,11 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 
 **Two iOS version numbers (don't confuse them):**
 1. **Marketing Version** (`CFBundleShortVersionString`) = the semver above, e.g. `1.0.1` — what testers/users see. Bumped per semver only when cutting a release.
-2. **Build number** (`CFBundleVersion`) = a monotonic integer (`1`, `2`, `3`, …). **Must increase on EVERY upload to App Store Connect**, including multiple builds of the same marketing version. ASC rejects a duplicate build number. So `1.0.1` may span builds 5, 6, 7 as we iterate.
+2. **Build number** (`CFBundleVersion`) = an integer that must be **unique within a given marketing version** (Apple only requires uniqueness per `CFBundleShortVersionString`, NOT globally). **Strategy: reset the build number to `1` whenever the marketing version changes**, then increment it for each additional upload of that same version. So `1.0` → build 1; `1.0.1` → build 1 again (fresh version); a second 1.0.1 upload → build 2, a third → build 3. This mirrors how big apps ship (e.g. Waze `5.22.0 (1)`), and `1.0.1 (3)` then unambiguously reads as "the 3rd build of 1.0.1". (Historical note: `1.0.1` first shipped as build 2 before we adopted this reset convention — harmless, just not reset. From the next version onward, reset to 1.)
 
 **Release procedure (when cutting a version):**
 1. Merge the intended PR(s) into `main`.
-2. In Xcode: bump **build number** always; bump **Marketing Version** per semver if this is a new release.
+2. In Xcode: set **Marketing Version** per semver, and set the **build number** — reset to `1` for a new marketing version, or increment it if re-uploading the same version.
 3. Archive → Distribute → App Store Connect → Upload.
 4. Processing done → **internal testers** get it immediately (no review) — verify on-device.
 5. Promote to the **external group** (Beta Riders) for wider testing.
