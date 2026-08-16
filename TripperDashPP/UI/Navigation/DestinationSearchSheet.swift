@@ -93,7 +93,14 @@ struct DestinationSearchSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                ForEach(search.completions, id: \.self) { c in
+                // Identify rows by array offset, not `\.self`. The completer
+                // (MKLocalSearchCompleter) rewrites the whole array on every
+                // keystroke and can emit content-duplicate rows; keying on the
+                // element made SwiftUI's diff see a different item count than
+                // it actually inserted into its backing UICollectionView,
+                // crashing with "Invalid Number Of Items In Section". Offsets
+                // are always unique for the current snapshot.
+                ForEach(Array(search.completions.enumerated()), id: \.offset) { _, c in
                     Button {
                         Task { await pick(c) }
                     } label: {
