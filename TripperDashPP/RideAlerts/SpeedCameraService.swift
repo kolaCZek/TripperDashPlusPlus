@@ -137,6 +137,38 @@ actor SpeedCameraService {
 
     // MARK: - Network
 
+    /// Fetch every speed camera within a square bbox of `radiusMeters`
+    /// around `center`. Used by FREE-RIDE (`AppStatus.startFreeRide`),
+    /// which has no route corridor to query along — instead it shows all
+    /// cameras in the rider's vicinity on the map (map overlay only, NO
+    /// voice: free-ride has no turn-by-turn, so the announcer is never
+    /// fed this set). Same fetch / disk-cache / `makeCamera` path as
+    /// `camerasAlong`; only the bbox construction differs (a square around
+    /// a point vs. a route corridor). Returns `[]` on total failure.
+    func camerasAround(center: CLLocationCoordinate2D,
+                       radiusMeters: Double) async -> [SpeedCamera] {
+        guard center.latitude.isFinite, center.longitude.isFinite else { return [] }
+        let box = Self.boundingBox(around: center, radiusMeters: radiusMeters)
+        let key = box.cacheKey
+
+        if let cached = loadCache(key: key) {
+            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.count, privacy: .public))")
+            return cached
+        }
+
+        do {
+            let cams = try await fetch(box: box)
+            saveCache(key: key, cameras: cams)
+            log.info("Speed cameras (around): fetched \(cams.count, privacy: .public) for \(key, privacy: .public)")
+            return cams
+        } catch {
+            log.warning("Speed cameras (around) fetch failed: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
+    // MARK: - Network
+
     // Internal (not private) so `makeCamera` — which is `internal` and
     // unit-testable — can take `Element` in its signature without tripping
     // "method cannot be declared internal because its parameter uses a
@@ -235,6 +267,17 @@ actor SpeedCameraService {
         let lonBuf = bufferMeters / (111_320.0 * max(0.01, cos(midLat * .pi / 180)))
         return BBox(south: minLat - latBuf, west: minLon - lonBuf,
                     north: maxLat + latBuf, east: maxLon + lonBuf)
+    }
+
+    /// Square bbox of half-side `radiusMeters` centred on `center`. Used by
+    /// free-ride's "cameras around me" fetch. `nonisolated static` for
+    /// testability.
+    nonisolated static func boundingBox(around center: CLLocationCoordinate2D,
+                                        radiusMeters: Double) -> BBox {
+        let latBuf = radiusMeters / 111_320.0
+        let lonBuf = radiusMeters / (111_320.0 * max(0.01, cos(center.latitude * .pi / 180)))
+        return BBox(south: center.latitude - latBuf, west: center.longitude - lonBuf,
+                    north: center.latitude + latBuf, east: center.longitude + lonBuf)
     }
 
     // MARK: - Disk cache

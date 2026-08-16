@@ -2530,43 +2530,12 @@ extension MapViewSource {
 
         ctx.restoreGState()
 
-        // Speed limit on a pill to the RIGHT of the marker, when mapped
-        // (moved from beneath the icon on rider feedback 6/2026). Skip for
-        // section cameras without a number to avoid clutter. The value
-        // goes through the shared `displayLimit` helper (#4) so the radar
-        // pill and the posted-limit sign can never disagree. The number is
-        // shown WITHOUT a unit (rider feedback 8/2026: "50" not "50 km/h")
-        // — the camera pictograph already frames it as a speed, so the unit
-        // is just clutter on the tiny dash. Bold for legibility.
-        if let limit = camera.maxspeedKmh {
-            let label = "\(Self.displayLimit(kmh: limit, imperial: speedLimitImperial))"
-            let fontSize: CGFloat = 16
-            let textW = CGFloat(label.count) * fontSize * 0.58
-            let padX: CGFloat = 5
-            let pillH: CGFloat = fontSize + 6
-            let pillW = textW + padX * 2
-            let gap: CGFloat = 4
-            let pillX = p.x + r + 2 + gap
-            let pillY = p.y - pillH / 2
-
-            // Accent pill background with a thin white outline so the
-            // number reads over any tile after H.264 subsampling.
-            ctx.saveGState()
-            let pillRect = CGRect(x: pillX, y: pillY, width: pillW, height: pillH)
-            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            ctx.addPath(CGPath(roundedRect: pillRect.insetBy(dx: -1.5, dy: -1.5),
-                               cornerWidth: pillH / 2 + 1.5, cornerHeight: pillH / 2 + 1.5,
-                               transform: nil))
-            ctx.fillPath()
-            ctx.setFillColor(accent)
-            ctx.addPath(CGPath(roundedRect: pillRect, cornerWidth: pillH / 2, cornerHeight: pillH / 2, transform: nil))
-            ctx.fillPath()
-            ctx.restoreGState()
-
-            Self.drawText(label, in: ctx,
-                          at: CGPoint(x: pillX + padX, y: pillY + 3),
-                          width: pillW, fontSize: fontSize, bold: true)
-        }
+        // The speed number that used to sit on a pill to the right of the
+        // marker was removed on rider feedback (8/2026: "the number next to
+        // the camera looks ugly — drop the speed, keep just the camera
+        // icon"). The posted limit still shows on the dedicated speed-limit
+        // roundel; the camera marker is now the pictograph alone, which
+        // reads far cleaner on the small dash after H.264 subsampling.
     }
 
     /// Convert an internal km/h limit to the number shown to the rider,

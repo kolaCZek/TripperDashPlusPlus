@@ -341,6 +341,7 @@ final class AppStatus {
                 navigator: activeNavigator,
                 mapSource: mapViewSource,
                 settings: dashNavSettings,
+                location: locationService,
                 voice: voiceNavigator,
                 demo: demoDashModel,
                 liveActivity: liveAct
@@ -398,6 +399,7 @@ final class AppStatus {
             navigator: activeNavigator,
             mapSource: mapViewSource,
             settings: dashNavSettings,
+            location: locationService,
             voice: voiceNavigator,
             liveActivity: liveAct
         )
@@ -504,7 +506,42 @@ final class AppStatus {
         mapViewSource.setCurrentRoute(nil)
         mapViewSource.setTileCache(emptyCache)
 
+        // Free-ride camera overlay (feat/speed-camera-voice-alert): free-ride
+        // has no route corridor to prefetch along, so instead fetch every
+        // camera AROUND the rider's current position and draw them on the
+        // map. MAP ONLY — the set is handed to `mapViewSource`, never to
+        // `activeNavLoop`, so no voice fires (free-ride has no turn-by-turn).
+        // One-shot fetch at free-ride start; continuous re-fetch as the rider
+        // moves far from this centre is a TODO (see PR notes).
+        prefetchFreeRideCameras()
+
         startStreaming()
+    }
+
+    /// Fetch speed cameras around the rider's current fix and hand them to
+    /// the renderer ONLY (map overlay, no voice) for free-ride. No-op when
+    /// the camera toggle is off (and clears any stale markers) or when no
+    /// GPS fix is available yet. 6 km half-side square around the fix — a
+    /// generous neighbourhood without a huge Overpass query.
+    private func prefetchFreeRideCameras() {
+        speedCameraPrefetchTask?.cancel()
+        guard dashNavSettings.speedCamerasEnabled else {
+            mapViewSource.setSpeedCameras([])
+            return
+        }
+        guard let center = locationService.lastFix?.coordinate else { return }
+        speedCameraPrefetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let cams = await SpeedCameraService.shared.camerasAround(
+                center: center, radiusMeters: 6_000)
+            guard !Task.isCancelled else { return }
+            // Re-check the toggle after the network await, and that we're
+            // still free-riding (a nav start during the await owns the layer).
+            guard self.dashNavSettings.speedCamerasEnabled, self.isFreeRiding else { return }
+            // MAP ONLY — deliberately NOT handed to activeNavLoop so the
+            // announcer never speaks these in free-ride.
+            self.mapViewSource.setSpeedCameras(cams)
+        }
     }
 
     /// Tear down a free-ride projection: stop the stream (which sends the
@@ -1138,6 +1175,7 @@ final class AppStatus {
         speedCameraPrefetchTask?.cancel()
         guard dashNavSettings.speedCamerasEnabled else {
             mapViewSource.setSpeedCameras([])
+            activeNavLoop?.setSpeedCameras([])
             return
         }
         let coords = route.polyline.coordinateList()
@@ -1147,9 +1185,11 @@ final class AppStatus {
             let cams = await SpeedCameraService.shared.camerasAlong(route: coords)
             guard !Task.isCancelled else { return }
             // Re-check the toggle after the network await.
-            self.mapViewSource.setSpeedCameras(
-                self.dashNavSettings.speedCamerasEnabled ? cams : []
-            )
+            let effective = self.dashNavSettings.speedCamerasEnabled ? cams : []
+            self.mapViewSource.setSpeedCameras(effective)
+            // Hand the same set to the active-nav loop so the voice announcer
+            // can warn when the rider approaches one (feat/speed-camera-voice-alert).
+            self.activeNavLoop?.setSpeedCameras(effective)
         }
     }
 
