@@ -72,7 +72,7 @@ struct StreamingView: View {
         Form {
             Section {
                 if status.savedBikes.bikes.isEmpty {
-                    Text("No bikes yet. Add your Tripper's Wi-Fi network below (RE_XXXX_XXXXX).")
+                    Text("No bikes yet. Add your Tripper's Wi-Fi network below (RE_XXXX_XXXXXX).")
                         .foregroundStyle(.secondary)
                         .font(.footnote)
                 } else {

@@ -11,7 +11,7 @@ Two fixes, guarded here:
   1. The IP must NOT appear in the SSID field's helper text (it invites the
      exact mistake). It may still appear elsewhere (permissions copy, etc.).
   2. AddBikeSheet must validate the SSID against the Tripper AP format
-     `RE_XXXX_XXXXX` so an IP / home-Wi-Fi name can't be saved as a bike.
+     `RE_XXXX_XXXXXX` so an IP / home-Wi-Fi name can't be saved as a bike.
 
 This is a Python mirror of the Swift regex in
 `AddBikeSheet.isValidTripperSSID`. If the Swift pattern changes, update this
@@ -35,7 +35,7 @@ def _add_bike_sheet_src() -> str:
 
 
 # Mirror of AddBikeSheet.isValidTripperSSID's regex.
-TRIPPER_SSID_RE = re.compile(r"^RE_[A-Z0-9]{4}_[A-Z0-9]{5,6}$")
+TRIPPER_SSID_RE = re.compile(r"^RE_[A-Z0-9]{4}_[A-Z0-9]{6}$")
 
 
 def _sheet_ssid_footer() -> str:
@@ -72,7 +72,7 @@ def test_swift_regex_matches_mirror():
     """The Swift source's regex literal must equal the pattern this test
     mirrors, so the two can't silently diverge."""
     src = _add_bike_sheet_src()
-    assert r"^RE_[A-Z0-9]{4}_[A-Z0-9]{5,6}$" in src, (
+    assert r"^RE_[A-Z0-9]{4}_[A-Z0-9]{6}$" in src, (
         "Swift SSID regex changed — update TRIPPER_SSID_RE in this mirror too"
     )
 
@@ -80,10 +80,10 @@ def test_swift_regex_matches_mirror():
 # --- The validator behaviour (mirrored) -----------------------------------
 
 def test_valid_tripper_ssids_pass():
-    for s in ("RE_DEMO_000001", "RE_0W12_34567", "RE_XXXX_XXXXX", "RE_ABCD_98765"):
+    for s in ("RE_DEMO_000001", "RE_0W12_345678", "RE_ABCD_987654", "RE_ZZZZ_000000"):
         assert TRIPPER_SSID_RE.match(s), f"{s} should be a valid Tripper SSID"
 
 
 def test_ip_and_home_names_rejected():
-    for s in ("192.168.1.1", "MYHOMEWIFI", "RE_ABC_12345", "RE_DEMO_0001", "TRIPPER"):
+    for s in ("192.168.1.1", "MYHOMEWIFI", "RE_ABC_123456", "RE_DEMO_0001", "RE_0W12_34567", "TRIPPER"):
         assert not TRIPPER_SSID_RE.match(s), f"{s} must NOT validate as a Tripper SSID"

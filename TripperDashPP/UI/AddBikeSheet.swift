@@ -4,7 +4,7 @@
 //
 //  Short "add a bike" form presented from the Bikes section: the rider names
 //  the bike (e.g. "Guerrilla") and enters its Tripper AP Wi-Fi SSID
-//  (RE_XXXX_XXXXX). The dash IP is a fixed internal constant (192.168.1.1) —
+//  (RE_XXXX_XXXXXX). The dash IP is a fixed internal constant (192.168.1.1) —
 //  the rider never types it, so it is deliberately NOT mentioned on this form
 //  (an earlier hint that named the IP led a tester to type it INTO the SSID
 //  field, which then failed to join any network — 8/2026 field report).
@@ -14,7 +14,7 @@ import SwiftUI
 
 /// A small modal form for adding a bike to the garage. Calls `onAdd(name,
 /// ssid)` and dismisses when the rider taps Add; Add is disabled until the
-/// SSID matches the Tripper AP format (RE_XXXX_XXXXX).
+/// SSID matches the Tripper AP format (RE_XXXX_XXXXXX).
 struct AddBikeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -28,13 +28,13 @@ struct AddBikeSheet: View {
         ssid.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 
-    /// A Tripper AP SSID looks like `RE_XXXX_XXXXX`: the `RE_` prefix, a
-    /// 4-char alphanumeric block, an underscore, then a 5–6 char alphanumeric
-    /// block (e.g. `RE_DEMO_000001`, `RE_0W12_34567`). This guards against the
-    /// classic mistake of typing the dash IP (192.168.1.1) or a home Wi-Fi
-    /// name into the field — neither of which iOS could ever join as the AP.
+    /// A Tripper AP SSID looks like `RE_XXXX_XXXXXX`: the `RE_` prefix, a
+    /// 4-char alphanumeric block, an underscore, then a 6-char alphanumeric
+    /// block (e.g. `RE_DEMO_000001`). This guards against the classic mistake
+    /// of typing the dash IP (192.168.1.1) or a home Wi-Fi name into the
+    /// field — neither of which iOS could ever join as the AP.
     static func isValidTripperSSID(_ s: String) -> Bool {
-        s.range(of: #"^RE_[A-Z0-9]{4}_[A-Z0-9]{5,6}$"#, options: .regularExpression) != nil
+        s.range(of: #"^RE_[A-Z0-9]{4}_[A-Z0-9]{6}$"#, options: .regularExpression) != nil
     }
 
     private var trimmedSSID: String {
@@ -64,7 +64,7 @@ struct AddBikeSheet: View {
                 }
 
                 Section {
-                    TextField("RE_XXXX_XXXXX", text: $ssid)
+                    TextField("RE_XXXX_XXXXXX", text: $ssid)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .font(.body.monospaced())
@@ -72,10 +72,10 @@ struct AddBikeSheet: View {
                     Text("Wi-Fi network (SSID)")
                 } footer: {
                     if showFormatError {
-                        Text("That doesn't look like a Tripper network name. It should read like RE_0W12_34567 — you'll find it on the dash's phone-pairing screen.")
+                        Text("That doesn't look like a Tripper network name. It should read like RE_0W12_345678 — you'll find it on the dash's phone-pairing screen.")
                             .foregroundStyle(.red)
                     } else {
-                        Text("Your Tripper's Wi-Fi network name, e.g. RE_0W12_34567. Find it on the dash's phone-pairing screen.")
+                        Text("Your Tripper's Wi-Fi network name, e.g. RE_0W12_345678. Find it on the dash's phone-pairing screen.")
                     }
                 }
             }
