@@ -76,6 +76,7 @@
 		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
 		B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000E0 /* MaxspeedParser.swift */; };
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
+		F00DBABE00000000DEADC001 /* DashNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADC001 /* DashNotice.swift */; };
 		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
 		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
 		F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */; };
@@ -200,6 +201,7 @@
 		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
 		B1DEA1E700000000000000E0 /* MaxspeedParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxspeedParser.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADC001 /* DashNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNotice.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
 		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
@@ -425,6 +427,7 @@
 				CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */,
 				CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */,
 				CAFEFEED00000000DEADBF01 /* MapStyle.swift */,
+				CAFEFEED00000000DEADC001 /* DashNotice.swift */,
 				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
 				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
 				CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */,
@@ -805,6 +808,7 @@
 				B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */,
 				B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */,
 				F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */,
+				F00DBABE00000000DEADC001 /* DashNotice.swift in Sources */,
 				F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */,
 				A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */,
 				F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */,

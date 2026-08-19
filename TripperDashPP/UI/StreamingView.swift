@@ -123,18 +123,6 @@ struct StreamingView: View {
                 }
             }
 
-            Section("Navigation") {
-                Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.resumeFreeRideAfterArrival },
-                    set: { status.dashNavSettings.resumeFreeRideAfterArrival = $0 }
-                )) {
-                    Text("Free ride after arrival")
-                }
-                Text("When you reach your destination, keep the live map on the dash by switching to free ride instead of ending projection.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Voice guidance") {
                 Toggle(isOn: Binding(
                     get: { status.dashNavSettings.voiceEnabled },
