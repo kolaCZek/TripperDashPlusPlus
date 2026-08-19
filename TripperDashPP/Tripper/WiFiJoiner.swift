@@ -57,8 +57,10 @@ final class WiFiJoiner {
     func ensureJoined(ssid: String) async -> WiFiJoinOutcome {
         if await currentSSID() == ssid {
             log.info("Already on \(ssid, privacy: .public) — no join needed")
+            ConnDiag.log("wifi", "Already on \(ssid) — no join needed")
             return .alreadyJoined
         }
+        ConnDiag.log("wifi", "Joining Tripper AP \(ssid)…")
         return await apply(ssid: ssid)
     }
 
@@ -88,14 +90,17 @@ final class WiFiJoiner {
                     if error.domain == NEHotspotConfigurationErrorDomain,
                        error.code == NEHotspotConfigurationError.alreadyAssociated.rawValue {
                         self.log.info("Already associated with \(ssid, privacy: .public)")
+                        ConnDiag.log("wifi", "Already associated with \(ssid)")
                         cont.resume(returning: .alreadyJoined)
                         return
                     }
                     self.log.error("Join \(ssid, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                    ConnDiag.log("wifi", "❌ Join \(ssid) failed: \(error.localizedDescription)")
                     cont.resume(returning: .failed(error.localizedDescription))
                     return
                 }
                 self.log.info("Joined \(ssid, privacy: .public)")
+                ConnDiag.log("wifi", "✅ Joined \(ssid)")
                 cont.resume(returning: .joined)
             }
         }

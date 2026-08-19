@@ -108,6 +108,7 @@ actor DashSocket {
         if s < 0 {
             let err = errnoString()
             log.error("socket() failed: \(err, privacy: .public)")
+            ConnDiag.log("socket", "❌ socket() failed: \(err)")
             throw makeError(-1, "socket(): \(err)")
         }
 
@@ -137,6 +138,7 @@ actor DashSocket {
             let err = errnoString()
             close(s)
             log.error("bind(0.0.0.0:\(self.localPort)) failed: \(err, privacy: .public)")
+            ConnDiag.log("socket", "❌ bind(0.0.0.0:\(localPort)) failed: \(err)")
             throw makeError(-2, "bind(0.0.0.0:\(localPort)): \(err)")
         }
 
@@ -148,6 +150,7 @@ actor DashSocket {
             let err = errnoString()
             close(s)
             log.error("inet_pton(\(self.host, privacy: .public)) failed: \(err, privacy: .public)")
+            ConnDiag.log("socket", "❌ inet_pton(\(host)) failed: \(err)")
             throw makeError(-3, "inet_pton(\(host)): \(err)")
         }
         self.dest = destAddr
@@ -180,6 +183,7 @@ actor DashSocket {
         self.readSource = src
         self.state = .ready
         log.info("DashSocket ready (POSIX fd=\(s), bound :\(self.localPort), dest \(self.host, privacy: .public):\(self.port))")
+        ConnDiag.log("socket", "DashSocket ready (bound :\(localPort), dest \(host):\(port))")
     }
 
     /// Send a single UDP datagram to the dash.
@@ -269,6 +273,7 @@ actor DashSocket {
                     let srcIp = ipv4String(fromAddr.sin_addr)
                     let srcPort = UInt16(bigEndian: fromAddr.sin_port)
                     log.info("DashSocket first RX (\(n) B from \(srcIp, privacy: .public):\(srcPort))")
+                    ConnDiag.log("socket", "First RX datagram (\(n) B from \(srcIp):\(srcPort)) — dash is replying")
                 }
                 inboundContinuation.yield(payload)
                 continue
@@ -282,6 +287,7 @@ actor DashSocket {
                 if errno == EINTR { continue }
                 let err = String(cString: strerror(errno))
                 log.error("UDP receive error: \(err, privacy: .public)")
+                ConnDiag.log("socket", "❌ UDP receive error: \(err)")
                 inboundContinuation.finish()
                 return
             }
@@ -294,6 +300,7 @@ actor DashSocket {
         fd = -1
         state = .cancelled
         log.info("DashSocket cancelled (rx=\(self.rxDatagramCount))")
+        ConnDiag.log("socket", "DashSocket cancelled (total rx=\(rxDatagramCount))")
         inboundContinuation.finish()
     }
 

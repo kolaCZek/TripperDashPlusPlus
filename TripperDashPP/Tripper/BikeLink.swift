@@ -466,11 +466,13 @@ final class BikeLink {
             // suppressed by the de-dup guard in `sendCallState`).
             lastCallState = nil
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
+            ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
             try await s.start(timeout: 5.0)
             try Task.checkCancellation()
             self.socket = s
             log.info("[\(ms(), privacy: .public)ms] DashSocket ready, entering handshake")
+            ConnDiag.log("connect", "[\(ms())ms] DashSocket ready, entering handshake")
 
             if !isReconnect { state = .handshaking }
             let outcome = try await runHandshake(socket: s, startedAt: t0)
@@ -483,6 +485,7 @@ final class BikeLink {
             shouldAutoReconnect = true
             reconnectDeadline = nil
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
+            ConnDiag.log("connect", "[\(ms())ms] ✅ CONNECTED (ssid=\(self.ssid))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
             self.connectTask = nil
@@ -492,6 +495,7 @@ final class BikeLink {
             // disconnect() yanked us. State + cleanup already handled
             // there; just log and exit silently — no error pill.
             log.info("Connect flow cancelled by user")
+            ConnDiag.log("connect", "Connect flow cancelled by user")
             await self.socket?.cancel()
             self.socket = nil
             self.connectTask = nil
@@ -499,6 +503,7 @@ final class BikeLink {
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             log.error("Connect flow failed: \(msg, privacy: .public)")
+            ConnDiag.log("connect", "❌ Connect flow failed: \(msg)")
             await self.socket?.cancel()
             self.socket = nil
             self.lastError = msg
@@ -526,6 +531,7 @@ final class BikeLink {
             return
         }
         log.warning("Link dropped (\(reason, privacy: .public)) — starting auto-reconnect")
+        ConnDiag.log("reconnect", "⚠️ Link dropped (\(reason)) — starting auto-reconnect")
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
         Task { [socket] in await socket?.cancel() }
@@ -551,6 +557,7 @@ final class BikeLink {
                 // spinning forever and draining the battery.
                 if let deadline = self.reconnectDeadline, Date() >= deadline {
                     self.log.warning("Reconnect gave up after \(K1G.reconnectMaxDuration, privacy: .public)s")
+                    ConnDiag.log("reconnect", "❌ Reconnect gave up after \(K1G.reconnectMaxDuration)s")
                     self.shouldAutoReconnect = false
                     self.reconnectDeadline = nil
                     self.lastError = "Reconnect timed out after 10 min"
@@ -559,9 +566,11 @@ final class BikeLink {
                 }
                 attempt += 1
                 self.log.info("Reconnect attempt #\(attempt)")
+                ConnDiag.log("reconnect", "Reconnect attempt #\(attempt)")
                 let ok = await self.runConnectFlow(isReconnect: true)
                 if ok {
                     self.log.info("Reconnected after \(attempt) attempt(s)")
+                    ConnDiag.log("reconnect", "✅ Reconnected after \(attempt) attempt(s)")
                     return
                 }
                 try? await Task.sleep(nanoseconds: UInt64(K1G.reconnectInterval * 1_000_000_000))
@@ -623,10 +632,12 @@ final class BikeLink {
             seq: seq
         )
         log.info("[\(ms(), privacy: .public)ms] Sending initial burst (\(burst.count) packets, hostname=\(hostname, privacy: .public))")
+        ConnDiag.log("handshake", "[\(ms())ms] Sending initial burst (\(burst.count) packets, hostname=\(hostname))")
         for (i, pkt) in burst.enumerated() {
             try Task.checkCancellation()
             try await socket.send(pkt)
             log.info("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
+            ConnDiag.log("handshake", "[\(ms())ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview)")
             // 60 ms gap matches better-dash's default --burst-pause.
             // Skip the gap after the last packet so the handshake can start
             // listening immediately.
@@ -635,6 +646,7 @@ final class BikeLink {
             }
         }
         log.info("[\(ms(), privacy: .public)ms] Initial burst done, waiting for modulus+exponent (timeout=\(K1G.handshakeStepTimeout, privacy: .public)s)")
+        ConnDiag.log("handshake", "[\(ms())ms] Initial burst done, waiting for modulus+exponent (timeout=\(K1G.handshakeStepTimeout)s)")
 
         // 1) Wait for modulus + exponent. The bike replies to q3c.e (which
         //    was packet #1 in the burst above) with two segments. They may
@@ -651,6 +663,7 @@ final class BikeLink {
                 ? "no decodable segments"
                 : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
             log.info("[\(ms(), privacy: .public)ms] RX #\(rxCount) handshake-step1 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
+            ConnDiag.log("handshake", "[\(ms())ms] RX #\(rxCount) step1-pubkey (\(packet.count) B): \(packet.hexPreview) | segs=\(segSummary)")
             for seg in segs {
                 if seg.type == K1G.SegType.auth.rawValue {
                     if seg.sub == K1G.AuthSub.modulus.rawValue { modulus = seg.payload }
@@ -660,14 +673,17 @@ final class BikeLink {
             if modulus != nil && exponent != nil { break }
             if Date() > deadline {
                 log.error("[\(ms(), privacy: .public)ms] handshake step1 timed out — received \(rxCount) packets, modulus=\(modulus != nil ? "yes" : "NO"), exponent=\(exponent != nil ? "yes" : "NO")")
+                ConnDiag.log("handshake", "❌ [\(ms())ms] step1 TIMEOUT — rx=\(rxCount), modulus=\(modulus != nil ? "yes" : "NO"), exponent=\(exponent != nil ? "yes" : "NO")")
                 throw HandshakeError.missingSegment("modulus+exponent within \(K1G.handshakeStepTimeout)s")
             }
         }
         guard let modulus, let exponent else {
             log.error("[\(ms(), privacy: .public)ms] inbound stream ended before modulus+exponent arrived (rx=\(rxCount), mod=\(modulus != nil ? "yes" : "NO"), exp=\(exponent != nil ? "yes" : "NO"))")
+            ConnDiag.log("handshake", "❌ [\(ms())ms] inbound stream ENDED before pubkey (rx=\(rxCount), mod=\(modulus != nil ? "yes" : "NO"), exp=\(exponent != nil ? "yes" : "NO"))")
             throw HandshakeError.missingSegment("modulus or exponent")
         }
         log.info("[\(ms(), privacy: .public)ms] Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString, privacy: .public)")
+        ConnDiag.log("handshake", "[\(ms())ms] Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString)")
 
         // 2) Build SecKey, generate AES key, encrypt session payload.
         let pub = try RsaHandshake.makePublicKey(modulus: modulus, exponent: exponent)
@@ -676,6 +692,7 @@ final class BikeLink {
         let q3cd = K1GPacket.makeSessionKey(ciphertext: ct, seq: seq.consume())
         try await socket.send(q3cd)
         log.info("[\(ms(), privacy: .public)ms] TX q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B): \(q3cd.hexPreview, privacy: .public)")
+        ConnDiag.log("handshake", "[\(ms())ms] TX q3c.d session-key (\(q3cd.count) B, ct=\(ct.count) B): \(q3cd.hexPreview)")
 
         // 3) Wait for auth-OK (07 01 01).
         let okDeadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
@@ -687,12 +704,15 @@ final class BikeLink {
                 ? "no decodable segments"
                 : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
             log.info("[\(ms(), privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
+            ConnDiag.log("handshake", "[\(ms())ms] RX #\(step3Rx) step3-authOK (\(packet.count) B): \(packet.hexPreview) | segs=\(segSummary)")
             if RsaHandshake.isAuthOK(segs) {
                 log.info("[\(ms(), privacy: .public)ms] Got auth OK (07 01 01)")
+                ConnDiag.log("handshake", "✅ [\(ms())ms] Got auth OK (07 01 01) — handshake complete")
                 return HandshakeOutcome(aesKey: aesKey, ssid: ssid)
             }
             if Date() > okDeadline {
                 log.error("[\(ms(), privacy: .public)ms] handshake step3 timed out — received \(step3Rx) packets, no auth-OK")
+                ConnDiag.log("handshake", "❌ [\(ms())ms] step3 TIMEOUT — rx=\(step3Rx), no auth-OK")
                 throw HandshakeError.missingSegment("auth-OK within \(K1G.handshakeStepTimeout)s")
             }
         }
