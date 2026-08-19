@@ -197,6 +197,18 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// After arriving at a destination, automatically drop into free-ride
+    /// mode so the dash keeps showing the live map instead of sitting on the
+    /// nav-logo splash (the stream is torn down on arrival, and without this
+    /// the dash has nothing to display until the rider acts). Rider feedback
+    /// (8/2026): a rider who lost signal near the destination arrived and was
+    /// left staring at the blank nav-logo screen. Defaults ON. When OFF, the
+    /// old behaviour stands — arrival ends projection and the dash returns to
+    /// its own screen. Only fires while the dash link is still connected.
+    var resumeFreeRideAfterArrival: Bool = true {
+        didSet { persist() }
+    }
+
     /// Voice guidance: speak turn-by-turn maneuver prompts through the
     /// phone speaker / connected headset while navigating. Offline
     /// (`AVSpeechSynthesizer`), keyless. Defaults OFF so a rider who
@@ -433,13 +445,14 @@ final class DashNavSettings {
 
     // MARK: - Persistence
 
-    // Bumped to v11 when the route progress bar toggle (progressBarEnabled)
-    // landed — on top of v10's live-traffic reroute toggles
-    // (trafficRerouteEnabled / trafficRerouteSavingSeconds). Older blobs
-    // (v10 and earlier) are silently ignored on first read; we just rewrite
-    // them under the new key with current defaults (progress bar ON,
-    // traffic reroute OFF, call-state ON, lookahead ON).
-    private static let storeKey = "dashNavSettings.v11"
+    // Bumped to v12 when the resume-free-ride-after-arrival toggle
+    // (resumeFreeRideAfterArrival) landed — on top of v11's route progress
+    // bar toggle (progressBarEnabled) and v10's live-traffic reroute toggles.
+    // Older blobs (v11 and earlier) are silently ignored on first read; we
+    // just rewrite them under the new key with current defaults (resume
+    // free-ride ON, progress bar ON, traffic reroute OFF, call-state ON,
+    // lookahead ON).
+    private static let storeKey = "dashNavSettings.v12"
 
     private struct Persisted: Codable {
         var units: UnitSystem
@@ -461,6 +474,7 @@ final class DashNavSettings {
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
+        var resumeFreeRideAfterArrival: Bool?
     }
 
     init() {
@@ -487,6 +501,7 @@ final class DashNavSettings {
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
         self.progressBarEnabled = p.progressBarEnabled ?? true
+        self.resumeFreeRideAfterArrival = p.resumeFreeRideAfterArrival ?? true
     }
 
     private func persist() {
@@ -506,7 +521,8 @@ final class DashNavSettings {
             voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
-            progressBarEnabled: progressBarEnabled
+            progressBarEnabled: progressBarEnabled,
+            resumeFreeRideAfterArrival: resumeFreeRideAfterArrival
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

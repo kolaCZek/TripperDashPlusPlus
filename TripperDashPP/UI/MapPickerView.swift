@@ -1225,6 +1225,19 @@ struct MapPickerView: View {
     private func finishArrival() {
         status.activeNavigator.stop()
         selectedDestination = nil
+        // After arrival the stream was already torn down (AppStatus.onArrived),
+        // so the dash is sitting on its nav-logo splash. Unless the rider
+        // opted out, drop straight into free-ride so the dash keeps showing
+        // the live map instead of a blank logo screen (rider feedback 8/2026).
+        // Only meaningful while the dash link is still up; startFreeRide()
+        // itself guards on `.connected` / not-already-streaming, so this is
+        // safe even if the link dropped at arrival.
+        if status.dashNavSettings.resumeFreeRideAfterArrival,
+           status.bikeLink.state == .connected,
+           !status.isStreaming {
+            status.startFreeRide()
+            return
+        }
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
