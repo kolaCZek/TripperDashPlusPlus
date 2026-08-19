@@ -252,6 +252,8 @@ struct StreamingView: View {
 
             MapCacheSection()
 
+            ConnDiagSection()
+
             Section("About") {
                 LabeledContent("Version", value: "\(status.buildVersion) (\(status.buildCommitSHA))")
                 // NOTE: the parenthesised value is the short git commit SHA
@@ -284,6 +286,59 @@ struct StreamingView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Done") { dismiss() }
             }
+        }
+    }
+}
+
+/// ⚠️ DIAGNOSTIC BRANCH ONLY (`diag/connection-logging`) — NOT FOR MERGE.
+///
+/// Settings section that lets a field tester export the connection log
+/// (Wi-Fi join → socket → handshake → reconnect) with one tap right after a
+/// failed connect at the bike. The log file is written by `ConnDiag` and
+/// shared via a `ShareLink` so it can go straight into Messages / Mail /
+/// AirDrop back to the developer. Remove before merging feature work.
+private struct ConnDiagSection: View {
+    @State private var preview: String = ""
+    @State private var lineCount: Int = 0
+
+    var body: some View {
+        Section {
+            LabeledContent("Log entries", value: "\(lineCount)")
+
+            // Share the on-disk log file directly — most useful for the dev,
+            // preserves the full history, works over AirDrop / Messages / Mail.
+            ShareLink(
+                item: ConnDiag.fileURL,
+                preview: SharePreview("TripperDash++ connection log")
+            ) {
+                Label("Share connection log", systemImage: "square.and.arrow.up")
+            }
+
+            Button(role: .destructive) {
+                ConnDiag.clear()
+                preview = ""
+                lineCount = 0
+            } label: {
+                Label("Clear log", systemImage: "trash")
+            }
+
+            if !preview.isEmpty {
+                Text(preview)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(12)
+                    .textSelection(.enabled)
+            }
+        } header: {
+            Text("Connection diagnostics")
+        } footer: {
+            Text("Field-test build only. Records Wi-Fi join, UDP socket, RSA handshake and reconnect events. After a failed or flaky connect at the bike, tap Share and send the log back.")
+        }
+        .task {
+            let snap = await ConnDiag.snapshot()
+            lineCount = snap.isEmpty ? 0 : snap.split(separator: "\n").count
+            // Show only the last ~12 lines inline; the full log goes via Share.
+            preview = snap.split(separator: "\n").suffix(12).joined(separator: "\n")
         }
     }
 }
