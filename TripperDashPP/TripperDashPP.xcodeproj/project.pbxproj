@@ -55,6 +55,7 @@
 		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 		A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F0 /* CallStateObserver.swift */; };
+		D1A6C0DE0000000000C0FFEF /* ConnDiag.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A6C0DE0000000000C0FFEE /* ConnDiag.swift */; };
 		A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F2 /* DeviceTelemetry.swift */; };
 		B7DA00000000000000000001 /* DashMediaControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7DA00000000000000000002 /* DashMediaControl.swift */; };
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
@@ -177,6 +178,7 @@
 		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
 		A4CA110000000000000000F0 /* CallStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallStateObserver.swift; sourceTree = "<group>"; };
+		D1A6C0DE0000000000C0FFEE /* ConnDiag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnDiag.swift; sourceTree = "<group>"; };
 		A4CA110000000000000000F2 /* DeviceTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTelemetry.swift; sourceTree = "<group>"; };
 		B7DA00000000000000000002 /* DashMediaControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashMediaControl.swift; sourceTree = "<group>"; };
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
@@ -387,6 +389,7 @@
 				A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */,
 				A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */,
 				A4CA110000000000000000F0 /* CallStateObserver.swift */,
+				D1A6C0DE0000000000C0FFEE /* ConnDiag.swift */,
 				A4CA110000000000000000F2 /* DeviceTelemetry.swift */,
 				B7DA00000000000000000002 /* DashMediaControl.swift */,
 			);
@@ -774,6 +777,7 @@
 				A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */,
 				A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */,
 				A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */,
+				D1A6C0DE0000000000C0FFEF /* ConnDiag.swift in Sources */,
 				A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */,
 				B7DA00000000000000000001 /* DashMediaControl.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
