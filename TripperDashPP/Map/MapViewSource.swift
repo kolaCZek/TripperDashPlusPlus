@@ -149,6 +149,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// or the centred puck. See the "Ride-alerts overlay" extension below.
     var weatherAlert: WeatherAlert?
 
+    /// Latest centred dash notice ("You've arrived", warnings, etc.) with the
+    /// wall-clock instant it expires. `nil` → nothing drawn. Set via
+    /// `showNotice(_:)`; the draw path clears it once `Date.now` passes the
+    /// expiry (time-based auto-dismiss, no background timer). See DashNotice.swift.
+    private var activeNotice: (notice: DashNotice, expiresAt: Date)?
+
     /// Speed cameras to plot on the map, prefetched along the active route
     /// by `SpeedCameraService`. Empty → nothing drawn. Each is rendered as
     /// an upright camera pictograph at its geographic position (rotates
@@ -1016,6 +1022,11 @@ extension MapViewSource {
         // at the very bottom where nothing else lives. No-op when the nav
         // pump hasn't pushed a `rideProgress` (feature off / not nav).
         drawProgressBar(into: ctx)
+
+        // Centred dash notice ("You've arrived" and friends) — drawn LAST so
+        // it sits above every map overlay, dead-centre, transform-independent.
+        // Self-expiring (time-based); no-op when no notice is active.
+        drawNotice(into: ctx)
 
         // Top-left maneuver overlay — burned into the video so the dash
         // shows the right arrow regardless of how it interprets the
@@ -2099,6 +2110,21 @@ extension MapViewSource {
         self.weatherImperial = imperial
     }
 
+    /// Raise a centred notice on the dash for `notice.duration` seconds. The
+    /// universal "tell the rider something" entry point — any caller (arrival,
+    /// warnings, connection loss, future info) hands in a `DashNotice` and the
+    /// render loop burns it into the video, dead-centre, then clears it once
+    /// the duration elapses. Duration is clamped to a sane 1…15 s band.
+    /// Passing `nil` clears any active notice immediately.
+    func showNotice(_ notice: DashNotice?) {
+        guard let notice else {
+            self.activeNotice = nil
+            return
+        }
+        let clamped = max(1, min(15, notice.duration))
+        self.activeNotice = (notice, Date().addingTimeInterval(clamped))
+    }
+
     /// Install the speed cameras to plot (prefetched along the route).
     /// Pass `[]` to clear.
     func setSpeedCameras(_ cameras: [SpeedCamera]) {
@@ -2275,6 +2301,112 @@ extension MapViewSource {
                                  y: pill.midY - fontSize / 2 - 1)
         Self.drawText(label, in: ctx, at: textOrigin,
                       width: textW + 4, fontSize: fontSize, bold: true)
+    }
+
+    /// Draw the active centred notice ("You've arrived", warnings, etc.).
+    /// No-op when none is active or the current one has expired (time-based
+    /// auto-dismiss — clears the stored notice on the way out). Rendered in
+    /// the flat outer ctx (Y-DOWN, top-left origin), dead-centre, so it's
+    /// independent of map rotation/zoom like the other overlays.
+    fileprivate func drawNotice(into ctx: CGContext) {
+        guard let active = activeNotice else { return }
+        guard Date() < active.expiresAt else {
+            activeNotice = nil   // expired → clear + draw nothing this frame
+            return
+        }
+        let notice = active.notice
+        let accent = notice.level.accent
+
+        // Layout: [glyph] gap [text] inside a padded rounded card.
+        let glyphSize: CGFloat = 30
+        let gap: CGFloat = 10
+        let padX: CGFloat = 16
+        let padY: CGFloat = 14
+        let fontSize: CGFloat = 22
+
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let textW = (notice.text as NSString)
+            .size(withAttributes: [.font: font]).width.rounded(.up)
+
+        let cardW = padX + glyphSize + gap + textW + padX
+        let cardH = padY + max(glyphSize, fontSize) + padY
+        // Dead-centre on the frame.
+        let originX = (frameSize.width - cardW) / 2
+        let originY = (frameSize.height - cardH) / 2
+        let card = CGRect(x: originX, y: originY, width: cardW, height: cardH)
+
+        // Backdrop: 82% black, 2 px accent border.
+        ctx.saveGState()
+        let path = CGPath(roundedRect: card, cornerWidth: 12, cornerHeight: 12, transform: nil)
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.82))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(accent)
+        ctx.setLineWidth(2.0)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        // Glyph, vertically centred.
+        let glyphOrigin = CGPoint(x: card.minX + padX, y: card.midY - glyphSize / 2)
+        ctx.saveGState()
+        ctx.translateBy(x: glyphOrigin.x, y: glyphOrigin.y)
+        drawNoticeGlyph(notice.level, in: ctx, size: glyphSize)
+        ctx.restoreGState()
+
+        // Text, vertically centred.
+        let textOrigin = CGPoint(x: card.minX + padX + glyphSize + gap,
+                                 y: card.midY - fontSize / 2 - 1)
+        Self.drawText(notice.text, in: ctx, at: textOrigin,
+                      width: textW + 4, fontSize: fontSize, bold: true)
+    }
+
+    /// Draw the severity glyph in a `size`×`size` box at the current ctx
+    /// origin (caller has translated). Y-DOWN (top-left origin).
+    ///   - .info     → filled blue circle + white "i"
+    ///   - .warning  → filled amber triangle + white "!"
+    ///   - .critical → filled red circle + white "x"
+    private func drawNoticeGlyph(_ level: DashNoticeLevel,
+                                 in ctx: CGContext, size s: CGFloat) {
+        let accent = level.accent
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ctx.setFillColor(accent)
+
+        switch level {
+        case .info, .critical:
+            ctx.fillEllipse(in: CGRect(x: 0, y: 0, width: s, height: s))
+        case .warning:
+            // Upward triangle (apex top in Y-DOWN = small y).
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: s * 0.5, y: s * 0.06))
+            ctx.addLine(to: CGPoint(x: s * 0.96, y: s * 0.92))
+            ctx.addLine(to: CGPoint(x: s * 0.04, y: s * 0.92))
+            ctx.closePath()
+            ctx.fillPath()
+        }
+
+        // Symbol, white, centred in the shape. Use CoreText via drawText for
+        // "i"/"!"; draw the "x" as two strokes so it reads crisply small.
+        switch level {
+        case .info:
+            Self.drawText("i", in: ctx,
+                          at: CGPoint(x: s * 0.5 - s * 0.10, y: s * 0.22),
+                          width: s, fontSize: s * 0.60, bold: true)
+        case .warning:
+            Self.drawText("!", in: ctx,
+                          at: CGPoint(x: s * 0.5 - s * 0.08, y: s * 0.30),
+                          width: s, fontSize: s * 0.52, bold: true)
+        case .critical:
+            ctx.setStrokeColor(white)
+            ctx.setLineWidth(max(2.0, s * 0.10))
+            ctx.setLineCap(.round)
+            let inset = s * 0.30
+            ctx.move(to: CGPoint(x: inset, y: inset))
+            ctx.addLine(to: CGPoint(x: s - inset, y: s - inset))
+            ctx.move(to: CGPoint(x: s - inset, y: inset))
+            ctx.addLine(to: CGPoint(x: inset, y: s - inset))
+            ctx.strokePath()
+        }
     }
 
     /// Draw a weather pictograph in a `size`×`size` box whose origin is the

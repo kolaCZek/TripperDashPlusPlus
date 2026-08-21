@@ -289,14 +289,68 @@ final class ActiveNavigator {
     /// so leg-advance wins over a reroute near the waypoint.
     private let legArrivalThreshold: CLLocationDistance = 30
 
-    /// Arrival radius for the FINAL destination. Same order as the leg
-    /// threshold; the rider has stopped, so a few metres is plenty.
+    /// Arrival radius for the FINAL destination. Kept tight (25 m); the
+    /// rider has stopped, so a few metres is plenty. A fix skipping past
+    /// this radius at speed is caught by the overshoot guard below, so the
+    /// radius itself doesn't need widening.
     private let destinationArrivalThreshold: CLLocationDistance = 25
+
+    /// Wider "capture" zone. Once a fix lands inside this radius of the
+    /// final destination we arm arrival: from then on EITHER dropping
+    /// under `destinationArrivalThreshold` OR rolling back out (the rider
+    /// physically passed the destination, so `remaining` starts growing
+    /// again) counts as arrival. Without this an overshoot near a
+    /// roadside destination never trips the radius and instead falls
+    /// through to the off-route/reroute path, which spins the rider back
+    /// around toward the target — the reported bug.
+    private let arrivalCaptureRadius: CLLocationDistance = 70
+
+    /// Armed once a fix lands within `arrivalCaptureRadius` of the final
+    /// destination. Reset by seed()/stop() alongside `hasBeenUnderway`.
+    private var arrivalArmed: Bool = false
+
+    /// Closest approach (metres) to the final destination seen since the
+    /// capture zone was armed. Lets us detect an overshoot: when the live
+    /// `remaining` climbs meaningfully above this floor, the rider has
+    /// passed the destination.
+    private var minRemainingSinceArmed: CLLocationDistance = .greatestFiniteMagnitude
 
     /// Set true once we've been at least 2× the arrival radius away from
     /// the destination. Guards against firing arrival on the very first
     /// fix of a short route (where remaining can start below the radius).
     private var hasBeenUnderway: Bool = false
+
+    /// The rider's position at the first fix of the ride. Used to arm
+    /// `hasBeenUnderway` by PHYSICAL movement, not just by absolute
+    /// distance-to-destination: on a very short route (destination at the
+    /// end of the street, well inside the arrival radius) `remaining`
+    /// never exceeds 2× the radius, so the distance-based arm never fires
+    /// and arrival could never trigger. Moving a clear margin past GPS
+    /// jitter from the start proves the rider actually set off.
+    private var rideStartCoordinate: CLLocationCoordinate2D?
+
+    /// Movement past this many metres from the ride's start also arms
+    /// `hasBeenUnderway`. Comfortably above typical GPS jitter (~10 m) so
+    /// standing still can't false-arm, yet small enough that a
+    /// sub-radius-length route still gets under way.
+    private let underwayMovementThreshold: CLLocationDistance = 15
+
+    /// Wall-clock time of the first fix that sat inside the arrival radius
+    /// while essentially stationary. Drives the proximity fallback below.
+    /// Reset whenever the rider leaves the radius or moves meaningfully.
+    private var stationaryInRadiusSince: Date?
+
+    /// The rider must dwell inside the arrival radius, barely moving, for
+    /// at least this long before the proximity fallback declares arrival.
+    /// Covers the degenerate case of a destination only a few metres away
+    /// that the rider never rides toward (so neither the distance gate nor
+    /// the movement/overshoot guards ever arm) — better to confirm arrival
+    /// than to keep navigating to a spot the rider is already standing on.
+    private let proximityDwellSeconds: TimeInterval = 8
+
+    /// Movement below this many metres between consecutive fixes counts as
+    /// "not moving" for the proximity dwell timer (GPS jitter band).
+    private let stationaryJitterThreshold: CLLocationDistance = 8
 
     // MARK: - Ride progress + coarse traffic-delay gauge (feat/route-progress-bar)
 
@@ -453,6 +507,10 @@ final class ActiveNavigator {
         self.remainingWaypoints = 0
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
+        self.stationaryInRadiusSince = nil
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
         // Progress gauge baseline: a single destination IS the whole trip.
         self.plannedTotalDistance = route.distance
@@ -478,6 +536,10 @@ final class ActiveNavigator {
         self.remainingWaypoints = plan.legs.count - self.currentLegIndex
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
+        self.stationaryInRadiusSince = nil
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
 
         let leg = plan.legs[self.currentLegIndex]
@@ -721,6 +783,10 @@ final class ActiveNavigator {
         // Arrival state — reset so the next route starts clean.
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
+        self.stationaryInRadiusSince = nil
         // Overview geometry — drop breadcrumb + caches so the next ride
         // starts with an empty progress bar.
         self.traveledCoordinates = []
@@ -754,6 +820,7 @@ final class ActiveNavigator {
     func ingest(fix: Fix) async {
         guard isNavigating, let route = activeRoute else { return }
         let coord = fix.coordinate
+        let previousCoordinate = self.currentCoordinate
         self.currentCoordinate = coord
         // Record the travelled trace (thinned). Drives the grey
         // "where you've been" line on the overview map; held across
@@ -785,7 +852,20 @@ final class ActiveNavigator {
 
         // Arm the "been under way" guard so a short route can't fire
         // arrival on its very first fix (where remaining may start small).
+        // Two independent ways to arm, whichever comes first:
+        //  1) Distance-to-destination exceeded 2× the arrival radius — the
+        //     normal case for any route longer than ~80 m.
+        //  2) Physical movement past `underwayMovementThreshold` from the
+        //     ride's start — the ONLY way a very short route (destination
+        //     already inside the arrival radius, e.g. the end of the
+        //     street) ever gets under way, since its `remaining` never
+        //     crosses the distance gate.
+        if rideStartCoordinate == nil { rideStartCoordinate = coord }
         if remaining > destinationArrivalThreshold * 2 { hasBeenUnderway = true }
+        if let start = rideStartCoordinate,
+           PolylineMath.haversine(start, coord) > underwayMovementThreshold {
+            hasBeenUnderway = true
+        }
 
         // Multi-stop leg advance: if we're plan-navigating and within
         // the arrival radius of the CURRENT leg's end waypoint, and
@@ -805,10 +885,59 @@ final class ActiveNavigator {
         // AFTER leg-advance so intermediate waypoints advance instead of
         // "arriving". The `hasBeenUnderway` guard blocks a t=0 false-fire.
         let isFinalLeg = (plan == nil) || (currentLegIndex >= (plan?.legs.count ?? 1) - 1)
-        if isFinalLeg, hasBeenUnderway, !hasArrived,
-           remaining <= destinationArrivalThreshold {
-            handleArrival()
-            return
+        if isFinalLeg, hasBeenUnderway, !hasArrived {
+            // Arm the capture zone + track the closest approach once the
+            // rider gets near the destination. This lets an overshoot
+            // (rolling PAST a roadside destination) count as an arrival
+            // instead of falling through to reroute, which would spin the
+            // rider back toward the target.
+            if remaining <= arrivalCaptureRadius {
+                arrivalArmed = true
+            }
+            if arrivalArmed {
+                minRemainingSinceArmed = min(minRemainingSinceArmed, remaining)
+
+                // 1) Normal case: a fix landed inside the tight radius.
+                let insideRadius = remaining <= destinationArrivalThreshold
+                // 2) Overshoot case: we got close (within the tight radius,
+                //    give or take), then `remaining` climbed back up by a
+                //    clear margin — the rider physically passed the point.
+                let overshot = minRemainingSinceArmed <= destinationArrivalThreshold + 10
+                    && remaining > minRemainingSinceArmed + 15
+
+                if insideRadius || overshot {
+                    handleArrival()
+                    return
+                }
+            }
+        }
+
+        // Proximity fallback (degenerate case): the destination is only a
+        // few metres away and the rider NEVER rides toward it — so neither
+        // the distance gate nor the movement/overshoot guards ever arm
+        // `hasBeenUnderway`, and the block above can't fire. Rather than
+        // navigate forever to a spot the rider is already standing on,
+        // confirm arrival once they've DWELLED inside the radius, barely
+        // moving, for `proximityDwellSeconds`. Deliberately independent of
+        // `hasBeenUnderway`. The dwell + jitter guard stops a rider merely
+        // passing THROUGH the radius mid-ride from tripping it.
+        if isFinalLeg, !hasArrived, remaining <= destinationArrivalThreshold {
+            let movedSinceLastFix = previousCoordinate
+                .map { PolylineMath.haversine($0, coord) } ?? 0
+            if movedSinceLastFix <= stationaryJitterThreshold {
+                if stationaryInRadiusSince == nil { stationaryInRadiusSince = .now }
+                if let since = stationaryInRadiusSince,
+                   Date.now.timeIntervalSince(since) >= proximityDwellSeconds {
+                    handleArrival()
+                    return
+                }
+            } else {
+                // Moving through the radius — not a dwell. Restart the timer.
+                stationaryInRadiusSince = nil
+            }
+        } else {
+            // Left the radius (or already arrived) — clear the dwell timer.
+            stationaryInRadiusSince = nil
         }
 
         // F6: no per-fix ETA recompute — `etaSeconds` is a computed
