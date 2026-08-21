@@ -686,37 +686,59 @@ final class BikeLink {
         // 1) Wait for modulus + exponent. The bike replies to q3c.e (which
         //    was packet #1 in the burst above) with two segments. They may
         //    arrive in one packet or split across two.
-        var modulus: Data?
-        var exponent: Data?
-        var rxCount = 0
-        let deadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
-
-        for await packet in socket.inbound {
-            rxCount += 1
-            let segs = K1GPacket.decode(packet)
-            let segSummary = segs.isEmpty
-                ? "no decodable segments"
-                : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
-            log.info("[\(ms(), privacy: .public)ms] RX #\(rxCount) handshake-step1 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
-            ConnDiag.log("handshake", "[\(ms())ms] RX #\(rxCount) step1-pubkey (\(packet.count) B): \(packet.hexPreview) | segs=\(segSummary)")
-            for seg in segs {
-                if seg.type == K1G.SegType.auth.rawValue {
-                    if seg.sub == K1G.AuthSub.modulus.rawValue { modulus = seg.payload }
-                    if seg.sub == K1G.AuthSub.exponent.rawValue { exponent = seg.payload }
+        //
+        //    The wait is a wall-clock timeout race. A plain
+        //    `for await packet in socket.inbound` blocks on the NEXT element,
+        //    so when the dash never answers (rx=0) an in-loop deadline check
+        //    never runs and we'd hang until the socket is torn down (~18s in
+        //    the field log). Racing the consume against a sleep guarantees we
+        //    bail after handshakeStepTimeout even with zero packets. The
+        //    consumer task RETURNS the pubkey (no shared-state mutation across
+        //    the actor boundary — Swift 6 safe).
+        let pubkey = try await withThrowingTaskGroup(of: (modulus: Data, exponent: Data).self) { group in
+            group.addTask { [socket] in
+                var modulus: Data?
+                var exponent: Data?
+                var rxCount = 0
+                for await packet in socket.inbound {
+                    try Task.checkCancellation()
+                    rxCount += 1
+                    let segs = K1GPacket.decode(packet)
+                    let segSummary = segs.isEmpty
+                        ? "no decodable segments"
+                        : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
+                    ConnDiag.log("handshake", "RX #\(rxCount) step1-pubkey (\(packet.count) B): \(packet.hexPreview) | segs=\(segSummary)")
+                    for seg in segs where seg.type == K1G.SegType.auth.rawValue {
+                        if seg.sub == K1G.AuthSub.modulus.rawValue { modulus = seg.payload }
+                        if seg.sub == K1G.AuthSub.exponent.rawValue { exponent = seg.payload }
+                    }
+                    if let modulus, let exponent { return (modulus, exponent) }
                 }
+                // Stream ended before we got both segments.
+                throw HandshakeError.missingSegment("modulus or exponent (inbound stream ended, rx=\(rxCount))")
             }
-            if modulus != nil && exponent != nil { break }
-            if Date() > deadline {
-                log.error("[\(ms(), privacy: .public)ms] handshake step1 timed out — received \(rxCount) packets, modulus=\(modulus != nil ? "yes" : "NO"), exponent=\(exponent != nil ? "yes" : "NO")")
-                ConnDiag.log("handshake", "❌ [\(ms())ms] step1 TIMEOUT — rx=\(rxCount), modulus=\(modulus != nil ? "yes" : "NO"), exponent=\(exponent != nil ? "yes" : "NO")")
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(K1G.handshakeStepTimeout * 1_000_000_000))
                 throw HandshakeError.missingSegment("modulus+exponent within \(K1G.handshakeStepTimeout)s")
             }
+            // First task to finish wins; cancel the other (the timeout, or the
+            // still-blocked stream consumer).
+            do {
+                guard let result = try await group.next() else {
+                    throw HandshakeError.missingSegment("modulus or exponent")
+                }
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                log.error("[\(ms(), privacy: .public)ms] handshake step1 failed: \(error.localizedDescription, privacy: .public)")
+                ConnDiag.log("handshake", "❌ [\(ms())ms] step1 FAILED: \(error.localizedDescription)")
+                throw error
+            }
         }
-        guard let modulus, let exponent else {
-            log.error("[\(ms(), privacy: .public)ms] inbound stream ended before modulus+exponent arrived (rx=\(rxCount), mod=\(modulus != nil ? "yes" : "NO"), exp=\(exponent != nil ? "yes" : "NO"))")
-            ConnDiag.log("handshake", "❌ [\(ms())ms] inbound stream ENDED before pubkey (rx=\(rxCount), mod=\(modulus != nil ? "yes" : "NO"), exp=\(exponent != nil ? "yes" : "NO"))")
-            throw HandshakeError.missingSegment("modulus or exponent")
-        }
+
+        let modulus = pubkey.modulus
+        let exponent = pubkey.exponent
         log.info("[\(ms(), privacy: .public)ms] Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString, privacy: .public)")
         ConnDiag.log("handshake", "[\(ms())ms] Got bike pubkey: modulus=\(modulus.count)B, exponent=\(exponent.hexString)")
 

@@ -99,9 +99,31 @@ final class WiFiJoiner {
                     cont.resume(returning: .failed(error.localizedDescription))
                     return
                 }
-                self.log.info("Joined \(ssid, privacy: .public)")
-                ConnDiag.log("wifi", "✅ Joined \(ssid)")
-                cont.resume(returning: .joined)
+                // `apply` succeeding only means iOS SAVED the config — it does
+                // NOT prove we actually associated (tap "Join" for an AP that
+                // isn't in range and apply still reports success). Verify the
+                // live SSID before claiming a join. Association can lag `apply`
+                // by a second or two when the AP IS in range, so poll briefly
+                // instead of reading once (which would false-negative a real
+                // bike). ~4s total: 8 tries × 500ms.
+                Task {
+                    var live: String?
+                    for _ in 0..<8 {
+                        live = await self.currentSSID()
+                        if live == ssid { break }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                    if live == ssid {
+                        self.log.info("Joined \(ssid, privacy: .public)")
+                        ConnDiag.log("wifi", "✅ Joined \(ssid)")
+                        cont.resume(returning: .joined)
+                    } else {
+                        let detail = live.map { "on \"\($0)\"" } ?? "not on Wi-Fi"
+                        self.log.error("Join \(ssid, privacy: .public) reported OK but \(detail, privacy: .public)")
+                        ConnDiag.log("wifi", "❌ Join \(ssid) saved but not associated (\(detail))")
+                        cont.resume(returning: .failed("couldn't reach \(ssid) — \(detail). Is the bike on and in range?"))
+                    }
+                }
             }
         }
     }
