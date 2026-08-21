@@ -112,7 +112,7 @@ enum K1GPacket {
     /// even though the modulus byte sequence is clearly present in the
     /// hex dump. See `references/k1g-wire-protocol.md` and the regression
     /// note at the end of `K1GPacket.swift`.
-    static func decode(_ data: Data) -> [K1GSegment] {
+    nonisolated static func decode(_ data: Data) -> [K1GSegment] {
         guard data.count >= 8 else { return [] }
 
         // Parse from the fixed-shape header at offsets 0-7.
@@ -176,7 +176,7 @@ enum K1GPacket {
         return [UInt8((v >> 8) & 0xFF), UInt8(v & 0xFF)]
     }
 
-    private static func readU16BE(_ data: Data, at offset: Int) -> UInt16 {
+    private nonisolated static func readU16BE(_ data: Data, at offset: Int) -> UInt16 {
         let hi = UInt16(data[data.index(data.startIndex, offsetBy: offset)])
         let lo = UInt16(data[data.index(data.startIndex, offsetBy: offset + 1)])
         return (hi << 8) | lo
