@@ -101,6 +101,9 @@ final class AppStatus {
         }
 
         Task { @MainActor in
+            // Flip to "Connecting…" up front so the UI reflects the several-
+            // second Wi-Fi join+verify instead of sitting on "Connect to…".
+            bikeLink.beginWifiJoin()
             let outcome = await wifiJoiner.ensureJoined(ssid: bike.ssid)
             switch outcome {
             case .alreadyJoined, .joined:

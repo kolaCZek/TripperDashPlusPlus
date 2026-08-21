@@ -228,6 +228,17 @@ final class BikeLink {
         state = .error(message)
     }
 
+    /// Move the link into the "connecting" (Wi-Fi joining) state up front, so
+    /// the UI shows "Connecting…" during the several-second AP join+verify
+    /// BEFORE the socket/handshake begins. Without this the state stays
+    /// `.idle` through the whole join and the button reads "Connect to…"
+    /// until the join finally fails/succeeds — looking like nothing happened.
+    func beginWifiJoin() {
+        lastError = nil
+        state = .connecting
+        log.info("Wi-Fi join starting — state → connecting")
+    }
+
     /// Tear everything down and return to `.idle`. Safe to call at any
     /// time — including mid-handshake, in which case it cancels the
     /// in-flight connect Task so the user isn't stuck staring at a
