@@ -166,11 +166,12 @@ def _active_navigator_src() -> str:
     return _read("TripperDashPP/Navigation/ActiveNavigator.swift")
 
 
-def test_arrival_radius_widened():
-    """The tight 25 m radius was unreachable at speed — must be wider now."""
+def test_arrival_radius_stays_tight():
+    """Radius stays tight at 25 m — the overshoot guard, not a wider radius,
+    handles a fix skipping past it at speed."""
     src = _active_navigator_src()
-    assert "destinationArrivalThreshold: CLLocationDistance = 40" in src, (
-        "final-destination arrival radius should be widened to 40 m"
+    assert "destinationArrivalThreshold: CLLocationDistance = 25" in src, (
+        "final-destination arrival radius should stay at 25 m"
     )
 
 
@@ -196,5 +197,22 @@ def test_arrival_state_is_reset_with_underway_guard():
     assert src.count("minRemainingSinceArmed = .greatestFiniteMagnitude") >= 3, (
         "minRemainingSinceArmed must be reset on seed/leg-seed/stop"
     )
+
+
+def test_underway_arms_on_movement_for_short_routes():
+    """A route that starts already inside the arrival radius (destination at
+    the end of the street) never crosses the distance-based arm gate, so
+    hasBeenUnderway must also arm on physical movement from the start."""
+    src = _active_navigator_src()
+    assert "rideStartCoordinate" in src, "missing ride-start tracker"
+    assert "underwayMovementThreshold" in src, "missing movement-based arm threshold"
+    assert "PolylineMath.haversine(start, coord) > underwayMovementThreshold" in src, (
+        "hasBeenUnderway must arm on movement past the jitter threshold"
+    )
+    # Must be reset wherever the other arrival state is.
+    assert src.count("rideStartCoordinate = nil") >= 3, (
+        "rideStartCoordinate must be reset on seed/leg-seed/stop"
+    )
+
 
 

@@ -289,13 +289,11 @@ final class ActiveNavigator {
     /// so leg-advance wins over a reroute near the waypoint.
     private let legArrivalThreshold: CLLocationDistance = 30
 
-    /// Arrival radius for the FINAL destination. On a motorcycle the fix
-    /// rate (~1 Hz) at speed plus GPS jitter means `remaining` can skip
-    /// straight past a tight radius between two fixes, so 25 m was too
-    /// small — the rider would roll over the destination and the radius
-    /// would never register. 40 m gives a fix a realistic chance to land
-    /// inside the zone; the overshoot guard below catches the rest.
-    private let destinationArrivalThreshold: CLLocationDistance = 40
+    /// Arrival radius for the FINAL destination. Kept tight (25 m); the
+    /// rider has stopped, so a few metres is plenty. A fix skipping past
+    /// this radius at speed is caught by the overshoot guard below, so the
+    /// radius itself doesn't need widening.
+    private let destinationArrivalThreshold: CLLocationDistance = 25
 
     /// Wider "capture" zone. Once a fix lands inside this radius of the
     /// final destination we arm arrival: from then on EITHER dropping
@@ -321,6 +319,21 @@ final class ActiveNavigator {
     /// the destination. Guards against firing arrival on the very first
     /// fix of a short route (where remaining can start below the radius).
     private var hasBeenUnderway: Bool = false
+
+    /// The rider's position at the first fix of the ride. Used to arm
+    /// `hasBeenUnderway` by PHYSICAL movement, not just by absolute
+    /// distance-to-destination: on a very short route (destination at the
+    /// end of the street, well inside the arrival radius) `remaining`
+    /// never exceeds 2× the radius, so the distance-based arm never fires
+    /// and arrival could never trigger. Moving a clear margin past GPS
+    /// jitter from the start proves the rider actually set off.
+    private var rideStartCoordinate: CLLocationCoordinate2D?
+
+    /// Movement past this many metres from the ride's start also arms
+    /// `hasBeenUnderway`. Comfortably above typical GPS jitter (~10 m) so
+    /// standing still can't false-arm, yet small enough that a
+    /// sub-radius-length route still gets under way.
+    private let underwayMovementThreshold: CLLocationDistance = 15
 
     // MARK: - Ride progress + coarse traffic-delay gauge (feat/route-progress-bar)
 
@@ -477,6 +490,7 @@ final class ActiveNavigator {
         self.remainingWaypoints = 0
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
         self.arrivalArmed = false
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
@@ -504,6 +518,7 @@ final class ActiveNavigator {
         self.remainingWaypoints = plan.legs.count - self.currentLegIndex
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
         self.arrivalArmed = false
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
@@ -749,6 +764,7 @@ final class ActiveNavigator {
         // Arrival state — reset so the next route starts clean.
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.rideStartCoordinate = nil
         self.arrivalArmed = false
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         // Overview geometry — drop breadcrumb + caches so the next ride
@@ -815,7 +831,20 @@ final class ActiveNavigator {
 
         // Arm the "been under way" guard so a short route can't fire
         // arrival on its very first fix (where remaining may start small).
+        // Two independent ways to arm, whichever comes first:
+        //  1) Distance-to-destination exceeded 2× the arrival radius — the
+        //     normal case for any route longer than ~80 m.
+        //  2) Physical movement past `underwayMovementThreshold` from the
+        //     ride's start — the ONLY way a very short route (destination
+        //     already inside the arrival radius, e.g. the end of the
+        //     street) ever gets under way, since its `remaining` never
+        //     crosses the distance gate.
+        if rideStartCoordinate == nil { rideStartCoordinate = coord }
         if remaining > destinationArrivalThreshold * 2 { hasBeenUnderway = true }
+        if let start = rideStartCoordinate,
+           PolylineMath.haversine(start, coord) > underwayMovementThreshold {
+            hasBeenUnderway = true
+        }
 
         // Multi-stop leg advance: if we're plan-navigating and within
         // the arrival radius of the CURRENT leg's end waypoint, and
