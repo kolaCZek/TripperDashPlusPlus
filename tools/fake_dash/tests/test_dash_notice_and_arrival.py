@@ -215,4 +215,30 @@ def test_underway_arms_on_movement_for_short_routes():
     )
 
 
+def test_proximity_fallback_for_stationary_close_destination():
+    """A destination a few metres away that the rider never rides toward
+    must still confirm arrival: dwelling inside the radius while stationary
+    for a few seconds triggers a proximity fallback, independent of
+    hasBeenUnderway."""
+    src = _active_navigator_src()
+    assert "stationaryInRadiusSince" in src, "missing proximity dwell timer"
+    assert "proximityDwellSeconds" in src, "missing dwell duration"
+    assert "stationaryJitterThreshold" in src, "missing stationary jitter band"
+    # The fallback must NOT be gated on hasBeenUnderway (that's the whole
+    # point — it covers the case where underway never arms). Check the
+    # CODE only, stripping // comment tails (which mention the flag).
+    fallback = src[src.index("Proximity fallback"):]
+    fallback = fallback[:fallback.index("F6: no per-fix")]
+    fallback_code = "\n".join(
+        re.sub(r"//.*$", "", line) for line in fallback.splitlines()
+    )
+    assert "hasBeenUnderway" not in fallback_code, (
+        "proximity fallback must be independent of hasBeenUnderway"
+    )
+    assert src.count("stationaryInRadiusSince = nil") >= 3, (
+        "dwell timer must be reset on seed/leg-seed/stop"
+    )
+
+
+
 
