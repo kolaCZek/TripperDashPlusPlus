@@ -78,22 +78,23 @@ actor ConnDiagStore {
 
 /// Global entry point. `log()` is nonisolated + fire-and-forget so it can be
 /// dropped into any connection code path (actors, MainActor, nonisolated
-/// delegates) without ceremony.
+/// delegates) without ceremony. Explicitly `nonisolated` so it stays callable
+/// from actor contexts even under the project's default-MainActor isolation.
 enum ConnDiag {
-    static let store = ConnDiagStore()
-    private static let mirror = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ConnDiag")
+    nonisolated static let store = ConnDiagStore()
+    nonisolated private static let mirror = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ConnDiag")
 
     /// Record a diagnostic line. Safe from any context.
-    static func log(_ category: String, _ message: String) {
+    nonisolated static func log(_ category: String, _ message: String) {
         mirror.info("[\(category, privacy: .public)] \(message, privacy: .public)")
         Task { await store.append(category: category, message: message) }
     }
 
     /// Full buffered log text for the share sheet.
-    static func snapshot() async -> String { await store.snapshot() }
+    nonisolated static func snapshot() async -> String { await store.snapshot() }
 
     /// On-disk log file URL (for ShareLink / file export).
-    static var fileURL: URL { store.url }
+    nonisolated static var fileURL: URL { store.url }
 
-    static func clear() { Task { await store.clear() } }
+    nonisolated static func clear() { Task { await store.clear() } }
 }
