@@ -289,9 +289,33 @@ final class ActiveNavigator {
     /// so leg-advance wins over a reroute near the waypoint.
     private let legArrivalThreshold: CLLocationDistance = 30
 
-    /// Arrival radius for the FINAL destination. Same order as the leg
-    /// threshold; the rider has stopped, so a few metres is plenty.
-    private let destinationArrivalThreshold: CLLocationDistance = 25
+    /// Arrival radius for the FINAL destination. On a motorcycle the fix
+    /// rate (~1 Hz) at speed plus GPS jitter means `remaining` can skip
+    /// straight past a tight radius between two fixes, so 25 m was too
+    /// small — the rider would roll over the destination and the radius
+    /// would never register. 40 m gives a fix a realistic chance to land
+    /// inside the zone; the overshoot guard below catches the rest.
+    private let destinationArrivalThreshold: CLLocationDistance = 40
+
+    /// Wider "capture" zone. Once a fix lands inside this radius of the
+    /// final destination we arm arrival: from then on EITHER dropping
+    /// under `destinationArrivalThreshold` OR rolling back out (the rider
+    /// physically passed the destination, so `remaining` starts growing
+    /// again) counts as arrival. Without this an overshoot near a
+    /// roadside destination never trips the radius and instead falls
+    /// through to the off-route/reroute path, which spins the rider back
+    /// around toward the target — the reported bug.
+    private let arrivalCaptureRadius: CLLocationDistance = 70
+
+    /// Armed once a fix lands within `arrivalCaptureRadius` of the final
+    /// destination. Reset by seed()/stop() alongside `hasBeenUnderway`.
+    private var arrivalArmed: Bool = false
+
+    /// Closest approach (metres) to the final destination seen since the
+    /// capture zone was armed. Lets us detect an overshoot: when the live
+    /// `remaining` climbs meaningfully above this floor, the rider has
+    /// passed the destination.
+    private var minRemainingSinceArmed: CLLocationDistance = .greatestFiniteMagnitude
 
     /// Set true once we've been at least 2× the arrival radius away from
     /// the destination. Guards against firing arrival on the very first
@@ -453,6 +477,8 @@ final class ActiveNavigator {
         self.remainingWaypoints = 0
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
         // Progress gauge baseline: a single destination IS the whole trip.
         self.plannedTotalDistance = route.distance
@@ -478,6 +504,8 @@ final class ActiveNavigator {
         self.remainingWaypoints = plan.legs.count - self.currentLegIndex
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.traveledCoordinates = []   // fresh ride → empty breadcrumb
 
         let leg = plan.legs[self.currentLegIndex]
@@ -721,6 +749,8 @@ final class ActiveNavigator {
         // Arrival state — reset so the next route starts clean.
         self.hasArrived = false
         self.hasBeenUnderway = false
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
         // Overview geometry — drop breadcrumb + caches so the next ride
         // starts with an empty progress bar.
         self.traveledCoordinates = []
@@ -805,10 +835,31 @@ final class ActiveNavigator {
         // AFTER leg-advance so intermediate waypoints advance instead of
         // "arriving". The `hasBeenUnderway` guard blocks a t=0 false-fire.
         let isFinalLeg = (plan == nil) || (currentLegIndex >= (plan?.legs.count ?? 1) - 1)
-        if isFinalLeg, hasBeenUnderway, !hasArrived,
-           remaining <= destinationArrivalThreshold {
-            handleArrival()
-            return
+        if isFinalLeg, hasBeenUnderway, !hasArrived {
+            // Arm the capture zone + track the closest approach once the
+            // rider gets near the destination. This lets an overshoot
+            // (rolling PAST a roadside destination) count as an arrival
+            // instead of falling through to reroute, which would spin the
+            // rider back toward the target.
+            if remaining <= arrivalCaptureRadius {
+                arrivalArmed = true
+            }
+            if arrivalArmed {
+                minRemainingSinceArmed = min(minRemainingSinceArmed, remaining)
+
+                // 1) Normal case: a fix landed inside the tight radius.
+                let insideRadius = remaining <= destinationArrivalThreshold
+                // 2) Overshoot case: we got close (within the tight radius,
+                //    give or take), then `remaining` climbed back up by a
+                //    clear margin — the rider physically passed the point.
+                let overshot = minRemainingSinceArmed <= destinationArrivalThreshold + 10
+                    && remaining > minRemainingSinceArmed + 15
+
+                if insideRadius || overshot {
+                    handleArrival()
+                    return
+                }
+            }
         }
 
         // F6: no per-fix ETA recompute — `etaSeconds` is a computed

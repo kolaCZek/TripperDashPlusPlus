@@ -150,3 +150,51 @@ def test_dash_notice_is_in_pbxproj():
         "DashNotice.swift has no PBXFileReference"
     )
 
+
+# --- Arrival overshoot detection --------------------------------------------
+#
+# Rider feedback (8/2026): on a real ride, arriving at the destination did
+# nothing and continuing on spun the navigation back toward the target — the
+# 25 m radius was too tight for a ~1 Hz fix at speed and a roadside
+# destination was overshot without ever landing inside the radius, so the
+# fix fell through to the off-route/reroute path. Fix in ActiveNavigator:
+# a wider capture zone that arms arrival, plus an overshoot check (remaining
+# climbs back up after the closest approach).
+
+
+def _active_navigator_src() -> str:
+    return _read("TripperDashPP/Navigation/ActiveNavigator.swift")
+
+
+def test_arrival_radius_widened():
+    """The tight 25 m radius was unreachable at speed — must be wider now."""
+    src = _active_navigator_src()
+    assert "destinationArrivalThreshold: CLLocationDistance = 40" in src, (
+        "final-destination arrival radius should be widened to 40 m"
+    )
+
+
+def test_arrival_has_capture_zone_and_overshoot():
+    """Arrival must arm on a wider capture zone and also fire on overshoot."""
+    src = _active_navigator_src()
+    assert "arrivalCaptureRadius" in src, "missing wider capture zone"
+    assert "arrivalArmed" in src, "missing arrival arming flag"
+    assert "minRemainingSinceArmed" in src, "missing closest-approach tracker"
+    # The overshoot branch must exist alongside the inside-radius branch.
+    assert "let overshot" in src and "insideRadius || overshot" in src, (
+        "arrival must fire on EITHER inside-radius OR overshoot"
+    )
+
+
+def test_arrival_state_is_reset_with_underway_guard():
+    """The new arrival state must be reset everywhere hasBeenUnderway is,
+    or a stale closest-approach floor would leak into the next ride."""
+    src = _active_navigator_src()
+    assert src.count("arrivalArmed = false") == src.count("hasBeenUnderway = false"), (
+        "arrivalArmed must be reset wherever hasBeenUnderway is reset"
+    )
+    assert src.count("minRemainingSinceArmed = .greatestFiniteMagnitude") >= 3, (
+        "minRemainingSinceArmed must be reset on seed/leg-seed/stop"
+    )
+
+
