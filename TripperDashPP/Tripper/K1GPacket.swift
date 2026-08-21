@@ -27,13 +27,13 @@ struct K1GSegment: Equatable, Sendable {
     let sub: UInt8
     let payload: Data
 
-    init(type: UInt8, sub: UInt8, payload: Data) {
+    nonisolated init(type: UInt8, sub: UInt8, payload: Data) {
         self.type = type
         self.sub = sub
         self.payload = payload
     }
 
-    init(type: K1G.SegType, sub: UInt8, payload: Data) {
+    nonisolated init(type: K1G.SegType, sub: UInt8, payload: Data) {
         self.init(type: type.rawValue, sub: sub, payload: payload)
     }
 }
