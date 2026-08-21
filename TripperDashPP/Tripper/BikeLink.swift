@@ -870,7 +870,7 @@ final class BikeLink {
 // MARK: - Helpers
 
 private extension Data {
-    var hexString: String {
+    nonisolated var hexString: String {
         return self.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -878,7 +878,7 @@ private extension Data {
     /// hex pairs, with "… +N more" suffix if longer. Designed for OSLog
     /// where we want enough bytes to identify K1G headers + first TLV but
     /// not spam the log with 800 B RSA ciphertext.
-    var hexPreview: String {
+    nonisolated var hexPreview: String {
         let cap = 32
         if count <= cap {
             return self.map { String(format: "%02X", $0) }.joined(separator: " ")
