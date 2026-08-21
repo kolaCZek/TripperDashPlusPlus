@@ -108,7 +108,7 @@ nonisolated enum K1G {
     static let heartbeatInterval: TimeInterval = 1.0
 
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
-    static let handshakeStepTimeout: TimeInterval = 3.0
+    static let handshakeStepTimeout: TimeInterval = 5.0
 
     /// Total time we'll keep retrying the handshake before giving up.
     static let handshakeOverallTimeout: TimeInterval = 10.0
