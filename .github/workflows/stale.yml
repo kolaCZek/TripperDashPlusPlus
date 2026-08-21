@@ -1,0 +1,44 @@
+name: Close stale issues
+
+# Marks issues (and PRs) as stale after 14 days of inactivity, then closes
+# them 7 days later if still untouched. Any comment or activity removes the
+# stale label and resets the clock.
+on:
+  schedule:
+    - cron: '30 2 * * *'   # daily at 02:30 UTC
+  workflow_dispatch: {}     # allow manual runs
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # --- Issues ---
+          days-before-issue-stale: 14
+          days-before-issue-close: 7
+          stale-issue-label: stale
+          stale-issue-message: >
+            This issue has had no activity for 14 days and is now marked
+            **stale**. If it's still relevant, leave a comment — otherwise it
+            will be closed automatically in 7 days.
+          close-issue-message: >
+            Closing this issue as stale after 21 days with no activity. Feel
+            free to reopen or open a fresh issue if it still needs attention.
+
+          # --- Pull requests: leave them alone (release/field-test branches
+          # like diag/* can sit open by design). ---
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+
+          # Never auto-stale things that are explicitly kept open.
+          exempt-issue-labels: 'pinned,security,keep-open'
+          # A comment resets the clock (default true) — be explicit.
+          remove-stale-when-updated: true
+          # Modest per-run budget so a backlog doesn't hammer the API.
+          operations-per-run: 60
+          ascending: true
