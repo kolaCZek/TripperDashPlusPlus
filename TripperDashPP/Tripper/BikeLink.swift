@@ -21,6 +21,7 @@
 
 import Foundation
 import Network
+import NetworkExtension
 import os
 import SwiftUI
 #if canImport(UIKit)
@@ -465,6 +466,25 @@ final class BikeLink {
             // session; replaying our last in-memory state would otherwise be
             // suppressed by the de-dup guard in `sendCallState`).
             lastCallState = nil
+            // Preflight: verify we're actually associated with the bike's AP
+            // BEFORE opening the socket and firing the handshake burst.
+            // Without this, a "connect" attempted away from the bike (Wi-Fi
+            // joined to some OTHER network, or NEHotspotConfiguration.apply
+            // having merely *saved* the config without truly associating) sails
+            // into the handshake and hangs — the dash never answers, rx stays
+            // 0, and the UI spins on "Handshaking…" until the whole budget
+            // elapses. Checking the live SSID up front turns that silent hang
+            // into an immediate, honest error.
+            if !isReconnect {
+                let liveSSID = await Self.currentWifiSSID()
+                if liveSSID != ssid {
+                    let detail = liveSSID.map { "on \"\($0)\"" } ?? "not on Wi-Fi"
+                    log.error("[\(ms(), privacy: .public)ms] Preflight failed: expected SSID \"\(self.ssid, privacy: .public)\" but \(detail, privacy: .public)")
+                    ConnDiag.log("connect", "❌ [\(ms())ms] Preflight: expected \"\(ssid)\" but \(detail) — aborting before handshake")
+                    throw HandshakeError.notOnDashNetwork(expected: ssid, actual: liveSSID)
+                }
+                ConnDiag.log("connect", "[\(ms())ms] Preflight OK — on \"\(ssid)\"")
+            }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
@@ -586,6 +606,21 @@ final class BikeLink {
         guard state == .reconnecting, shouldAutoReconnect else { return }
         log.info("Reconnect woken (retry now)")
         startReconnectLoop()
+    }
+
+    /// The SSID of the Wi-Fi network the phone is currently associated with,
+    /// or nil when not on Wi-Fi (or the SSID can't be read). Backed by
+    /// `NEHotspotNetwork.fetchCurrent`, which reports the *actual* associated
+    /// network — unlike `NWPathMonitor`, which only says "Wi-Fi is up" without
+    /// telling us *which* AP. Reading the SSID needs Location permission, which
+    /// the app already holds for navigation. `nonisolated` so the preflight can
+    /// await it without hopping actors.
+    nonisolated static func currentWifiSSID() async -> String? {
+        await withCheckedContinuation { cont in
+            NEHotspotNetwork.fetchCurrent { network in
+                cont.resume(returning: network?.ssid)
+            }
+        }
     }
 
     /// Start the Wi-Fi path monitor once. A `.unsatisfied` Wi-Fi path on

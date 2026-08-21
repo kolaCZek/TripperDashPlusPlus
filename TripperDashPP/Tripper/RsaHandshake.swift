@@ -30,6 +30,9 @@ enum HandshakeError: Error, LocalizedError {
     case encryptionFailed(CFError?)
     case missingSegment(String)
     case randomBytesFailed(OSStatus)
+    /// Preflight caught that the phone isn't on the dash's Wi-Fi network, so
+    /// there's no point opening the socket / firing the handshake burst.
+    case notOnDashNetwork(expected: String, actual: String?)
 
     var errorDescription: String? {
         switch self {
@@ -43,6 +46,11 @@ enum HandshakeError: Error, LocalizedError {
             return "Handshake reply missing segment \(s)"
         case .randomBytesFailed(let s):
             return "SecRandomCopyBytes failed (status=\(s))"
+        case .notOnDashNetwork(let expected, let actual):
+            if let actual {
+                return "Not on the dash Wi-Fi (expected \"\(expected)\", on \"\(actual)\"). Join the bike's network and try again."
+            }
+            return "Not on the dash Wi-Fi (expected \"\(expected)\"). Join the bike's network and try again."
         }
     }
 }
