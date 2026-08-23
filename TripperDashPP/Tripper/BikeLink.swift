@@ -493,14 +493,24 @@ final class BikeLink {
             // elapses. Checking the live SSID up front turns that silent hang
             // into an immediate, honest error.
             if !isReconnect {
+                // Only abort if we can positively confirm we're on a
+                // DIFFERENT network. `NEHotspotNetwork.fetchCurrent` frequently
+                // returns nil even while genuinely associated (Location cache
+                // lag right after a join, precise-location quirks), so nil must
+                // mean "SSID unknown" — NOT "not on Wi-Fi". Treating nil as a
+                // failure false-negatived real bikes: WiFiJoiner reported
+                // "Already associated" yet the preflight read nil and aborted
+                // before the handshake ever ran. When the SSID is unreadable we
+                // proceed and let the handshake's rx=0 timeout catch a network
+                // that's genuinely dead.
                 let liveSSID = await Self.currentWifiSSID()
-                if liveSSID != ssid {
-                    let detail = liveSSID.map { "on \"\($0)\"" } ?? "not on Wi-Fi"
-                    log.error("[\(ms(), privacy: .public)ms] Preflight failed: expected SSID \"\(self.ssid, privacy: .public)\" but \(detail, privacy: .public)")
-                    ConnDiag.log("connect", "❌ [\(ms())ms] Preflight: expected \"\(ssid)\" but \(detail) — aborting before handshake")
+                if let liveSSID, liveSSID != ssid {
+                    log.error("[\(ms(), privacy: .public)ms] Preflight failed: expected SSID \"\(self.ssid, privacy: .public)\" but on \"\(liveSSID, privacy: .public)\"")
+                    ConnDiag.log("connect", "❌ [\(ms())ms] Preflight: expected \"\(ssid)\" but on \"\(liveSSID)\" — aborting before handshake")
                     throw HandshakeError.notOnDashNetwork(expected: ssid, actual: liveSSID)
                 }
-                ConnDiag.log("connect", "[\(ms())ms] Preflight OK — on \"\(ssid)\"")
+                let onNote = liveSSID.map { "on \"\($0)\"" } ?? "SSID unreadable — proceeding on WiFiJoiner's confirmation"
+                ConnDiag.log("connect", "[\(ms())ms] Preflight OK — \(onNote)")
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
