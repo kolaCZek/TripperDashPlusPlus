@@ -63,11 +63,18 @@ final class MotionInterpolatorTests: XCTestCase {
         m.maxExtrapolationS = 3
         m.ingest(fix: fix(50, 14, speed: 20, course: 90, at: t0))
         _ = m.tick(now: t0)
-        let near = m.tick(now: t0.addingTimeInterval(3.0))!
-        // Far past the window: position must not keep sailing off.
+        // Advance to the very edge of the extrapolation window and note how far
+        // east we've dead-reckoned.
+        let atWindow = m.tick(now: t0.addingTimeInterval(3.0))!
+        // Far past the window: extrapolation stops. The marker settles back
+        // toward the last real fix (soft correction) rather than sailing on —
+        // it must not be further east than at the window edge, and must not
+        // overshoot behind the fix.
         let far = m.tick(now: t0.addingTimeInterval(10.0))!
-        XCTAssertEqual(near.longitude, far.longitude, accuracy: 1e-4,
-                       "should hold once past maxExtrapolationS")
+        XCTAssertLessThanOrEqual(far.longitude, atWindow.longitude + 1e-6,
+                                 "must not extrapolate past maxExtrapolationS")
+        XCTAssertGreaterThanOrEqual(far.longitude, 14 - 1e-6,
+                                    "settles back toward the fix, no backward overshoot")
     }
 
     // MARK: acceleration
