@@ -196,6 +196,12 @@ final class BikeLink {
             // honour it as "retry now" instead of rejecting it.
             wakeReconnect()
             return
+        case .connecting where connectTask == nil:
+            // Pre-join state set by `beginWifiJoin()` before the Wi-Fi
+            // associate completes — no connect flow is running yet, so this
+            // is the real start of the handshake, not a duplicate. Fall
+            // through and begin the connect flow.
+            break
         case .connecting, .handshaking, .connected:
             log.warning("connect() called while in state \(String(describing: self.state))")
             return
