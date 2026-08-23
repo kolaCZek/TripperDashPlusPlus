@@ -673,7 +673,7 @@ final class BikeLink {
     /// genuine connect just because the address probe was unlucky.
     private func waitForWifiReady(startedAt t0: Date) async {
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
-        let maxTries = 16          // 16 × 250 ms ≈ 4 s
+        let maxTries = 20          // 20 × 250 ms ≈ 5 s
         for attempt in 0..<maxTries {
             if Self.wifiHasDashSubnetIPv4() {
                 if attempt > 0 {
@@ -691,7 +691,7 @@ final class BikeLink {
         ConnDiag.log("connect", "[\(ms())ms] Wi-Fi not confirmed ready after \(maxWifiWaitMs)ms — proceeding anyway")
     }
 
-    private let maxWifiWaitMs = 4000
+    private let maxWifiWaitMs = 5000
 
     /// True when the Wi-Fi interface (en0) currently has an IPv4 address in the
     /// dash's `192.168.1.0/24` subnet — the positive signal that DHCP finished
