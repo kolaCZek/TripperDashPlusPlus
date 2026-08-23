@@ -813,7 +813,9 @@ struct MapPickerView: View {
     /// off by itself the moment the handshake completes.
     @ViewBuilder
     private var connectingControl: some View {
-        let base = status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…"
+        let base = status.bikeLink.isWaitingForWifi
+            ? "Waiting for Wi-Fi…"
+            : (status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…")
         VStack(spacing: 8) {
             HStack {
                 ProgressView()
