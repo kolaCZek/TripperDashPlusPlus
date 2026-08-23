@@ -45,6 +45,14 @@ final class BikeLink {
 
     private(set) var state: LinkState = .idle
 
+    /// True only while `runConnectFlow` is blocked waiting for the Wi-Fi
+    /// interface to become usable (DHCP lease) right after association, before
+    /// the socket opens. Drives a distinct "Waiting for Wi-Fi…" label so the
+    /// rider knows the app is waiting on the network handoff, not stalled. The
+    /// coarse `state` stays `.connecting` throughout (no new enum case to thread
+    /// through every switch).
+    private(set) var isWaitingForWifi = false
+
     /// AES-256 session key the bike now also has (for Phase 4+).
     private(set) var aesKey: Data?
 
@@ -512,6 +520,23 @@ final class BikeLink {
                 let onNote = liveSSID.map { "on \"\($0)\"" } ?? "SSID unreadable — proceeding on WiFiJoiner's confirmation"
                 ConnDiag.log("connect", "[\(ms())ms] Preflight OK — \(onNote)")
             }
+            // Wait for the Wi-Fi path to become usable before opening the
+            // socket. Association (WiFiJoiner's "Already associated") only means
+            // the link-layer is up — DHCP can still be in flight for another
+            // 1-3s, so the phone may not yet have an IPv4 lease / default route
+            // on en0. Firing the handshake burst into a not-yet-ready interface
+            // means the datagrams go nowhere, the dash never answers, and we eat
+            // the full rx=0 handshake timeout for no reason. Blocking briefly on
+            // a `.satisfied` Wi-Fi path (NWPathMonitor) closes that gap. Best-
+            // effort: on reconnect the path is already up, and if the wait times
+            // out we proceed anyway and let the handshake timeout be the
+            // backstop.
+            if !isReconnect {
+                isWaitingForWifi = true
+                await waitForWifiReady(startedAt: t0)
+                isWaitingForWifi = false
+                try Task.checkCancellation()
+            }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
@@ -543,6 +568,7 @@ final class BikeLink {
             // there; just log and exit silently — no error pill.
             log.info("Connect flow cancelled by user")
             ConnDiag.log("connect", "Connect flow cancelled by user")
+            isWaitingForWifi = false
             await self.socket?.cancel()
             self.socket = nil
             self.connectTask = nil
@@ -551,6 +577,7 @@ final class BikeLink {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             log.error("Connect flow failed: \(msg, privacy: .public)")
             ConnDiag.log("connect", "❌ Connect flow failed: \(msg)")
+            isWaitingForWifi = false
             await self.socket?.cancel()
             self.socket = nil
             self.lastError = msg
@@ -633,6 +660,62 @@ final class BikeLink {
         guard state == .reconnecting, shouldAutoReconnect else { return }
         log.info("Reconnect woken (retry now)")
         startReconnectLoop()
+    }
+
+    /// Wait (best-effort, bounded) for the Wi-Fi interface to become usable
+    /// after association — i.e. DHCP has handed us an IPv4 lease on en0 in the
+    /// dash's subnet — before we open the socket and fire the handshake. The
+    /// dash AP is a fixed `192.168.1.x` network, so "usable" means en0 has a
+    /// `192.168.1.*` address (not just any Wi-Fi address, and not a stale
+    /// cellular/other-network one). Polls every 250 ms up to ~4 s. Returns as
+    /// soon as the interface is ready; on timeout it returns anyway and lets the
+    /// handshake's rx=0 timeout be the real backstop — we never want to block a
+    /// genuine connect just because the address probe was unlucky.
+    private func waitForWifiReady(startedAt t0: Date) async {
+        func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
+        let maxTries = 16          // 16 × 250 ms ≈ 4 s
+        for attempt in 0..<maxTries {
+            if Self.wifiHasDashSubnetIPv4() {
+                if attempt > 0 {
+                    log.info("[\(ms(), privacy: .public)ms] Wi-Fi ready after \(attempt * 250, privacy: .public)ms wait (en0 has dash-subnet IPv4)")
+                    ConnDiag.log("connect", "[\(ms())ms] Wi-Fi ready after \(attempt * 250)ms (DHCP lease acquired)")
+                }
+                return
+            }
+            if attempt == 0 {
+                ConnDiag.log("connect", "[\(ms())ms] Waiting for Wi-Fi to be ready (DHCP lease on en0)…")
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        log.notice("[\(ms(), privacy: .public)ms] Wi-Fi not confirmed ready after \(self.maxWifiWaitMs, privacy: .public)ms — proceeding, handshake timeout is the backstop")
+        ConnDiag.log("connect", "[\(ms())ms] Wi-Fi not confirmed ready after \(maxWifiWaitMs)ms — proceeding anyway")
+    }
+
+    private let maxWifiWaitMs = 4000
+
+    /// True when the Wi-Fi interface (en0) currently has an IPv4 address in the
+    /// dash's `192.168.1.0/24` subnet — the positive signal that DHCP finished
+    /// and the interface is routable to the bike. Uses `getifaddrs`; no
+    /// permissions needed (unlike SSID reads). `nonisolated` so the poll loop
+    /// doesn't thrash the actor.
+    nonisolated static func wifiHasDashSubnetIPv4() -> Bool {
+        var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return false }
+        defer { freeifaddrs(ifaddrPtr) }
+        var ptr: UnsafeMutablePointer<ifaddrs>? = first
+        while let cur = ptr {
+            defer { ptr = cur.pointee.ifa_next }
+            let name = String(cString: cur.pointee.ifa_name)
+            guard name == "en0", let sa = cur.pointee.ifa_addr,
+                  sa.pointee.sa_family == sa_family_t(AF_INET) else { continue }
+            var addr = sockaddr_in()
+            memcpy(&addr, sa, MemoryLayout<sockaddr_in>.size)
+            var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            inet_ntop(AF_INET, &addr.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
+            let ip = String(cString: buf)
+            if ip.hasPrefix("192.168.1.") { return true }
+        }
+        return false
     }
 
     /// The SSID of the Wi-Fi network the phone is currently associated with,
