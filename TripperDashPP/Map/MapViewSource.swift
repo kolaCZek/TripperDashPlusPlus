@@ -57,6 +57,11 @@ final class MapViewSource: NSObject, FrameSource {
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
 
+    /// Smooths marker motion between ~1 Hz GPS fixes up to the 6 fps render
+    /// cadence: dead-reckons along the road (route-follow) or velocity vector,
+    /// with acceleration and soft correction. See MotionInterpolator.
+    private var motion = MotionInterpolator()
+
     /// Effective heading used to rotate the rendered frame (degrees,
     /// CW from north). Lerped per-tick toward `targetHeading`.
     ///
@@ -852,6 +857,7 @@ extension MapViewSource {
 
     private func handleFix(_ fix: Fix) {
         lastFix = fix
+        motion.ingest(fix: fix)
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
         let region = MKCoordinateRegion(
@@ -927,6 +933,24 @@ extension MapViewSource {
     @MainActor
     private func tickOnMain() async {
         guard onFrame != nil else { return }
+
+        // 0. Smooth the rider marker: advance the motion interpolator to this
+        //    tick and overwrite the display coordinate the renderer reads.
+        //    GPS lands at ~1 Hz but we render at 6 fps — without this the marker
+        //    freezes for ~6 frames then jumps. `motion` dead-reckons along the
+        //    road (or velocity vector when off-route) and soft-corrects toward
+        //    each real fix. We keep the raw speed/course on the struct so
+        //    heading + speed-limit logic are unaffected; only the coordinate is
+        //    replaced.
+        if let raw = lastFix,
+           let smooth = motion.tick(now: Date()) {
+            lastFix = Fix(coordinate: smooth,
+                          altitude: raw.altitude,
+                          horizontalAccuracy: raw.horizontalAccuracy,
+                          speed: raw.speed,
+                          course: raw.course,
+                          timestamp: raw.timestamp)
+        }
 
         // 1. Advance the per-tick animation state (heading + zoom lerps)
         //    every tick (6 Hz) so an in-progress rotation/zoom dribbles
@@ -1838,6 +1862,9 @@ extension MapViewSource {
                       waypoints: [CLLocationCoordinate2D]) {
         fullRouteCoords = full
         waypointDots = waypoints
+        // Feed the motion smoother the same line the renderer strokes so it can
+        // dead-reckon along the road through curves (and detect off-route).
+        motion.setRoute(routeDrawCoords.isEmpty ? nil : routeDrawCoords)
     }
 
     /// Push the rider's travelled breadcrumb (grey "already ridden" line).

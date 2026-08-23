@@ -54,6 +54,24 @@ nonisolated struct Fix: Sendable, Equatable {
         timestamp = loc.timestamp
     }
 
+    /// Memberwise init used by the motion interpolator to synthesize a display
+    /// `Fix` at an extrapolated coordinate while carrying the real GPS-derived
+    /// speed/course forward (so heading + speed-limit logic keep working off
+    /// the same struct).
+    init(coordinate: CLLocationCoordinate2D,
+         altitude: CLLocationDistance,
+         horizontalAccuracy: CLLocationAccuracy,
+         speed: CLLocationSpeed,
+         course: CLLocationDirection,
+         timestamp: Date) {
+        self.coordinate = coordinate
+        self.altitude = altitude
+        self.horizontalAccuracy = horizontalAccuracy
+        self.speed = speed
+        self.course = course
+        self.timestamp = timestamp
+    }
+
     // CLLocationCoordinate2D is a C struct and doesn't conform to
     // Equatable, so we have to write the comparison out by hand.
     static func == (lhs: Fix, rhs: Fix) -> Bool {
