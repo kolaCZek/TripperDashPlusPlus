@@ -488,7 +488,30 @@ final class AppStatus {
     func startFreeRide() {
         guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
         isFreeRiding = true
+        installFreeRideContent()
+        startStreaming()
+    }
 
+    /// Swap the streamed content from active-navigation to free-ride WITHOUT
+    /// tearing the RTP stream down. Used on arrival: the dash stays in
+    /// projection the whole time (no `sendNavStop`/`sendProjectionOff`, no
+    /// encoder restart), so the display never blinks between "arrived" and the
+    /// live free-ride map. The already-running `ActiveNavLoop` drops into its
+    /// no-maneuver heartbeat automatically once `activeNavigator.isNavigating`
+    /// goes false (via `stop()` in `finishArrival`). No-op if the stream isn't
+    /// up or we're already free-riding.
+    func transitionToFreeRideInPlace() {
+        guard isStreaming, !isFreeRiding else { return }
+        isFreeRiding = true
+        installFreeRideContent()
+        applyKeepAwake()
+    }
+
+    /// Shared free-ride content setup: empty tile cache (position-fallback
+    /// bake), cleared route geometry, camera prefetch. Does NOT touch the
+    /// stream — callers decide whether to start one (`startFreeRide`) or reuse
+    /// the running one (`transitionToFreeRideInPlace`).
+    private func installFreeRideContent() {
         // Resolve Light/Dark/Auto for the current position+time before the
         // first bake, so free-ride opens in the right palette (same as the
         // navigation start path).
@@ -515,8 +538,6 @@ final class AppStatus {
         // One-shot fetch at free-ride start; continuous re-fetch as the rider
         // moves far from this centre is a TODO (see PR notes).
         prefetchFreeRideCameras()
-
-        startStreaming()
     }
 
     /// Fetch speed cameras around the rider's current fix and hand them to
@@ -956,27 +977,18 @@ final class AppStatus {
         activeNavigator.trafficRerouteSavingSeconds = dashNavSettings.trafficRerouteSavingSeconds
         observeTrafficRerouteSettings()
 
-        // Final-destination arrival: tear the stream + route artefacts
-        // down the instant we arrive (so the dash leaves projection
-        // promptly), but DON'T call activeNavigator.stop() here — the HUD
-        // needs `hasArrived == true` for the dismiss beat. MapPickerView
-        // calls stop() after its auto-dismiss delay.
+        // Final-destination arrival: keep the stream UP so the dash never
+        // blinks out of projection. We DON'T tear the stream down or drop the
+        // route/tile artefacts here anymore — the route + "arrived" state stay
+        // on the live map through the HUD's dismiss beat, then MapPickerView's
+        // finishArrival() swaps to free-ride IN PLACE (no stream restart). Only
+        // the spoken arrival confirmation fires here.
         activeNavigator.onArrived = { [weak self] in
             guard let self else { return }
-            if self.isStreaming { self.stopStreaming() }
-            self.mapViewSource.setTileCache(nil)
-            self.mapViewSource.setRoutePolyline(nil)
-            self.mapViewSource.setFullRoute(coords: [], waypoints: [])
-            self.mapViewSource.setAlternativeRoutes([])
-            self.mapViewSource.setTraveled([])
-            self.mapViewSource.setRouteAhead([])
-            self.activeNavigator.onActiveRouteChanged = nil
-            self.stagedDestination = nil
-            self.plannedRoute = nil
-            // Spoken arrival confirmation. Fired AFTER stopStreaming (above)
-            // has torn down the ActiveNavLoop — a fresh utterance re-arms the
-            // shared audio session's duck, so it is not clipped by the loop's
-            // teardown. Gated on the voice setting like every other prompt.
+            // Spoken arrival confirmation. The ActiveNavLoop is still running
+            // (stream up), but a `.critical` prompt pre-empts any lower-tier
+            // guidance in flight. Gated on the voice setting like every other
+            // prompt.
             if self.dashNavSettings.voiceEnabled {
                 let lang = self.dashNavSettings.voiceLanguage
                 self.voiceNavigator.speak(VoicePhrase.arrived(lang),
