@@ -503,6 +503,7 @@ final class AppStatus {
         mapViewSource.setFullRoute(coords: [], waypoints: [])
         mapViewSource.setAlternativeRoutes([])
         mapViewSource.setTraveled([])
+        mapViewSource.setRouteAhead([])
         mapViewSource.setCurrentRoute(nil)
         mapViewSource.setTileCache(emptyCache)
 
@@ -968,6 +969,7 @@ final class AppStatus {
             self.mapViewSource.setFullRoute(coords: [], waypoints: [])
             self.mapViewSource.setAlternativeRoutes([])
             self.mapViewSource.setTraveled([])
+            self.mapViewSource.setRouteAhead([])
             self.activeNavigator.onActiveRouteChanged = nil
             self.stagedDestination = nil
             self.plannedRoute = nil
