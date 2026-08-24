@@ -246,7 +246,57 @@ final class BikeLink {
             log.info("Demo mode: fake link connected (no socket, no handshake)")
             return
         }
-        connectTask = Task { await self.runConnectFlow() }
+        connectTask = Task { await self.runInitialConnect() }
+    }
+
+    /// Drive a FRESH (non-reconnect) connect attempt, silently retrying up to
+    /// `K1G.bootRaceMaxAttempts` times if — and only if — the failure is the
+    /// dash-still-booting race (`.bootRaceMissingReply`: zero reply packets
+    /// at all to our initial burst). Any OTHER failure (bad reply, wrong Wi-
+    /// Fi, cancellation) surfaces immediately as before — this is narrowly
+    /// scoped to the one race condition that's expected and self-resolving
+    /// within a few seconds of the dash finishing its own boot.
+    ///
+    /// Field evidence (8/2026): connecting right as the dash's screen showed
+    /// "iPhone connected" (Wi-Fi/AP layer ready) but its K1G control-plane
+    /// task wasn't listening yet — step 1 got rx=0 and timed out after 5s.
+    /// Previously that single failure dropped straight to `.error`, forcing
+    /// the rider to notice and tap Connect again by hand.
+    private func runInitialConnect() async {
+        var attempt = 0
+        while true {
+            attempt += 1
+            let result = await runConnectFlow(isReconnect: false)
+            switch result {
+            case .connected, .cancelled:
+                connectTask = nil
+                return
+            case .otherFailure:
+                connectTask = nil
+                return
+            case .bootRaceMissingReply(let msg):
+                if attempt >= K1G.bootRaceMaxAttempts {
+                    log.warning("Boot-race retries exhausted (\(attempt) attempts) — surfacing error")
+                    lastError = msg
+                    state = .error(msg)
+                    connectTask = nil
+                    return
+                }
+                log.info("Dash not answering yet (boot race, attempt \(attempt)/\(K1G.bootRaceMaxAttempts)) — retrying silently")
+                try? await Task.sleep(nanoseconds: UInt64(K1G.bootRaceRetryInterval * 1_000_000_000))
+                // `try?` swallows CancellationError from the sleep above, so
+                // disconnect() cancelling this Task mid-pause would otherwise
+                // be silently ignored and the loop would keep retrying after
+                // the user backed out. Check explicitly and bail like the
+                // `.cancelled` branch would.
+                if Task.isCancelled {
+                    log.info("Boot-race retry loop cancelled by user")
+                    connectTask = nil
+                    return
+                }
+                // Loop: state stays .connecting/.handshaking, no error flash.
+            }
+        }
     }
 
     /// Report a Wi-Fi join failure from the app layer (AppStatus.connect):
@@ -483,8 +533,28 @@ final class BikeLink {
         }
     }
 
+    /// Outcome of one `runConnectFlow` attempt, distinguishing a failure
+    /// where the dash likely just hasn't finished booting yet from any other
+    /// failure. See `runInitialConnect`'s doc for why this distinction
+    /// matters.
+    private enum ConnectAttemptResult {
+        case connected
+        case cancelled
+        /// Step 1 (waiting for the dash's RSA modulus+exponent reply) got
+        /// NO usable reply at all before the timeout. On a FRESH (non-
+        /// reconnect) connect this is the classic dash-still-booting race:
+        /// the phone associates to the AP and the phone-side K1G socket
+        /// opens well before the dash's own K1G control-plane task is alive
+        /// to answer the handshake — meanwhile the dash's Wi-Fi/AP layer
+        /// (a lower level, independent of K1G readiness) already reports
+        /// "iPhone connected" on its screen. Retryable without surfacing an
+        /// error to the rider.
+        case bootRaceMissingReply(String)
+        case otherFailure(String)
+    }
+
     @discardableResult
-    private func runConnectFlow(isReconnect: Bool = false) async -> Bool {
+    private func runConnectFlow(isReconnect: Bool = false) async -> ConnectAttemptResult {
         // Mark this attempt as live for the whole call, including every exit
         // path (return / throw) below. See connectFlowInFlight's doc: this is
         // what lets wakeReconnect() refuse to overlap a second attempt on top
@@ -583,8 +653,7 @@ final class BikeLink {
             ConnDiag.log("connect", "[\(ms())ms] ✅ CONNECTED (ssid=\(self.ssid))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
-            self.connectTask = nil
-            return true
+            return .connected
 
         } catch is CancellationError {
             // disconnect() yanked us. State + cleanup already handled
@@ -594,8 +663,7 @@ final class BikeLink {
             isWaitingForWifi = false
             await self.socket?.cancel()
             self.socket = nil
-            self.connectTask = nil
-            return false
+            return .cancelled
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             log.error("Connect flow failed: \(msg, privacy: .public)")
@@ -604,14 +672,23 @@ final class BikeLink {
             await self.socket?.cancel()
             self.socket = nil
             self.lastError = msg
+            let isBootRace = (error as? HandshakeError).map {
+                if case .noReplyAtAll = $0 { return true } else { return false }
+            } ?? false
             if isReconnect {
                 // Stay in `.reconnecting`; the retry loop sleeps + tries
                 // again (until it hits the 10-min deadline).
+                return .otherFailure(msg)
+            } else if isBootRace {
+                // Leave `state` as `.connecting`/`.handshaking` — the caller
+                // (`runInitialConnect`) silently retries a few times before
+                // ever surfacing an error pill. Setting `.error` here would
+                // flash it on screen for the ~2s gap between attempts.
+                return .bootRaceMissingReply(msg)
             } else {
                 self.state = .error(msg)
+                return .otherFailure(msg)
             }
-            self.connectTask = nil
-            return false
         }
     }
 
@@ -664,8 +741,8 @@ final class BikeLink {
                 attempt += 1
                 self.log.info("Reconnect attempt #\(attempt)")
                 ConnDiag.log("reconnect", "Reconnect attempt #\(attempt)")
-                let ok = await self.runConnectFlow(isReconnect: true)
-                if ok {
+                let result = await self.runConnectFlow(isReconnect: true)
+                if case .connected = result {
                     self.log.info("Reconnected after \(attempt) attempt(s)")
                     ConnDiag.log("reconnect", "✅ Reconnected after \(attempt) attempt(s)")
                     return
@@ -842,7 +919,12 @@ final class BikeLink {
         //    the field log). Racing the consume against a sleep guarantees we
         //    bail after handshakeStepTimeout even with zero packets. The
         //    consumer task RETURNS the pubkey (no shared-state mutation across
-        //    the actor boundary — Swift 6 safe).
+        //    the actor boundary — Swift 6 safe), but a `rxCountBox` is shared
+        //    (NSLock-guarded, mirrors `RollingSeq`) so the TIMEOUT task can
+        //    also tell "dash never replied at all" (rx=0 — the dash-boot
+        //    race, retryable) from "dash replied but never sent a usable
+        //    pair" (a real failure) when IT is the one that wins the race.
+        let rxCountBox = RxCountBox()
         let pubkey = try await withThrowingTaskGroup(of: (modulus: Data, exponent: Data).self) { group in
             group.addTask { [socket] in
                 var modulus: Data?
@@ -851,6 +933,7 @@ final class BikeLink {
                 for await packet in socket.inbound {
                     try Task.checkCancellation()
                     rxCount += 1
+                    rxCountBox.value = rxCount
                     let segs = K1GPacket.decode(packet)
                     let segSummary = segs.isEmpty
                         ? "no decodable segments"
@@ -863,10 +946,16 @@ final class BikeLink {
                     if let modulus, let exponent { return (modulus, exponent) }
                 }
                 // Stream ended before we got both segments.
+                if rxCount == 0 {
+                    throw HandshakeError.noReplyAtAll("modulus or exponent (inbound stream ended)")
+                }
                 throw HandshakeError.missingSegment("modulus or exponent (inbound stream ended, rx=\(rxCount))")
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(K1G.handshakeStepTimeout * 1_000_000_000))
+                if rxCountBox.value == 0 {
+                    throw HandshakeError.noReplyAtAll("modulus+exponent within \(K1G.handshakeStepTimeout)s")
+                }
                 throw HandshakeError.missingSegment("modulus+exponent within \(K1G.handshakeStepTimeout)s")
             }
             // First task to finish wins; cancel the other (the timeout, or the

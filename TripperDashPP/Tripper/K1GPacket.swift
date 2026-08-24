@@ -183,6 +183,24 @@ enum K1GPacket {
     }
 }
 
+// MARK: - Rx counter box
+
+/// Thread-safe `Int` box shared between the two racing tasks in the
+/// handshake step1 `TaskGroup` (see `BikeLink.runHandshake`): lets the
+/// TIMEOUT task read how many packets the STREAM CONSUMER task has seen so
+/// far when it's the timeout that wins the race, without either task
+/// mutating a `@MainActor` property across the boundary. Same NSLock
+/// pattern as `RollingSeq` below.
+final class RxCountBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = 0
+
+    var value: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
+    }
+}
+
 // MARK: - Rolling sequence
 
 /// Thread-safe monotonic 0..255 counter (wraps on overflow). Mirrors

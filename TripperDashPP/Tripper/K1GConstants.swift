@@ -121,4 +121,17 @@ nonisolated enum K1G {
     /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
     /// enough to walk into a petrol station, pay, and walk back.
     static let reconnectMaxDuration: TimeInterval = 600.0
+
+    /// How many times a FRESH connect (not an auto-reconnect) silently
+    /// retries after a step-1 handshake timeout with ZERO reply packets
+    /// (the "dash still booting" race — see BikeLink.ConnectAttemptResult
+    /// .bootRaceMissingReply). 4 attempts × handshakeStepTimeout(5s) +
+    /// bootRaceRetryInterval(2s) gaps ≈ 28s, comfortably inside how long
+    /// the Tripper's own boot sequence takes to bring its K1G control-plane
+    /// task up after its Wi-Fi AP (which is what let the phone associate
+    /// and the dash show "iPhone connected") is already alive.
+    static let bootRaceMaxAttempts = 4
+
+    /// Delay between silent boot-race retries on a fresh connect.
+    static let bootRaceRetryInterval: TimeInterval = 2.0
 }
