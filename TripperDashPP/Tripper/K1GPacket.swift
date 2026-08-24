@@ -195,7 +195,11 @@ final class RxCountBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _value = 0
 
-    var value: Int {
+    // `nonisolated` because the project defaults to MainActor isolation
+    // (SWIFT_DEFAULT_ACTOR_ISOLATION) but this box is written/read from the
+    // two nonisolated closures racing inside the handshake step1 TaskGroup —
+    // same reasoning as ConnDiag's nonisolated logging (see 320b670).
+    nonisolated var value: Int {
         get { lock.lock(); defer { lock.unlock() }; return _value }
         set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
