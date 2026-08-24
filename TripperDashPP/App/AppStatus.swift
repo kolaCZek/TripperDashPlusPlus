@@ -285,6 +285,21 @@ final class AppStatus {
                     // we just stopped. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
                     self.startStreaming()
+                } else if state == .connected
+                            && self.isFreeRiding
+                            && !self.isStreaming {
+                    // Reconnected mid-free-ride → resume projection
+                    // automatically, mirroring the navigation-resume branch
+                    // above. `isFreeRiding` is the rider's persistent INTENT
+                    // (set by startFreeRide(), cleared only by an explicit
+                    // stopFreeRide() — never by the involuntary stopStreaming()
+                    // a drop triggers), so it correctly survives the drop.
+                    // Without this branch the phone's UI kept showing
+                    // "free-riding" (isFreeRiding still true) while no RTP
+                    // stream was actually running — the dash timed out
+                    // waiting for frames that never came (rider feedback
+                    // 8/2026: reconnect after the bike was switched off).
+                    self.resumeFreeRideAfterReconnect()
                 } else {
                     self.applyKeepAwake()
                 }
@@ -491,6 +506,19 @@ final class AppStatus {
     func startFreeRide() {
         guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
         isFreeRiding = true
+        installFreeRideContent()
+        startStreaming()
+    }
+
+    /// Resume a free-ride projection after the link drops and reconnects.
+    /// Deliberately does NOT go through `startFreeRide()`: that guards on
+    /// `!isFreeRiding`, but `isFreeRiding` is the rider's persistent INTENT
+    /// and is still `true` here (a drop never clears it) — routing through
+    /// `startFreeRide()` would be a silent no-op. `isFreeRiding` is already
+    /// `true`, so only reinstall the content (fresh empty tile cache + camera
+    /// prefetch — cheap, no re-bake needed) and restart the stream.
+    private func resumeFreeRideAfterReconnect() {
+        guard bikeLink.state == .connected, streamer == nil else { return }
         installFreeRideContent()
         startStreaming()
     }
