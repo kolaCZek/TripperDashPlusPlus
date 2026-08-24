@@ -139,6 +139,23 @@ final class BikeLink {
     private var pathMonitorStarted = false
     private var lastWifiSatisfied = true
 
+    /// True while `runConnectFlow` is actively executing (socket open,
+    /// handshake in progress). Guards `wakeReconnect()` against tearing down
+    /// and restarting the reconnect loop while an attempt is already live.
+    /// Task cancellation is cooperative and NOT observed inside the
+    /// handshake's `for await packet in socket.inbound` receive loop, so
+    /// cancelling `reconnectTask` while a `runConnectFlow` call is mid-flight
+    /// does NOT stop it — the abandoned flow keeps its own DashSocket alive
+    /// on the same local port (:2002, allowed to coexist via SO_REUSEADDR),
+    /// racing the brand-new flow's socket for the dash's replies. Field-tested
+    /// 8/2026 (bike switched off/on mid free-ride, Wi-Fi flapping while the
+    /// dash's AP came back up): the reconnect attempt counter visibly reset
+    /// mid-sequence — proof of a second overlapping loop — with rx=0
+    /// handshake timeouts on both flows, while the dash itself reported
+    /// "iPhone connected" (one of the racing flows DID complete a real
+    /// pairing) and the app stayed stuck cycling through `.reconnecting`.
+    private var connectFlowInFlight = false
+
     // MARK: - Init
 
     /// Optional reference to the user's dash-display settings.
@@ -468,6 +485,12 @@ final class BikeLink {
 
     @discardableResult
     private func runConnectFlow(isReconnect: Bool = false) async -> Bool {
+        // Mark this attempt as live for the whole call, including every exit
+        // path (return / throw) below. See connectFlowInFlight's doc: this is
+        // what lets wakeReconnect() refuse to overlap a second attempt on top
+        // of one that's still mid-handshake.
+        connectFlowInFlight = true
+        defer { connectFlowInFlight = false }
         let t0 = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
         do {
@@ -656,8 +679,23 @@ final class BikeLink {
     /// we attempt a connection right now (e.g. the rider walked back into
     /// Wi-Fi range, or tapped Connect). Preserves the existing
     /// `reconnectDeadline`, so the 10-min budget is not extended.
+    ///
+    /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
+    /// NOT stop an attempt that's already inside `runConnectFlow` — Swift task
+    /// cancellation is cooperative and the handshake's receive loop never
+    /// checks it — so restarting the loop while one is live would open a
+    /// SECOND DashSocket on the same port and race the abandoned one for the
+    /// dash's replies, corrupting both (field-tested 8/2026: visible attempt-
+    /// counter reset + rx=0 timeouts on both flows while the dash itself
+    /// reported "iPhone connected"). If a wake signal arrives mid-attempt we
+    /// just let that attempt run to completion; the path-monitor / heartbeat
+    /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {
         guard state == .reconnecting, shouldAutoReconnect else { return }
+        guard !connectFlowInFlight else {
+            log.info("Reconnect wake skipped — an attempt is already in flight")
+            return
+        }
         log.info("Reconnect woken (retry now)")
         startReconnectLoop()
     }
