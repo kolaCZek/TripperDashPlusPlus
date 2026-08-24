@@ -29,6 +29,12 @@ enum HandshakeError: Error, LocalizedError {
     case secKeyCreationFailed(OSStatus?)
     case encryptionFailed(CFError?)
     case missingSegment(String)
+    /// Step 1 got ZERO packets back before the timeout — the dash's K1G
+    /// control-plane never answered our initial burst at all (as opposed to
+    /// answering with something unparseable). See `ConnectAttemptResult
+    /// .bootRaceMissingReply` in BikeLink for why this is treated specially
+    /// on a fresh connect.
+    case noReplyAtAll(String)
     case randomBytesFailed(OSStatus)
     /// Preflight caught that the phone isn't on the dash's Wi-Fi network, so
     /// there's no point opening the socket / firing the handshake burst.
@@ -44,6 +50,8 @@ enum HandshakeError: Error, LocalizedError {
             return "RSA encryption failed: \(err.map(String.init(describing:)) ?? "nil")"
         case .missingSegment(let s):
             return "Handshake reply missing segment \(s)"
+        case .noReplyAtAll(let s):
+            return "No reply from dash: \(s)"
         case .randomBytesFailed(let s):
             return "SecRandomCopyBytes failed (status=\(s))"
         case .notOnDashNetwork(let expected, let actual):
