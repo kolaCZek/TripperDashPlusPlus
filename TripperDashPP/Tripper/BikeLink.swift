@@ -251,17 +251,24 @@ final class BikeLink {
 
     /// Drive a FRESH (non-reconnect) connect attempt, silently retrying up to
     /// `K1G.bootRaceMaxAttempts` times if — and only if — the failure is the
-    /// dash-still-booting race (`.bootRaceMissingReply`: zero reply packets
-    /// at all to our initial burst). Any OTHER failure (bad reply, wrong Wi-
-    /// Fi, cancellation) surfaces immediately as before — this is narrowly
-    /// scoped to the one race condition that's expected and self-resolving
-    /// within a few seconds of the dash finishing its own boot.
+    /// dash-still-booting race (`.bootRaceMissingReply`, covering BOTH
+    /// `HandshakeError.noReplyAtAll` — step1 got zero reply packets at all —
+    /// AND `.authNotReady` — step3 got no auth-OK despite the dash actively
+    /// sending other traffic the whole time). Any OTHER failure (bad reply,
+    /// wrong Wi-Fi, cancellation) surfaces immediately as before — this is
+    /// narrowly scoped to race conditions that are expected and self-
+    /// resolving within a few seconds of the dash finishing its own boot.
     ///
     /// Field evidence (8/2026): connecting right as the dash's screen showed
     /// "iPhone connected" (Wi-Fi/AP layer ready) but its K1G control-plane
     /// task wasn't listening yet — step 1 got rx=0 and timed out after 5s.
     /// Previously that single failure dropped straight to `.error`, forcing
-    /// the rider to notice and tap Connect again by hand.
+    /// the rider to notice and tap Connect again by hand. A second flavour
+    /// surfaced later the same month: step1 succeeded (pubkey exchanged)
+    /// but step3 timed out with rx=33 — the dash was chattering normally
+    /// (status/telemetry broadcasts) while still finishing its OWN internal
+    /// auth processing, so 07/01 never arrived in time. Same root cause
+    /// (dash mid-boot), same fix (retry the whole handshake fresh).
     private func runInitialConnect() async {
         var attempt = 0
         while true {
@@ -684,7 +691,10 @@ final class BikeLink {
             self.socket = nil
             self.lastError = msg
             let isBootRace = (error as? HandshakeError).map {
-                if case .noReplyAtAll = $0 { return true } else { return false }
+                switch $0 {
+                case .noReplyAtAll, .authNotReady: return true
+                default: return false
+                }
             } ?? false
             if isReconnect {
                 // Stay in `.reconnecting`; the retry loop sleeps + tries
@@ -1018,10 +1028,10 @@ final class BikeLink {
             if Date() > okDeadline {
                 log.error("[\(ms(), privacy: .public)ms] handshake step3 timed out — received \(step3Rx) packets, no auth-OK")
                 ConnDiag.log("handshake", "❌ [\(ms())ms] step3 TIMEOUT — rx=\(step3Rx), no auth-OK")
-                throw HandshakeError.missingSegment("auth-OK within \(K1G.handshakeStepTimeout)s")
+                throw HandshakeError.authNotReady("auth-OK within \(K1G.handshakeStepTimeout)s (rx=\(step3Rx) other packets)")
             }
         }
-        throw HandshakeError.missingSegment("auth-OK (stream ended)")
+        throw HandshakeError.authNotReady("auth-OK (stream ended)")
     }
 
     /// Build the hostname the dash will show on its pairing screen.

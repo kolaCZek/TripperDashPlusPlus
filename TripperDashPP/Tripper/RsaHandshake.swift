@@ -35,6 +35,17 @@ enum HandshakeError: Error, LocalizedError {
     /// .bootRaceMissingReply` in BikeLink for why this is treated specially
     /// on a fresh connect.
     case noReplyAtAll(String)
+    /// Step 3 (waiting for auth-OK / 07 01 01 after sending the encrypted
+    /// session key) timed out despite the dash actively sending OTHER
+    /// traffic the whole time (status/telemetry/button-ack broadcasts) —
+    /// as opposed to `noReplyAtAll`, where nothing came back at all. Field
+    /// evidence (8/2026): a dash still finishing its own internal auth
+    /// processing right after boot chatters normally on other segment
+    /// types but hasn't gotten to emitting 07/01 yet; retrying the whole
+    /// handshake from scratch a few seconds later succeeds. See
+    /// `ConnectAttemptResult.bootRaceMissingReply` in BikeLink, which
+    /// treats this the same retryable way as `noReplyAtAll`.
+    case authNotReady(String)
     case randomBytesFailed(OSStatus)
     /// Preflight caught that the phone isn't on the dash's Wi-Fi network, so
     /// there's no point opening the socket / firing the handshake burst.
@@ -52,6 +63,8 @@ enum HandshakeError: Error, LocalizedError {
             return "Handshake reply missing segment \(s)"
         case .noReplyAtAll(let s):
             return "No reply from dash: \(s)"
+        case .authNotReady(let s):
+            return "Dash busy, auth not confirmed yet: \(s)"
         case .randomBytesFailed(let s):
             return "SecRandomCopyBytes failed (status=\(s))"
         case .notOnDashNetwork(let expected, let actual):
