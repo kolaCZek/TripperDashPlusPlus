@@ -192,13 +192,21 @@ enum K1GPacket {
 /// mutating a `@MainActor` property across the boundary. Same NSLock
 /// pattern as `RollingSeq` below.
 final class RxCountBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _value = 0
+    // `nonisolated(unsafe)` on the storage itself, not just the accessor:
+    // SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor makes stored properties
+    // implicitly MainActor-isolated too (marking only the computed
+    // `value` accessor `nonisolated` still leaves `_value`/`lock`
+    // MainActor-isolated underneath it, which is what actually broke —
+    // Xcode's "Update to recommended settings" upgrade made this default
+    // isolation stricter). The NSLock is what makes concurrent access
+    // safe, not actor isolation, so opting the storage out here is
+    // correct, not just a workaround.
+    nonisolated(unsafe) private let lock = NSLock()
+    nonisolated(unsafe) private var _value = 0
 
-    // `nonisolated` because the project defaults to MainActor isolation
-    // (SWIFT_DEFAULT_ACTOR_ISOLATION) but this box is written/read from the
-    // two nonisolated closures racing inside the handshake step1 TaskGroup —
-    // same reasoning as ConnDiag's nonisolated logging (see 320b670).
+    // Written/read from the two nonisolated closures racing inside the
+    // handshake step1 TaskGroup — same reasoning as ConnDiag's
+    // nonisolated logging (see 320b670).
     nonisolated var value: Int {
         get { lock.lock(); defer { lock.unlock() }; return _value }
         set { lock.lock(); defer { lock.unlock() }; _value = newValue }
