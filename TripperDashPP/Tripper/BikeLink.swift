@@ -620,16 +620,27 @@ final class BikeLink {
             // on en0. Firing the handshake burst into a not-yet-ready interface
             // means the datagrams go nowhere, the dash never answers, and we eat
             // the full rx=0 handshake timeout for no reason. Blocking briefly on
-            // a `.satisfied` Wi-Fi path (NWPathMonitor) closes that gap. Best-
-            // effort: on reconnect the path is already up, and if the wait times
-            // out we proceed anyway and let the handshake timeout be the
+            // a dash-subnet IPv4 check closes that gap. Best-effort: if the wait
+            // times out we proceed anyway and let the handshake timeout be the
             // backstop.
-            if !isReconnect {
-                isWaitingForWifi = true
-                await waitForWifiReady(startedAt: t0)
-                isWaitingForWifi = false
-                try Task.checkCancellation()
-            }
+            //
+            // ALSO run this on reconnect, not just a fresh connect. Field
+            // evidence (8/2026): a `wifi-path-down` drop → reconnect while
+            // mid-ride hit the EXACT same rx=0-forever pattern this wait was
+            // built to fix, but every reconnect attempt skipped it on the
+            // (wrong, for THIS trigger) assumption that "the path is already
+            // up" on reconnect. A `wifi-path-down` drop means the radio itself
+            // flapped — en0 has to re-associate AND re-acquire its DHCP lease
+            // on the way back, same as a cold join, yet the dash's screen
+            // already shows "iPhone connected" (AP/L2 layer) well before that
+            // finishes, so there's no on-screen signal telling the rider
+            // anything is still wrong. Without this wait the reconnect loop
+            // burned its whole 10-min budget re-sending the burst into a dead
+            // interface every 5s, always rx=0, never recovering on its own.
+            isWaitingForWifi = true
+            await waitForWifiReady(startedAt: t0)
+            isWaitingForWifi = false
+            try Task.checkCancellation()
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
