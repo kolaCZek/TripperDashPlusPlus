@@ -195,13 +195,17 @@ final class RxCountBox: @unchecked Sendable {
     // `nonisolated(unsafe)` on the storage itself, not just the accessor:
     // SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor makes stored properties
     // implicitly MainActor-isolated too (marking only the computed
-    // `value` accessor `nonisolated` still leaves `_value`/`lock`
-    // MainActor-isolated underneath it, which is what actually broke —
-    // Xcode's "Update to recommended settings" upgrade made this default
-    // isolation stricter). The NSLock is what makes concurrent access
-    // safe, not actor isolation, so opting the storage out here is
-    // correct, not just a workaround.
-    nonisolated(unsafe) private let lock = NSLock()
+    // `value` accessor `nonisolated` still leaves `_value` MainActor-
+    // isolated underneath it, which is what actually broke — Xcode's
+    // "Update to recommended settings" upgrade made this default
+    // isolation stricter). `lock` itself doesn't need the annotation:
+    // `NSLock` is already unconditionally `Sendable`, so a `let` of that
+    // type is never actor-isolated in the first place — only `_value`
+    // (a plain `Int`, isolated by the project default) needs opting out.
+    // The NSLock is what makes concurrent access safe, not actor
+    // isolation, so opting `_value` out here is correct, not a
+    // workaround.
+    private let lock = NSLock()
     nonisolated(unsafe) private var _value = 0
 
     // Written/read from the two nonisolated closures racing inside the
