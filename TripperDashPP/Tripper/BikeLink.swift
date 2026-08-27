@@ -334,6 +334,8 @@ final class BikeLink {
     func disconnect() {
         // User-initiated stop: clear the auto-reconnect intent FIRST so a
         // drop signal racing in right now can't re-arm the retry loop.
+        log.info("BikeLink disconnected (auto-reconnect cleared)")
+        ConnDiag.log("connect", "disconnect() called (state was \(state)) — user/app-initiated, auto-reconnect cleared")
         shouldAutoReconnect = false
         reconnectDeadline = nil
         reconnectTask?.cancel(); reconnectTask = nil
@@ -345,7 +347,6 @@ final class BikeLink {
         aesKey = nil
         lastError = nil
         state = .idle
-        log.info("BikeLink disconnected (auto-reconnect cleared)")
     }
 
     // MARK: - Nav projection lifecycle
