@@ -73,6 +73,28 @@ final class BikeLink {
         }
     }
 
+    /// Re-join the bike's Wi-Fi AP. Injected by `AppStatus` (which owns the
+    /// `WiFiJoiner`) so the auto-reconnect loop can re-associate the radio,
+    /// not merely wait for it.
+    ///
+    /// Field evidence (8/2026) for why this exists: reconnect-during-
+    /// navigation burned its entire 10-min budget on rx=0 — 18 consecutive
+    /// attempts, every one sending the handshake burst and hearing nothing.
+    /// The tell was in the diagnostics log: a FRESH connect logs
+    /// `[wifi] Joining Tripper AP …` first and then succeeds, while every
+    /// reconnect attempt has NO `[wifi]` line at all, and the first two
+    /// attempts additionally log "Wi-Fi not confirmed ready after 5000ms"
+    /// (i.e. en0 had no dash-subnet IPv4 at all). The reason: the only
+    /// `WiFiJoiner.ensureJoined()` call site was `AppStatus.connectToBike()`
+    /// — the manual "Connect" path. `BikeLink`'s reconnect loop had no
+    /// access to the joiner whatsoever, so after a `wifi-path-down` drop
+    /// (radio flap, bike keyed off/on) it re-sent UDP into a network the
+    /// phone was no longer associated with, forever. An earlier fix today
+    /// correctly identified that the radio flaps on this trigger and started
+    /// WAITING for the interface on reconnect too — but waiting cannot fix a
+    /// missing association; only re-joining can.
+    var rejoinWifi: (() async -> Bool)?
+
     /// Demo mode: when true, `connect()` FAKES an established link — no UDP
     /// socket, no RSA handshake, no heartbeat/reconnect — so the app can run
     /// its full real pipeline (real GPS, real routing, real map compositing,
@@ -715,6 +737,34 @@ final class BikeLink {
             await waitForWifiReady(startedAt: t0)
             isWaitingForWifi = false
             try Task.checkCancellation()
+            // Still no dash-subnet address after the wait? Then the radio is
+            // not merely slow, it is not ASSOCIATED — re-join the AP instead
+            // of firing another doomed handshake burst. See `rejoinWifi`'s
+            // doc for the field evidence: without this, reconnect after a
+            // `wifi-path-down` drop could never recover on its own, because
+            // nothing in the reconnect path ever re-associated the radio.
+            //
+            // Guarded on the address check rather than run unconditionally so
+            // the common case (link dropped but the phone is still on the
+            // bike's AP — e.g. the dash's K1G task restarted while Wi-Fi
+            // stayed up, the classic boot-race) keeps its current fast path
+            // and doesn't pay a pointless join round-trip on every retry.
+            if isReconnect, !Self.wifiHasDashSubnetIPv4(), let rejoin = rejoinWifi {
+                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 after wait — re-joining AP")
+                ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-joining Tripper AP")
+                let joined = await rejoin()
+                try Task.checkCancellation()
+                ConnDiag.log("connect", "[\(ms())ms] AP re-join \(joined ? "OK" : "FAILED") — \(joined ? "waiting for DHCP" : "proceeding anyway")")
+                if joined {
+                    // Association is back; DHCP still needs a moment. Reuse
+                    // the same bounded wait rather than hand a fresh socket a
+                    // half-configured interface.
+                    isWaitingForWifi = true
+                    await waitForWifiReady(startedAt: t0)
+                    isWaitingForWifi = false
+                    try Task.checkCancellation()
+                }
+            }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)

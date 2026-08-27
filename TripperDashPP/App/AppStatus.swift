@@ -218,6 +218,21 @@ final class AppStatus {
             bikeLink.ssid = active.ssid
         }
 
+        // Give the link a way to RE-JOIN the bike's AP, not just wait for it.
+        // `WiFiJoiner` lives here (AppStatus) and used to be reachable only
+        // from `connectToBike()` — the manual "Connect" path — so the
+        // auto-reconnect loop inside BikeLink had no way to re-associate the
+        // radio after a `wifi-path-down` drop. See `BikeLink.rejoinWifi`'s doc
+        // for the field log that exposed this.
+        let joiner = wifiJoiner
+        bikeLink.rejoinWifi = { [weak bikeLink] in
+            guard let bikeLink, !bikeLink.ssid.isEmpty else { return false }
+            switch await joiner.ensureJoined(ssid: bikeLink.ssid) {
+            case .alreadyJoined, .joined: return true
+            case .failed:                 return false
+            }
+        }
+
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we
         // tear the keepers (and the now-pointless streamer) down within
