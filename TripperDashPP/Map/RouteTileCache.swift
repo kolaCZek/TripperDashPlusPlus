@@ -946,8 +946,22 @@ final class RouteTileCache {
         // Fetch all gridSide² (25 at gridSide=5) tiles in parallel. Each call
         // hits TileDiskCache first then OSMTileFetcher; misses are
         // rare on a re-bake of familiar territory.
-        let tilesData: [(tx: Int, ty: Int, data: Data?)] = await withTaskGroup(
-            of: (Int, Int, Data?).self
+        //
+        // DIAG (rider question, 8/2026: "does re-planning the same route
+        // re-download tiles that are already cached?"): tag each result
+        // hit/miss (3rd tuple element) so a re-bake of the same corridor
+        // can be checked against ConnDiag numerically instead of going on
+        // gut feel. Expected/working: near-0 HTTP fetches on a second
+        // bake of the identical route. If the field log instead shows a
+        // high miss count on a re-plan, that's the actual repro to chase
+        // (candidates: `zoom` changing between bakes so the (z,x,y) key
+        // never matches, or eviction running between rides). Counted
+        // AFTER collection (below), not mutated from inside the
+        // concurrent `addTask` closures — those aren't MainActor-isolated
+        // here, so a shared var would be a data race under strict
+        // concurrency.
+        let tilesData: [(tx: Int, ty: Int, data: Data?, wasCacheHit: Bool)] = await withTaskGroup(
+            of: (Int, Int, Data?, Bool).self
         ) { group in
             for ty in 0..<gridSide {
                 for tx in 0..<gridSide {
@@ -956,7 +970,7 @@ final class RouteTileCache {
                     group.addTask {
                         // Disk cache first — synchronous-ish via actor.
                         if let cached = await TileDiskCache.shared.read(style: style, z: z, x: absX, y: absY) {
-                            return (tx, ty, cached)
+                            return (tx, ty, cached, true)
                         }
                         // HTTP fallback. On error (network, 429) we
                         // return nil; the composite still draws with
@@ -965,20 +979,33 @@ final class RouteTileCache {
                         do {
                             let data = try await OSMTileFetcher.shared.fetch(style: style, z: z, x: absX, y: absY)
                             await TileDiskCache.shared.write(style: style, z: z, x: absX, y: absY, pngData: data)
-                            return (tx, ty, data)
+                            return (tx, ty, data, false)
                         } catch {
-                            return (tx, ty, nil)
+                            return (tx, ty, nil, false)
                         }
                     }
                 }
             }
-            var collected: [(Int, Int, Data?)] = []
+            var collected: [(Int, Int, Data?, Bool)] = []
             collected.reserveCapacity(gridSide * gridSide)
             for await result in group {
                 collected.append(result)
             }
             return collected
         }
+
+        // Log the hit/miss split for this composite. `guard style ==
+        // self.style` etc. don't apply here — this fires on EVERY bake,
+        // including a re-plan of an identical route, which is exactly the
+        // case the rider asked about. A near-0 miss count on a repeat
+        // bake means the disk cache IS working as designed; the visible
+        // "downloading again" feeling is then most likely the CPU-side
+        // stitch + PNG re-encode (unavoidable — composites aren't
+        // themselves cached, only the raw per-(z,x,y) tiles are) rather
+        // than actual network traffic.
+        let hits = tilesData.filter { $0.wasCacheHit }.count
+        let misses = tilesData.count - hits
+        ConnDiag.log("tiles", "composite z=\(z) center=(\(String(format: "%.4f", center.latitude)),\(String(format: "%.4f", center.longitude))): \(hits) disk-cache hit(s), \(misses) HTTP fetch(es)")
 
         // Bail if we didn't get a single tile — composite would be
         // entirely transparent, useless to the renderer.
