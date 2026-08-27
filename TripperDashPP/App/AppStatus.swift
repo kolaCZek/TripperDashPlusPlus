@@ -218,20 +218,14 @@ final class AppStatus {
             bikeLink.ssid = active.ssid
         }
 
-        // Give the link a way to RE-JOIN the bike's AP, not just wait for it.
-        // `WiFiJoiner` lives here (AppStatus) and used to be reachable only
-        // from `connectToBike()` — the manual "Connect" path — so the
-        // auto-reconnect loop inside BikeLink had no way to re-associate the
-        // radio after a `wifi-path-down` drop. See `BikeLink.rejoinWifi`'s doc
-        // for the field log that exposed this.
-        let joiner = wifiJoiner
-        bikeLink.rejoinWifi = { [weak bikeLink] in
-            guard let bikeLink, !bikeLink.ssid.isEmpty else { return false }
-            switch await joiner.ensureJoined(ssid: bikeLink.ssid) {
-            case .alreadyJoined, .joined: return true
-            case .failed:                 return false
-            }
-        }
+        // NOTE: `BikeLink` deliberately has NO way to re-join the AP. The
+        // reconnect loop waits for iOS auto-join instead of forcing an
+        // association, because forcing one can raise a system join dialog and
+        // the rider is typically riding off with the phone in their pocket —
+        // see the long note in `BikeLink.runConnectFlow`. `WiFiJoiner` is used
+        // only from `connectToBike()` (an explicit, foreground user action)
+        // and `addBike()` (which persists the network with joinOnce = false so
+        // iOS can auto-join it forever after).
 
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we
@@ -258,7 +252,7 @@ final class AppStatus {
                 let state = self.bikeLink.state
                 // Session teardown detector: the link reached a terminal
                 // down-state. `.idle` = user disconnect; `.error` =
-                // auto-reconnect gave up after its 10-min budget (motorcycle
+                // auto-reconnect gave up after its reconnect budget (motorcycle
                 // switched off). Both end the ride session.
                 let sessionEnded: Bool
                 switch state {

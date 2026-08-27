@@ -151,24 +151,21 @@ nonisolated enum K1G {
     static let routeCardBurstCount = 4
     static let routeCardBurstGap: TimeInterval = 0.35
 
-    /// Minimum gap between two `rejoinWifi` attempts. Spans drop episodes and
-    /// reconnects (see `BikeLink.lastRejoinAttempt`'s doc for why).
-    /// `NEHotspotConfigurationManager.apply` can raise a system "Do you want
-    /// to join the Wi-Fi network …?" dialog, so this is what stands between a
-    /// flapping dash and an undismissable dialog storm (field report 8/2026).
-    ///
-    /// 60s, not 30: the observed flap cycle in the field log was
-    /// drop → re-join → connect → drop → re-join in 28s, which a 30s cooldown
-    /// would only just have covered. 60s leaves margin for a faster flap while
-    /// staying short enough that a rider who genuinely walked out of range and
-    /// back gets a re-join within a reasonable wait — and the 10-min reconnect
-    /// budget keeps retrying the handshake in the meantime regardless.
-    static let rejoinCooldown: TimeInterval = 60.0
-
     /// Hard cap on how long we keep auto-reconnecting before giving up
-    /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
-    /// enough to walk into a petrol station, pay, and walk back.
-    static let reconnectMaxDuration: TimeInterval = 600.0
+    /// and dropping to `.error`.
+    ///
+    /// Was 10 minutes ("long enough to walk into a petrol station, pay, and
+    /// walk back"). Raised to 30 because the reconnect path no longer forces
+    /// a Wi-Fi association — it waits for iOS auto-join instead, since forcing
+    /// one can raise a system join dialog and the rider's scenario is starting
+    /// the bike and riding off with the phone in a pocket, where nobody is
+    /// there to tap "Join" (see the note in `BikeLink.runConnectFlow`).
+    /// Waiting is strictly slower than forcing, and the cost of the budget
+    /// expiring is that the rider must take the phone out and tap Connect —
+    /// exactly what the no-dialog design is meant to avoid. Retrying for
+    /// longer is cheap by comparison: the loop is a 2s handshake attempt, not
+    /// a busy wait.
+    static let reconnectMaxDuration: TimeInterval = 1800.0
 
     /// How many times a FRESH connect (not an auto-reconnect) silently
     /// retries after a step-1 handshake timeout with ZERO reply packets

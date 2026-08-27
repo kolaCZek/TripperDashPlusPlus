@@ -27,7 +27,7 @@
 //      ride zeroes it (see `restoredFromDisk`).
 //    • reset() zeroes mid-session AND clears the persisted copy; AppStatus
 //      calls it when the bike link goes fully down (user disconnect, or
-//      auto-reconnect gives up after the 10-min budget = motorcycle off).
+//      auto-reconnect gives up after the reconnect budget = motorcycle off).
 //
 //  Why persist only at teardown (not per-fix): a long ride's `trackPoints`
 //  is thousands of points, so writing it on every 1 Hz fix would be wasteful.

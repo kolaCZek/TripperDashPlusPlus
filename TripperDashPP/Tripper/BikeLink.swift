@@ -73,45 +73,6 @@ final class BikeLink {
         }
     }
 
-    /// Re-join the bike's Wi-Fi AP. Injected by `AppStatus` (which owns the
-    /// `WiFiJoiner`) so the auto-reconnect loop can re-associate the radio,
-    /// not merely wait for it.
-    ///
-    /// Field evidence (8/2026) for why this exists: reconnect-during-
-    /// navigation burned its entire 10-min budget on rx=0 — 18 consecutive
-    /// attempts, every one sending the handshake burst and hearing nothing.
-    /// The tell was in the diagnostics log: a FRESH connect logs
-    /// `[wifi] Joining Tripper AP …` first and then succeeds, while every
-    /// reconnect attempt has NO `[wifi]` line at all, and the first two
-    /// attempts additionally log "Wi-Fi not confirmed ready after 5000ms"
-    /// (i.e. en0 had no dash-subnet IPv4 at all). The reason: the only
-    /// `WiFiJoiner.ensureJoined()` call site was `AppStatus.connectToBike()`
-    /// — the manual "Connect" path. `BikeLink`'s reconnect loop had no
-    /// access to the joiner whatsoever, so after a `wifi-path-down` drop
-    /// (radio flap, bike keyed off/on) it re-sent UDP into a network the
-    /// phone was no longer associated with, forever. An earlier fix today
-    /// correctly identified that the radio flaps on this trigger and started
-    /// WAITING for the interface on reconnect too — but waiting cannot fix a
-    /// missing association; only re-joining can.
-    var rejoinWifi: (() async -> Bool)?
-
-    /// Timestamp of the last `rejoinWifi` attempt, used to rate-limit it.
-    ///
-    /// `NEHotspotConfigurationManager.apply` can put a system "Do you want
-    /// to join the Wi-Fi network …?" dialog in front of the rider. Field
-    /// report (8/2026): "aplikace neustále dokola vyvolává dialog Want to
-    /// join wifi network".
-    ///
-    /// This is deliberately NOT reset per drop episode, and NOT reset on a
-    /// successful connect either. The first attempt at this fix cleared it in
-    /// `handleLinkDropped`, reasoning that a new drop deserves a fresh
-    /// re-join — but the field log then showed a drop / re-join / connect /
-    /// drop / re-join cycle completing in 28s, so clearing on EITHER event
-    /// meant the cooldown never applied and the rider got a dialog per cycle.
-    /// A dash that flaps repeatedly is exactly the case that needs
-    /// suppressing, so the timestamp survives both drops and reconnects; only
-    /// `K1G.rejoinCooldown` elapsing allows another attempt.
-    private var lastRejoinAttempt: Date?
 
     /// Demo mode: when true, `connect()` FAKES an established link — no UDP
     /// socket, no RSA handshake, no heartbeat/reconnect — so the app can run
@@ -167,7 +128,7 @@ final class BikeLink {
 
     /// Absolute deadline for the CURRENT reconnect episode. Set once in
     /// `handleLinkDropped` and deliberately NOT reset by `wakeReconnect`,
-    /// so toggling Wi-Fi can't extend the 10-min budget past the moment
+    /// so toggling Wi-Fi can't extend the reconnect budget past the moment
     /// the link first dropped.
     private var reconnectDeadline: Date?
 
@@ -705,7 +666,7 @@ final class BikeLink {
             // fresh sequence" contract. Without this, a reconnect after the
             // bike is power-cycled replays a stale mid-ride seq and the
             // freshly-rebooted dash drops our initial burst — the link never
-            // re-establishes and we time out after the 10-min budget.
+            // re-establishes and we time out after the reconnect budget.
             seq.reset()
             // Forget the last call state we pushed so a fresh link re-syncs
             // the live state (the dash reboots its own call card on a new
@@ -763,50 +724,36 @@ final class BikeLink {
             // already shows "iPhone connected" (AP/L2 layer) well before that
             // finishes, so there's no on-screen signal telling the rider
             // anything is still wrong. Without this wait the reconnect loop
-            // burned its whole 10-min budget re-sending the burst into a dead
+            // burned its whole reconnect budget re-sending the burst into a dead
             // interface every 5s, always rx=0, never recovering on its own.
             isWaitingForWifi = true
             await waitForWifiReady(startedAt: t0)
             isWaitingForWifi = false
             try Task.checkCancellation()
-            // Still no dash-subnet address after the wait? Then the radio is
-            // not merely slow, it is not ASSOCIATED — re-join the AP instead
-            // of firing another doomed handshake burst. See `rejoinWifi`'s
-            // doc for the field evidence: without this, reconnect after a
-            // `wifi-path-down` drop could never recover on its own, because
-            // nothing in the reconnect path ever re-associated the radio.
+            // NOTE: no AP re-join here, deliberately. An earlier revision
+            // called `WiFiJoiner.ensureJoined()` from this point when the
+            // interface check failed, which did fix the "reconnect never
+            // recovers" bug — but `NEHotspotConfigurationManager.apply` can
+            // raise a system "Do you want to join the Wi-Fi network …?"
+            // dialog, and rate-limiting it was not enough: the rider's actual
+            // scenario is walking up to the bike at a petrol station,
+            // starting it and riding off WITHOUT taking the phone out of
+            // their pocket, so nobody is ever there to tap "Join". A dialog
+            // nobody can answer is worse than no dialog.
             //
-            // Guarded on the address check rather than run unconditionally so
-            // the common case (link dropped but the phone is still on the
-            // bike's AP — e.g. the dash's K1G task restarted while Wi-Fi
-            // stayed up, the classic boot-race) keeps its current fast path
-            // and doesn't pay a pointless join round-trip on every retry.
-            if isReconnect, !Self.wifiHasDashSubnetIPv4(), let rejoin = rejoinWifi {
-                // Rate-limit: `apply()` can raise a system join dialog, and
-                // the boot-race path retries every 2s. See
-                // `lastRejoinAttempt`'s doc — one dialog per genuine re-join
-                // is fine, one per retry is a storm the rider can't dismiss.
-                let since = lastRejoinAttempt.map { Date().timeIntervalSince($0) }
-                if let since, since < K1G.rejoinCooldown {
-                    log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 but re-joined \(Int(since), privacy: .public)s ago — skipping re-join")
-                    ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-join skipped (last was \(Int(since))s ago, cooldown \(Int(K1G.rejoinCooldown))s)")
-                } else {
-                    lastRejoinAttempt = Date()
-                    log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 after wait — re-joining AP")
-                    ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-joining Tripper AP")
-                    let joined = await rejoin()
-                    try Task.checkCancellation()
-                    ConnDiag.log("connect", "[\(ms())ms] AP re-join \(joined ? "OK" : "FAILED") — \(joined ? "waiting for DHCP" : "proceeding anyway")")
-                    if joined {
-                        // Association is back; DHCP still needs a moment.
-                        // Reuse the same bounded wait rather than hand a
-                        // fresh socket a half-configured interface.
-                        isWaitingForWifi = true
-                        await waitForWifiReady(startedAt: t0)
-                        isWaitingForWifi = false
-                        try Task.checkCancellation()
-                    }
-                }
+            // We rely on iOS auto-join instead, which is sound because the
+            // network is already persisted: `WiFiJoiner.register` runs when
+            // the rider adds the bike and applies the configuration with
+            // `joinOnce = false` precisely so iOS knows the AP and
+            // re-associates on its own whenever the bike powers up in range.
+            // The reconnect loop's job is therefore to WAIT for that to
+            // happen, not to force it — `waitForWifiReady` above polls for a
+            // dash-subnet address, and the retry loop keeps re-entering this
+            // flow for the full reconnect budget, so a late auto-join is
+            // picked up as soon as it lands.
+            if isReconnect, !Self.wifiHasDashSubnetIPv4() {
+                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — waiting for iOS auto-join (no dialog)")
+                ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — relying on iOS auto-join, will retry")
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             ConnDiag.log("connect", "[\(ms())ms] Opening UDP socket to \(bikeHost):\(K1G.txPort) (local-bind :\(K1G.rxPort)) reconnect=\(isReconnect)")
@@ -876,7 +823,7 @@ final class BikeLink {
             } ?? false
             if isReconnect {
                 // Stay in `.reconnecting`; the retry loop sleeps + tries
-                // again (until it hits the 10-min deadline). Still tag
+                // again (until it hits the reconnect deadline). Still tag
                 // `bootRaceMissingReply` here too (not just on a fresh
                 // connect) so the retry loop can use the SAME short
                 // `bootRaceRetryInterval` for this specific failure shape
@@ -919,14 +866,14 @@ final class BikeLink {
         socket = nil
         aesKey = nil
         state = .reconnecting
-        // Absolute 10-min budget from the moment we dropped — survives
+        // Absolute reconnect budget from the moment we dropped — survives
         // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
         reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
         startReconnectLoop()
     }
 
     /// Retry `runConnectFlow(isReconnect:)` every `reconnectInterval`
-    /// until it succeeds, the user cancels, or the 10-min deadline passes.
+    /// until it succeeds, the user cancels, or the reconnect deadline passes.
     /// A `bootRaceMissingReply` result (dash's K1G task not answering
     /// yet — same failure shape `runInitialConnect` silently fast-retries
     /// on a fresh connect) uses the shorter `bootRaceRetryInterval`
@@ -939,7 +886,7 @@ final class BikeLink {
     /// sleep — 20-35s total before the phone recovered, well past the
     /// dash's own connection-timeout screen. Using the 2.0s
     /// bootRaceRetryInterval for this specific shape (unrelated to
-    /// giving up early: the 10-min deadline check above still applies
+    /// giving up early: the reconnect deadline check above still applies
     /// every iteration) cuts that gap roughly in half without touching
     /// the failure-classification logic itself.
     private func startReconnectLoop() {
@@ -948,7 +895,7 @@ final class BikeLink {
             guard let self else { return }
             var attempt = 0
             while !Task.isCancelled, self.shouldAutoReconnect {
-                // 10-min hard cap (rider-confirmed). Give up → `.error`
+                // reconnect-budget hard cap. Give up → `.error`
                 // so the bottom bar offers Connect again instead of
                 // spinning forever and draining the battery.
                 if let deadline = self.reconnectDeadline, Date() >= deadline {
@@ -956,8 +903,12 @@ final class BikeLink {
                     ConnDiag.log("reconnect", "❌ Reconnect gave up after \(K1G.reconnectMaxDuration)s")
                     self.shouldAutoReconnect = false
                     self.reconnectDeadline = nil
-                    self.lastError = "Reconnect timed out after 10 min"
-                    self.state = .error("Reconnect timed out after 10 min")
+                    // Derive the user-facing text from the constant rather
+                    // than hardcoding a duration: it read "after 10 min" and
+                    // silently became a lie when the budget was raised.
+                    let mins = Int(K1G.reconnectMaxDuration / 60)
+                    self.lastError = "Reconnect timed out after \(mins) min"
+                    self.state = .error("Reconnect timed out after \(mins) min")
                     return
                 }
                 attempt += 1
@@ -984,7 +935,7 @@ final class BikeLink {
     /// Short-circuit the retry interval — restart the loop immediately so
     /// we attempt a connection right now (e.g. the rider walked back into
     /// Wi-Fi range, or tapped Connect). Preserves the existing
-    /// `reconnectDeadline`, so the 10-min budget is not extended.
+    /// `reconnectDeadline`, so the reconnect budget is not extended.
     ///
     /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
     /// NOT stop an attempt that's already inside `runConnectFlow` — Swift task
