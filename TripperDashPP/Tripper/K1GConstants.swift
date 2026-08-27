@@ -117,6 +117,29 @@ nonisolated enum K1G {
     /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
     static let reconnectInterval: TimeInterval = 5.0
 
+    /// Post-z2 warm-up: how long to wait after `sendNavStart()` (q3c.z2 +
+    /// q3c.q) before starting the RTP stream, giving the dash time to
+    /// actually ALLOCATE ITS NAV-DECODER SURFACE — not just receive the
+    /// UDP packet. Captured from the reference `better-dash`
+    /// `tripper_app_like_nav.py --pre-z2-wait` (default 0.45s, "captured
+    /// from nav_open_ok.pcap: the real phone waits ~450ms" — see that
+    /// script's argparse help text, which is the byte-level source of
+    /// truth for this protocol).
+    ///
+    /// Awaiting the z2/q UDP SEND (see `startStreaming()`) closes the
+    /// ordering race but NOT this timing gap: a `send()` completing only
+    /// means our packet left the socket, not that the dash's firmware
+    /// has finished the (apparently non-trivial, ~450ms) work of setting
+    /// up a decoder surface for the incoming H.264 stream. Field report
+    /// (8/2026), even AFTER the `await sendNavStart()` ordering fix: the
+    /// dash still showed its "Press the cast button on RE App!" idle
+    /// screen instead of entering nav projection on a reconnect during
+    /// free-ride — RTP packets arrived at the dash before its decoder
+    /// surface existed to receive them, so it silently dropped back to
+    /// idle. Without this the whole q3c.z2/q3c.q kick was, in practice,
+    /// advisory rather than a real precondition.
+    static let postZ2Warmup: TimeInterval = 0.45
+
     /// Hard cap on how long we keep auto-reconnecting before giving up
     /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
     /// enough to walk into a petrol station, pay, and walk back.

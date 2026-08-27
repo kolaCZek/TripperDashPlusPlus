@@ -422,6 +422,16 @@ final class AppStatus {
         // ms in practice) — no perceptible startup delay for the normal
         // case, and a real ordering guarantee for the racy one.
         await bikeLink.sendNavStart()
+        // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
+        // 450ms and why the ordering fix above wasn't sufficient on its
+        // own): give the dash's firmware time to actually allocate its
+        // nav-decoder surface before the first RTP/H.264 packets arrive,
+        // not just time for our UDP send() to return. Field report
+        // (8/2026): even with nav-start correctly ordered before
+        // s.start(), the dash still bounced back to its "Press the cast
+        // button on RE App!" idle screen on some reconnects — the decoder
+        // surface plainly wasn't ready yet when the video hit the wire.
+        try? await Task.sleep(nanoseconds: UInt64(K1G.postZ2Warmup * 1_000_000_000))
         s.start()
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
