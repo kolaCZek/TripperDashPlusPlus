@@ -332,7 +332,7 @@ private struct ConnDiagSection: View {
         } header: {
             Text("Connection diagnostics")
         } footer: {
-            Text("Field-test build only. Records Wi-Fi join, UDP socket, RSA handshake and reconnect events. After a failed or flaky connect at the bike, tap Share and send the log back.")
+            Text("Field-test build only. Records Wi-Fi join, UDP socket, RSA handshake, reconnect, and app lifecycle events (background/foreground, memory warnings, MetricKit crash + exit-reason reports). After a failed or flaky connect at the bike, tap Share and send the log back.")
         }
         .task {
             let snap = await ConnDiag.snapshot()

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
+		D1A6C0DE0000000000C2FFEF /* CrashDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A6C0DE0000000000C2FFEE /* CrashDiagnostics.swift */; };
 		A55E7000000000000A55E702 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E701 /* Assets.xcassets */; };
 		A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */; };
 		A4F000000000000000000001 /* NavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000000 /* NavigationStore.swift */; };
@@ -181,6 +182,7 @@
 		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
 		A4CA110000000000000000F0 /* CallStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallStateObserver.swift; sourceTree = "<group>"; };
 		D1A6C0DE0000000000C0FFEE /* ConnDiag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnDiag.swift; sourceTree = "<group>"; };
+		D1A6C0DE0000000000C2FFEE /* CrashDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnostics.swift; sourceTree = "<group>"; };
 		A4CA110000000000000000F2 /* DeviceTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTelemetry.swift; sourceTree = "<group>"; };
 		B7DA00000000000000000002 /* DashMediaControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashMediaControl.swift; sourceTree = "<group>"; };
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
@@ -356,6 +358,7 @@
 			children = (
 				A486F0412FE2034700AA36C3 /* AppStatus.swift */,
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
+				D1A6C0DE0000000000C2FFEE /* CrashDiagnostics.swift */,
 				A4B6F0002FE6000000AA36C3 /* LocationService.swift */,
 				A4F0FFFF000000000000E001 /* VoiceNavigator.swift */,
 				A4DE70000000000000D00001 /* DemoDashModel.swift */,
@@ -787,6 +790,7 @@
 				A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */,
 				B7DA00000000000000000001 /* DashMediaControl.swift in Sources */,
 				A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */,
+				D1A6C0DE0000000000C2FFEF /* CrashDiagnostics.swift in Sources */,
 				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
 				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,
 				F00DBABE0000000AMOTION01 /* MotionInterpolator.swift in Sources */,

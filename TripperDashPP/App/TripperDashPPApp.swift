@@ -43,6 +43,12 @@ struct TripperDashPPApp: App {
         ) { _ in
             ConnDiag.log("lifecycle", "⚠️ didReceiveMemoryWarning — jetsam kill may follow")
         }
+        // Diagnostic: MetricKit reports crash diagnostics AND exit-reason
+        // counters (foreground/background, incl. jetsam memory/CPU limits)
+        // on a later launch, opportunistically. This is the only source
+        // that can actually confirm/rule out a jetsam kill vs. a plain
+        // network drop — see CrashDiagnostics.swift for detail.
+        CrashDiagnosticsSubscriber.shared.start()
     }
     var body: some Scene {
         WindowGroup {
