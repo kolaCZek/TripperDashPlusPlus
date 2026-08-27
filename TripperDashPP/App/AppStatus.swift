@@ -427,6 +427,7 @@ final class AppStatus {
         // dash has the q3c.w hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the
         // RTP UDP connection to reach .ready.
+        let link = bikeLink
         Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()
