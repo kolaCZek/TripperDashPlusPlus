@@ -279,6 +279,7 @@ final class AppStatus {
                     // streaming — kill the RTP pipeline; RtpStreamer doesn't
                     // watch the link itself and would keep encoding into the
                     // void. The stream re-arms below once we're back.
+                    ConnDiag.log("stream", "Link left .connected while streaming — stopping RTP (will re-arm on reconnect)")
                     self.stopStreaming()
                 } else if state == .connected
                             && self.activeNavigator.isNavigating
@@ -316,6 +317,16 @@ final class AppStatus {
                     // 8/2026: reconnect after the bike was switched off).
                     await self.resumeFreeRideAfterReconnect()
                 } else {
+                    if state == .connected && !self.isStreaming {
+                        // Reconnected but NEITHER resume branch fired, so no
+                        // RTP will be started and the dash will sit on its
+                        // loading dots until it times out. Log the inputs:
+                        // field reports of "reconnect OK on the phone, timeout
+                        // on the dash" are indistinguishable from a genuine
+                        // stream failure without them, and AppStatus otherwise
+                        // writes nothing to ConnDiag at all.
+                        ConnDiag.log("stream", "⚠️ Reconnected but stream NOT resumed — isFreeRiding=\(self.isFreeRiding) isNavigating=\(self.activeNavigator.isNavigating) hasArrived=\(self.activeNavigator.hasArrived) streamer=\(self.streamer == nil ? "nil" : "present")")
+                    }
                     self.applyKeepAwake()
                 }
                 self.observeBikeLink()
@@ -598,7 +609,11 @@ final class AppStatus {
     /// `true`, so only reinstall the content (fresh empty tile cache + camera
     /// prefetch — cheap, no re-bake needed) and restart the stream.
     private func resumeFreeRideAfterReconnect() async {
-        guard bikeLink.state == .connected, streamer == nil else { return }
+        guard bikeLink.state == .connected, streamer == nil else {
+            ConnDiag.log("stream", "Free-ride resume skipped — state=\(bikeLink.state) streamer=\(streamer == nil ? "nil" : "present")")
+            return
+        }
+        ConnDiag.log("stream", "Resuming free-ride projection after reconnect")
         installFreeRideContent()
         await startStreaming()
     }

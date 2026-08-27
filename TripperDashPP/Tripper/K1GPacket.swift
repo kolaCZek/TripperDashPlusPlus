@@ -394,7 +394,43 @@ extension K1GPacket {
     /// mirroring `build_navigation_packet`'s `projection_on` flag — the
     /// dash reads this as part of the same packet rather than requiring a
     /// separate `q3c.w`/`q3c.x` toggle for the route-card's own view.
-    static func makeRouteCard(title: String, projectionOn: Bool, seq: UInt8) -> Data {
+    ///
+    /// `includeHudFields` (default true = the reference's exact bytes)
+    /// controls whether the template's nav-data TLVs are included at all.
+    ///
+    /// Two successive mistakes were made here (8/2026), both caught in the
+    /// field, both worth recording because the packet looks harmless:
+    ///
+    /// 1. First revision claimed the dash reads this packet only as "a
+    ///    destination exists", NOT as a HUD update. Wrong: `05 02` is the
+    ///    maneuver glyph and `05 08` is the ETA as ASCII ("0303"), so
+    ///    resending the full template at 1 Hz painted a bogus turn arrow
+    ///    and "ETA 03:03" onto the dash.
+    /// 2. Second revision dropped only the obvious maneuver/ETA/distance
+    ///    group and kept a "formatting and opaque fields" tail. Also wrong:
+    ///    that tail is nav data too, and it COLLIDES with `sendActiveNav`
+    ///    on identical TLV addresses —
+    ///      `05 01` is `tlvRoadName`'s address, so the route title
+    ///              overwrote the HUD text ("Work" replacing
+    ///              "45 min to Work" once a second),
+    ///      `05 0B` is `tlvRemainingTime` ("001000" = 10h),
+    ///      `05 55` is `tlvRemainingUnit`,
+    ///      `05 0A` is `tlvDecimalSeparator`.
+    ///    The visible result was every nav field flickering at 1 Hz between
+    ///    the real value and the template's placeholder.
+    ///
+    /// So when `includeHudFields` is false this now emits ONLY the
+    /// projection flags (`06 05`, `06 0D`) and NO `0x05`/navInfo TLV at
+    /// all — nothing that can overwrite a field `sendActiveNav` owns, and
+    /// nothing the dash can render as stale nav data during free-ride.
+    /// Pass `true` only for the pre-z2 burst, where matching the reference
+    /// byte-for-byte matters and nothing is on screen yet to corrupt.
+    static func makeRouteCard(
+        title: String,
+        projectionOn: Bool,
+        seq: UInt8,
+        includeHudFields: Bool = true
+    ) -> Data {
         // Prefix: outer_len(2, placeholder) + seg_count(2, FIXED 0x0011 —
         // hardcoded in the captured template, NOT actual_count+1 like
         // `encode()` computes for every other packet type in this file)
@@ -408,37 +444,63 @@ extension K1GPacket {
         // Rolling seq.
         body.append(seq)
 
+        // Nav-data TLVs. ALL of these are omitted for the keep-alive form
+        // (`includeHudFields == false`) — including the title, whose
+        // `05 01` address is the same one `tlvRoadName` writes the HUD text
+        // line to. See this function's doc for the full collision list.
+        //
         // Title field: 05 01 <len_BE> <title bytes> 00 — max 60 UTF-8
         // bytes + null terminator, matching `rt = route_title.encode
         // ("utf-8")[:60]` in the Python authority.
-        var titleBytes = Array(title.dashSafe.utf8.prefix(60))
-        titleBytes.append(0)
-        body.append(contentsOf: [0x05, 0x01])
-        body.append(contentsOf: u16BE(UInt16(titleBytes.count)))
-        body.append(contentsOf: titleBytes)
-
-        // Opaque suffix template — captured verbatim from
-        // `better-dash/tripper_app_like_nav.py`'s `_NAV_FULL` (see that
-        // file's doc comment for provenance: nav_open_ok.pcap). Ends with
-        // the `06 05 00 01 <flag>` projection marker this function patches.
-        let suffix: [UInt8] = [
-            0x05, 0x02, 0x00, 0x01, 0x3C,
-            0x05, 0x03, 0x00, 0x01, 0x34,
-            0x05, 0x05, 0x00, 0x02, 0x00, 0x0A,
-            0x05, 0x06, 0x00, 0x01, 0x30,
-            0x05, 0x07, 0x00, 0x01, 0x30,
-            0x05, 0x08, 0x00, 0x04, 0x30, 0x33, 0x30, 0x33,
-            0x05, 0x54, 0x00, 0x01, 0x30,
-            0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
-            0x05, 0x46, 0x00, 0x01, 0x10,
-            0x05, 0x0A, 0x00, 0x01, 0x55,
-            0x05, 0x0C, 0x00, 0x01, 0x04,
-            0x05, 0x0B, 0x00, 0x06, 0x30, 0x30, 0x31, 0x30, 0x30, 0x30,
-            0x05, 0x55, 0x00, 0x01, 0x20,
+        var navFields: [UInt8] = []
+        if includeHudFields {
+            var titleBytes = Array(title.dashSafe.utf8.prefix(60))
+            titleBytes.append(0)
+            navFields += [0x05, 0x01]
+            navFields += u16BE(UInt16(titleBytes.count))
+            navFields += titleBytes
+            // Remainder of the captured template, verbatim from
+            // `better-dash/tripper_app_like_nav.py`'s `_NAV_FULL`
+            // (provenance: nav_open_ok.pcap): maneuver glyph, secondary
+            // maneuver, distances, units, ETA + ETA format, decimal
+            // separator, remaining time + unit, and two opaque fields.
+            navFields += [
+                0x05, 0x02, 0x00, 0x01, 0x3C,
+                0x05, 0x03, 0x00, 0x01, 0x34,
+                0x05, 0x05, 0x00, 0x02, 0x00, 0x0A,
+                0x05, 0x06, 0x00, 0x01, 0x30,
+                0x05, 0x07, 0x00, 0x01, 0x30,
+                0x05, 0x08, 0x00, 0x04, 0x30, 0x33, 0x30, 0x33,
+                0x05, 0x54, 0x00, 0x01, 0x30,
+                0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
+                0x05, 0x46, 0x00, 0x01, 0x10,
+                0x05, 0x0A, 0x00, 0x01, 0x55,
+                0x05, 0x0C, 0x00, 0x01, 0x04,
+                0x05, 0x0B, 0x00, 0x06, 0x30, 0x30, 0x31, 0x30, 0x30, 0x30,
+                0x05, 0x55, 0x00, 0x01, 0x20
+            ]
+        }
+        // Projection flags — always sent; these ARE the packet as far as
+        // the keep-alive is concerned. `06 05` is the projection-on latch
+        // this function's `projectionOn` argument patches; `06 0D` is the
+        // decimal-notation flag (kept at the captured 0xAA).
+        let projectionFlags: [UInt8] = [
             0x06, 0x05, 0x00, 0x01, projectionOn ? 0x55 : 0xAA,
             0x06, 0x0D, 0x00, 0x01, 0xAA
         ]
-        body.append(contentsOf: suffix)
+        // Segment count: the captured template hardcodes 0x0011 (17) for
+        // its 16 segments — i.e. actual+1, the same convention `encode()`
+        // uses for every other packet in this file. It must therefore be
+        // RECOMPUTED rather than left at the captured constant when TLVs
+        // are omitted: 14 nav TLVs + 2 projection flags with HUD, just the
+        // 2 flags without. Other builders here note that the dash validates
+        // this byte and silently drops packets whose count doesn't match.
+        let segCount = (includeHudFields ? 14 : 0) + 2 + 1   // +1 = the actual+1 convention
+        body[2] = UInt8((segCount >> 8) & 0xFF)
+        body[3] = UInt8(segCount & 0xFF)
+
+        body.append(contentsOf: navFields)
+        body.append(contentsOf: projectionFlags)
 
         let total = UInt16(body.count)
         body[0] = UInt8((total >> 8) & 0xFF)

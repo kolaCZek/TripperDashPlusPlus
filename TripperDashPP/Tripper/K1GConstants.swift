@@ -151,6 +151,16 @@ nonisolated enum K1G {
     static let routeCardBurstCount = 4
     static let routeCardBurstGap: TimeInterval = 0.35
 
+    /// Minimum gap between two `rejoinWifi` attempts inside one reconnect
+    /// episode. `NEHotspotConfigurationManager.apply` can raise a system
+    /// "Do you want to join the Wi-Fi network …?" dialog; the reconnect loop
+    /// retries every `bootRaceRetryInterval` (2s), so without a cooldown a
+    /// stubborn drop turns into an undismissable dialog storm (field report
+    /// 8/2026). 30s is long enough that a real association attempt has had
+    /// time to complete or fail, short enough not to strand a rider who
+    /// genuinely walked out of range and back.
+    static let rejoinCooldown: TimeInterval = 30.0
+
     /// Hard cap on how long we keep auto-reconnecting before giving up
     /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
     /// enough to walk into a petrol station, pay, and walk back.

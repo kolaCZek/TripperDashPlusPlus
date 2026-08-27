@@ -95,6 +95,17 @@ final class BikeLink {
     /// missing association; only re-joining can.
     var rejoinWifi: (() async -> Bool)?
 
+    /// Timestamp of the last `rejoinWifi` attempt, used to rate-limit it.
+    ///
+    /// `NEHotspotConfigurationManager.apply` can put a system "Do you want
+    /// to join the Wi-Fi network …?" dialog in front of the rider. One per
+    /// genuine re-join is acceptable; one per retry is not. Field report
+    /// (8/2026): "aplikace neustále dokola vyvolává dialog Want to join
+    /// wifi network" — the reconnect loop retries every 2s on the boot-race
+    /// path, and with an unconditional re-join each retry that became a
+    /// dialog storm the rider could not dismiss.
+    private var lastRejoinAttempt: Date?
+
     /// Demo mode: when true, `connect()` FAKES an established link — no UDP
     /// socket, no RSA handshake, no heartbeat/reconnect — so the app can run
     /// its full real pipeline (real GPS, real routing, real map compositing,
@@ -423,10 +434,24 @@ final class BikeLink {
     /// loading dots → timeout even though UDP/5000 was open the whole
     /// time." The real phone's cadence in `nav_open_ok.pcap` is ~1s
     /// (t=18.824, 19.830, 20.830, 21.850, 22.819, 23.860, 24.813).
+    ///
+    /// Sends the packet WITHOUT its HUD-bearing TLVs
+    /// (`includeHudFields: false`) — see `K1GPacket.makeRouteCard`'s doc.
+    /// The captured template carries a placeholder maneuver glyph and a
+    /// placeholder ETA ("0303"), which at 1 Hz painted a bogus turn arrow
+    /// and "ETA 03:03" onto the dash during free-ride (field report,
+    /// 8/2026), and during real navigation would have fought
+    /// `sendActiveNav`'s genuine values at the same rate. The watchdog only
+    /// needs to see a route card; it does not need the HUD fields.
     func sendRouteCardKeepalive(title: String) async {
         guard !demoMode else { return }   // demo link has no socket
         guard state == .connected, let s = socket else { return }
-        let pkt = K1GPacket.makeRouteCard(title: title, projectionOn: true, seq: seq.consume())
+        let pkt = K1GPacket.makeRouteCard(
+            title: title,
+            projectionOn: true,
+            seq: seq.consume(),
+            includeHudFields: false
+        )
         try? await s.send(pkt)
     }
 
@@ -750,19 +775,30 @@ final class BikeLink {
             // stayed up, the classic boot-race) keeps its current fast path
             // and doesn't pay a pointless join round-trip on every retry.
             if isReconnect, !Self.wifiHasDashSubnetIPv4(), let rejoin = rejoinWifi {
-                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 after wait — re-joining AP")
-                ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-joining Tripper AP")
-                let joined = await rejoin()
-                try Task.checkCancellation()
-                ConnDiag.log("connect", "[\(ms())ms] AP re-join \(joined ? "OK" : "FAILED") — \(joined ? "waiting for DHCP" : "proceeding anyway")")
-                if joined {
-                    // Association is back; DHCP still needs a moment. Reuse
-                    // the same bounded wait rather than hand a fresh socket a
-                    // half-configured interface.
-                    isWaitingForWifi = true
-                    await waitForWifiReady(startedAt: t0)
-                    isWaitingForWifi = false
+                // Rate-limit: `apply()` can raise a system join dialog, and
+                // the boot-race path retries every 2s. See
+                // `lastRejoinAttempt`'s doc — one dialog per genuine re-join
+                // is fine, one per retry is a storm the rider can't dismiss.
+                let since = lastRejoinAttempt.map { Date().timeIntervalSince($0) }
+                if let since, since < K1G.rejoinCooldown {
+                    log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 but re-joined \(Int(since), privacy: .public)s ago — skipping re-join")
+                    ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-join skipped (last was \(Int(since))s ago, cooldown \(Int(K1G.rejoinCooldown))s)")
+                } else {
+                    lastRejoinAttempt = Date()
+                    log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 after wait — re-joining AP")
+                    ConnDiag.log("connect", "[\(ms())ms] No dash-subnet IPv4 — re-joining Tripper AP")
+                    let joined = await rejoin()
                     try Task.checkCancellation()
+                    ConnDiag.log("connect", "[\(ms())ms] AP re-join \(joined ? "OK" : "FAILED") — \(joined ? "waiting for DHCP" : "proceeding anyway")")
+                    if joined {
+                        // Association is back; DHCP still needs a moment.
+                        // Reuse the same bounded wait rather than hand a
+                        // fresh socket a half-configured interface.
+                        isWaitingForWifi = true
+                        await waitForWifiReady(startedAt: t0)
+                        isWaitingForWifi = false
+                        try Task.checkCancellation()
+                    }
                 }
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
@@ -879,6 +915,10 @@ final class BikeLink {
         // Absolute 10-min budget from the moment we dropped — survives
         // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
         reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
+        // New drop episode → allow one immediate AP re-join. The cooldown
+        // exists to stop a single episode's 2s retries becoming a join-dialog
+        // storm, NOT to punish a rider whose link drops twice in a minute.
+        lastRejoinAttempt = nil
         startReconnectLoop()
     }
 
