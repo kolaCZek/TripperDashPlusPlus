@@ -385,20 +385,57 @@ final class BikeLink {
         }
     }
 
+    /// Resend ONE `0x007E` route card as a keep-alive, with the
+    /// projection-on flag SET (`0x55`) — unlike `sendRouteCard`'s pre-z2
+    /// burst, which sends it clear (`0xAA`). Mirrors the reference
+    /// implementation's split: `route_pkt` for the pre-z2 burst,
+    /// `route_pkt_proj_on` for the keep-alive loop
+    /// (`better-dash/dash_ui/bike_link.py` `_enter_nav_mode`).
+    ///
+    /// MUST be called at ~1 Hz for the WHOLE time the stream is live. The
+    /// reference's `route_card_keepalive_loop` documents why, from a real
+    /// packet capture: "Without this, the dash accepts the initial route
+    /// card, allocates the nav decoder surface and starts consuming our
+    /// RTP, but its 'destination still valid' watchdog fires after ~15-20s
+    /// of no 007E refresh and tears the decoder back down → the user sees
+    /// loading dots → timeout even though UDP/5000 was open the whole
+    /// time." The real phone's cadence in `nav_open_ok.pcap` is ~1s
+    /// (t=18.824, 19.830, 20.830, 21.850, 22.819, 23.860, 24.813).
+    func sendRouteCardKeepalive(title: String) async {
+        guard !demoMode else { return }   // demo link has no socket
+        guard state == .connected, let s = socket else { return }
+        let pkt = K1GPacket.makeRouteCard(title: title, projectionOn: true, seq: seq.consume())
+        try? await s.send(pkt)
+    }
+
     /// Kick the dash into nav projection mode. Call BEFORE starting the
     /// RTP stream. No-op if not connected.
     ///
     /// Sequence mirrors better-dash `send_nav_mode_kick`:
-    /// `q3c.z2` (open nav screen) → `q3c.q` (enter nav context).
+    /// `q3c.z2` (begin nav projection) → `q3c.q` (enter nav context) →
+    /// `q3c.r` (favourite lists are empty).
+    ///
+    /// NOTE on q3c.r: the reference sends all THREE of these together
+    /// (`for hex_str in (Q3C_Z2_START_NAV, Q3C_Q_NAV_CTX,
+    /// Q3C_R_EMPTY_LISTS)`), and its fuller `_enter_nav_mode` path sends
+    /// q3c.q + q3c.r as a pair too. We were only sending z2 + q, silently
+    /// dropping q3c.r since this function was written. Added while
+    /// auditing the whole nav-entry sequence against the reference
+    /// (8/2026) after the route-card discovery — the official app's
+    /// `NavigationRootFragment.F0()` pairs q + r unconditionally, and
+    /// "lists are empty" is permanently true for this app (no favourites
+    /// feature), so there is no case where omitting it is correct.
     func sendNavStart() async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
         guard state == .connected, let s = socket else { return }
         let z2 = K1GPacket.makeStartNav(seq: seq.consume())
         let q  = K1GPacket.makeNavContext(seq: seq.consume())
+        let r  = K1GPacket.makeEmptyLists(seq: seq.consume())
         do {
             try await s.send(z2)
             try await s.send(q)
-            log.info("Sent nav-mode kick (q3c.z2 + q3c.q)")
+            try await s.send(r)
+            log.info("Sent nav-mode kick (q3c.z2 + q3c.q + q3c.r)")
         } catch {
             log.error("Nav-mode kick failed: \(error.localizedDescription)")
         }

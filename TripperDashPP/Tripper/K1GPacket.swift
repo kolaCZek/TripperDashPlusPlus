@@ -323,6 +323,22 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    /// Phone → bike: q3c.r "favourite lists are empty". Five `05 2F..33
+    /// 0001 00` TLVs in one envelope. Sent immediately after `q3c.q` as
+    /// part of the nav-context handshake — mirrors the official app's
+    /// `NavigationRootFragment.F0()`, which sends q3c.q then q3c.r when
+    /// its saved-destination lists are empty (which ours always are: this
+    /// app has no favourites feature, so "empty" is permanently correct).
+    ///
+    /// Verified byte-for-byte against the reference's
+    /// `Q3C_R_EMPTY_LISTS` constant before wiring in.
+    static func makeEmptyLists(seq: UInt8) -> Data {
+        let segs: [K1GSegment] = (0x2F...0x33).map { sub in
+            K1GSegment(type: .navInfo, sub: UInt8(sub), payload: Data([0x00]))
+        }
+        return encode(segments: segs, seq: seq)
+    }
+
     /// Phone → bike: q3c.z2 "begin nav projection". TLV `06 80 00 01 0B`.
     static func makeStartNav(seq: UInt8) -> Data {
         let seg = K1GSegment(

@@ -437,6 +437,18 @@ final class AppStatus {
         // ms in practice) — no perceptible startup delay for the normal
         // case, and a real ordering guarantee for the racy one.
         await bikeLink.sendNavStart()
+        // Post-z2 confirmation route card — ONE more 0x007E immediately
+        // after nav-start, mirroring the reference (`_enter_nav_mode`:
+        // "Post-z2 confirmation route card", and
+        // `tripper_app_like_nav.py` step 4: "one more 0x007E right after
+        // z2, mirroring the phone (frame 1475, 22ms after z2). Acts as a
+        // 'destination still valid' confirmation while the dash allocates
+        // the decoder surface."). Distinct from both the pre-z2 burst
+        // above and the 1Hz keep-alive in ActiveNavLoop: this one lands
+        // inside the window where the dash is actually setting the surface
+        // up, which is exactly when its "is there still a destination?"
+        // check runs.
+        await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
         // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
         // 450ms and why the ordering fix above wasn't sufficient on its
         // own): give the dash's firmware time to actually allocate its
