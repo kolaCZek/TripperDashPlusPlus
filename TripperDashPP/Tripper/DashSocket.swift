@@ -289,6 +289,38 @@ actor DashSocket {
                 log.error("UDP receive error: \(err, privacy: .public)")
                 ConnDiag.log("socket", "❌ UDP receive error: \(err)")
                 inboundContinuation.finish()
+                // CRITICAL: also tear the socket down (cancel the
+                // DispatchSourceRead + close the fd), not just the
+                // AsyncStream. A hard recvfrom() error (e.g. ENOTCONN —
+                // field report, 8/2026, "Socket is not connected") means
+                // the fd itself is now permanently broken, but the kernel
+                // keeps reporting it as level-triggered READABLE (a
+                // failed fd still selects/polls ready — that's exactly
+                // what "readable" means for a broken descriptor: the next
+                // read call will return immediately, with an error).
+                // `DispatchSourceRead` re-fires on every such edge, so
+                // leaving `readSource` alive here traps the io queue in a
+                // tight recvfrom-fails/log/repeat loop — confirmed from
+                // the field log: 25,709 identical "Socket is not
+                // connected" lines in ~5 s (~5000/s), which is real
+                // sustained CPU burn on a locked phone, not a benign
+                // no-op. The connection log showed nothing else wrong up
+                // to that point (clean handshake, then a plain
+                // `scenePhase → background`) — this loop is very plausibly
+                // ALSO the true cause behind earlier "app disconnected
+                // mid-ride, no error logged, process relaunched cold"
+                // reports (8/2026) that were provisionally chalked up to
+                // iOS jetsam: 5000 log writes/sec is exactly the kind of
+                // load that trips an OS watchdog / CPU resource limit and
+                // gets the process killed, which would explain the launch
+                // line seen ~1.5 s after this exact storm in a live
+                // capture. Calling `cancel()` here closes the fd and
+                // removes the dispatch source, so a broken socket now
+                // fails ONCE and stops — `BikeLink`'s existing state
+                // machine (which already reacts to `inbound` finishing)
+                // picks up the disconnect and can reconnect cleanly
+                // instead of the io queue spinning forever.
+                cancel()
                 return
             }
             // n == 0 — not meaningful for UDP, retry once.
