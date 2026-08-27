@@ -1035,15 +1035,29 @@ struct MapPickerView: View {
     /// Bake the fast-start tile window for `route` and install it in the
     /// renderer. Runs in the background AFTER streaming has started, so a
     /// stalled tile fetch (no connectivity) can't delay the dash projection.
-    /// Until this completes the renderer falls back to the vector map.
+    ///
+    /// The (still-empty) cache is installed IMMEDIATELY, before the corridor
+    /// bake even starts — not after it finishes. `MapViewSource`'s render
+    /// path already has an "off-corridor rescue tile" fallback
+    /// (`ensurePositionFallback`) for whenever `nearestTile` can't find a
+    /// covering corridor tile; an empty cache trips that same path from
+    /// frame one, so it bakes ONE tile centred on the rider's current GPS
+    /// fix and the dash shows a real map under the route line within ~1-2 s
+    /// instead of the flat vector-only fallback for the whole ~5-15 s the
+    /// full corridor bake takes. Once the corridor bake's first batch
+    /// lands, `nearestTile` starts hitting real tiles and the renderer
+    /// switches over from the rescue tile to the proper route corridor
+    /// automatically — no extra state needed on this side. (Field
+    /// request, 8/2026: "map looks broken/blank right when navigation
+    /// starts, until tiles catch up" — this was the gap.)
     private func prerenderRouteTiles(_ route: MKRoute) async {
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
+        status.mapViewSource.setTileCache(cache)
         prerenderProgress = 0
         prerenderActive = true
         await cache.prerender(route: route) { p in
             prerenderProgress = p
         }
-        status.mapViewSource.setTileCache(cache)
         prerenderActive = false
     }
 
