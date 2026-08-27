@@ -1217,21 +1217,32 @@ struct MapPickerView: View {
         }
     }
 
-    /// Finalize an arrival. `AppStatus.onArrived` already tore down the
-    /// stream + route artefacts the moment we arrived (so the dash left
-    /// projection promptly); here we only flip the navigator out of its
-    /// `hasArrived` display state and slide back to the picker. Calling
-    /// `stop()` sets `isNavigating = false`, so `mode` returns `.picking`.
+    /// Finalize an arrival. The stream stayed UP through the "You've arrived"
+    /// card (AppStatus.onArrived no longer tears it down), so here we swap the
+    /// live map from navigation to free-ride IN PLACE — the dash never blinks
+    /// out of projection. `stop()` clears `isNavigating` (so `mode` returns to
+    /// `.picking` and the running ActiveNavLoop drops into its no-maneuver
+    /// free-ride heartbeat); `transitionToFreeRideInPlace()` swaps the tile
+    /// cache + route geometry without restarting the RTP stream.
     private func finishArrival() {
         status.activeNavigator.stop()
+        status.activeNavigator.onActiveRouteChanged = nil
+        status.stagedDestination = nil
+        status.plannedRoute = nil
         selectedDestination = nil
-        // Show a centred "You've arrived" notice on the dash for a few
-        // seconds, then keep the live map up by dropping into free-ride
-        // (standard behaviour — the stream was torn down on arrival, so
-        // without this the dash sits on its blank nav-logo splash; rider
-        // feedback 8/2026). Only meaningful while the dash link is still up;
-        // startFreeRide() itself guards on `.connected` / not-already-
-        // streaming, so this is safe even if the link dropped at arrival.
+        // Keep the live map up by transitioning the RUNNING stream into
+        // free-ride (no teardown/restart → no display blink). Show a centred
+        // "You've arrived" notice on the dash for a few seconds. Guarded on the
+        // link still being up and a stream actually running.
+        if status.bikeLink.state == .connected, status.isStreaming {
+            status.transitionToFreeRideInPlace()
+            status.mapViewSource.showNotice(
+                DashNotice(text: "You've arrived", level: .info, duration: 5)
+            )
+            return
+        }
+        // Link dropped at arrival (no live stream to reuse): fall back to a
+        // fresh free-ride start if still connected, else just slide back.
         if status.bikeLink.state == .connected, !status.isStreaming {
             status.startFreeRide()
             status.mapViewSource.showNotice(

@@ -448,6 +448,8 @@ final class ActiveNavLoop {
         //     renderer paints it before the active route so the road ahead
         //     stays blue even on an out-and-back over the same segment.
         mapSource?.setTraveled(nav.traveledCoordinates)
+        // Route ahead → repaint blue over grey on out-and-back retraces.
+        mapSource?.setRouteAhead(nav.routeAheadCoordinates)
 
         // 2a. Ride progress bar (feat/route-progress-bar). Push the trip
         //     fraction only when the rider has opted in; when off, clear it

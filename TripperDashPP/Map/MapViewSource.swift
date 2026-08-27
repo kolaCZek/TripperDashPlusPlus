@@ -57,6 +57,11 @@ final class MapViewSource: NSObject, FrameSource {
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
 
+    /// Smooths marker motion between ~1 Hz GPS fixes up to the 6 fps render
+    /// cadence: dead-reckons along the road (route-follow) or velocity vector,
+    /// with acceleration and soft correction. See MotionInterpolator.
+    private var motion = MotionInterpolator()
+
     /// Effective heading used to rotate the rendered frame (degrees,
     /// CW from north). Lerped per-tick toward `targetHeading`.
     ///
@@ -125,6 +130,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// still occupies that segment, so painting grey first and blue second
     /// lets the blue win the overlap (rider feedback, 8/2026).
     private var traveledCoords: [CLLocationCoordinate2D] = []
+
+    /// Route still ahead of the rider (trimmed to current segment onward).
+    /// Painted blue OVER the grey travelled line so an out-and-back's upcoming
+    /// retrace of an already-ridden segment reads blue, not grey. Empty when
+    /// not navigating.
+    private var routeAheadCoords: [CLLocationCoordinate2D] = []
 
     /// Alternative routes for the CURRENT leg, drawn thin/grey with an
     /// ETA-delta bubble ("+5 min" / "similar"). The rider physically
@@ -852,6 +863,7 @@ extension MapViewSource {
 
     private func handleFix(_ fix: Fix) {
         lastFix = fix
+        motion.ingest(fix: fix)
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
         let region = MKCoordinateRegion(
@@ -927,6 +939,24 @@ extension MapViewSource {
     @MainActor
     private func tickOnMain() async {
         guard onFrame != nil else { return }
+
+        // 0. Smooth the rider marker: advance the motion interpolator to this
+        //    tick and overwrite the display coordinate the renderer reads.
+        //    GPS lands at ~1 Hz but we render at 6 fps — without this the marker
+        //    freezes for ~6 frames then jumps. `motion` dead-reckons along the
+        //    road (or velocity vector when off-route) and soft-corrects toward
+        //    each real fix. We keep the raw speed/course on the struct so
+        //    heading + speed-limit logic are unaffected; only the coordinate is
+        //    replaced.
+        if let raw = lastFix,
+           let smooth = motion.tick(now: Date()) {
+            lastFix = Fix(coordinate: smooth,
+                          altitude: raw.altitude,
+                          horizontalAccuracy: raw.horizontalAccuracy,
+                          speed: raw.speed,
+                          course: raw.course,
+                          timestamp: raw.timestamp)
+        }
 
         // 1. Advance the per-tick animation state (heading + zoom lerps)
         //    every tick (6 Hz) so an in-progress rotation/zoom dribbles
@@ -1287,34 +1317,6 @@ extension MapViewSource {
             }
         }
 
-        // Travelled breadcrumb (grey "already ridden" line). Drawn AFTER the
-        // alternatives but BEFORE the active blue route so that, on an
-        // out-and-back over the same road, the blue route (still present on
-        // that segment) paints over the grey — the road ahead never reads as
-        // "done". Same Y-DOWN projection as the route below.
-        if traveledCoords.count > 1 {
-            let projTr: (CLLocationCoordinate2D) -> CGPoint = { c in
-                let px =  (c.longitude - centerLon) * pxPerDegLon
-                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
-                return CGPoint(x: CGFloat(px), y: CGFloat(py))
-            }
-            let tp = CGMutablePath()
-            var firstT = true
-            for c in traveledCoords {
-                let pt = projTr(c)
-                if firstT { tp.move(to: pt); firstT = false }
-                else { tp.addLine(to: pt) }
-            }
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.setStrokeColor(currentStyle.traveledLineColor)
-            // Same on-screen width as the blue fill so the covered stretch
-            // reads as the route in a "done" colour, not a thinner trace.
-            ctx.setLineWidth(routeLineScreenPx / drawZoom)
-            ctx.addPath(tp)
-            ctx.strokePath()
-        }
-
         // Draw the route polyline in the same Y-DOWN coordinate space.
         // Off-corridor this still draws the (now-distant) route line so
         // the rider can see which way to get back to it. Uses the FULL
@@ -1357,6 +1359,44 @@ extension MapViewSource {
             ctx.setStrokeColor(currentStyle.routeLineColor)
             ctx.setLineWidth(lineW)
             ctx.strokePath()
+
+            // 4. Travelled breadcrumb (grey "already ridden") OVER the blue —
+            //    progress-bar look: the covered stretch reads "done" in grey,
+            //    the road ahead stays blue. Blue route-ahead is repainted on
+            //    top next (step 5) so an out-and-back's upcoming retrace wins
+            //    back the blue. Same Y-DOWN projection + width as the fill.
+            if traveledCoords.count > 1 {
+                let tp = CGMutablePath()
+                var firstT = true
+                for c in traveledCoords {
+                    let pt = project(c)
+                    if firstT { tp.move(to: pt); firstT = false }
+                    else { tp.addLine(to: pt) }
+                }
+                ctx.addPath(tp)
+                ctx.setStrokeColor(currentStyle.traveledLineColor)
+                ctx.setLineWidth(lineW)
+                ctx.strokePath()
+            }
+
+            // 5. Route AHEAD in blue, OVER the grey travelled line. On an
+            //    out-and-back the road ahead retraces an already-ridden (now
+            //    grey) segment; repainting the still-to-ride slice blue keeps
+            //    it reading as "upcoming", not "done". No-op off an out-and-back
+            //    (ahead doesn't overlap travelled).
+            if routeAheadCoords.count > 1 {
+                let ap = CGMutablePath()
+                var firstA = true
+                for c in routeAheadCoords {
+                    let pt = project(c)
+                    if firstA { ap.move(to: pt); firstA = false }
+                    else { ap.addLine(to: pt) }
+                }
+                ctx.addPath(ap)
+                ctx.setStrokeColor(currentStyle.routeLineColor)
+                ctx.setLineWidth(lineW)
+                ctx.strokePath()
+            }
             // Via-stop pins are NOT drawn here — they must be upright +
             // constant-size, so they're rendered geo-anchored in the outer
             // (un-rotated) ctx below, same as the speed cameras.
@@ -1838,6 +1878,9 @@ extension MapViewSource {
                       waypoints: [CLLocationCoordinate2D]) {
         fullRouteCoords = full
         waypointDots = waypoints
+        // Feed the motion smoother the same line the renderer strokes so it can
+        // dead-reckon along the road through curves (and detect off-route).
+        motion.setRoute(routeDrawCoords.isEmpty ? nil : routeDrawCoords)
     }
 
     /// Push the rider's travelled breadcrumb (grey "already ridden" line).
@@ -1845,6 +1888,15 @@ extension MapViewSource {
     /// each nav tick from `ActiveNavigator.traveledCoordinates`.
     func setTraveled(_ coords: [CLLocationCoordinate2D]) {
         traveledCoords = coords
+    }
+
+    /// Push the route still AHEAD of the rider (from `routeAheadCoordinates`,
+    /// already trimmed to the current segment onward). Drawn in blue OVER the
+    /// grey travelled breadcrumb so that on an out-and-back — where the road
+    /// ahead retraces an already-ridden segment — the upcoming stretch reads
+    /// blue again, not "done" grey. Pass empty to clear (not navigating).
+    func setRouteAhead(_ coords: [CLLocationCoordinate2D]) {
+        routeAheadCoords = coords
     }
 
     /// The coordinates the route-line draw should stroke: the full trip if
