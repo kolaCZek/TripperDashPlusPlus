@@ -212,6 +212,21 @@ struct MapPickerView: View {
             Button("Cancel", role: .cancel) { longPressCoord = nil }
         }
         .onChange(of: scenePhase) { _, newPhase in
+            // Diagnostic: record every scene-phase transition. Field
+            // evidence (8/2026): a locked-phone ride disconnected mid-
+            // navigation with NOTHING in the connection log explaining why
+            // (no wifi-path-down, no heartbeat failure) and the staged
+            // route was gone afterward — consistent with iOS jetsam-
+            // killing the app under CPU/memory pressure (locked-screen
+            // CGContext composition + VideoToolbox encoding every frame is
+            // real background load) and the rider re-launching cold. The
+            // connection log alone can't distinguish that from a plain
+            // Wi-Fi drop; this line is the missing half of the picture —
+            // if a future report shows `.background` immediately followed
+            // by a fresh cold-start "Joining Tripper AP" with NO
+            // intervening `.active`, that confirms a kill/relaunch rather
+            // than a network blip.
+            ConnDiag.log("lifecycle", "scenePhase → \(newPhase)")
             switch newPhase {
             case .background, .inactive:
                 if !status.isStreaming, !status.activeNavigator.isNavigating, let token = locationToken {

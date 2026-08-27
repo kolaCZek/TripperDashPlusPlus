@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct TripperDashPPApp: App {
@@ -15,6 +16,34 @@ struct TripperDashPPApp: App {
     /// `@Environment(AppStatus.self)` into every screen via
     /// `.environment(_:)` on the root scene.
     @State private var status = AppStatus()
+    init() {
+        // Diagnostic: mark every process launch. Paired with the
+        // `scenePhase` transitions logged in MapPickerView, this is what
+        // lets a future connection-diagnostics.log distinguish "the app
+        // process was killed and cold-relaunched" (a `[lifecycle] launch`
+        // line with NO preceding `.active` scenePhase since the last
+        // `.background`) from a plain Wi-Fi drop. See MapPickerView's
+        // scenePhase comment for the field evidence that motivated this
+        // (8/2026: locked-phone ride disconnect with the staged route
+        // gone afterward and nothing in the connection log explaining
+        // why).
+        ConnDiag.log("lifecycle", "launch (process start)")
+        // Diagnostic: iOS fires this on a live (not-yet-killed) process
+        // under memory pressure BEFORE jetsam actually terminates it, so a
+        // line here right before the log goes silent is the strongest
+        // available evidence of a resource-pressure kill (vs. a plain
+        // network drop) — the app doesn't get to log anything as jetsam
+        // itself acts, so this early-warning notification is the closest
+        // signal we can capture. NotificationCenter observer with no
+        // owner captured is fine: it needs to live for the whole process
+        // lifetime, same as `ConnDiag.store`.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main
+        ) { _ in
+            ConnDiag.log("lifecycle", "⚠️ didReceiveMemoryWarning — jetsam kill may follow")
+        }
+    }
     var body: some Scene {
         WindowGroup {
             RootView()
