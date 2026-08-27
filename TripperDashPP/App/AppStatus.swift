@@ -398,6 +398,21 @@ final class AppStatus {
             )
         }
         streamer = s
+        // Route card FIRST, then nav-start, then the RTP stream — the dash
+        // gates its UDP/5000 decoder surface on ALL THREE happening in
+        // that order (see `BikeLink.sendRouteCard`'s doc / the
+        // `royal-enfield-tripper-dash` skill's network-transport
+        // reference). Field report (8/2026): free-ride reconnects kept
+        // landing on the dash's "Press the cast button on RE App!" idle
+        // screen even after the nav-start-ordering and post-z2-warmup
+        // fixes above, because THIS packet was never sent for free-ride at
+        // all — `ActiveNavLoop.tick()` only sends anything route-shaped
+        // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
+        // design, no route) announced no destination whatsoever. Use the
+        // staged destination's name when navigating; fall back to a
+        // generic title for free-ride, matching the reference
+        // implementation's own default ("Navigation").
+        await bikeLink.sendRouteCard(title: stagedDestination?.name ?? "Free ride")
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.

@@ -356,6 +356,35 @@ final class BikeLink {
     // the worst case is the dash stays on the home screen, which is
     // recoverable by toggling streaming off+on.
 
+    /// Phone → bike: `0x007E` route card, announcing a destination BEFORE
+    /// `sendNavStart()`'s q3c.z2. See `K1GPacket.makeRouteCard`'s doc for
+    /// why this exists — TL;DR: the dash refuses to allocate its
+    /// nav-decoder surface without it, and `ActiveNavLoop` only reaches
+    /// for a route-shaped packet (`sendActiveNav`) while actually
+    /// navigating, which silently starved free-ride of ANY destination
+    /// announcement. Sends `K1G.routeCardBurstCount` copies with
+    /// `K1G.routeCardBurstGap` between them, matching the reference
+    /// implementation's captured cadence ("the real phone sends 4 copies
+    /// over ~1.3s before nav-start" — `better-dash --route-card-pre-z2`
+    /// help text). Call BEFORE `sendNavStart()`, not after — order matters
+    /// the same way it does for nav-start vs. the RTP stream.
+    func sendRouteCard(title: String) async {
+        guard !demoMode else { return }   // demo link has no socket — nothing to kick
+        guard state == .connected, let s = socket else { return }
+        do {
+            for i in 0..<K1G.routeCardBurstCount {
+                let pkt = K1GPacket.makeRouteCard(title: title, projectionOn: false, seq: seq.consume())
+                try await s.send(pkt)
+                if i < K1G.routeCardBurstCount - 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(K1G.routeCardBurstGap * 1_000_000_000))
+                }
+            }
+            log.info("Sent 0x007e route card x\(K1G.routeCardBurstCount, privacy: .public) (title=\(title, privacy: .public))")
+        } catch {
+            log.error("Route-card send failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Kick the dash into nav projection mode. Call BEFORE starting the
     /// RTP stream. No-op if not connected.
     ///

@@ -140,6 +140,17 @@ nonisolated enum K1G {
     /// advisory rather than a real precondition.
     static let postZ2Warmup: TimeInterval = 0.45
 
+    /// Route-card (`0x007E`) pre-z2 burst count and inter-packet gap.
+    /// Reference value ("the real phone sends 4 copies over ~1.3s before
+    /// nav-start (frames 1414/1422/1446/1468 in nav_open_ok.pcap). Without
+    /// this burst the dash enters nav mode but never allocates the
+    /// UDP/5000 decoder surface (observed as continuous port-unreachable
+    /// ICMPs)" — `better-dash --route-card-pre-z2`/`--route-card-gap` help
+    /// text, defaults 4 / 0.35s). See `K1GPacket.makeRouteCard`'s doc for
+    /// the full story of why this packet type exists at all in this app.
+    static let routeCardBurstCount = 4
+    static let routeCardBurstGap: TimeInterval = 0.35
+
     /// Hard cap on how long we keep auto-reconnecting before giving up
     /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
     /// enough to walk into a petrol station, pay, and walk back.

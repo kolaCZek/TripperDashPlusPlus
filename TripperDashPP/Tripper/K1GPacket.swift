@@ -344,6 +344,92 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    /// Phone → bike: `0x007E` "route card" — announces a destination.
+    /// This is NOT built via `encode(segments:seq:)` like the rest of this
+    /// file: it's a byte-for-byte port of `better-dash`'s
+    /// `build_navigation_packet()`, which patches a route TITLE into a
+    /// captured, opaque template rather than composing semantic TLVs. The
+    /// template's inner fields (t3c.* — distance/ETA/decimal-separator
+    /// placeholders) are NOT meaningful defaults we control; they're
+    /// whatever bytes the real dash's own nav_open_ok.pcap capture showed,
+    /// preserved verbatim because their semantics are undocumented and
+    /// reverse-engineering them wasn't necessary — the dash only reads this
+    /// packet as "a destination now exists", triggering decoder-surface
+    /// allocation, not as a HUD update (that's `sendActiveNav`'s job).
+    ///
+    /// **Why this exists at all** (`references/network-transport.md` in
+    /// the `royal-enfield-tripper-dash` skill, `better-dash/dash_ui/
+    /// bike_link.py`'s module doc): "the dash will refuse to allocate its
+    /// nav-decoder surface until the phone has ... announced a destination
+    /// (0x007E route card)". Field report (8/2026): free-ride reconnects
+    /// reliably got stuck on the dash's "Press the cast button on RE App!"
+    /// idle screen no matter how long `sendNavStart()`'s warmup waited,
+    /// while navigation-with-a-route reconnects worked — because
+    /// `ActiveNavLoop.tick()` only calls `sendActiveNav` when
+    /// `nav.isNavigating`, so free-ride (by design, no route) never sent
+    /// ANYTHING resembling a route card. `sendActiveNav`'s TLVs happened to
+    /// be close enough to unblock the decoder surface as a side effect on
+    /// navigation reconnects, which is why the bug was invisible there.
+    ///
+    /// `title` is truncated/null-terminated the same way the Python
+    /// authority does (`rt[:60] + b"\x00"`, so max 61 bytes on the wire).
+    /// `projectionOn` patches the LAST occurrence of the `06 05 00 01`
+    /// marker inside the suffix template to `0x55` (on) or `0xAA` (off),
+    /// mirroring `build_navigation_packet`'s `projection_on` flag — the
+    /// dash reads this as part of the same packet rather than requiring a
+    /// separate `q3c.w`/`q3c.x` toggle for the route-card's own view.
+    static func makeRouteCard(title: String, projectionOn: Bool, seq: UInt8) -> Data {
+        // Prefix: outer_len(2, placeholder) + seg_count(2, FIXED 0x0011 —
+        // hardcoded in the captured template, NOT actual_count+1 like
+        // `encode()` computes for every other packet type in this file)
+        // + pad(4) + icHeaderMarker(4) + magic(4).
+        var body = Data()
+        body.append(contentsOf: [0x00, 0x00, 0x00, 0x11])
+        body.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        body.append(contentsOf: K1G.icHeaderMarker)
+        body.append(contentsOf: K1G.magic)
+
+        // Rolling seq.
+        body.append(seq)
+
+        // Title field: 05 01 <len_BE> <title bytes> 00 — max 60 UTF-8
+        // bytes + null terminator, matching `rt = route_title.encode
+        // ("utf-8")[:60]` in the Python authority.
+        var titleBytes = Array(title.dashSafe.utf8.prefix(60))
+        titleBytes.append(0)
+        body.append(contentsOf: [0x05, 0x01])
+        body.append(contentsOf: u16BE(UInt16(titleBytes.count)))
+        body.append(contentsOf: titleBytes)
+
+        // Opaque suffix template — captured verbatim from
+        // `better-dash/tripper_app_like_nav.py`'s `_NAV_FULL` (see that
+        // file's doc comment for provenance: nav_open_ok.pcap). Ends with
+        // the `06 05 00 01 <flag>` projection marker this function patches.
+        let suffix: [UInt8] = [
+            0x05, 0x02, 0x00, 0x01, 0x3C,
+            0x05, 0x03, 0x00, 0x01, 0x34,
+            0x05, 0x05, 0x00, 0x02, 0x00, 0x0A,
+            0x05, 0x06, 0x00, 0x01, 0x30,
+            0x05, 0x07, 0x00, 0x01, 0x30,
+            0x05, 0x08, 0x00, 0x04, 0x30, 0x33, 0x30, 0x33,
+            0x05, 0x54, 0x00, 0x01, 0x30,
+            0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
+            0x05, 0x46, 0x00, 0x01, 0x10,
+            0x05, 0x0A, 0x00, 0x01, 0x55,
+            0x05, 0x0C, 0x00, 0x01, 0x04,
+            0x05, 0x0B, 0x00, 0x06, 0x30, 0x30, 0x31, 0x30, 0x30, 0x30,
+            0x05, 0x55, 0x00, 0x01, 0x20,
+            0x06, 0x05, 0x00, 0x01, projectionOn ? 0x55 : 0xAA,
+            0x06, 0x0D, 0x00, 0x01, 0xAA
+        ]
+        body.append(contentsOf: suffix)
+
+        let total = UInt16(body.count)
+        body[0] = UInt8((total >> 8) & 0xFF)
+        body[1] = UInt8(total & 0xFF)
+        return body
+    }
+
     /// Phone → bike: q3c.g "new map bitmap was rendered this tick".
     /// TLV `05 56 00 01 55`. Send this once per encoded H.264 frame.
     static func makeProjectionFrame(seq: UInt8) -> Data {
