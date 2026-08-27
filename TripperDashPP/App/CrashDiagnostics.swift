@@ -96,6 +96,23 @@ final class CrashDiagnosticsSubscriber: NSObject, MXMetricManagerSubscriber {
                         "⚠️ MetricKit CRASH [\(period)] type=\(reason) code=\(code) signal=\(signal) " +
                         "termination=\(crash.terminationReason ?? "?") " +
                         "virtualMemRegionInfo=\(crash.virtualMemoryRegionInfo ?? "?")")
+                    // The line above tells us THAT it crashed and roughly how
+                    // (e.g. type=6/signal=5 = EXC_BREAKPOINT/SIGTRAP, the
+                    // classic Swift runtime-trap signature — force-unwrap of
+                    // nil, fatalError/precondition, array out-of-bounds,
+                    // trapping integer overflow, `try!` — as opposed to
+                    // type=1 EXC_BAD_ACCESS which would be memory corruption
+                    // or jetsam-adjacent). It does NOT tell us WHERE. Log the
+                    // call stack tree's raw JSON too so a real crash can
+                    // actually be pinpointed to a file/line via `atos`
+                    // instead of us guessing from context. Frame addresses
+                    // are unsymbolicated offsets (need the matching dSYM +
+                    // `atos -arch arm64 -o <dSYM> -l 0x1 <hex offset>` per
+                    // Apple's documented process) — raw but far better than
+                    // nothing.
+                    if let json = String(data: crash.callStackTree.jsonRepresentation(), encoding: .utf8) {
+                        ConnDiag.log("crashdiag", "CRASH call stack tree (raw, unsymbolicated): \(json)")
+                    }
                 }
             }
             if let hangs = payload.hangDiagnostics, !hangs.isEmpty {
