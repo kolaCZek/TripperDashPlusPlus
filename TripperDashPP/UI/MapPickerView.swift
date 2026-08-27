@@ -702,7 +702,7 @@ struct MapPickerView: View {
                 // few seconds (both hands busy on the bike).
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(4))
-                    finishArrival()
+                    await finishArrival()
                 }
             }
         }
@@ -919,7 +919,9 @@ struct MapPickerView: View {
                 .padding(.vertical, 8)
                 .background(Color.green.opacity(0.12))
 
-            Button { status.startFreeRide() } label: {
+            Button {
+                Task { @MainActor in await status.startFreeRide() }
+            } label: {
                 Label("Start free ride (map only)", systemImage: "map.fill")
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
                     .background(Color.accentColor.opacity(0.15))
@@ -1269,7 +1271,7 @@ struct MapPickerView: View {
             // browsing after navigation ends.
             status.plannedRoute = nil
             if !status.isStreaming {
-                status.startStreaming()
+                await status.startStreaming()
             }
             transitioning = false
             // Fire-and-forget the tile prerender AFTER the stream is live.
@@ -1314,7 +1316,7 @@ struct MapPickerView: View {
     /// `.picking` and the running ActiveNavLoop drops into its no-maneuver
     /// free-ride heartbeat); `transitionToFreeRideInPlace()` swaps the tile
     /// cache + route geometry without restarting the RTP stream.
-    private func finishArrival() {
+    private func finishArrival() async {
         status.activeNavigator.stop()
         status.activeNavigator.onActiveRouteChanged = nil
         status.stagedDestination = nil
@@ -1334,7 +1336,7 @@ struct MapPickerView: View {
         // Link dropped at arrival (no live stream to reuse): fall back to a
         // fresh free-ride start if still connected, else just slide back.
         if status.bikeLink.state == .connected, !status.isStreaming {
-            status.startFreeRide()
+            await status.startFreeRide()
             status.mapViewSource.showNotice(
                 DashNotice(text: "You've arrived", level: .info, duration: 5)
             )

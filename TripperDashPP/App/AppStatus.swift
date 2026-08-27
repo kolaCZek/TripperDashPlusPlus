@@ -284,7 +284,7 @@ final class AppStatus {
                     // maneuver) — a bare map with no navigation, exactly what
                     // we just stopped. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
-                    self.startStreaming()
+                    await self.startStreaming()
                 } else if state == .connected
                             && self.isFreeRiding
                             && !self.isStreaming {
@@ -299,7 +299,7 @@ final class AppStatus {
                     // stream was actually running — the dash timed out
                     // waiting for frames that never came (rider feedback
                     // 8/2026: reconnect after the bike was switched off).
-                    self.resumeFreeRideAfterReconnect()
+                    await self.resumeFreeRideAfterReconnect()
                 } else {
                     self.applyKeepAwake()
                 }
@@ -322,7 +322,15 @@ final class AppStatus {
     }
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
-    func startStreaming() {
+    ///
+    /// `async` (not fire-and-forget) so callers that need the dash to have
+    /// actually entered nav projection before doing anything else (there
+    /// currently are none downstream of the await point, but the ordering
+    /// guarantee inside this function — nav-start MUST land before the
+    /// first RTP packets, see the comment at the `await
+    /// bikeLink.sendNavStart()` call below — needs `startStreaming` itself
+    /// to be awaitable for that to be real rather than cosmetic).
+    func startStreaming() async {
         guard bikeLink.dashHost != nil else { return }
 
         // ── Demo mode: fake dash, no UDP ────────────────────────────────
@@ -393,8 +401,27 @@ final class AppStatus {
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
-        let link = bikeLink
-        Task { await link.sendNavStart() }
+        //
+        // MUST be awaited here, not fire-and-forget. It used to be
+        // `Task { await link.sendNavStart() }` immediately followed by
+        // `s.start()` — spawning the send and starting the RTP stream
+        // ran CONCURRENTLY, not in the sequence the comment above
+        // describes, so there was no actual ordering guarantee that
+        // nav-start reached the dash before the first video packets did.
+        // Under normal conditions the K1G send (~1ms) easily wins that
+        // race against RTP spin-up, so this went unnoticed for months.
+        // Field report (8/2026): right after a reconnect that needed
+        // several boot-race retries (dash's K1G control-plane task
+        // visibly still catching up — see the reconnect fast-retry fix
+        // two commits ago), the dash showed a plain Wi-Fi "share" screen
+        // instead of entering nav projection, exactly the failure mode
+        // this comment warns about. A dash still finishing its own
+        // internal recovery is far more likely to be slow to process
+        // q3c.z2/q3c.q, which is exactly when this unenforced ordering
+        // actually matters. Awaiting a UDP send is cheap (single-digit
+        // ms in practice) — no perceptible startup delay for the normal
+        // case, and a real ordering guarantee for the racy one.
+        await bikeLink.sendNavStart()
         s.start()
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
@@ -503,11 +530,11 @@ final class AppStatus {
     /// latch open without drawing a bogus turn arrow.
     ///
     /// No-op if not connected, already streaming, or already free-riding.
-    func startFreeRide() {
+    func startFreeRide() async {
         guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
         isFreeRiding = true
         installFreeRideContent()
-        startStreaming()
+        await startStreaming()
     }
 
     /// Resume a free-ride projection after the link drops and reconnects.
@@ -517,10 +544,10 @@ final class AppStatus {
     /// `startFreeRide()` would be a silent no-op. `isFreeRiding` is already
     /// `true`, so only reinstall the content (fresh empty tile cache + camera
     /// prefetch — cheap, no re-bake needed) and restart the stream.
-    private func resumeFreeRideAfterReconnect() {
+    private func resumeFreeRideAfterReconnect() async {
         guard bikeLink.state == .connected, streamer == nil else { return }
         installFreeRideContent()
-        startStreaming()
+        await startStreaming()
     }
 
     /// Swap the streamed content from active-navigation to free-ride WITHOUT

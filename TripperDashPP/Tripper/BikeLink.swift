@@ -694,6 +694,24 @@ final class BikeLink {
             let isBootRace = (error as? HandshakeError).map {
                 switch $0 {
                 case .noReplyAtAll, .authNotReady: return true
+                // `missingSegment` during step 1 (dash sent SOME traffic —
+                // its own boot-time housekeeping segments, e.g. the field
+                // log's 0C/03, 0C/05, 0C/06 — but not modulus+exponent
+                // yet) is the SAME "K1G control-plane task still catching
+                // up" race as `noReplyAtAll`/`authNotReady`, just with a
+                // couple of stray packets landing first. Treating it as a
+                // plain failure denied it the fast boot-race retry
+                // interval on reconnect and the silent-retry treatment on
+                // a fresh connect. Field log (8/2026): a reconnect's 2nd
+                // attempt got exactly this (dash chattering `0C/xx`
+                // housekeeping while the K1G handshake task wasn't ready)
+                // and paid the full 5.0s `reconnectInterval` instead of
+                // the 2.0s `bootRaceRetryInterval` — one contributor to a
+                // reconnect during active navigation taking 50s and 5
+                // attempts while the dash's own screen already showed
+                // "iPhone connected" (AP/L2 layer, independent of K1G
+                // readiness) the whole time.
+                case .missingSegment: return true
                 default: return false
                 }
             } ?? false
