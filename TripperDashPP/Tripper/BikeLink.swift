@@ -699,8 +699,16 @@ final class BikeLink {
             } ?? false
             if isReconnect {
                 // Stay in `.reconnecting`; the retry loop sleeps + tries
-                // again (until it hits the 10-min deadline).
-                return .otherFailure(msg)
+                // again (until it hits the 10-min deadline). Still tag
+                // `bootRaceMissingReply` here too (not just on a fresh
+                // connect) so the retry loop can use the SAME short
+                // `bootRaceRetryInterval` for this specific failure shape
+                // instead of the full `reconnectInterval` — see
+                // `startReconnectLoop`'s doc for the field evidence this
+                // fixes (rider reconnect during free-ride timed out on the
+                // dash's own screen while the phone was still slow-
+                // cycling through 5s handshake-timeout + 5s sleep pairs).
+                return isBootRace ? .bootRaceMissingReply(msg) : .otherFailure(msg)
             } else if isBootRace {
                 // Leave `state` as `.connecting`/`.handshaking` — the caller
                 // (`runInitialConnect`) silently retries a few times before
@@ -742,6 +750,21 @@ final class BikeLink {
 
     /// Retry `runConnectFlow(isReconnect:)` every `reconnectInterval`
     /// until it succeeds, the user cancels, or the 10-min deadline passes.
+    /// A `bootRaceMissingReply` result (dash's K1G task not answering
+    /// yet — same failure shape `runInitialConnect` silently fast-retries
+    /// on a fresh connect) uses the shorter `bootRaceRetryInterval`
+    /// instead of the full `reconnectInterval`. Field evidence (8/2026):
+    /// a `wifi-path-down` drop mid-free-ride needed 2-3 reconnect attempts
+    /// to succeed, EVERY one of them rx=0 (classic boot-race — the radio
+    /// itself has to re-associate + the dash's K1G task has to notice and
+    /// come back up, same as a cold connect), but each attempt was paying
+    /// the full 5.0s handshake timeout PLUS the full 5.0s reconnectInterval
+    /// sleep — 20-35s total before the phone recovered, well past the
+    /// dash's own connection-timeout screen. Using the 2.0s
+    /// bootRaceRetryInterval for this specific shape (unrelated to
+    /// giving up early: the 10-min deadline check above still applies
+    /// every iteration) cuts that gap roughly in half without touching
+    /// the failure-classification logic itself.
     private func startReconnectLoop() {
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
@@ -764,12 +787,19 @@ final class BikeLink {
                 self.log.info("Reconnect attempt #\(attempt)")
                 ConnDiag.log("reconnect", "Reconnect attempt #\(attempt)")
                 let result = await self.runConnectFlow(isReconnect: true)
-                if case .connected = result {
+                let retryDelay: TimeInterval
+                switch result {
+                case .connected:
                     self.log.info("Reconnected after \(attempt) attempt(s)")
                     ConnDiag.log("reconnect", "✅ Reconnected after \(attempt) attempt(s)")
                     return
+                case .bootRaceMissingReply:
+                    ConnDiag.log("reconnect", "Boot-race shape (rx=0) — retrying in \(K1G.bootRaceRetryInterval)s instead of \(K1G.reconnectInterval)s")
+                    retryDelay = K1G.bootRaceRetryInterval
+                case .cancelled, .otherFailure:
+                    retryDelay = K1G.reconnectInterval
                 }
-                try? await Task.sleep(nanoseconds: UInt64(K1G.reconnectInterval * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))
             }
         }
     }
