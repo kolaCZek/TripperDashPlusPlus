@@ -395,36 +395,35 @@ extension K1GPacket {
     /// dash reads this as part of the same packet rather than requiring a
     /// separate `q3c.w`/`q3c.x` toggle for the route-card's own view.
     ///
-    /// `includeHudFields` (default true = the reference's exact bytes)
-    /// controls whether the template's nav-data TLVs are included at all.
+    /// `includeHudFields` controls whether the template's nav-data TLVs are
+    /// included (true = pre-z2 burst, false = 1 Hz keep-alive).
     ///
-    /// Two successive mistakes were made here (8/2026), both caught in the
-    /// field, both worth recording because the packet looks harmless:
+    /// This function does NOT reproduce the reference template verbatim, and
+    /// deliberately so — three successive field reports (8/2026) were all
+    /// caused by treating it as safe to replay:
     ///
     /// 1. First revision claimed the dash reads this packet only as "a
     ///    destination exists", NOT as a HUD update. Wrong: `05 02` is the
-    ///    maneuver glyph and `05 08` is the ETA as ASCII ("0303"), so
-    ///    resending the full template at 1 Hz painted a bogus turn arrow
-    ///    and "ETA 03:03" onto the dash.
-    /// 2. Second revision dropped only the obvious maneuver/ETA/distance
-    ///    group and kept a "formatting and opaque fields" tail. Also wrong:
-    ///    that tail is nav data too, and it COLLIDES with `sendActiveNav`
-    ///    on identical TLV addresses —
-    ///      `05 01` is `tlvRoadName`'s address, so the route title
-    ///              overwrote the HUD text ("Work" replacing
-    ///              "45 min to Work" once a second),
-    ///      `05 0B` is `tlvRemainingTime` ("001000" = 10h),
-    ///      `05 55` is `tlvRemainingUnit`,
-    ///      `05 0A` is `tlvDecimalSeparator`.
-    ///    The visible result was every nav field flickering at 1 Hz between
-    ///    the real value and the template's placeholder.
+    ///    maneuver glyph, `05 08` is the ETA as ASCII ("0303"), so replaying
+    ///    the full template at 1 Hz painted a turn arrow and "ETA 03:03".
+    /// 2. Second revision dropped the obvious maneuver/ETA/distance group but
+    ///    kept a tail labelled "formatting + opaque fields". Also wrong: that
+    ///    tail is nav data too, and it collides with `sendActiveNav` on
+    ///    identical addresses (`05 01` = `tlvRoadName`, so the route title
+    ///    replaced "45 min to Work" with "Work" once a second; `05 0B` =
+    ///    `tlvRemainingTime`; `05 55`; `05 0A`). Every affected field
+    ///    flickered at 1 Hz between real value and placeholder.
+    /// 3. Third: even with the keep-alive fixed, the pre-z2 BURST still
+    ///    replayed the full template once per stream start, and its
+    ///    placeholders for OPTIONAL fields stuck permanently — because
+    ///    `sendActiveNav` writes the secondary-maneuver group, ETA and
+    ///    remaining-time ONLY when it has real values for them, and in
+    ///    free-ride never runs at all. Reported as a stuck roundabout
+    ///    sub-icon (template's `05 03` = 0x34) and a stuck ETA 03:03.
     ///
-    /// So when `includeHudFields` is false this now emits ONLY the
-    /// projection flags (`06 05`, `06 0D`) and NO `0x05`/navInfo TLV at
-    /// all — nothing that can overwrite a field `sendActiveNav` owns, and
-    /// nothing the dash can render as stale nav data during free-ride.
-    /// Pass `true` only for the pre-z2 burst, where matching the reference
-    /// byte-for-byte matters and nothing is on screen yet to corrupt.
+    /// The rule that came out of it: this packet may only carry TLVs that
+    /// `sendActiveNav` rewrites UNCONDITIONALLY. Anything optional there
+    /// becomes permanent here. See the body for the per-TLV accounting.
     static func makeRouteCard(
         title: String,
         projectionOn: Bool,
@@ -459,25 +458,42 @@ extension K1GPacket {
             navFields += [0x05, 0x01]
             navFields += u16BE(UInt16(titleBytes.count))
             navFields += titleBytes
-            // Remainder of the captured template, verbatim from
+            // Remainder of the captured template, from
             // `better-dash/tripper_app_like_nav.py`'s `_NAV_FULL`
-            // (provenance: nav_open_ok.pcap): maneuver glyph, secondary
-            // maneuver, distances, units, ETA + ETA format, decimal
-            // separator, remaining time + unit, and two opaque fields.
+            // (provenance: nav_open_ok.pcap) — MINUS the placeholders that
+            // nothing in this app ever overwrites.
+            //
+            // Field reports (8/2026) traced a stuck roundabout sub-icon and
+            // a stuck "ETA 03:03" to exactly this. `sendActiveNav` only
+            // emits the secondary-maneuver group when there IS a secondary
+            // turn, only emits ETA when there IS an ETA, and only emits
+            // remaining-time when it has one — and in free-ride it is never
+            // called at all. So any placeholder the template writes into one
+            // of those optional fields is latched on the dash forever.
+            //
+            // Omitted, with the reason each is unfixable-by-overwrite:
+            //   05 03 / 05 05 / 05 07  secondary maneuver + distance + unit
+            //                          — written only when a secondary turn
+            //                          exists; template's 0x34 is the
+            //                          roundabout glyph the rider saw.
+            //   05 08 / 05 54          ETA + ETA format — written only when
+            //                          an ETA exists; template's "0303".
+            //   05 0B / 05 55          remaining time + unit — written only
+            //                          when remainingSeconds is non-nil.
+            //   05 0C                  never written by this app at all.
+            // Kept, because `sendActiveNav` unconditionally rewrites them
+            // during navigation and they are inert in free-ride:
+            //   05 02 primary maneuver, 05 06 primary unit,
+            //   05 09 total distance, 05 46 its unit, 05 0A decimal sep.
+            // The reference sends all of them because it always navigates
+            // to a real destination, so every placeholder is overwritten
+            // within one second — an assumption this app breaks by design.
             navFields += [
                 0x05, 0x02, 0x00, 0x01, 0x3C,
-                0x05, 0x03, 0x00, 0x01, 0x34,
-                0x05, 0x05, 0x00, 0x02, 0x00, 0x0A,
                 0x05, 0x06, 0x00, 0x01, 0x30,
-                0x05, 0x07, 0x00, 0x01, 0x30,
-                0x05, 0x08, 0x00, 0x04, 0x30, 0x33, 0x30, 0x33,
-                0x05, 0x54, 0x00, 0x01, 0x30,
                 0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
                 0x05, 0x46, 0x00, 0x01, 0x10,
-                0x05, 0x0A, 0x00, 0x01, 0x55,
-                0x05, 0x0C, 0x00, 0x01, 0x04,
-                0x05, 0x0B, 0x00, 0x06, 0x30, 0x30, 0x31, 0x30, 0x30, 0x30,
-                0x05, 0x55, 0x00, 0x01, 0x20
+                0x05, 0x0A, 0x00, 0x01, 0x55
             ]
         }
         // Projection flags — always sent; these ARE the packet as far as
@@ -488,14 +504,16 @@ extension K1GPacket {
             0x06, 0x05, 0x00, 0x01, projectionOn ? 0x55 : 0xAA,
             0x06, 0x0D, 0x00, 0x01, 0xAA
         ]
-        // Segment count: the captured template hardcodes 0x0011 (17) for
-        // its 16 segments — i.e. actual+1, the same convention `encode()`
-        // uses for every other packet in this file. It must therefore be
-        // RECOMPUTED rather than left at the captured constant when TLVs
-        // are omitted: 14 nav TLVs + 2 projection flags with HUD, just the
-        // 2 flags without. Other builders here note that the dash validates
-        // this byte and silently drops packets whose count doesn't match.
-        let segCount = (includeHudFields ? 14 : 0) + 2 + 1   // +1 = the actual+1 convention
+        // Segment count: the captured template hardcodes 0x0011 (17) for its
+        // 16 segments — i.e. actual+1, the same convention `encode()` uses
+        // for every other packet in this file. It must therefore be
+        // RECOMPUTED rather than left at the captured constant, since we now
+        // omit TLVs in both forms: 6 nav TLVs (title + the 5 always-
+        // overwritten fields) + 2 projection flags for the burst, just the 2
+        // flags for the keep-alive. Other builders here note that the dash
+        // validates this byte and silently drops packets whose count doesn't
+        // match, so getting it wrong fails silently.
+        let segCount = (includeHudFields ? 6 : 0) + 2 + 1   // +1 = the actual+1 convention
         body[2] = UInt8((segCount >> 8) & 0xFF)
         body[3] = UInt8(segCount & 0xFF)
 

@@ -98,12 +98,19 @@ final class BikeLink {
     /// Timestamp of the last `rejoinWifi` attempt, used to rate-limit it.
     ///
     /// `NEHotspotConfigurationManager.apply` can put a system "Do you want
-    /// to join the Wi-Fi network …?" dialog in front of the rider. One per
-    /// genuine re-join is acceptable; one per retry is not. Field report
-    /// (8/2026): "aplikace neustále dokola vyvolává dialog Want to join
-    /// wifi network" — the reconnect loop retries every 2s on the boot-race
-    /// path, and with an unconditional re-join each retry that became a
-    /// dialog storm the rider could not dismiss.
+    /// to join the Wi-Fi network …?" dialog in front of the rider. Field
+    /// report (8/2026): "aplikace neustále dokola vyvolává dialog Want to
+    /// join wifi network".
+    ///
+    /// This is deliberately NOT reset per drop episode, and NOT reset on a
+    /// successful connect either. The first attempt at this fix cleared it in
+    /// `handleLinkDropped`, reasoning that a new drop deserves a fresh
+    /// re-join — but the field log then showed a drop / re-join / connect /
+    /// drop / re-join cycle completing in 28s, so clearing on EITHER event
+    /// meant the cooldown never applied and the rider got a dialog per cycle.
+    /// A dash that flaps repeatedly is exactly the case that needs
+    /// suppressing, so the timestamp survives both drops and reconnects; only
+    /// `K1G.rejoinCooldown` elapsing allows another attempt.
     private var lastRejoinAttempt: Date?
 
     /// Demo mode: when true, `connect()` FAKES an established link — no UDP
@@ -915,10 +922,6 @@ final class BikeLink {
         // Absolute 10-min budget from the moment we dropped — survives
         // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
         reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
-        // New drop episode → allow one immediate AP re-join. The cooldown
-        // exists to stop a single episode's 2s retries becoming a join-dialog
-        // storm, NOT to punish a rider whose link drops twice in a minute.
-        lastRejoinAttempt = nil
         startReconnectLoop()
     }
 
