@@ -1012,14 +1012,35 @@ struct MapPickerView: View {
     /// automatically — no extra state needed on this side. (Field
     /// request, 8/2026: "map looks broken/blank right when navigation
     /// starts, until tiles catch up" — this was the gap.)
+    ///
+    /// `buildLayers: false` on this EARLY install, though: `setTileCache`'s
+    /// side effect of kicking off the coarse (z=12, 7x7=49 tiles) + fine
+    /// (z=16, 49 tiles) sibling bakes is itself real MainActor CGContext
+    /// work (see `RouteTileCache.composite` — no `nonisolated`, all tile
+    /// stitching runs on the main actor). Firing that at t=0 stacks THREE
+    /// concurrent MainActor-heavy bakes (base corridor, coarse, fine)
+    /// right on top of the Wi-Fi handshake / RTP stream startup that's
+    /// racing at the exact same moment — field-confirmed regression
+    /// (8/2026, day after the rescue-tile fix shipped): "grey background"
+    /// on the dash on the first attempt, an outright connection **timeout**
+    /// on the second. Deferring `buildLayers` to fire only after the full
+    /// corridor bake completes (a second `setTileCache` call, same timing
+    /// this had before the rescue-tile change) keeps the instant rescue
+    /// tile while no longer contending with the handshake for the main
+    /// actor.
     private func prerenderRouteTiles(_ route: MKRoute) async {
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
-        status.mapViewSource.setTileCache(cache)
+        status.mapViewSource.setTileCache(cache, buildLayers: false)
         prerenderProgress = 0
         prerenderActive = true
         await cache.prerender(route: route) { p in
             prerenderProgress = p
         }
+        // Re-install now that the corridor bake is done: same cache
+        // object (no visual change), but this time kicks off the
+        // coarse/fine sibling layers — safe now that the handshake/
+        // stream-start race is long over.
+        status.mapViewSource.setTileCache(cache, buildLayers: true)
         prerenderActive = false
     }
 
