@@ -920,6 +920,14 @@ final class RouteTileCache {
         let bitmapSize = tilePixels
 
         // Fractional tile coords for the center.
+        // `WebMercator.tile` is NaN-hardened (a non-finite coordinate used
+        // to trap in the `Int(floor(fx))` below — a hard process kill, seen
+        // as a MetricKit EXC_BREAKPOINT/SIGTRAP with no other symptom).
+        // Log the bad input so the NEXT such report names its source
+        // instead of leaving us to infer it from an unsymbolicated stack.
+        if !center.latitude.isFinite || !center.longitude.isFinite {
+            ConnDiag.log("tiles", "⚠️ composite() got a non-finite centre (lat=\(center.latitude) lon=\(center.longitude)) — substituting (0,0)")
+        }
         let (fx, fy) = WebMercator.tile(for: center, zoom: z)
 
         // Top-left tile index of the gridSide × gridSide block.
