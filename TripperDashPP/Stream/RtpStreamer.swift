@@ -176,6 +176,13 @@ final class RtpStreamer {
 
     private func fail(reason: String) {
         log.error("\(reason)")
+        // RtpStreamer.start() failures (encoder init, etc.) previously
+        // surfaced only via `metrics.lastError`, which the UI shows but a
+        // ConnDiag share does not capture — so a stall right after
+        // "startStreaming: warmup done, starting RtpStreamer…" with no
+        // further ConnDiag line pointed at this exact function without ever
+        // naming it.
+        ConnDiag.log("stream", "❌ RtpStreamer failed: \(reason)")
         metrics.lastError = reason
         onMetrics?(metrics)
         state = .failed

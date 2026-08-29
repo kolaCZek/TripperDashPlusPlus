@@ -294,7 +294,23 @@ final class AppStatus {
                     // maneuver) — a bare map with no navigation, exactly what
                     // we just stopped. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
+                    //
+                    // Field report (8/2026): this branch fires (dash shows
+                    // "iPhone connected"), but the dash then sits on
+                    // "Timeout" and the phone UI stays on "Connected — idle"
+                    // for tens of seconds — i.e. `startStreaming()` never
+                    // reaches `.running`. Everything inside that call
+                    // (sendRouteCard / sendNavStart / the post-z2 warmup /
+                    // RtpStreamer.start()) previously logged ONLY through
+                    // os.log, which never leaves the phone in a field
+                    // ConnDiag share — this exact resume path had zero
+                    // exported diagnostics, unlike the free-ride branch just
+                    // below. Log entry/exit here and instrument the guard
+                    // inside `startStreaming()` so the next report shows
+                    // exactly which step stalled instead of a silent gap.
+                    ConnDiag.log("stream", "Resuming navigation projection after reconnect")
                     await self.startStreaming()
+                    ConnDiag.log("stream", "startStreaming() returned — streamer=\(self.streamer == nil ? "nil" : "present") streamerState=\(self.streamer?.state.rawValue ?? "n/a")")
                 } else if state == .connected
                             && self.isFreeRiding
                             && !self.isStreaming {
@@ -400,7 +416,18 @@ final class AppStatus {
             return
         }
 
-        guard streamer == nil, let host = bikeLink.dashHost else { return }
+        guard streamer == nil, let host = bikeLink.dashHost else {
+            // Silent no-op before this fix: if `streamer` was somehow
+            // non-nil (a previous stop didn't clear it) or `dashHost` came
+            // back nil (link state raced this call), `startStreaming`
+            // returned having done NOTHING — no route card, no nav-start,
+            // no RTP — with zero trace anywhere. That is indistinguishable
+            // in the field from every step below actually running and
+            // silently stalling. Name it explicitly so the two cases can be
+            // told apart in a ConnDiag share.
+            ConnDiag.log("stream", "⚠️ startStreaming() guard failed — streamer=\(streamer == nil ? "nil" : "present") dashHost=\(bikeLink.dashHost ?? "nil") — nothing sent")
+            return
+        }
 
         let source = mapViewSource   // shared instance, lazily created
         let s = RtpStreamer(bikeHost: host, source: source)
@@ -432,6 +459,17 @@ final class AppStatus {
         // staged destination's name when navigating; fall back to a
         // generic title for free-ride, matching the reference
         // implementation's own default ("Navigation").
+        //
+        // ConnDiag milestones below: `sendRouteCard`/`sendNavStart`/
+        // `sendRouteCardKeepalive` previously logged ONLY through os.log,
+        // which never leaves the phone in a field ConnDiag share — a
+        // reconnect stalling anywhere in this sequence (field report
+        // 8/2026: "iPhone connected" on the dash but then "Timeout", phone
+        // UI stuck on "Connected — idle" for tens of seconds) left no trace
+        // to say WHICH step it was. These lines are cheap (fixed strings,
+        // no packet hex) and narrow the next report to one of five spots
+        // instead of "somewhere after reconnect".
+        ConnDiag.log("stream", "startStreaming: sending route card…")
         await bikeLink.sendRouteCard(title: stagedDestination?.name ?? "Free ride")
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
@@ -456,6 +494,7 @@ final class AppStatus {
         // actually matters. Awaiting a UDP send is cheap (single-digit
         // ms in practice) — no perceptible startup delay for the normal
         // case, and a real ordering guarantee for the racy one.
+        ConnDiag.log("stream", "startStreaming: sending nav-start (q3c.z2)…")
         await bikeLink.sendNavStart()
         // Post-z2 confirmation route card — ONE more 0x007E immediately
         // after nav-start, mirroring the reference (`_enter_nav_mode`:
@@ -468,6 +507,7 @@ final class AppStatus {
         // inside the window where the dash is actually setting the surface
         // up, which is exactly when its "is there still a destination?"
         // check runs.
+        ConnDiag.log("stream", "startStreaming: sending post-z2 route card…")
         await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
         // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
         // 450ms and why the ordering fix above wasn't sufficient on its
@@ -479,7 +519,9 @@ final class AppStatus {
         // button on RE App!" idle screen on some reconnects — the decoder
         // surface plainly wasn't ready yet when the video hit the wire.
         try? await Task.sleep(nanoseconds: UInt64(K1G.postZ2Warmup * 1_000_000_000))
+        ConnDiag.log("stream", "startStreaming: warmup done, starting RtpStreamer…")
         s.start()
+        ConnDiag.log("stream", "startStreaming: RtpStreamer.start() returned, state=\(s.state.rawValue)")
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the

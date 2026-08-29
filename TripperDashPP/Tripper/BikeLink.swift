@@ -371,7 +371,17 @@ final class BikeLink {
     /// the same way it does for nav-start vs. the RTP stream.
     func sendRouteCard(title: String) async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
-        guard state == .connected, let s = socket else { return }
+        guard state == .connected, let s = socket else {
+            // Silent no-op before this fix. `startStreaming` awaits this
+            // call assuming it either sent the burst or is a clean no-op
+            // (demo mode) — a guard failure here (state raced away from
+            // .connected between the reconnect handler's check and this
+            // call, or the socket was torn down concurrently) looked
+            // IDENTICAL to success from the caller's side, with nothing in
+            // any log to say the dash never got a single 0x007E.
+            ConnDiag.log("routecard", "⚠️ sendRouteCard guard failed — state=\(state) socket=\(socket == nil ? "nil" : "present") — nothing sent")
+            return
+        }
         do {
             for i in 0..<K1G.routeCardBurstCount {
                 let pkt = K1GPacket.makeRouteCard(title: title, projectionOn: false, seq: seq.consume())
@@ -383,6 +393,10 @@ final class BikeLink {
             log.info("Sent 0x007e route card x\(K1G.routeCardBurstCount, privacy: .public) (title=\(title, privacy: .public))")
         } catch {
             log.error("Route-card send failed: \(error.localizedDescription)")
+            // This previously went to os.log only — invisible in a field
+            // ConnDiag share. A send failure here means the dash's
+            // nav-decoder-surface gate never even got asked to open.
+            ConnDiag.log("routecard", "❌ Route-card send failed: \(error.localizedDescription)")
         }
     }
 
@@ -413,7 +427,15 @@ final class BikeLink {
     /// needs to see a route card; it does not need the HUD fields.
     func sendRouteCardKeepalive(title: String) async {
         guard !demoMode else { return }   // demo link has no socket
-        guard state == .connected, let s = socket else { return }
+        guard state == .connected, let s = socket else {
+            // This is the 1 Hz watchdog refresh — if THIS silently no-ops
+            // while the rest of the app still thinks it's streaming, the
+            // dash's "destination still valid" timer runs out with nobody
+            // aware it was ever unfed. Rate-limit isn't needed: state only
+            // flips out of .connected occasionally, not every tick.
+            ConnDiag.log("routecard", "⚠️ sendRouteCardKeepalive guard failed — state=\(state) socket=\(socket == nil ? "nil" : "present")")
+            return
+        }
         let pkt = K1GPacket.makeRouteCard(
             title: title,
             projectionOn: true,
@@ -442,7 +464,10 @@ final class BikeLink {
     /// feature), so there is no case where omitting it is correct.
     func sendNavStart() async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
-        guard state == .connected, let s = socket else { return }
+        guard state == .connected, let s = socket else {
+            ConnDiag.log("navstart", "⚠️ sendNavStart guard failed — state=\(state) socket=\(socket == nil ? "nil" : "present") — nothing sent")
+            return
+        }
         let z2 = K1GPacket.makeStartNav(seq: seq.consume())
         let q  = K1GPacket.makeNavContext(seq: seq.consume())
         let r  = K1GPacket.makeEmptyLists(seq: seq.consume())
@@ -453,6 +478,10 @@ final class BikeLink {
             log.info("Sent nav-mode kick (q3c.z2 + q3c.q + q3c.r)")
         } catch {
             log.error("Nav-mode kick failed: \(error.localizedDescription)")
+            // Same rationale as sendRouteCard's ConnDiag line: without this,
+            // a send failure here (dash never told to leave the home
+            // widgets) is invisible outside a Mac-attached Console.app.
+            ConnDiag.log("navstart", "❌ Nav-mode kick failed: \(error.localizedDescription)")
         }
     }
 
