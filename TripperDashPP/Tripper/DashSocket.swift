@@ -90,6 +90,31 @@ actor DashSocket {
         self.inboundContinuation = cont
     }
 
+    /// Backstop against leaking the bound fd if this socket is released
+    /// without an explicit `cancel()`.
+    ///
+    /// `cancel()` is the normal teardown path, but it is not guaranteed to
+    /// run: `BikeLink` reaches for `socket = nil` on several error paths,
+    /// and anything that drops the last reference first would strand the
+    /// DispatchSourceRead — and with it the open, still-bound descriptor.
+    /// Cancelling the source here fires its cancel handler, which closes
+    /// the fd unconditionally (see `start`).
+    ///
+    /// Why this matters more than a usual fd leak: the socket is bound to
+    /// the fixed port :2002 WITH SO_REUSEPORT, so a leaked one does not
+    /// merely waste a descriptor — it keeps competing for the dash's
+    /// replies with every socket opened afterwards, and the kernel gives
+    /// each datagram to exactly one of them. A single orphan is enough to
+    /// make all later connects fail with rx=0 for the rest of the app's
+    /// lifetime (field log 8/2026).
+    ///
+    /// `deinit` on an actor is nonisolated, so this must not touch
+    /// actor-isolated state; `readSource.cancel()` is thread-safe and the
+    /// handler does the rest.
+    deinit {
+        readSource?.cancel()
+    }
+
     // MARK: - Lifecycle
 
     /// Create the BSD socket, bind to `localPort`, configure the
@@ -170,11 +195,36 @@ actor DashSocket {
             self.drainAllPending()
         }
         src.setCancelHandler { [weak self] in
-            guard let self else { return }
-            // Close the fd on cancel; capture by value so the actor
-            // doesn't need to be touched here.
+            // Close the fd UNCONDITIONALLY, before touching `self`.
+            //
+            // This used to open with `guard let self else { return }`, which
+            // put the close behind a liveness check it never needed: `s` is
+            // captured by value and closing it requires nothing from the
+            // actor. If the DashSocket was deallocated before this handler
+            // ran on ioQueue — which is exactly what `BikeLink` provokes by
+            // doing `await socket?.cancel()` immediately followed by
+            // `socket = nil`, dropping the last strong reference — the guard
+            // returned early and THE FILE DESCRIPTOR WAS NEVER CLOSED.
+            //
+            // That leaks a socket still bound to :2002. Combined with the
+            // SO_REUSEPORT above, the kernel happily keeps delivering the
+            // dash's replies to that orphan, where nothing is reading them,
+            // so every subsequent connect attempt sees rx=0 forever while
+            // the dash itself reports "iPhone connected" (its TX lands — in
+            // a black hole).
+            //
+            // Field log 8/2026, free-ride, second ignition cycle: the
+            // 19:48:25 failure is missing the "DashSocket cancelled" line
+            // that every healthy teardown in the same log emits. That line
+            // comes from `didCancel()`, which sits BEHIND the old guard —
+            // its absence is the fingerprint of this leak. Every attempt
+            // after it: rx=0.
             let toClose = s
             close(toClose)
+            // State bookkeeping + the diagnostic line still need the actor;
+            // if it's gone there is nothing left to update, and the fd is
+            // already closed above either way.
+            guard let self else { return }
             Task { await self.didCancel() }
         }
         src.resume()
