@@ -167,6 +167,30 @@ final class RouteTileCache {
     /// span) before the cache misses and the dark fallback kicks in.
     static let lateralOffset: CLLocationDistance = 1500
 
+    /// Hard upper bound on how far a drawn tile's geographic centre may be
+    /// from the live GPS fix. Enforced at draw time in
+    /// `MapViewSource.drawTileCacheFrame`; a violation rejects the tile and
+    /// re-anchors on the fix.
+    ///
+    /// Derived, not guessed — it has to sit in the gap between two numbers:
+    ///
+    ///   * LOWER bound 1540 m — the worst LEGITIMATE distance. A rider on
+    ///     the route can have a wing tile as their nearest tile, and a wing
+    ///     is `lateralOffset` (1500 m) to the side; add up to half an anchor
+    ///     stride along the route (350 m) and the honest worst case is
+    ///     hypot(1500, 350) ≈ 1540 m. Anything at or below this would reject
+    ///     correct tiles.
+    ///   * UPPER bound 1965 m — half the tile span. A tile is a 5 × 256 px
+    ///     stitch at z=15, ≈3931 m per side at 50°N (3.07 m/px), so beyond
+    ///     ~1965 m from its centre the rider is off the bitmap entirely and
+    ///     the frame would show blank map under the puck regardless.
+    ///
+    /// 1800 m is comfortably inside both. Note the km-scale desync this
+    /// guards against is an order of magnitude past this limit, so the exact
+    /// value within that window is not critical — what matters is that the
+    /// check exists and runs against the raw fix on every frame.
+    static let maxTileCentreDistance: CLLocationDistance = 1800
+
     /// Hard cap on total composites per route. Anchors are still
     /// computed beyond this number, but bake batches will only ever
     /// process up to this many distinct indices — used as a sanity

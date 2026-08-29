@@ -1114,6 +1114,38 @@ extension MapViewSource {
         }
         lastTileHintIndex = idx
 
+        // ── HARD INVARIANT: the drawn tile must actually contain the rider ──
+        //
+        // `drawProjectedTile` positions the tile bitmap by the delta between
+        // the tile's own geographic centre and the live GPS fix, so a tile
+        // whose centre is far away doesn't put the puck in the wrong place —
+        // it slides the map out from under the puck, which is what the rider
+        // saw as "my position jumped several km ahead" (field report 8/2026).
+        //
+        // Everything upstream that picks a tile is heuristic: `nearestTile`
+        // takes an argmin with a hint index, and the anchor snapping that
+        // decides which tiles even exist is itself a nearest-match. Both can
+        // be wrong where a route passes near itself. Rather than trust every
+        // one of those heuristics forever, assert the property we actually
+        // care about right where it matters — at draw time, against the raw
+        // GPS fix, which is the one input no heuristic can corrupt.
+        //
+        // On violation: discard the tile and fall through to the
+        // position-anchored rescue path, which bakes a tile centred on the
+        // ACTUAL fix. That is the "hard jump back to the correct position"
+        // behaviour — the map snaps to where the rider really is instead of
+        // continuing to render a plausible-looking but wrong location.
+        let tileDistance = PolylineMath.haversine(fix.coordinate, refTile.center)
+        if tileDistance > RouteTileCache.maxTileCentreDistance {
+            log.error("Tile centre \(Int(tileDistance), privacy: .public) m from fix (limit \(Int(RouteTileCache.maxTileCentreDistance), privacy: .public) m) — rejecting and re-anchoring on the fix")
+            ConnDiag.log("tiles", "⚠️ tile-centre invariant violated: \(Int(tileDistance)) m from fix (limit \(Int(RouteTileCache.maxTileCentreDistance)) m) — re-anchoring on GPS")
+            // Stale hint would very likely re-pick the same bad tile next
+            // frame; force a full rescan.
+            lastTileHintIndex = 0
+            drawOffCorridorFallbackFrame(into: ctx)
+            return
+        }
+
 
         // DIAG (issue #south-shift): log distance from fix to tile centre
         // every ~5 s so we can see in the OS log whether the renderer is
