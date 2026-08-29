@@ -871,9 +871,10 @@ extension MapViewSource {
         // rider while the nav glyph, which reads raw fixes, stayed correct).
         if let displayed = motion.displayCoordinate {
             let drift = MotionInterpolator.haversine(displayed, fix.coordinate)
-            if drift > motion.maxDriftBeforeSnapM {
-                log.error("Smoothed position \(Int(drift), privacy: .public) m from fix (limit \(Int(motion.maxDriftBeforeSnapM), privacy: .public) m) — hard-snapping")
-                ConnDiag.log("tiles", "⚠️ motion interpolator drift \(Int(drift)) m from fix (limit \(Int(motion.maxDriftBeforeSnapM)) m) — hard-snapping to GPS")
+            let limit = motion.maxDriftBeforeSnapM
+            if drift > limit {
+                log.error("Smoothed position \(Int(drift), privacy: .public) m from fix (limit \(Int(limit), privacy: .public) m) — hard-snapping")
+                ConnDiag.log("tiles", "⚠️ motion interpolator drift \(Int(drift)) m from fix (limit \(Int(limit)) m) — hard-snapping to GPS")
             }
         }
         motion.ingest(fix: fix)
