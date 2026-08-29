@@ -106,6 +106,21 @@ final class RouteTileCache {
     /// leaves the user position well inside a single composite.
     static let stride: CLLocationDistance = 700
 
+    /// How far AHEAD of `lastRiderRouteOffset` `snapToMainAnchor` will
+    /// look for a matching anchor. Generous: it must survive a burst of
+    /// missed fixes (tunnel, background suspension, patchy GPS) at
+    /// motorway speed — 5 km is ~2 minutes at 150 km/h — while staying far
+    /// below the distance at which a self-intersecting route would offer a
+    /// false match.
+    static let snapForwardWindow: CLLocationDistance = 5_000
+
+    /// How far BEHIND `lastRiderRouteOffset` the same search will look.
+    /// Small on purpose: riders move forward along a route, so a backward
+    /// match is either GPS jitter (a couple of hundred metres at most) or
+    /// a genuine turnaround, which is a reroute's job — not something to
+    /// paper over by letting the map slide backwards.
+    static let snapBackwardWindow: CLLocationDistance = 1_500
+
     /// How many OSM tiles per side of each composite. 5 × 256 = 1280 px,
     /// covers ~2.0 km at z=15 (latitude-dependent).
     ///
@@ -425,7 +440,13 @@ final class RouteTileCache {
         // Snap the rider to the nearest main anchor to get a route offset;
         // fall back to the route start if they're somehow off every main
         // anchor (shouldn't happen mid-ride, but keeps us safe).
-        let snapped = snapToMainAnchor(coord: coord) ?? 0
+        //
+        // `allowJump: true` — this runs on a style re-bake, where
+        // `allAnchors` was just recomputed for (possibly) a different
+        // route. There is no meaningful continuity with the previous
+        // `lastRiderRouteOffset`, so the continuity gate must not apply or
+        // the rider could be locked out of every anchor on the new route.
+        let snapped = snapToMainAnchor(coord: coord, allowJump: true) ?? 0
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
         let frontEdge = snapped + bakeAheadMeters
@@ -453,7 +474,18 @@ final class RouteTileCache {
         // use its routeOffset as the window's center-back edge. Main
         // anchors are the ones on the actual polyline; wings would
         // give a misleading offset for someone briefly drifting.
-        let snappedOffset = snapToMainAnchor(coord: coord) ?? lastRiderRouteOffset
+        // `allowJump: false` (the default) — mid-ride, so the continuity
+        // gate applies: the map must not teleport to a far-away part of a
+        // self-intersecting route. On no match we keep the previous offset,
+        // which is the correct conservative behaviour (the map holds still
+        // rather than jumping somewhere wrong), and a genuine off-route
+        // excursion is picked up by the reroute path, which re-bakes with
+        // `allowJump: true`.
+        let snapResult = snapToMainAnchor(coord: coord)
+        if snapResult == nil {
+            ConnDiag.log("tiles", "⚠️ rider did not match any anchor within the continuity window (holding offset \(Int(lastRiderRouteOffset)) m)")
+        }
+        let snappedOffset = snapResult ?? lastRiderRouteOffset
         lastRiderRouteOffset = snappedOffset
 
         let frontEdge = snappedOffset + lookaheadMeters
@@ -616,13 +648,52 @@ final class RouteTileCache {
     /// `routeOffsetMeters`. Used to snap the rider position to a
     /// well-defined "distance along route" value.
     ///
-    /// Returns nil if the rider is implausibly far from every main
-    /// anchor (>3 km, off-route plus lateral buffer) — `extend()`
-    /// will then fall back to the last known offset.
-    private func snapToMainAnchor(coord: CLLocationCoordinate2D) -> CLLocationDistance? {
+    /// Snap a GPS fix to the route offset of the nearest MAIN-row anchor.
+    ///
+    /// `allowJump` defaults to false, which constrains the search to
+    /// anchors near `lastRiderRouteOffset` — see below. Pass true only
+    /// when there is no continuity to preserve (first fix of a ride, or a
+    /// fresh route after a reroute), where the rider genuinely can be
+    /// anywhere along the new polyline.
+    ///
+    /// WHY THE CONSTRAINT (field report, 8/2026): the rider's position on
+    /// the streamed map jumped several km ahead of where they actually
+    /// were, while the dash's maneuver glyph kept navigating correctly.
+    /// That split is the tell — the two consume different position logic:
+    ///
+    ///   * the glyph goes through `PolylineMath.nearestSegment(from:)`,
+    ///     which carries a forward cursor (`lastSegmentIndex`) and so is
+    ///     monotonic — it cannot latch onto a distant part of the route;
+    ///   * this function scanned EVERY anchor on the whole route, took the
+    ///     global argmin and accepted anything within 3 km, with no
+    ///     reference at all to where the rider was a moment ago.
+    ///
+    /// So anywhere the route passes near itself — a loop, a switchback, an
+    /// out-and-back, or simply a parallel carriageway — the global argmin
+    /// can pick an anchor kilometres away along the route while the glyph
+    /// stays right. The 3 km tolerance made it worse: it is more than four
+    /// anchor strides (700 m), so a large jump was well inside tolerance.
+    ///
+    /// The window is asymmetric on purpose: a rider moves forward along
+    /// the route between fixes, so allow a generous forward reach but only
+    /// a small backward one (GPS jitter, or genuinely turning around,
+    /// which a reroute will handle properly).
+    private func snapToMainAnchor(
+        coord: CLLocationCoordinate2D,
+        allowJump: Bool = false
+    ) -> CLLocationDistance? {
         var bestOffset: CLLocationDistance = 0
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
+        let lowerBound = lastRiderRouteOffset - Self.snapBackwardWindow
+        let upperBound = lastRiderRouteOffset + Self.snapForwardWindow
         for a in allAnchors where a.lateralRow == 0 {
+            if !allowJump {
+                // Continuity gate: ignore anchors that are not plausibly
+                // reachable from the last known route offset. This is what
+                // stops a self-intersecting route teleporting the map.
+                guard a.routeOffsetMeters >= lowerBound,
+                      a.routeOffsetMeters <= upperBound else { continue }
+            }
             let d = PolylineMath.haversine(coord, a.coord)
             if d < bestDist {
                 bestDist = d
