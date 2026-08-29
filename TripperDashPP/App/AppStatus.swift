@@ -275,6 +275,39 @@ final class AppStatus {
                     // void. The stream re-arms below once we're back.
                     ConnDiag.log("stream", "Link left .connected while streaming — stopping RTP (will re-arm on reconnect)")
                     self.stopStreaming()
+                } else if state != .connected, self.streamer != nil {
+                    // SAME cleanup, for the case `isStreaming` already went
+                    // false on its own. THIS is the reconnect-hang bug
+                    // (field log, 8/2026, free-ride):
+                    //
+                    //   19:09:26.132  RtpStreamer failed: NWError 57
+                    //                 (Socket is not connected)
+                    //                 → fail() → stop() → state = .idle
+                    //   19:09:26.227  Link dropped (wifi-path-down)   [+95 ms]
+                    //
+                    // `isStreaming` is derived purely from
+                    // `streamer?.state == .running`, so the streamer's own
+                    // failure had ALREADY flipped it false 95 ms before the
+                    // link-drop observation arrived. The branch above
+                    // therefore did not fire, `stopStreaming()` never ran,
+                    // and `streamer` was left non-nil holding a dead
+                    // RtpStreamer. Both resume paths guard on
+                    // `streamer == nil`, so on reconnect:
+                    //
+                    //   19:09:41.218  Free-ride resume skipped —
+                    //                 state=connected streamer=present
+                    //
+                    // …no RTP was ever started and the dash sat on Timeout.
+                    // The dead streamer would have blocked EVERY subsequent
+                    // start for the rest of the app session, not just this
+                    // reconnect.
+                    //
+                    // Ordering note: this is deliberately a second branch
+                    // rather than a relaxed condition on the first, so the
+                    // healthy case (still .running when the link drops)
+                    // keeps its existing log line and behaviour untouched.
+                    ConnDiag.log("stream", "Link left .connected with a non-running streamer still allocated (state=\(self.streamer?.state.rawValue ?? "n/a")) — clearing it so the reconnect can re-arm")
+                    self.stopStreaming()
                 } else if state == .connected
                             && self.activeNavigator.isNavigating
                             && !self.activeNavigator.hasArrived
@@ -414,6 +447,26 @@ final class AppStatus {
             rideStats.begin()
             applyKeepAwake()
             return
+        }
+
+        // A streamer that exists but is NOT running is dead weight — it can
+        // never produce frames again (RtpStreamer.start() only accepts
+        // .idle/.failed, and this instance's encoder + UDP connection are
+        // already torn down by fail()/stop()). Holding onto it makes the
+        // guard below reject every future start for the rest of the app
+        // session. Clear it and carry on rather than returning.
+        //
+        // Field log 8/2026: `RtpStreamer failed: NWError 57 (Socket is not
+        // connected)` left exactly this state behind, and the next
+        // reconnect logged "Free-ride resume skipped — streamer=present"
+        // and never started RTP → dash Timeout. The observer in
+        // `observeBikeLink` now also clears it on a link drop, but this
+        // covers the case where the streamer dies while the link stays
+        // .connected, where no state-change observation fires at all.
+        if let existing = streamer, existing.state != .running, existing.state != .starting {
+            ConnDiag.log("stream", "startStreaming: discarding dead streamer (state=\(existing.state.rawValue)) before re-arming")
+            existing.stop()
+            streamer = nil
         }
 
         guard streamer == nil, let host = bikeLink.dashHost else {
@@ -631,7 +684,12 @@ final class AppStatus {
     ///
     /// No-op if not connected, already streaming, or already free-riding.
     func startFreeRide() async {
-        guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
+        // Same "dead streamer isn't a live stream" reasoning as
+        // `resumeFreeRideAfterReconnect` — a corpse left in .idle/.failed
+        // must not block the rider's manual "Start free ride" tap either.
+        // `startStreaming()` discards it.
+        let alive = streamer.map { $0.state == .running || $0.state == .starting } ?? false
+        guard bikeLink.state == .connected, !alive, !isFreeRiding else { return }
         isFreeRiding = true
         installFreeRideContent()
         await startStreaming()
@@ -645,13 +703,28 @@ final class AppStatus {
     /// `true`, so only reinstall the content (fresh empty tile cache + camera
     /// prefetch — cheap, no re-bake needed) and restart the stream.
     private func resumeFreeRideAfterReconnect() async {
-        guard bikeLink.state == .connected, streamer == nil else {
-            ConnDiag.log("stream", "Free-ride resume skipped — state=\(bikeLink.state) streamer=\(streamer == nil ? "nil" : "present")")
+        // Only a RUNNING (or starting) streamer means "already projecting"
+        // and should suppress the resume. A streamer left behind in
+        // .idle/.failed/.stopping is dead weight — `startStreaming()` now
+        // discards it — and must NOT block the resume.
+        //
+        // Field log 8/2026, the exact line this fixes:
+        //   19:09:41.218 Free-ride resume skipped — state=connected
+        //                streamer=present
+        // The "present" streamer there was a corpse: it had failed 15 s
+        // earlier with NWError 57 and was sitting in .idle. The old
+        // `streamer == nil` guard could not tell that apart from a healthy
+        // live stream, so it skipped the resume, no RTP was ever sent, and
+        // the dash timed out.
+        let alive = streamer.map { $0.state == .running || $0.state == .starting } ?? false
+        guard bikeLink.state == .connected, !alive else {
+            ConnDiag.log("stream", "Free-ride resume skipped — state=\(bikeLink.state) streamer=\(streamer == nil ? "nil" : "present") streamerState=\(streamer?.state.rawValue ?? "n/a")")
             return
         }
         ConnDiag.log("stream", "Resuming free-ride projection after reconnect")
         installFreeRideContent()
         await startStreaming()
+        ConnDiag.log("stream", "Free-ride resume: startStreaming() returned — streamerState=\(streamer?.state.rawValue ?? "nil")")
     }
 
     /// Swap the streamed content from active-navigation to free-ride WITHOUT
