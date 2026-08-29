@@ -285,6 +285,13 @@ final class AppStatus {
                     //                 → fail() → stop() → state = .idle
                     //   19:09:26.227  Link dropped (wifi-path-down)   [+95 ms]
                     //
+                    // The trigger is the ordinary, expected one: the rider
+                    // switching the motorcycle off and on again (the AP goes
+                    // away with it). Not an exotic radio failure — this is
+                    // the normal petrol-stop / restart case the whole
+                    // auto-reconnect path exists to survive, and it is
+                    // trivially reproducible on demand.
+                    //
                     // `isStreaming` is derived purely from
                     // `streamer?.state == .running`, so the streamer's own
                     // failure had ALREADY flipped it false 95 ms before the
