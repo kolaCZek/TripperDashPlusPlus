@@ -67,6 +67,29 @@ struct MotionInterpolator {
     /// without letting jitter dominate.
     var maxAccelMPS2: Double = 4.0
 
+    /// Hard cap on how far the smoothed display position may drift from a
+    /// fresh GPS fix before we give up on soft correction and snap outright.
+    ///
+    /// Field report (8/2026): the rider saw their position on the map jump
+    /// several km ahead while the dash's nav glyph (which reads the raw fix,
+    /// not this interpolator) stayed correct — the display coordinate had
+    /// desynced from the truth it's supposed to be chasing. The soft
+    /// correction in `tick()` dissolves error over `correctionTimeConstantS`
+    /// (~1.5 s to 95%) — fine for the couple of metres normal GPS jitter and
+    /// extrapolation error produce between 1 Hz fixes, but if the display
+    /// position ever ends up FAR from the truth (a bad route-follow
+    /// projection, stale extrapolation compounding over several missed
+    /// fixes, anything not yet foreseen) that same mechanism would smoothly
+    /// drag the map across kilometres over several seconds instead of
+    /// jumping straight to the one number we know is right: the fix itself.
+    ///
+    /// 100 m, per the rider's own reasoning: GPS lands at ~1 Hz, and covering
+    /// 100 m between two consecutive fixes needs ~360 km/h — nobody is doing
+    /// that on this bike. So ANY gap this large is not real motion; it is the
+    /// interpolator's own state having come unmoored from the truth, and the
+    /// right response is a hard correction, not a smooth one.
+    var maxDriftBeforeSnapM: CLLocationDistance = 100
+
     // MARK: - State
 
     /// The coordinate we are currently displaying (extrapolated + corrected).
@@ -156,6 +179,25 @@ struct MotionInterpolator {
         if displayCoordinate == nil {
             displayCoordinate = fix.coordinate
             lastTickTime = fix.timestamp
+        } else if let display = displayCoordinate {
+            // HARD SNAP GUARD — checked BEFORE any of the soft-correction
+            // machinery below touches `display`. If the smoothed position has
+            // drifted more than `maxDriftBeforeSnapM` from this fresh fix,
+            // that gap cannot be real motion (see the property's doc — 100 m
+            // between 1 Hz fixes needs ~360 km/h) and is instead the display
+            // coordinate having come unmoored from the truth. Snap it to the
+            // fix outright rather than letting `tick()`'s exponential blend
+            // smoothly drag the map across the gap over several seconds.
+            //
+            // Also resets route-following: `routeProgressM`'s arc-length
+            // state was built for the OLD (wrong) position and would just
+            // reproduce the same desync on the next tick otherwise.
+            let drift = Self.haversine(display, fix.coordinate)
+            if drift > maxDriftBeforeSnapM {
+                displayCoordinate = fix.coordinate
+                isFollowingRoute = false
+                offRouteStreak = 0
+            }
         }
 
         let moving = fix.speed >= minMovingSpeedMPS && fix.course >= 0

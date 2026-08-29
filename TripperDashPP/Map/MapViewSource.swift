@@ -863,6 +863,19 @@ extension MapViewSource {
 
     private func handleFix(_ fix: Fix) {
         lastFix = fix
+        // Diagnostic BEFORE ingest: `motion.ingest` performs the hard-snap
+        // check internally and would already have corrected by the time we
+        // could read it back, so measure the drift here to log the violation
+        // (see `MotionInterpolator.maxDriftBeforeSnapM`'s doc for why this
+        // check exists — a field report of the map desyncing km from the
+        // rider while the nav glyph, which reads raw fixes, stayed correct).
+        if let displayed = motion.displayCoordinate {
+            let drift = MotionInterpolator.haversine(displayed, fix.coordinate)
+            if drift > motion.maxDriftBeforeSnapM {
+                log.error("Smoothed position \(Int(drift), privacy: .public) m from fix (limit \(Int(motion.maxDriftBeforeSnapM), privacy: .public) m) — hard-snapping")
+                ConnDiag.log("tiles", "⚠️ motion interpolator drift \(Int(drift)) m from fix (limit \(Int(motion.maxDriftBeforeSnapM)) m) — hard-snapping to GPS")
+            }
+        }
         motion.ingest(fix: fix)
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
