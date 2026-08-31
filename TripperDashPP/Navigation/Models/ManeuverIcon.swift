@@ -117,7 +117,8 @@ enum ManeuverKind: Equatable {
     ///     entry/exit roundabout steps.
     static func classify(arrivingStep: MKRoute.Step,
                          departingStep: MKRoute.Step?,
-                         precedingStep: MKRoute.Step? = nil) -> ManeuverKind {
+                         precedingStep: MKRoute.Step? = nil,
+                         treatArriveAsTurn: Bool = false) -> ManeuverKind {
         let s = arrivingStep.instructions.lowercased()
 
         // Driving side at the maneuver node (= last vertex of the arriving
@@ -200,7 +201,21 @@ enum ManeuverKind: Equatable {
 
         if Keywords.isFerry(s)    { return .ferry }
         if Keywords.isRailroad(s) { return .railroad }
-        if Keywords.isArrive(s)   { return .arrive }
+        // "Arrive at destination" normally IS the maneuver — the ride ends
+        // here, so the glyph must say so.
+        //
+        // `treatArriveAsTurn` is set ONLY for a track route's leg boundary
+        // (see `ActiveNavigator.nextLegFirstStep`). There, the waypoint is a
+        // synthetic shape point produced by Douglas–Peucker, not a place the
+        // rider is going to: MapKit calls it a destination because we asked
+        // for a route to it, but the rider just rides through, usually round
+        // a corner. Falling through to the geometry below turns that into
+        // the real turn glyph. Guarded on a departing step existing, because
+        // without one there is no angle to compute and `.arrive` remains the
+        // only honest answer.
+        if Keywords.isArrive(s) {
+            if !(treatArriveAsTurn && departingStep != nil) { return .arrive }
+        }
 
         // ---- Plain turn: DIRECTION from geometry -----------------------
         if let turn = geoTurn {

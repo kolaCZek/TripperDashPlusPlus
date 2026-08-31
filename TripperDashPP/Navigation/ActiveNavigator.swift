@@ -148,6 +148,36 @@ final class ActiveNavigator {
     /// `nil` when the arriving step is the route's first.
     private(set) var precedingStep: MKRoute.Step?
 
+    /// TRACK ROUTES ONLY — the first real step of the NEXT leg, used to
+    /// classify the maneuver that sits exactly ON the leg boundary.
+    ///
+    /// Why this exists (field report, Ari, 8/2026 — "navigating a GPX route
+    /// it does not give the next upcoming turn"): an imported GPX `<trk>` is
+    /// reduced by Douglas–Peucker to ≤ `navigableCap` points, and each of
+    /// those becomes a waypoint, i.e. a LEG BOUNDARY. Douglas–Peucker keeps
+    /// the points of greatest deviation — which are precisely the corners —
+    /// so the sharper the turn, the more likely it IS a boundary. Measured
+    /// on Ari's own file (65.9 km, 1034 pts → 28 legs): 58% of turns over
+    /// 90° landed on a leg boundary, versus 11% of gentle 30–60° bends.
+    ///
+    /// A turn on the boundary is invisible to both legs: the current leg's
+    /// last step is "arrive at destination" (`ManeuverKind.classify` returns
+    /// `.arrive`), and the next leg's first step departs FROM the corner, so
+    /// the angle is never formed within either route. The rider gets
+    /// "straight ahead" right up to a 90° junction — exactly the report.
+    ///
+    /// Holding the next leg's first step lets `upcomingManeuver` form the
+    /// angle ACROSS the boundary (arriving = this leg's last step,
+    /// departing = next leg's first step) using the same MapKit steps and
+    /// the same classifier as everywhere else. Crucially the maneuver stays
+    /// TEXT-derived where it must be: roundabout exit ordinals come from
+    /// `.instructions`, which a purely geometric approach could never
+    /// recover (the polyline never traces the arms we don't take).
+    ///
+    /// `nil` for every non-track route, and for the final leg. Normal
+    /// point-to-point navigation never populates this and is unaffected.
+    private(set) var nextLegFirstStep: MKRoute.Step?
+
     /// Distance from current position to the next maneuver.
     private(set) var distanceToNextStep: CLLocationDistance = 0
 
@@ -188,9 +218,32 @@ final class ActiveNavigator {
     /// the pre-first-fix transient when no arriving step is known yet.
     var upcomingManeuver: ManeuverKind? {
         guard let arriving = stepBeforeNext else { return nil }
+        // Normal case: the departing step lives in this same route.
+        //
+        // Track-route boundary case: when the maneuver node is the END of
+        // this leg there is no departing step here — the turn continues into
+        // the NEXT leg. Borrow that leg's first step as the departing one so
+        // the angle can be formed across the boundary. `nextLegFirstStep` is
+        // non-nil ONLY for track routes with a next leg (see
+        // `refreshNextLegFirstStep`), so every other kind of navigation
+        // takes the plain `nextStep` path and behaves exactly as before.
+        if let departing = nextStep {
+            return ManeuverKind.classify(arrivingStep: arriving,
+                                         departingStep: departing,
+                                         precedingStep: precedingStep)
+        }
+        guard let borrowed = nextLegFirstStep else {
+            // Genuine end of the route — no next step anywhere. Unchanged.
+            return ManeuverKind.classify(arrivingStep: arriving,
+                                         departingStep: nil,
+                                         precedingStep: precedingStep)
+        }
+        // Only here — a track's synthetic mid-route waypoint — do we override
+        // MapKit's "arrive at destination" wording with the real turn.
         return ManeuverKind.classify(arrivingStep: arriving,
-                                     departingStep: nextStep,
-                                     precedingStep: precedingStep)
+                                     departingStep: borrowed,
+                                     precedingStep: precedingStep,
+                                     treatArriveAsTurn: true)
     }
 
     /// The localized instruction text for the UPCOMING maneuver — the
@@ -613,6 +666,7 @@ final class ActiveNavigator {
         // already set by the caller (start/leg-advance) before seed runs,
         // so this picks up the right "subsequent legs" set.
         refreshOverviewCaches()
+        refreshNextLegFirstStep()
         // F6: (re)start the periodic Apple ETA re-fetch pump. Called
         // from the ONE place all three lifecycle entry points
         // (start/start-plan/leg-advance) funnel through, so there's no
@@ -643,6 +697,34 @@ final class ActiveNavigator {
             tail.append(contentsOf: route.polyline.coordinateList())
         }
         subsequentLegsCoordsCache = tail
+    }
+
+    /// Populate `nextLegFirstStep` — the departing step used to classify a
+    /// maneuver sitting exactly ON a leg boundary. See that property's doc
+    /// for the full rationale and the field measurements.
+    ///
+    /// Deliberately narrow. It bails out unless ALL of these hold:
+    ///   1. there IS a plan (single-destination navigation is untouched),
+    ///   2. the plan is a TRACK (`isTrack`) — a multi-STOP plan's waypoints
+    ///      are real destinations the rider chose, where "arrive at the
+    ///      stop" is the correct maneuver and must not be replaced by the
+    ///      turn out of the car park,
+    ///   3. a next leg exists (never on the final leg — arrival stays
+    ///      arrival),
+    ///   4. that leg has a selected route with at least one step.
+    /// Any failure clears the property, so a stale step from a previous leg
+    /// can never leak into the next one.
+    private func refreshNextLegFirstStep() {
+        guard let plan, plan.isTrack,
+              currentLegIndex + 1 < plan.legs.count,
+              plan.legs.indices.contains(currentLegIndex + 1),
+              let route = plan.legs[currentLegIndex + 1].selected?.route,
+              let first = route.steps.first
+        else {
+            nextLegFirstStep = nil
+            return
+        }
+        nextLegFirstStep = first
     }
 
     /// Recompute `currentAlternatives` = the NON-selected route options of
@@ -759,6 +841,7 @@ final class ActiveNavigator {
         self.nextStep = nil
         self.stepBeforeNext = nil
         self.precedingStep = nil
+        self.nextLegFirstStep = nil
         self.distanceToNextStep = 0
         self.secondNextStep = nil
         self.distanceToSecondNextStep = 0
@@ -1063,6 +1146,10 @@ final class ActiveNavigator {
             plan.replaceLegRoute(legIndex: currentLegIndex, with: newRoute)
         }
         refreshOverviewCaches()
+        // A reroute can replace the leg the borrowed step came from, so
+        // re-derive it rather than letting a step from the abandoned route
+        // classify the next boundary.
+        refreshNextLegFirstStep()
         await onActiveRouteChanged?(newRoute)
     }
 
