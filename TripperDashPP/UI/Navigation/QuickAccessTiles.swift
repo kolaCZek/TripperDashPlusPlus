@@ -31,6 +31,22 @@ struct QuickAccessTiles: View {
     /// `store.setQuickAccess(slot, from: dest)`.
     let onFillSlot: (QuickAccessSlot) -> Void
 
+    /// Ceiling for the expanded favorites list, in points — how far it may
+    /// grow before it would run past the bottom of the screen. Supplied by
+    /// the host, which is the only thing that knows the real layout.
+    ///
+    /// A CONCRETE height is required here. The obvious-looking
+    /// `.frame(maxHeight: .infinity)` does not work: `List` is a scroll
+    /// view with no intrinsic height, and the enclosing `VStack` only ever
+    /// offers its children their ideal height, so the list collapses to
+    /// nothing and the panel renders as an empty sheet of material (which
+    /// is exactly what it did when this was first attempted).
+    let maxListHeight: CGFloat
+
+    /// Whether the "Others" disclosure is open. Bound rather than implicit
+    /// so `pick(_:)` can close it programmatically.
+    @State private var othersExpanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -39,13 +55,18 @@ struct QuickAccessTiles: View {
             }
 
             if !store.otherFavorites.isEmpty {
-                DisclosureGroup("Others") {
+                DisclosureGroup("Others", isExpanded: $othersExpanded) {
                     // List inside a DisclosureGroup gives us swipe-to-delete
-                    // for free. Fixed height keeps the tile area predictable
-                    // — long favorite lists scroll internally.
+                    // for free.
+                    //
+                    // The cap used to be a hard-coded 200 pt, which made the
+                    // expanded panel a cramped strip scrolling internally
+                    // while the screen below it sat empty. It now opens to
+                    // the full host-measured height (`listHeight`) and lets
+                    // the List scroll natively once the rows overflow.
                     List {
                         ForEach(store.otherFavorites) { fav in
-                            Button { onPick(fav) } label: {
+                            Button { pick(fav) } label: {
                                 HStack {
                                     Image(systemName: fav.resolvedIconSymbol).frame(width: 24)
                                     VStack(alignment: .leading, spacing: 2) {
@@ -67,17 +88,51 @@ struct QuickAccessTiles: View {
                         }
                     }
                     .listStyle(.plain)
-                    .frame(height: min(CGFloat(store.otherFavorites.count) * 48, 200))
+                    .frame(height: listHeight)
                 }
                 .font(.subheadline)
             }
         }
     }
 
+    /// Exact height for the open list: always the full space the screen
+    /// allows, so the panel opens to the bottom edge of the display no
+    /// matter how many favorites there are. The List scrolls internally
+    /// once the rows no longer fit — which is what it does natively.
+    ///
+    /// This deliberately replaced a content-derived height (sum of
+    /// estimated per-row heights). Rows are not uniform — a favorite with a
+    /// resolved address draws two lines, one without draws a single line,
+    /// and Dynamic Type scales both — so any per-row constant was an
+    /// unverifiable guess that could not be measured without a device.
+    /// Taking the whole area sidesteps the estimate entirely: the layout no
+    /// longer depends on predicting what UIKit will draw.
+    private var listHeight: CGFloat {
+        max(maxListHeight, Self.minListHeight)
+    }
+
+    /// Never shrink the open list below this, even on a very short screen —
+    /// an expanded disclosure showing nothing would be worse than one that
+    /// scrolls. Also covers the very first layout pass, when the host has
+    /// not measured the screen yet and `maxListHeight` is still negative.
+    private static let minListHeight: CGFloat = 120
+
+    /// Forward a pick and close the disclosure.
+    ///
+    /// Selecting a favorite recenters the map and raises the destination
+    /// preview card; leaving a full-height "Others" panel open would cover
+    /// exactly the detail the tap asked to see. Applies to the pinned
+    /// Home/Work tiles too — they stay visible above an expanded list, so
+    /// they can be tapped while it is covering the map.
+    private func pick(_ fav: Favorite) {
+        withAnimation(.easeInOut(duration: 0.2)) { othersExpanded = false }
+        onPick(fav)
+    }
+
     @ViewBuilder
     private func tile(for slot: QuickAccessSlot) -> some View {
         if let fav = store.favorite(in: slot) {
-            Button { onPick(fav) } label: {
+            Button { pick(fav) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: slot.iconSymbol)
                         .font(.title3)
