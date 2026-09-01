@@ -81,6 +81,11 @@ struct MapPickerView: View {
     /// Whether the "center on me" button should be shown — reported by
     /// the map when the user puck drifts out of the central region.
     @State private var showRecenterButton = false
+
+    /// Height of the browsing map area, measured at runtime. Feeds the
+    /// ceiling for the quick-access "Others" list so it can grow to the
+    /// bottom of the screen instead of a hard-coded strip.
+    @State private var browsingAreaHeight: CGFloat = 0
     /// When set, the next destination picked in DestinationSearchSheet
     /// is committed straight into this quick-access slot instead of
     /// going through the preview/route flow.
@@ -359,7 +364,8 @@ struct MapPickerView: View {
                     onFillSlot: { slot in
                         slotToFill = slot
                         showSearch = true
-                    }
+                    },
+                    maxListHeight: quickAccessListMaxHeight
                 )
                 .environment(status.navigationStore)
                 .padding(.horizontal, 12)
@@ -424,6 +430,38 @@ struct MapPickerView: View {
             .animation(.easeInOut(duration: 0.2), value: status.rideStats.stats.startedAt)
             .animation(.easeInOut(duration: 0.2), value: rideStatsDismissed)
         }
+        // Measure the whole browsing area — deliberately the ZStack and not
+        // the quick-access overlay itself, whose height is what the
+        // measurement feeds, so measuring it would be circular and could
+        // oscillate. This is stable: it tracks the screen/safe area, not the
+        // panel's content.
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            browsingAreaHeight = height
+        }
+    }
+
+    /// Height handed to `QuickAccessTiles` for its expanded favorites list,
+    /// which now always opens to fill it (the List scrolls internally once
+    /// the rows overflow).
+    ///
+    /// Budgeted from the measured browsing area minus the chrome sitting
+    /// above the list — search pill, the two pinned tiles, the disclosure
+    /// header and the paddings between them — plus a bottom margin so the
+    /// panel stops short of the very bottom edge rather than running under
+    /// the home indicator.
+    ///
+    /// Since the list takes this value verbatim, an over-estimate here is
+    /// the one that shows: it would push the panel past the bottom of the
+    /// screen. The constants are therefore chosen to err on the generous
+    /// side for the chrome. `QuickAccessTiles` applies its own floor, so an
+    /// under-estimate (or the negative value on the first layout pass,
+    /// before the geometry is measured) can't collapse the list.
+    private var quickAccessListMaxHeight: CGFloat {
+        let chromeAboveList: CGFloat = 200
+        let bottomMargin: CGFloat = 28
+        return browsingAreaHeight - chromeAboveList - bottomMargin
     }
 
     /// Round "center on me" button, bottom-right. Issues an explicit
