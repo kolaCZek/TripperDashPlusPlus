@@ -428,7 +428,8 @@ extension K1GPacket {
         title: String,
         projectionOn: Bool,
         seq: UInt8,
-        includeHudFields: Bool = true
+        includeHudFields: Bool = true,
+        includeManeuverPlaceholders: Bool = true
     ) -> Data {
         // Prefix: outer_len(2, placeholder) + seg_count(2, FIXED 0x0011 —
         // hardcoded in the captured template, NOT actual_count+1 like
@@ -481,20 +482,38 @@ extension K1GPacket {
             //   05 0B / 05 55          remaining time + unit — written only
             //                          when remainingSeconds is non-nil.
             //   05 0C                  never written by this app at all.
-            // Kept, because `sendActiveNav` unconditionally rewrites them
-            // during navigation and they are inert in free-ride:
+            // Kept ONLY when something will overwrite them, i.e. during
+            // real navigation, where `sendActiveNav` rewrites all of them
+            // unconditionally within ~1 s. In FREE-RIDE they are omitted
+            // too (`includeManeuverPlaceholders == false`).
+            //
+            // Field report (9/2026): starting a free ride showed a maneuver
+            // glyph on the dash that only disappeared some seconds later.
+            // That glyph is `05 02`'s template value 0x3C below. The comment
+            // here used to claim these fields were "inert in free-ride" —
+            // which contradicts the paragraph above stating `sendActiveNav`
+            // is never called in free-ride at all. Both cannot hold: nothing
+            // overwrites them, so the dash latches the placeholder exactly
+            // like it latched the roundabout icon and the "ETA 03:03". It
+            // cleared itself eventually only because the 1 Hz keep-alive
+            // card carries no HUD fields, so the dash drops the bubble a few
+            // seconds later — the same reason it looked "temporary".
+            //
+            // The distinction matters: during navigation these placeholders
+            // are load-bearing (they reserve the fields before the first
+            // `sendActiveNav` tick lands), so they must NOT be removed
+            // outright — only skipped for the free-ride card.
             //   05 02 primary maneuver, 05 06 primary unit,
             //   05 09 total distance, 05 46 its unit, 05 0A decimal sep.
-            // The reference sends all of them because it always navigates
-            // to a real destination, so every placeholder is overwritten
-            // within one second — an assumption this app breaks by design.
-            navFields += [
-                0x05, 0x02, 0x00, 0x01, 0x3C,
-                0x05, 0x06, 0x00, 0x01, 0x30,
-                0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
-                0x05, 0x46, 0x00, 0x01, 0x10,
-                0x05, 0x0A, 0x00, 0x01, 0x55
-            ]
+            if includeManeuverPlaceholders {
+                navFields += [
+                    0x05, 0x02, 0x00, 0x01, 0x3C,
+                    0x05, 0x06, 0x00, 0x01, 0x30,
+                    0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
+                    0x05, 0x46, 0x00, 0x01, 0x10,
+                    0x05, 0x0A, 0x00, 0x01, 0x55
+                ]
+            }
         }
         // Projection flags — always sent; these ARE the packet as far as
         // the keep-alive is concerned. `06 05` is the projection-on latch
@@ -508,12 +527,15 @@ extension K1GPacket {
         // 16 segments — i.e. actual+1, the same convention `encode()` uses
         // for every other packet in this file. It must therefore be
         // RECOMPUTED rather than left at the captured constant, since we now
-        // omit TLVs in both forms: 6 nav TLVs (title + the 5 always-
-        // overwritten fields) + 2 projection flags for the burst, just the 2
-        // flags for the keep-alive. Other builders here note that the dash
-        // validates this byte and silently drops packets whose count doesn't
-        // match, so getting it wrong fails silently.
-        let segCount = (includeHudFields ? 6 : 0) + 2 + 1   // +1 = the actual+1 convention
+        // omit TLVs in three different shapes: title + 5 maneuver
+        // placeholders + 2 flags (navigation burst), title + 2 flags
+        // (free-ride burst), or just the 2 flags (keep-alive). Other
+        // builders here note that the dash validates this byte and silently
+        // drops packets whose count doesn't match, so getting it wrong fails
+        // silently — it must track the `if` blocks above exactly.
+        let titleSegments = includeHudFields ? 1 : 0
+        let maneuverSegments = (includeHudFields && includeManeuverPlaceholders) ? 5 : 0
+        let segCount = titleSegments + maneuverSegments + 2 + 1   // +1 = the actual+1 convention
         body[2] = UInt8((segCount >> 8) & 0xFF)
         body[3] = UInt8(segCount & 0xFF)
 

@@ -544,7 +544,28 @@ final class AppStatus {
         // no packet hex) and narrow the next report to one of five spots
         // instead of "somewhere after reconnect".
         ConnDiag.log("stream", "startStreaming: sending route card…")
-        await bikeLink.sendRouteCard(title: stagedDestination?.name ?? "Free ride")
+        // Free-ride sends the card WITHOUT the maneuver placeholders. During
+        // navigation `sendActiveNav` overwrites them within ~1 s, so they
+        // usefully reserve the fields; in free-ride it never runs at all, so
+        // the template's 0x3C would sit latched on the dash as a bogus turn
+        // glyph until the HUD-less keep-alive card eventually cleared it
+        // (field report 9/2026 — "a glyph at the start that disappears after
+        // a while"). Same class of bug as the stuck roundabout icon and the
+        // "ETA 03:03"; see `K1GPacket.makeRouteCard`.
+        //
+        // Gate on `isFreeRiding`, NOT on `stagedDestination == nil`: nothing
+        // in the app ever ASSIGNS a value to `stagedDestination` (it is only
+        // ever cleared, in MapPickerView), so a `stagedDestination != nil`
+        // test would be permanently false and would strip the placeholders
+        // from real navigation too. `isFreeRiding` is a ride-scoped flag
+        // that stays true across a reconnect — it's set once by
+        // `startFreeRide`/`transitionToFreeRideInPlace` and only cleared by
+        // the rider's own `stopFreeRide`, so it's already correct by the
+        // time `resumeFreeRideAfterReconnect` gets here too.
+        await bikeLink.sendRouteCard(
+            title: stagedDestination?.name ?? "Free ride",
+            includeManeuverPlaceholders: !isFreeRiding
+        )
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
