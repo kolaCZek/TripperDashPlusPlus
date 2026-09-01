@@ -152,6 +152,20 @@ final class AppStatus {
         didSet { applyKeepAwake() }
     }
 
+    /// True while the rider has an ACTIVE projection session — navigating a
+    /// route or free-riding — regardless of whether RTP frames are flowing
+    /// at this instant.
+    ///
+    /// This is the "intent to stream", as opposed to `isStreaming`, which is
+    /// the "currently streaming" fact (`streamer?.state == .running`). The
+    /// two diverge exactly during a reconnect, and that gap is what this
+    /// property exists to cover — see `applyKeepAwake` for the deadlock it
+    /// fixes.
+    var hasStreamingIntent: Bool {
+        isFreeRiding
+            || (activeNavigator.isNavigating && !activeNavigator.hasArrived)
+    }
+
     /// Reflects whether the location wakelock is active right now. Used
     /// by the UI to show a "Background mode active" badge. Background
     /// survival is owned entirely by CoreLocation `Always` updates.
@@ -827,9 +841,41 @@ final class AppStatus {
     ///   3. the bike link is up — otherwise we'd be shoving UDP into a
     ///      black hole and holding the app alive for no reason.
     private func applyKeepAwake() {
+        // `isStreaming` alone is the WRONG gate here, and it caused a
+        // self-sustaining deadlock in the field (log 1/9/2026):
+        //
+        //   1. the bike is switched off → Wi-Fi drops
+        //   2. RtpStreamer fails → `isStreaming` goes false
+        //   3. the link leaves .connected → `.reconnecting`
+        //   4. BOTH old conditions are now false → the wakelock is RELEASED
+        //   5. with the screen off and the phone in a pocket, iOS suspends
+        //      the app within seconds
+        //   6. the reconnect loop can no longer run at any useful rate, so
+        //      the stream never comes back → step 4 stays true forever
+        //
+        // The measurement that proves it: `waitForWifiReady` has a HARD
+        // ceiling of 5 s (20 × 250 ms), yet the log shows
+        //     08:29:12.944  [0ms]      Waiting for Wi-Fi to be ready…
+        //     08:32:12.055  [179112ms] Wi-Fi ready after 3750ms
+        // — 15 iterations of a 250 ms sleep taking 179 REAL seconds
+        // (~12 s per sleep), and it only completed at the instant the rider
+        // picked the phone up (`scenePhase → inactive` 0.5 s earlier).
+        //
+        // So the wakelock was dropped at exactly the moment it was most
+        // needed. Gate on the rider's INTENT to stream instead: while a
+        // ride is in progress we must stay alive across the reconnect gap,
+        // not just while frames happen to be flowing. Once the rider stops
+        // (or arrives), intent goes false and the wakelock is released as
+        // before — an idle app still never holds it.
+        //
+        // The link condition is relaxed the same way: `.reconnecting` is
+        // precisely the state we must survive. `.idle`/`.error` are not —
+        // there is nothing to come back to, so we stop burning battery.
+        let linkWorthStayingAwakeFor = bikeLink.state == .connected
+            || bikeLink.state == .reconnecting
         let shouldRun = keepAwakeWhileStreaming
-            && isStreaming
-            && bikeLink.state == .connected
+            && (isStreaming || hasStreamingIntent)
+            && linkWorthStayingAwakeFor
         if shouldRun {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)

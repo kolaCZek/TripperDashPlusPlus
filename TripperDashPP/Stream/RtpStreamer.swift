@@ -75,6 +75,11 @@ final class RtpStreamer {
     private var lastTickAt = Date()
     private var metricsTimer: Timer?
 
+    // ConnDiag throughput-log rate limiting (see `logThroughputToDiag`).
+    private var hasLoggedThroughputOnce = false
+    private var lastThroughputStarved = false
+    private var lastThroughputLogAt = Date.distantPast
+
     // RTP timestamp base (90 kHz, per RFC 6184)
     private let timestampBase: UInt32 = UInt32.random(in: 0..<UInt32.max)
 
@@ -102,6 +107,12 @@ final class RtpStreamer {
         guard state == .idle || state == .failed else { return }
         state = .starting
         metrics = RtpStreamerMetrics()
+        // Re-arm the throughput diagnostics for this session, so a restart
+        // after a reconnect always emits its own first-tick line instead of
+        // inheriting the previous run's rate-limit state.
+        hasLoggedThroughputOnce = false
+        lastThroughputStarved = false
+        lastThroughputLogAt = .distantPast
         log.info("RtpStreamer starting → udp://\(self.bikeHost):\(self.bikePort)")
 
         // 1. UDP connection via Network.framework
@@ -263,5 +274,60 @@ final class RtpStreamer {
         bytesAccumulator = 0
         lastTickAt = now
         onMetrics?(metrics)
+        logThroughputToDiag(fps: fps, kbps: kbps)
+    }
+
+    /// Record whether frames are actually reaching the wire, into the log
+    /// the rider can export.
+    ///
+    /// The blind spot this closes (field reports 8-9/2026, repeatedly):
+    /// `RtpStreamer` only ever wrote to ConnDiag from `fail()`. A streamer
+    /// that reports `state = .running` while emitting NOTHING was therefore
+    /// indistinguishable, in an exported log, from one streaming happily —
+    /// yet those are opposite bugs. `state = .running` is set synchronously
+    /// at the end of `start()`, before the UDP connection has even reached
+    /// `.ready`, so it is NOT evidence that video is flowing. The rider's
+    /// description of the failure ("dots spin on the dash, then Timeout" —
+    /// i.e. the dash entered projection and waited for video that never
+    /// arrived) can only be told apart from a control-plane problem with
+    /// throughput numbers.
+    ///
+    /// Deliberately quiet, because ConnDiag is a 5000-line ring buffer and
+    /// per-second spam would evict the handshake/reconnect history that
+    /// makes it useful:
+    ///   • the FIRST tick after start always logs (did we ever emit?),
+    ///   • after that only every 15 s while healthy,
+    ///   • but a transition into or out of "zero frames" logs immediately,
+    ///     since that edge is the whole diagnosis.
+    private func logThroughputToDiag(fps: Double, kbps: Double) {
+        let starved = metrics.nalsEmitted == 0 || fps < 0.5
+        let firstEver = !hasLoggedThroughputOnce
+        let edge = starved != lastThroughputStarved
+        let due = Date().timeIntervalSince(lastThroughputLogAt) >= 15
+        guard firstEver || edge || due else { return }
+        hasLoggedThroughputOnce = true
+        lastThroughputStarved = starved
+        lastThroughputLogAt = Date()
+        let mark = starved ? "⚠️ " : ""
+        ConnDiag.log("stream",
+                     "\(mark)RTP throughput: \(String(format: "%.1f", fps)) fps, "
+                     + "\(Int(kbps)) kbps, nals=\(metrics.nalsEmitted), "
+                     + "idr=\(metrics.idrCount), sent=\(metrics.packetsSent), "
+                     + "dropped=\(metrics.packetsDropped), conn=\(connectionStateLabel)")
+    }
+
+    /// Human-readable NWConnection state for the throughput line — tells a
+    /// "never became ready" failure apart from "ready but nothing to send".
+    private var connectionStateLabel: String {
+        guard let connection else { return "nil" }
+        switch connection.state {
+        case .setup:      return "setup"
+        case .waiting:    return "waiting"
+        case .preparing:  return "preparing"
+        case .ready:      return "ready"
+        case .failed:     return "failed"
+        case .cancelled:  return "cancelled"
+        @unknown default: return "unknown"
+        }
     }
 }
