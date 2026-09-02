@@ -59,7 +59,10 @@ final class LocalSearchService: NSObject {
     private func applyQuery() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            completions = []
+            // Same non-animated path as the delegate callbacks — clearing
+            // the field is the single biggest row-count change the List
+            // ever sees (N → 0), so it must not animate either.
+            applyCompletions([])
             completer.cancel()
             completer.queryFragment = ""
             return
@@ -153,7 +156,7 @@ extension LocalSearchService: MKLocalSearchCompleterDelegate {
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         let results = completer.results
         Task { @MainActor in
-            self.completions = results
+            self.applyCompletions(results)
             self.lastError = nil
         }
     }
@@ -166,7 +169,7 @@ extension LocalSearchService: MKLocalSearchCompleterDelegate {
         // just clear results so the dropdown closes cleanly.
         let isTransient = nsError.domain == MKErrorDomain && nsError.code == 5
         Task { @MainActor in
-            self.completions = []
+            self.applyCompletions([])
             if isTransient {
                 self.lastError = nil
             } else {
@@ -174,6 +177,55 @@ extension LocalSearchService: MKLocalSearchCompleterDelegate {
                 self.log.warning("completer failed: \(msg, privacy: .public)")
             }
         }
+    }
+}
+
+// MARK: - Completion publishing
+
+private extension LocalSearchService {
+    /// Publish a new completer snapshot to the UI.
+    ///
+    /// Crash this guards against (TestFlight 1.0.2, iPhone 13 Pro Max,
+    /// iOS 26.6.1, 76 s after launch on cellular — i.e. someone poking at
+    /// the search field): `NSInternalInconsistencyException`
+    /// "Invalid Number Of Items In Section" aborting inside
+    /// `UICollectionView _endItemAnimationsWithInvalidationContext:`, under
+    /// SwiftUI's `UpdateCoalescingCollectionView.performBatchUpdates`. The
+    /// whole stack is SwiftUI/UIKit — no app frame beyond `main` — which is
+    /// the signature of a List whose backing collection view was told one
+    /// item count and handed another.
+    ///
+    /// `MKLocalSearchCompleter` calls its delegate on every keystroke AND
+    /// asynchronously as network results land, and the delegate hop is
+    /// `Task { @MainActor in … }` — scheduled at an arbitrary point, with no
+    /// coordination with SwiftUI's update cycle. If that write lands while
+    /// the List is mid-animation, the counts disagree and UIKit aborts.
+    ///
+    /// Two mitigations here, neither changing what the user sees:
+    ///   1. Skip the write entirely when the visible content is unchanged.
+    ///      The completer re-emits identical result sets often (repeat
+    ///      keystrokes, throttled retries); every one of those was a free
+    ///      chance to collide for no UI benefit.
+    ///   2. Apply the change with animations disabled, so the List swaps
+    ///      rows outright instead of running a batch-update animation that
+    ///      can be invalidated by the next delegate callback mid-flight.
+    ///
+    /// NOT claimed to be proven: the crash report names no view, so this is
+    /// the most probable candidate hardened on reasoning, not a confirmed
+    /// root cause. It cannot regress behaviour — worst case the real cause
+    /// is elsewhere and this is simply a no-op made cheaper.
+    func applyCompletions(_ new: [MKLocalSearchCompletion]) {
+        // Compare on what's actually rendered (title + subtitle);
+        // MKLocalSearchCompletion has no stable identity of its own and
+        // reference equality would defeat the check.
+        let unchanged = new.count == completions.count
+            && zip(new, completions).allSatisfy {
+                $0.title == $1.title && $0.subtitle == $1.subtitle
+            }
+        guard !unchanged else { return }
+        var tx = Transaction()
+        tx.disablesAnimations = true
+        withTransaction(tx) { completions = new }
     }
 }
 

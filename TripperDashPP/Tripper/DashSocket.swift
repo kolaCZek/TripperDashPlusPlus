@@ -90,6 +90,31 @@ actor DashSocket {
         self.inboundContinuation = cont
     }
 
+    /// Backstop against leaking the bound fd if this socket is released
+    /// without an explicit `cancel()`.
+    ///
+    /// `cancel()` is the normal teardown path, but it is not guaranteed to
+    /// run: `BikeLink` reaches for `socket = nil` on several error paths,
+    /// and anything that drops the last reference first would strand the
+    /// DispatchSourceRead — and with it the open, still-bound descriptor.
+    /// Cancelling the source here fires its cancel handler, which closes
+    /// the fd unconditionally (see `start`).
+    ///
+    /// Why this matters more than a usual fd leak: the socket is bound to
+    /// the fixed port :2002 WITH SO_REUSEPORT, so a leaked one does not
+    /// merely waste a descriptor — it keeps competing for the dash's
+    /// replies with every socket opened afterwards, and the kernel gives
+    /// each datagram to exactly one of them. A single orphan is enough to
+    /// make all later connects fail with rx=0 for the rest of the app's
+    /// lifetime (field log 8/2026).
+    ///
+    /// `deinit` on an actor is nonisolated, so this must not touch
+    /// actor-isolated state; `readSource.cancel()` is thread-safe and the
+    /// handler does the rest.
+    deinit {
+        readSource?.cancel()
+    }
+
     // MARK: - Lifecycle
 
     /// Create the BSD socket, bind to `localPort`, configure the
@@ -167,11 +192,36 @@ actor DashSocket {
             self.drainAllPending()
         }
         src.setCancelHandler { [weak self] in
-            guard let self else { return }
-            // Close the fd on cancel; capture by value so the actor
-            // doesn't need to be touched here.
+            // Close the fd UNCONDITIONALLY, before touching `self`.
+            //
+            // This used to open with `guard let self else { return }`, which
+            // put the close behind a liveness check it never needed: `s` is
+            // captured by value and closing it requires nothing from the
+            // actor. If the DashSocket was deallocated before this handler
+            // ran on ioQueue — which is exactly what `BikeLink` provokes by
+            // doing `await socket?.cancel()` immediately followed by
+            // `socket = nil`, dropping the last strong reference — the guard
+            // returned early and THE FILE DESCRIPTOR WAS NEVER CLOSED.
+            //
+            // That leaks a socket still bound to :2002. Combined with the
+            // SO_REUSEPORT above, the kernel happily keeps delivering the
+            // dash's replies to that orphan, where nothing is reading them,
+            // so every subsequent connect attempt sees rx=0 forever while
+            // the dash itself reports "iPhone connected" (its TX lands — in
+            // a black hole).
+            //
+            // Field log 8/2026, free-ride, second ignition cycle: the
+            // 19:48:25 failure is missing the "DashSocket cancelled" line
+            // that every healthy teardown in the same log emits. That line
+            // comes from `didCancel()`, which sits BEHIND the old guard —
+            // its absence is the fingerprint of this leak. Every attempt
+            // after it: rx=0.
             let toClose = s
             close(toClose)
+            // State bookkeeping + the diagnostic line still need the actor;
+            // if it's gone there is nothing left to update, and the fd is
+            // already closed above either way.
+            guard let self else { return }
             Task { await self.didCancel() }
         }
         src.resume()
@@ -283,6 +333,38 @@ actor DashSocket {
                 let err = String(cString: strerror(errno))
                 log.error("UDP receive error: \(err, privacy: .public)")
                 inboundContinuation.finish()
+                // CRITICAL: also tear the socket down (cancel the
+                // DispatchSourceRead + close the fd), not just the
+                // AsyncStream. A hard recvfrom() error (e.g. ENOTCONN —
+                // field report, 8/2026, "Socket is not connected") means
+                // the fd itself is now permanently broken, but the kernel
+                // keeps reporting it as level-triggered READABLE (a
+                // failed fd still selects/polls ready — that's exactly
+                // what "readable" means for a broken descriptor: the next
+                // read call will return immediately, with an error).
+                // `DispatchSourceRead` re-fires on every such edge, so
+                // leaving `readSource` alive here traps the io queue in a
+                // tight recvfrom-fails/log/repeat loop — confirmed from
+                // the field log: 25,709 identical "Socket is not
+                // connected" lines in ~5 s (~5000/s), which is real
+                // sustained CPU burn on a locked phone, not a benign
+                // no-op. The connection log showed nothing else wrong up
+                // to that point (clean handshake, then a plain
+                // `scenePhase → background`) — this loop is very plausibly
+                // ALSO the true cause behind earlier "app disconnected
+                // mid-ride, no error logged, process relaunched cold"
+                // reports (8/2026) that were provisionally chalked up to
+                // iOS jetsam: 5000 log writes/sec is exactly the kind of
+                // load that trips an OS watchdog / CPU resource limit and
+                // gets the process killed, which would explain the launch
+                // line seen ~1.5 s after this exact storm in a live
+                // capture. Calling `cancel()` here closes the fd and
+                // removes the dispatch source, so a broken socket now
+                // fails ONCE and stops — `BikeLink`'s existing state
+                // machine (which already reacts to `inbound` finishing)
+                // picks up the disconnect and can reconnect cleanly
+                // instead of the io queue spinning forever.
+                cancel()
                 return
             }
             // n == 0 — not meaningful for UDP, retry once.

@@ -27,13 +27,13 @@ struct K1GSegment: Equatable, Sendable {
     let sub: UInt8
     let payload: Data
 
-    init(type: UInt8, sub: UInt8, payload: Data) {
+    nonisolated init(type: UInt8, sub: UInt8, payload: Data) {
         self.type = type
         self.sub = sub
         self.payload = payload
     }
 
-    init(type: K1G.SegType, sub: UInt8, payload: Data) {
+    nonisolated init(type: K1G.SegType, sub: UInt8, payload: Data) {
         self.init(type: type.rawValue, sub: sub, payload: payload)
     }
 }
@@ -112,7 +112,7 @@ enum K1GPacket {
     /// even though the modulus byte sequence is clearly present in the
     /// hex dump. See `references/k1g-wire-protocol.md` and the regression
     /// note at the end of `K1GPacket.swift`.
-    static func decode(_ data: Data) -> [K1GSegment] {
+    nonisolated static func decode(_ data: Data) -> [K1GSegment] {
         guard data.count >= 8 else { return [] }
 
         // Parse from the fixed-shape header at offsets 0-7.
@@ -176,10 +176,44 @@ enum K1GPacket {
         return [UInt8((v >> 8) & 0xFF), UInt8(v & 0xFF)]
     }
 
-    private static func readU16BE(_ data: Data, at offset: Int) -> UInt16 {
+    private nonisolated static func readU16BE(_ data: Data, at offset: Int) -> UInt16 {
         let hi = UInt16(data[data.index(data.startIndex, offsetBy: offset)])
         let lo = UInt16(data[data.index(data.startIndex, offsetBy: offset + 1)])
         return (hi << 8) | lo
+    }
+}
+
+// MARK: - Rx counter box
+
+/// Thread-safe `Int` box shared between the two racing tasks in the
+/// handshake step1 `TaskGroup` (see `BikeLink.runHandshake`): lets the
+/// TIMEOUT task read how many packets the STREAM CONSUMER task has seen so
+/// far when it's the timeout that wins the race, without either task
+/// mutating a `@MainActor` property across the boundary. Same NSLock
+/// pattern as `RollingSeq` below.
+final class RxCountBox: @unchecked Sendable {
+    // `nonisolated(unsafe)` on the storage itself, not just the accessor:
+    // SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor makes stored properties
+    // implicitly MainActor-isolated too (marking only the computed
+    // `value` accessor `nonisolated` still leaves `_value` MainActor-
+    // isolated underneath it, which is what actually broke — Xcode's
+    // "Update to recommended settings" upgrade made this default
+    // isolation stricter). `lock` itself doesn't need the annotation:
+    // `NSLock` is already unconditionally `Sendable`, so a `let` of that
+    // type is never actor-isolated in the first place — only `_value`
+    // (a plain `Int`, isolated by the project default) needs opting out.
+    // The NSLock is what makes concurrent access safe, not actor
+    // isolation, so opting `_value` out here is correct, not a
+    // workaround.
+    private let lock = NSLock()
+    nonisolated(unsafe) private var _value = 0
+
+    // Written/read from the two nonisolated closures racing inside the
+    // handshake step1 TaskGroup — same reasoning as the other
+    // nonisolated logging (see 320b670).
+    nonisolated var value: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _value }
+        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
     }
 }
 
@@ -289,6 +323,22 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
+    /// Phone → bike: q3c.r "favourite lists are empty". Five `05 2F..33
+    /// 0001 00` TLVs in one envelope. Sent immediately after `q3c.q` as
+    /// part of the nav-context handshake — mirrors the official app's
+    /// `NavigationRootFragment.F0()`, which sends q3c.q then q3c.r when
+    /// its saved-destination lists are empty (which ours always are: this
+    /// app has no favourites feature, so "empty" is permanently correct).
+    ///
+    /// Verified byte-for-byte against the reference's
+    /// `Q3C_R_EMPTY_LISTS` constant before wiring in.
+    static func makeEmptyLists(seq: UInt8) -> Data {
+        let segs: [K1GSegment] = (0x2F...0x33).map { sub in
+            K1GSegment(type: .navInfo, sub: UInt8(sub), payload: Data([0x00]))
+        }
+        return encode(segments: segs, seq: seq)
+    }
+
     /// Phone → bike: q3c.z2 "begin nav projection". TLV `06 80 00 01 0B`.
     static func makeStartNav(seq: UInt8) -> Data {
         let seg = K1GSegment(
@@ -308,6 +358,194 @@ extension K1GPacket {
             payload: Data([0x55])
         )
         return encode(segments: [seg], seq: seq)
+    }
+
+    /// Phone → bike: `0x007E` "route card" — announces a destination.
+    /// This is NOT built via `encode(segments:seq:)` like the rest of this
+    /// file: it's a byte-for-byte port of `better-dash`'s
+    /// `build_navigation_packet()`, which patches a route TITLE into a
+    /// captured, opaque template rather than composing semantic TLVs. The
+    /// template's inner fields (t3c.* — distance/ETA/decimal-separator
+    /// placeholders) are NOT meaningful defaults we control; they're
+    /// whatever bytes the real dash's own nav_open_ok.pcap capture showed,
+    /// preserved verbatim because their semantics are undocumented and
+    /// reverse-engineering them wasn't necessary — the dash only reads this
+    /// packet as "a destination now exists", triggering decoder-surface
+    /// allocation, not as a HUD update (that's `sendActiveNav`'s job).
+    ///
+    /// **Why this exists at all** (`references/network-transport.md` in
+    /// the `royal-enfield-tripper-dash` skill, `better-dash/dash_ui/
+    /// bike_link.py`'s module doc): "the dash will refuse to allocate its
+    /// nav-decoder surface until the phone has ... announced a destination
+    /// (0x007E route card)". Field report (8/2026): free-ride reconnects
+    /// reliably got stuck on the dash's "Press the cast button on RE App!"
+    /// idle screen no matter how long `sendNavStart()`'s warmup waited,
+    /// while navigation-with-a-route reconnects worked — because
+    /// `ActiveNavLoop.tick()` only calls `sendActiveNav` when
+    /// `nav.isNavigating`, so free-ride (by design, no route) never sent
+    /// ANYTHING resembling a route card. `sendActiveNav`'s TLVs happened to
+    /// be close enough to unblock the decoder surface as a side effect on
+    /// navigation reconnects, which is why the bug was invisible there.
+    ///
+    /// `title` is truncated/null-terminated the same way the Python
+    /// authority does (`rt[:60] + b"\x00"`, so max 61 bytes on the wire).
+    /// `projectionOn` patches the LAST occurrence of the `06 05 00 01`
+    /// marker inside the suffix template to `0x55` (on) or `0xAA` (off),
+    /// mirroring `build_navigation_packet`'s `projection_on` flag — the
+    /// dash reads this as part of the same packet rather than requiring a
+    /// separate `q3c.w`/`q3c.x` toggle for the route-card's own view.
+    ///
+    /// `includeHudFields` controls whether the template's nav-data TLVs are
+    /// included (true = pre-z2 burst, false = 1 Hz keep-alive).
+    ///
+    /// This function does NOT reproduce the reference template verbatim, and
+    /// deliberately so — three successive field reports (8/2026) were all
+    /// caused by treating it as safe to replay:
+    ///
+    /// 1. First revision claimed the dash reads this packet only as "a
+    ///    destination exists", NOT as a HUD update. Wrong: `05 02` is the
+    ///    maneuver glyph, `05 08` is the ETA as ASCII ("0303"), so replaying
+    ///    the full template at 1 Hz painted a turn arrow and "ETA 03:03".
+    /// 2. Second revision dropped the obvious maneuver/ETA/distance group but
+    ///    kept a tail labelled "formatting + opaque fields". Also wrong: that
+    ///    tail is nav data too, and it collides with `sendActiveNav` on
+    ///    identical addresses (`05 01` = `tlvRoadName`, so the route title
+    ///    replaced "45 min to Work" with "Work" once a second; `05 0B` =
+    ///    `tlvRemainingTime`; `05 55`; `05 0A`). Every affected field
+    ///    flickered at 1 Hz between real value and placeholder.
+    /// 3. Third: even with the keep-alive fixed, the pre-z2 BURST still
+    ///    replayed the full template once per stream start, and its
+    ///    placeholders for OPTIONAL fields stuck permanently — because
+    ///    `sendActiveNav` writes the secondary-maneuver group, ETA and
+    ///    remaining-time ONLY when it has real values for them, and in
+    ///    free-ride never runs at all. Reported as a stuck roundabout
+    ///    sub-icon (template's `05 03` = 0x34) and a stuck ETA 03:03.
+    ///
+    /// The rule that came out of it: this packet may only carry TLVs that
+    /// `sendActiveNav` rewrites UNCONDITIONALLY. Anything optional there
+    /// becomes permanent here. See the body for the per-TLV accounting.
+    static func makeRouteCard(
+        title: String,
+        projectionOn: Bool,
+        seq: UInt8,
+        includeHudFields: Bool = true,
+        includeManeuverPlaceholders: Bool = true
+    ) -> Data {
+        // Prefix: outer_len(2, placeholder) + seg_count(2, FIXED 0x0011 —
+        // hardcoded in the captured template, NOT actual_count+1 like
+        // `encode()` computes for every other packet type in this file)
+        // + pad(4) + icHeaderMarker(4) + magic(4).
+        var body = Data()
+        body.append(contentsOf: [0x00, 0x00, 0x00, 0x11])
+        body.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        body.append(contentsOf: K1G.icHeaderMarker)
+        body.append(contentsOf: K1G.magic)
+
+        // Rolling seq.
+        body.append(seq)
+
+        // Nav-data TLVs. ALL of these are omitted for the keep-alive form
+        // (`includeHudFields == false`) — including the title, whose
+        // `05 01` address is the same one `tlvRoadName` writes the HUD text
+        // line to. See this function's doc for the full collision list.
+        //
+        // Title field: 05 01 <len_BE> <title bytes> 00 — max 60 UTF-8
+        // bytes + null terminator, matching `rt = route_title.encode
+        // ("utf-8")[:60]` in the Python authority.
+        var navFields: [UInt8] = []
+        if includeHudFields {
+            var titleBytes = Array(title.dashSafe.utf8.prefix(60))
+            titleBytes.append(0)
+            navFields += [0x05, 0x01]
+            navFields += u16BE(UInt16(titleBytes.count))
+            navFields += titleBytes
+            // Remainder of the captured template, from
+            // `better-dash/tripper_app_like_nav.py`'s `_NAV_FULL`
+            // (provenance: nav_open_ok.pcap) — MINUS the placeholders that
+            // nothing in this app ever overwrites.
+            //
+            // Field reports (8/2026) traced a stuck roundabout sub-icon and
+            // a stuck "ETA 03:03" to exactly this. `sendActiveNav` only
+            // emits the secondary-maneuver group when there IS a secondary
+            // turn, only emits ETA when there IS an ETA, and only emits
+            // remaining-time when it has one — and in free-ride it is never
+            // called at all. So any placeholder the template writes into one
+            // of those optional fields is latched on the dash forever.
+            //
+            // Omitted, with the reason each is unfixable-by-overwrite:
+            //   05 03 / 05 05 / 05 07  secondary maneuver + distance + unit
+            //                          — written only when a secondary turn
+            //                          exists; template's 0x34 is the
+            //                          roundabout glyph the rider saw.
+            //   05 08 / 05 54          ETA + ETA format — written only when
+            //                          an ETA exists; template's "0303".
+            //   05 0B / 05 55          remaining time + unit — written only
+            //                          when remainingSeconds is non-nil.
+            //   05 0C                  never written by this app at all.
+            // Kept ONLY when something will overwrite them, i.e. during
+            // real navigation, where `sendActiveNav` rewrites all of them
+            // unconditionally within ~1 s. In FREE-RIDE they are omitted
+            // too (`includeManeuverPlaceholders == false`).
+            //
+            // Field report (9/2026): starting a free ride showed a maneuver
+            // glyph on the dash that only disappeared some seconds later.
+            // That glyph is `05 02`'s template value 0x3C below. The comment
+            // here used to claim these fields were "inert in free-ride" —
+            // which contradicts the paragraph above stating `sendActiveNav`
+            // is never called in free-ride at all. Both cannot hold: nothing
+            // overwrites them, so the dash latches the placeholder exactly
+            // like it latched the roundabout icon and the "ETA 03:03". It
+            // cleared itself eventually only because the 1 Hz keep-alive
+            // card carries no HUD fields, so the dash drops the bubble a few
+            // seconds later — the same reason it looked "temporary".
+            //
+            // The distinction matters: during navigation these placeholders
+            // are load-bearing (they reserve the fields before the first
+            // `sendActiveNav` tick lands), so they must NOT be removed
+            // outright — only skipped for the free-ride card.
+            //   05 02 primary maneuver, 05 06 primary unit,
+            //   05 09 total distance, 05 46 its unit, 05 0A decimal sep.
+            if includeManeuverPlaceholders {
+                navFields += [
+                    0x05, 0x02, 0x00, 0x01, 0x3C,
+                    0x05, 0x06, 0x00, 0x01, 0x30,
+                    0x05, 0x09, 0x00, 0x02, 0x00, 0x4F,
+                    0x05, 0x46, 0x00, 0x01, 0x10,
+                    0x05, 0x0A, 0x00, 0x01, 0x55
+                ]
+            }
+        }
+        // Projection flags — always sent; these ARE the packet as far as
+        // the keep-alive is concerned. `06 05` is the projection-on latch
+        // this function's `projectionOn` argument patches; `06 0D` is the
+        // decimal-notation flag (kept at the captured 0xAA).
+        let projectionFlags: [UInt8] = [
+            0x06, 0x05, 0x00, 0x01, projectionOn ? 0x55 : 0xAA,
+            0x06, 0x0D, 0x00, 0x01, 0xAA
+        ]
+        // Segment count: the captured template hardcodes 0x0011 (17) for its
+        // 16 segments — i.e. actual+1, the same convention `encode()` uses
+        // for every other packet in this file. It must therefore be
+        // RECOMPUTED rather than left at the captured constant, since we now
+        // omit TLVs in three different shapes: title + 5 maneuver
+        // placeholders + 2 flags (navigation burst), title + 2 flags
+        // (free-ride burst), or just the 2 flags (keep-alive). Other
+        // builders here note that the dash validates this byte and silently
+        // drops packets whose count doesn't match, so getting it wrong fails
+        // silently — it must track the `if` blocks above exactly.
+        let titleSegments = includeHudFields ? 1 : 0
+        let maneuverSegments = (includeHudFields && includeManeuverPlaceholders) ? 5 : 0
+        let segCount = titleSegments + maneuverSegments + 2 + 1   // +1 = the actual+1 convention
+        body[2] = UInt8((segCount >> 8) & 0xFF)
+        body[3] = UInt8(segCount & 0xFF)
+
+        body.append(contentsOf: navFields)
+        body.append(contentsOf: projectionFlags)
+
+        let total = UInt16(body.count)
+        body[0] = UInt8((total >> 8) & 0xFF)
+        body[1] = UInt8(total & 0xFF)
+        return body
     }
 
     /// Phone → bike: q3c.g "new map bitmap was rendered this tick".

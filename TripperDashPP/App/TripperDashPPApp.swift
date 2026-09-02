@@ -15,6 +15,7 @@ struct TripperDashPPApp: App {
     /// `@Environment(AppStatus.self)` into every screen via
     /// `.environment(_:)` on the root scene.
     @State private var status = AppStatus()
+
     var body: some Scene {
         WindowGroup {
             RootView()

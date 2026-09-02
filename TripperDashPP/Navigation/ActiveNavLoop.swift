@@ -176,6 +176,22 @@ final class ActiveNavLoop {
               let nav = navigator
         else { return }
 
+        // Route-card keep-alive — MUST run in BOTH free-ride and active
+        // navigation, so it sits above the `isNavigating` early-return
+        // below. The dash's "destination still valid" watchdog tears the
+        // nav decoder surface back down after ~15-20s without a `0x007E`
+        // refresh, even while UDP/5000 keeps flowing (reference:
+        // `better-dash`'s `route_card_keepalive_loop` doc, derived from
+        // capture_bike_to_dash2.pcapng — symptom is loading dots then a
+        // timeout on the dash despite a healthy stream). Sending the
+        // initial pre-z2 burst (see `AppStatus.startStreaming`) only gets
+        // the surface allocated; keeping it alive is a separate, ongoing
+        // obligation. Title matches what `startStreaming` announced:
+        // the destination name when navigating, generic for free-ride.
+        await bikeLink.sendRouteCardKeepalive(
+            title: nav.destination?.name ?? "Free ride"
+        )
+
         // Free-ride / no-route heartbeat: while streaming WITHOUT active
         // navigation (AppStatus.startFreeRide), there is no maneuver to
         // show. The dash keeps its projection latch open purely from the

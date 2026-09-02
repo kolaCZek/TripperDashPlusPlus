@@ -186,6 +186,9 @@ final class LocationService: NSObject {
     /// across all active slots.
     @discardableResult
     func start(mode: LocationMode) -> UUID {
+        // Arm the delivery watchdog alongside the first consumer. Idempotent,
+        // and it must not be tied to the streamer: the whole point is that it
+        // keeps beating on its own queue when the main actor is blocked.
         let token = UUID()
         consumers[token] = mode
         log.info("Consumer \(token.uuidString.prefix(8)) added (mode=\(mode.rawValue), total=\(self.consumers.count))")
@@ -325,6 +328,9 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
         let fix = Fix(latest)
+        // Timestamp taken HERE, on CoreLocation's own callback, before the
+        // main-actor hop.
+        let deliveredAt = Date()
         Task { @MainActor in
             self.lastFix = fix
             for handler in self.fixSubscribers.values { handler(fix) }

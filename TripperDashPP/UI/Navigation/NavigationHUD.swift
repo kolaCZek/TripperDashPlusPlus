@@ -29,6 +29,12 @@ struct NavigationHUD: View {
     /// only has the navigator in its environment.
     var isReconnecting: Bool = false
 
+    /// True when those reconnect attempts are reaching the dash but getting
+    /// no K1G reply — see `BikeLink.dashUnresponsive`. Fed the same way as
+    /// `isReconnecting`. Defaults to false so the banner reads as an ordinary
+    /// reconnect for any call site that doesn't wire it up.
+    var dashUnresponsive: Bool = false
+
     /// Rider display preferences, injected from MapPickerView (the HUD only
     /// has the navigator in its environment). Default to metric / 24-hour so
     /// previews and any un-wired call sites still compile and read sanely.
@@ -86,7 +92,12 @@ struct NavigationHUD: View {
     private var reconnectBanner: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("Reconnecting to dash…")
+            // See BikeLink.dashUnresponsive: a wedged dash needs an
+            // ignition cycle, so saying "Reconnecting…" forever is
+            // actively misleading.
+            Text(dashUnresponsive
+                 ? "Dash not responding — try the ignition"
+                 : "Reconnecting to dash…")
                 .font(.subheadline.weight(.semibold))
             Spacer(minLength: 0)
         }

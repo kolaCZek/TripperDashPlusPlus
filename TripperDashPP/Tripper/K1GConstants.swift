@@ -108,7 +108,7 @@ nonisolated enum K1G {
     static let heartbeatInterval: TimeInterval = 1.0
 
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
-    static let handshakeStepTimeout: TimeInterval = 3.0
+    static let handshakeStepTimeout: TimeInterval = 5.0
 
     /// Total time we'll keep retrying the handshake before giving up.
     static let handshakeOverallTimeout: TimeInterval = 10.0
@@ -117,8 +117,66 @@ nonisolated enum K1G {
     /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
     static let reconnectInterval: TimeInterval = 5.0
 
+    /// Post-z2 warm-up: how long to wait after `sendNavStart()` (q3c.z2 +
+    /// q3c.q) before starting the RTP stream, giving the dash time to
+    /// actually ALLOCATE ITS NAV-DECODER SURFACE — not just receive the
+    /// UDP packet. Captured from the reference `better-dash`
+    /// `tripper_app_like_nav.py --pre-z2-wait` (default 0.45s, "captured
+    /// from nav_open_ok.pcap: the real phone waits ~450ms" — see that
+    /// script's argparse help text, which is the byte-level source of
+    /// truth for this protocol).
+    ///
+    /// Awaiting the z2/q UDP SEND (see `startStreaming()`) closes the
+    /// ordering race but NOT this timing gap: a `send()` completing only
+    /// means our packet left the socket, not that the dash's firmware
+    /// has finished the (apparently non-trivial, ~450ms) work of setting
+    /// up a decoder surface for the incoming H.264 stream. Field report
+    /// (8/2026), even AFTER the `await sendNavStart()` ordering fix: the
+    /// dash still showed its "Press the cast button on RE App!" idle
+    /// screen instead of entering nav projection on a reconnect during
+    /// free-ride — RTP packets arrived at the dash before its decoder
+    /// surface existed to receive them, so it silently dropped back to
+    /// idle. Without this the whole q3c.z2/q3c.q kick was, in practice,
+    /// advisory rather than a real precondition.
+    static let postZ2Warmup: TimeInterval = 0.45
+
+    /// Route-card (`0x007E`) pre-z2 burst count and inter-packet gap.
+    /// Reference value ("the real phone sends 4 copies over ~1.3s before
+    /// nav-start (frames 1414/1422/1446/1468 in nav_open_ok.pcap). Without
+    /// this burst the dash enters nav mode but never allocates the
+    /// UDP/5000 decoder surface (observed as continuous port-unreachable
+    /// ICMPs)" — `better-dash --route-card-pre-z2`/`--route-card-gap` help
+    /// text, defaults 4 / 0.35s). See `K1GPacket.makeRouteCard`'s doc for
+    /// the full story of why this packet type exists at all in this app.
+    static let routeCardBurstCount = 4
+    static let routeCardBurstGap: TimeInterval = 0.35
+
     /// Hard cap on how long we keep auto-reconnecting before giving up
-    /// and dropping to `.error`. Rider-confirmed: 10 minutes — long
-    /// enough to walk into a petrol station, pay, and walk back.
-    static let reconnectMaxDuration: TimeInterval = 600.0
+    /// and dropping to `.error`.
+    ///
+    /// Was 10 minutes ("long enough to walk into a petrol station, pay, and
+    /// walk back"). Raised to 30 because the reconnect path no longer forces
+    /// a Wi-Fi association — it waits for iOS auto-join instead, since forcing
+    /// one can raise a system join dialog and the rider's scenario is starting
+    /// the bike and riding off with the phone in a pocket, where nobody is
+    /// there to tap "Join" (see the note in `BikeLink.runConnectFlow`).
+    /// Waiting is strictly slower than forcing, and the cost of the budget
+    /// expiring is that the rider must take the phone out and tap Connect —
+    /// exactly what the no-dialog design is meant to avoid. Retrying for
+    /// longer is cheap by comparison: the loop is a 2s handshake attempt, not
+    /// a busy wait.
+    static let reconnectMaxDuration: TimeInterval = 1800.0
+
+    /// How many times a FRESH connect (not an auto-reconnect) silently
+    /// retries after a step-1 handshake timeout with ZERO reply packets
+    /// (the "dash still booting" race — see BikeLink.ConnectAttemptResult
+    /// .bootRaceMissingReply). 4 attempts × handshakeStepTimeout(5s) +
+    /// bootRaceRetryInterval(2s) gaps ≈ 28s, comfortably inside how long
+    /// the Tripper's own boot sequence takes to bring its K1G control-plane
+    /// task up after its Wi-Fi AP (which is what let the phone associate
+    /// and the dash show "iPhone connected") is already alive.
+    static let bootRaceMaxAttempts = 4
+
+    /// Delay between silent boot-race retries on a fresh connect.
+    static let bootRaceRetryInterval: TimeInterval = 2.0
 }

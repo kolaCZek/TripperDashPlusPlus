@@ -49,15 +49,30 @@ enum WebMercator {
     /// boundary.
     static func tile(for coord: CLLocationCoordinate2D, zoom: Int) -> (x: Double, y: Double) {
         let n = pow(2.0, Double(zoom))
-        let latRad = coord.latitude * .pi / 180.0
-        // Inverse Gudermannian — the textbook Web Mercator y formula.
-        // Numerically stable everywhere except the literal poles
-        // (where tan→±∞); we clamp lat to ±85.0511 before calling.
-        let clampedLat = max(-85.0511, min(85.0511, coord.latitude))
+        // Sanitise BEFORE any arithmetic. CoreLocation hands out
+        // `kCLLocationCoordinate2DInvalid` (NaN, NaN) whenever a fix is
+        // unusable, and a NaN here propagates straight into the caller's
+        // `Int(floor(fx))`, which is a hard Swift runtime trap
+        // ("Double value cannot be converted to Int because it is either
+        // infinite or NaN") — i.e. an instant crash, not a bad tile.
+        //
+        // Longitude was previously left unclamped while latitude was
+        // clamped, so an out-of-range or non-finite longitude sailed
+        // through. Both are now clamped and non-finite input falls back to
+        // (0, 0), which yields a valid — if wrong — tile the caller can
+        // render instead of killing the process.
+        let safeLat = coord.latitude.isFinite ? coord.latitude : 0
+        let safeLon = coord.longitude.isFinite ? coord.longitude : 0
+        let clampedLat = max(-85.0511, min(85.0511, safeLat))
+        let clampedLon = max(-180.0, min(180.0, safeLon))
         let clampedLatRad = clampedLat * .pi / 180.0
-        let x = (coord.longitude + 180.0) / 360.0 * n
+        let x = (clampedLon + 180.0) / 360.0 * n
         let y = (1.0 - log(tan(clampedLatRad) + 1.0 / cos(clampedLatRad)) / .pi) / 2.0 * n
-        _ = latRad   // silence unused-warning if we ever drop the original
+        // Belt and braces: if the Gudermannian still produced a non-finite
+        // value (shouldn't after clamping, but this is the only thing
+        // standing between a numeric edge case and a process kill), hand
+        // back the map centre rather than something `Int()` will trap on.
+        guard x.isFinite, y.isFinite else { return (n / 2, n / 2) }
         return (x, y)
     }
 
@@ -83,7 +98,13 @@ enum WebMercator {
     static func metersPerPixel(latitude: Double, zoom: Int) -> Double {
         let earthCircumference = 40_075_016.686
         let n = pow(2.0, Double(zoom))
-        return earthCircumference * cos(latitude * .pi / 180.0) / (Double(tilePixels) * n)
+        // Same NaN-hardening as `tile(for:zoom:)`: `cos(NaN)` is NaN, which
+        // would flow into `tileRange`'s `Int(floor(...))` and trap. Callers
+        // divide by this value, so it must also never be zero — clamp short
+        // of the poles where cos → 0.
+        let safeLat = latitude.isFinite ? latitude : 0
+        let clampedLat = max(-85.0511, min(85.0511, safeLat))
+        return earthCircumference * cos(clampedLat * .pi / 180.0) / (Double(tilePixels) * n)
     }
 
     /// Pixels per degree of longitude at the given latitude and zoom.
@@ -137,7 +158,11 @@ enum WebMercator {
         zoom: Int
     ) -> (minX: Int, minY: Int, maxX: Int, maxY: Int) {
         let mpp = metersPerPixel(latitude: center.latitude, zoom: zoom)
-        let radiusPx = radiusMeters / mpp
+        // `mpp` is now always finite and non-zero (see metersPerPixel), but
+        // `radiusMeters` is caller-supplied and can itself be non-finite —
+        // and every one of the four `Int(floor(...))` below traps on NaN.
+        let safeRadius = radiusMeters.isFinite ? max(0, radiusMeters) : 0
+        let radiusPx = safeRadius / mpp
         let radiusTiles = radiusPx / Double(tilePixels)
         let (cx, cy) = tile(for: center, zoom: zoom)
         let minX = Int(floor(cx - radiusTiles))

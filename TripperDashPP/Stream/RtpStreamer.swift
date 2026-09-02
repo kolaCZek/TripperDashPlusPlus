@@ -102,6 +102,12 @@ final class RtpStreamer {
         guard state == .idle || state == .failed else { return }
         state = .starting
         metrics = RtpStreamerMetrics()
+        // Re-arm the throughput diagnostics for this session, so a restart
+        // after a reconnect always emits its own first-tick line instead of
+        // inheriting the previous run's rate-limit state.
+        hasLoggedThroughputOnce = false
+        lastThroughputStarved = false
+        lastThroughputLogAt = .distantPast
         log.info("RtpStreamer starting → udp://\(self.bikeHost):\(self.bikePort)")
 
         // 1. UDP connection via Network.framework
@@ -256,5 +262,21 @@ final class RtpStreamer {
         bytesAccumulator = 0
         lastTickAt = now
         onMetrics?(metrics)
+    }
+
+
+    /// Human-readable NWConnection state for the throughput line — tells a
+    /// "never became ready" failure apart from "ready but nothing to send".
+    private var connectionStateLabel: String {
+        guard let connection else { return "nil" }
+        switch connection.state {
+        case .setup:      return "setup"
+        case .waiting:    return "waiting"
+        case .preparing:  return "preparing"
+        case .ready:      return "ready"
+        case .failed:     return "failed"
+        case .cancelled:  return "cancelled"
+        @unknown default: return "unknown"
+        }
     }
 }

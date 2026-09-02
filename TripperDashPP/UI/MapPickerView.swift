@@ -123,7 +123,9 @@ struct MapPickerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
+            StatusBanner(state: status.connectionState,
+                         ssid: status.bikeSsid,
+                         dashUnresponsive: status.bikeLink.dashUnresponsive)
 
             ZStack {
                 switch mode {
@@ -212,6 +214,20 @@ struct MapPickerView: View {
             Button("Cancel", role: .cancel) { longPressCoord = nil }
         }
         .onChange(of: scenePhase) { _, newPhase in
+            // Diagnostic: record every scene-phase transition. Field
+            // evidence (8/2026): a locked-phone ride disconnected mid-
+            // navigation with NOTHING in the connection log explaining why
+            // (no wifi-path-down, no heartbeat failure) and the staged
+            // route was gone afterward — consistent with iOS jetsam-
+            // killing the app under CPU/memory pressure (locked-screen
+            // CGContext composition + VideoToolbox encoding every frame is
+            // real background load) and the rider re-launching cold. The
+            // connection log alone can't distinguish that from a plain
+            // Wi-Fi drop; this line is the missing half of the picture —
+            // if a future report shows `.background` immediately followed
+            // by a fresh cold-start "Joining Tripper AP" with NO
+            // intervening `.active`, that confirms a kill/relaunch rather
+            // than a network blip.
             switch newPhase {
             case .background, .inactive:
                 if !status.isStreaming, !status.activeNavigator.isNavigating, let token = locationToken {
@@ -673,6 +689,7 @@ struct MapPickerView: View {
             }
             NavigationHUD(
                 isReconnecting: status.bikeLink.state == .reconnecting,
+                dashUnresponsive: status.bikeLink.dashUnresponsive,
                 imperial: status.dashNavSettings.units == .imperial,
                 useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
                 is24Hour: status.dashNavSettings.is24Hour
@@ -687,7 +704,7 @@ struct MapPickerView: View {
                 // few seconds (both hands busy on the bike).
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(4))
-                    finishArrival()
+                    await finishArrival()
                 }
             }
         }
@@ -851,7 +868,9 @@ struct MapPickerView: View {
     /// off by itself the moment the handshake completes.
     @ViewBuilder
     private var connectingControl: some View {
-        let base = status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…"
+        let base = status.bikeLink.isWaitingForWifi
+            ? "Waiting for Wi-Fi…"
+            : (status.bikeLink.state == .connecting ? "Connecting…" : "Handshaking…")
         VStack(spacing: 8) {
             HStack {
                 ProgressView()
@@ -876,7 +895,12 @@ struct MapPickerView: View {
         VStack(spacing: 8) {
             HStack {
                 ProgressView()
-                Text("Reconnecting to dash…")
+                // Distinguish "can't reach the dash" from "the dash is there
+                // but its K1G server stopped answering" — the second needs an
+                // ignition cycle, and retrying will never fix it on its own.
+                Text(status.bikeLink.dashUnresponsive
+                     ? "Dash not responding — try the ignition"
+                     : "Reconnecting to dash…")
             }
             .frame(maxWidth: .infinity).padding()
             .background(Color.yellow.opacity(0.15))
@@ -902,7 +926,9 @@ struct MapPickerView: View {
                 .padding(.vertical, 8)
                 .background(Color.green.opacity(0.12))
 
-            Button { status.startFreeRide() } label: {
+            Button {
+                Task { @MainActor in await status.startFreeRide() }
+            } label: {
                 Label("Start free ride (map only)", systemImage: "map.fill")
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
                     .background(Color.accentColor.opacity(0.15))
@@ -1018,15 +1044,50 @@ struct MapPickerView: View {
     /// Bake the fast-start tile window for `route` and install it in the
     /// renderer. Runs in the background AFTER streaming has started, so a
     /// stalled tile fetch (no connectivity) can't delay the dash projection.
-    /// Until this completes the renderer falls back to the vector map.
+    ///
+    /// The (still-empty) cache is installed IMMEDIATELY, before the corridor
+    /// bake even starts — not after it finishes. `MapViewSource`'s render
+    /// path already has an "off-corridor rescue tile" fallback
+    /// (`ensurePositionFallback`) for whenever `nearestTile` can't find a
+    /// covering corridor tile; an empty cache trips that same path from
+    /// frame one, so it bakes ONE tile centred on the rider's current GPS
+    /// fix and the dash shows a real map under the route line within ~1-2 s
+    /// instead of the flat vector-only fallback for the whole ~5-15 s the
+    /// full corridor bake takes. Once the corridor bake's first batch
+    /// lands, `nearestTile` starts hitting real tiles and the renderer
+    /// switches over from the rescue tile to the proper route corridor
+    /// automatically — no extra state needed on this side. (Field
+    /// request, 8/2026: "map looks broken/blank right when navigation
+    /// starts, until tiles catch up" — this was the gap.)
+    ///
+    /// `buildLayers: false` on this EARLY install, though: `setTileCache`'s
+    /// side effect of kicking off the coarse (z=12, 7x7=49 tiles) + fine
+    /// (z=16, 49 tiles) sibling bakes is itself real MainActor CGContext
+    /// work (see `RouteTileCache.composite` — no `nonisolated`, all tile
+    /// stitching runs on the main actor). Firing that at t=0 stacks THREE
+    /// concurrent MainActor-heavy bakes (base corridor, coarse, fine)
+    /// right on top of the Wi-Fi handshake / RTP stream startup that's
+    /// racing at the exact same moment — field-confirmed regression
+    /// (8/2026, day after the rescue-tile fix shipped): "grey background"
+    /// on the dash on the first attempt, an outright connection **timeout**
+    /// on the second. Deferring `buildLayers` to fire only after the full
+    /// corridor bake completes (a second `setTileCache` call, same timing
+    /// this had before the rescue-tile change) keeps the instant rescue
+    /// tile while no longer contending with the handshake for the main
+    /// actor.
     private func prerenderRouteTiles(_ route: MKRoute) async {
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
+        status.mapViewSource.setTileCache(cache, buildLayers: false)
         prerenderProgress = 0
         prerenderActive = true
         await cache.prerender(route: route) { p in
             prerenderProgress = p
         }
-        status.mapViewSource.setTileCache(cache)
+        // Re-install now that the corridor bake is done: same cache
+        // object (no visual change), but this time kicks off the
+        // coarse/fine sibling layers — safe now that the handshake/
+        // stream-start race is long over.
+        status.mapViewSource.setTileCache(cache, buildLayers: true)
         prerenderActive = false
     }
 
@@ -1217,7 +1278,7 @@ struct MapPickerView: View {
             // browsing after navigation ends.
             status.plannedRoute = nil
             if !status.isStreaming {
-                status.startStreaming()
+                await status.startStreaming()
             }
             transitioning = false
             // Fire-and-forget the tile prerender AFTER the stream is live.
@@ -1262,7 +1323,7 @@ struct MapPickerView: View {
     /// `.picking` and the running ActiveNavLoop drops into its no-maneuver
     /// free-ride heartbeat); `transitionToFreeRideInPlace()` swaps the tile
     /// cache + route geometry without restarting the RTP stream.
-    private func finishArrival() {
+    private func finishArrival() async {
         status.activeNavigator.stop()
         status.activeNavigator.onActiveRouteChanged = nil
         status.stagedDestination = nil
@@ -1282,7 +1343,7 @@ struct MapPickerView: View {
         // Link dropped at arrival (no live stream to reuse): fall back to a
         // fresh free-ride start if still connected, else just slide back.
         if status.bikeLink.state == .connected, !status.isStreaming {
-            status.startFreeRide()
+            await status.startFreeRide()
             status.mapViewSource.showNotice(
                 DashNotice(text: "You've arrived", level: .info, duration: 5)
             )
@@ -1320,6 +1381,11 @@ struct MapPickerView: View {
 private struct StatusBanner: View {
     let state: BikeConnectionState
     let ssid: String?
+    /// See `BikeLink.dashUnresponsive`. Passed in rather than read from the
+    /// environment because this banner is driven by `BikeConnectionState`,
+    /// which deliberately collapses the link's sub-states and so cannot
+    /// express "reconnecting, but the dash is the thing that's broken".
+    var dashUnresponsive: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1352,7 +1418,10 @@ private struct StatusBanner: View {
         case .disconnected: "Not connected"
         case .wifiJoining:  "Join the Tripper Wi-Fi…"
         case .handshaking:  "Handshaking with dash…"
-        case .reconnecting: "Reconnecting to dash…"
+        case .reconnecting:
+            dashUnresponsive
+                ? "Dash not responding — try the ignition"
+                : "Reconnecting to dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
         case .error:        "Connection failed — tap to retry"
