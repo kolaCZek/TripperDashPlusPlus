@@ -102,12 +102,6 @@ final class RtpStreamer {
         guard state == .idle || state == .failed else { return }
         state = .starting
         metrics = RtpStreamerMetrics()
-        // Re-arm the throughput diagnostics for this session, so a restart
-        // after a reconnect always emits its own first-tick line instead of
-        // inheriting the previous run's rate-limit state.
-        hasLoggedThroughputOnce = false
-        lastThroughputStarved = false
-        lastThroughputLogAt = .distantPast
         log.info("RtpStreamer starting → udp://\(self.bikeHost):\(self.bikePort)")
 
         // 1. UDP connection via Network.framework

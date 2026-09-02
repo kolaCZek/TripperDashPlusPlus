@@ -762,7 +762,6 @@ final class BikeLink {
                     log.error("[\(ms(), privacy: .public)ms] Preflight failed: expected SSID \"\(self.ssid, privacy: .public)\" but on \"\(liveSSID, privacy: .public)\"")
                     throw HandshakeError.notOnDashNetwork(expected: ssid, actual: liveSSID)
                 }
-                let onNote = liveSSID.map { "on \"\($0)\"" } ?? "SSID unreadable — proceeding on WiFiJoiner's confirmation"
             }
             // Wait for the Wi-Fi path to become usable before opening the
             // socket. Association (WiFiJoiner's "Already associated") only means
@@ -1172,9 +1171,6 @@ final class BikeLink {
                     rxCount += 1
                     rxCountBox.value = rxCount
                     let segs = K1GPacket.decode(packet)
-                    let segSummary = segs.isEmpty
-                        ? "no decodable segments"
-                        : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
                     for seg in segs where seg.type == K1G.SegType.auth.rawValue {
                         if seg.sub == K1G.AuthSub.modulus.rawValue { modulus = seg.payload }
                         if seg.sub == K1G.AuthSub.exponent.rawValue { exponent = seg.payload }

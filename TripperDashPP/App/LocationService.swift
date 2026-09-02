@@ -328,9 +328,6 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let latest = locations.last else { return }
         let fix = Fix(latest)
-        // Timestamp taken HERE, on CoreLocation's own callback, before the
-        // main-actor hop.
-        let deliveredAt = Date()
         Task { @MainActor in
             self.lastFix = fix
             for handler in self.fixSubscribers.values { handler(fix) }
