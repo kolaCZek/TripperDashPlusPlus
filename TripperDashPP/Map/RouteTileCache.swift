@@ -106,6 +106,21 @@ final class RouteTileCache {
     /// leaves the user position well inside a single composite.
     static let stride: CLLocationDistance = 700
 
+    /// How far AHEAD of `lastRiderRouteOffset` `snapToMainAnchor` will
+    /// look for a matching anchor. Generous: it must survive a burst of
+    /// missed fixes (tunnel, background suspension, patchy GPS) at
+    /// motorway speed — 5 km is ~2 minutes at 150 km/h — while staying far
+    /// below the distance at which a self-intersecting route would offer a
+    /// false match.
+    static let snapForwardWindow: CLLocationDistance = 5_000
+
+    /// How far BEHIND `lastRiderRouteOffset` the same search will look.
+    /// Small on purpose: riders move forward along a route, so a backward
+    /// match is either GPS jitter (a couple of hundred metres at most) or
+    /// a genuine turnaround, which is a reroute's job — not something to
+    /// paper over by letting the map slide backwards.
+    static let snapBackwardWindow: CLLocationDistance = 1_500
+
     /// How many OSM tiles per side of each composite. 5 × 256 = 1280 px,
     /// covers ~2.0 km at z=15 (latitude-dependent).
     ///
@@ -146,11 +161,53 @@ final class RouteTileCache {
     /// "0% … 0% … 0% … 100%" in chunks.
     static let parallelism = 3
 
+    /// Most anchors a single `extend()` will queue for baking.
+    ///
+    /// Chosen from the 2026-09-02 ride: steady-state windows baked 6-11
+    /// anchors, so 12 leaves normal riding completely unchanged, while the
+    /// post-hard-snap bursts of 84-99 anchors get split across several passes
+    /// instead of occupying the main actor in one block. Those bursts are
+    /// where the 1.7-2.5 s main-actor hops and 0 fps RTP windows happened.
+    ///
+    /// Note this is per CACHE, and `MapViewSource.extendTileCache` extends
+    /// three of them (base + coarse + fine, the z=13/15/16 seen in the logs),
+    /// so one throttled pass can still bake up to ~36 anchors — with a yield
+    /// between each tile and between layers, rather than as one block.
+    ///
+    /// It is a per-PASS cap, not a rate limit: `extend()` is called
+    /// continuously while navigating, so the remaining anchors are picked
+    /// up on subsequent passes rather than dropped.
+    static let maxAnchorsPerExtend = 12
+
     /// Lateral buffer distance — how far perpendicular to the route
     /// the wing anchor rows sit. 1500 m means the user can drift up
     /// to ~2 km from the centerline (lateral offset + ~half a tile
     /// span) before the cache misses and the dark fallback kicks in.
     static let lateralOffset: CLLocationDistance = 1500
+
+    /// Hard upper bound on how far a drawn tile's geographic centre may be
+    /// from the live GPS fix. Enforced at draw time in
+    /// `MapViewSource.drawTileCacheFrame`; a violation rejects the tile and
+    /// re-anchors on the fix.
+    ///
+    /// Derived, not guessed — it has to sit in the gap between two numbers:
+    ///
+    ///   * LOWER bound 1540 m — the worst LEGITIMATE distance. A rider on
+    ///     the route can have a wing tile as their nearest tile, and a wing
+    ///     is `lateralOffset` (1500 m) to the side; add up to half an anchor
+    ///     stride along the route (350 m) and the honest worst case is
+    ///     hypot(1500, 350) ≈ 1540 m. Anything at or below this would reject
+    ///     correct tiles.
+    ///   * UPPER bound 1965 m — half the tile span. A tile is a 5 × 256 px
+    ///     stitch at z=15, ≈3931 m per side at 50°N (3.07 m/px), so beyond
+    ///     ~1965 m from its centre the rider is off the bitmap entirely and
+    ///     the frame would show blank map under the puck regardless.
+    ///
+    /// 1800 m is comfortably inside both. Note the km-scale desync this
+    /// guards against is an order of magnitude past this limit, so the exact
+    /// value within that window is not critical — what matters is that the
+    /// check exists and runs against the raw fix on every frame.
+    static let maxTileCentreDistance: CLLocationDistance = 1800
 
     /// Hard cap on total composites per route. Anchors are still
     /// computed beyond this number, but bake batches will only ever
@@ -425,7 +482,13 @@ final class RouteTileCache {
         // Snap the rider to the nearest main anchor to get a route offset;
         // fall back to the route start if they're somehow off every main
         // anchor (shouldn't happen mid-ride, but keeps us safe).
-        let snapped = snapToMainAnchor(coord: coord) ?? 0
+        //
+        // `allowJump: true` — this runs on a style re-bake, where
+        // `allAnchors` was just recomputed for (possibly) a different
+        // route. There is no meaningful continuity with the previous
+        // `lastRiderRouteOffset`, so the continuity gate must not apply or
+        // the rider could be locked out of every anchor on the new route.
+        let snapped = snapToMainAnchor(coord: coord, allowJump: true) ?? 0
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
         let frontEdge = snapped + bakeAheadMeters
@@ -453,7 +516,15 @@ final class RouteTileCache {
         // use its routeOffset as the window's center-back edge. Main
         // anchors are the ones on the actual polyline; wings would
         // give a misleading offset for someone briefly drifting.
-        let snappedOffset = snapToMainAnchor(coord: coord) ?? lastRiderRouteOffset
+        // `allowJump: false` (the default) — mid-ride, so the continuity
+        // gate applies: the map must not teleport to a far-away part of a
+        // self-intersecting route. On no match we keep the previous offset,
+        // which is the correct conservative behaviour (the map holds still
+        // rather than jumping somewhere wrong), and a genuine off-route
+        // excursion is picked up by the reroute path, which re-bakes with
+        // `allowJump: true`.
+        let snapResult = snapToMainAnchor(coord: coord)
+        let snappedOffset = snapResult ?? lastRiderRouteOffset
         lastRiderRouteOffset = snappedOffset
 
         let frontEdge = snappedOffset + lookaheadMeters
@@ -463,10 +534,46 @@ final class RouteTileCache {
         let backEdge = max(0, snappedOffset - Self.rollingTrailMeters)
 
         let candidateIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
-        let missing = candidateIndices.filter {
+        let allMissing = candidateIndices.filter {
             bakedTileByIndex[$0] == nil && !inFlight.contains($0)
         }
-        guard !missing.isEmpty else { return }
+        guard !allMissing.isEmpty else { return }
+
+        // Cap how much a single extend() may queue.
+        //
+        // Baking runs on the main actor (see `bakeAnchors`), so a large
+        // batch is a long main-thread occupation. Normally extend() finds a
+        // handful of new anchors as the rider rolls forward, but after a
+        // hard-snap — the motion interpolator jumping the displayed position
+        // km back onto the GPS fix — the rider's route offset moves by a
+        // large distance at once and the whole new window is missing.
+        //
+        // Measured on the 2026-09-02 ride: snaps of 1769 m / 3275 m / 5313 m
+        // were each followed within seconds by bake bursts of 130-180/min and
+        // main-actor hops of 1.7-2.5 s, during which RTP throughput fell to
+        // 0 fps. Windows above ~90 bakes/min showed a stall 43% of the time
+        // versus 4% below it.
+        //
+        // The remainder is not dropped: extend() is called continuously
+        // while navigating, so the next call picks up where this one stopped.
+        // Spreading the work costs a little latency on tiles far ahead of the
+        // rider and keeps the ones under them arriving on time.
+        //
+        // Nearest-first so the cap always spends its budget on the tiles the
+        // rider is about to need, not on whatever the index order happens to
+        // put first.
+        let missing: [Int]
+        if allMissing.count > Self.maxAnchorsPerExtend {
+            missing = Array(
+                allMissing.sorted { a, b in
+                    abs(allAnchors[a].routeOffsetMeters - snappedOffset)
+                        < abs(allAnchors[b].routeOffsetMeters - snappedOffset)
+                }.prefix(Self.maxAnchorsPerExtend)
+            )
+        } else {
+            missing = allMissing
+        }
+
         log.debug("extend: rider @ \(Int(snappedOffset), privacy: .public) m, baking \(missing.count, privacy: .public) new anchors (window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m)")
         await bakeAnchors(at: missing, progress: nil)
     }
@@ -516,6 +623,23 @@ final class RouteTileCache {
                     nextSlot += 1
                     let center = allAnchors[i].coord
                     let style = self.style
+                    // Yield before queueing the next composite so the main
+                    // actor can service anything waiting behind us.
+                    //
+                    // `composite` is @MainActor and does real CPU work
+                    // (CGContext setup, ~49 PNG decodes and blits, the dark
+                    // palette's vImage colour matrix). Back-to-back tiles
+                    // therefore hold the main actor for as long as the batch
+                    // takes, which starves the RTP metrics timer and the
+                    // CoreLocation delivery hop — visible on the 2026-09-02
+                    // ride as hops of 1.7-2.5 s and RTP dropping to 0 fps
+                    // during heavy bake windows.
+                    //
+                    // A yield does not make baking cheaper or move it off the
+                    // main actor; it just stops one batch monopolising it, so
+                    // the stream keeps flowing while tiles are produced
+                    // slightly slower.
+                    await Task.yield()
                     group.addTask { @MainActor in
                         let tile = await self.composite(center: center, style: style)
                         return (i, tile)
@@ -616,13 +740,52 @@ final class RouteTileCache {
     /// `routeOffsetMeters`. Used to snap the rider position to a
     /// well-defined "distance along route" value.
     ///
-    /// Returns nil if the rider is implausibly far from every main
-    /// anchor (>3 km, off-route plus lateral buffer) — `extend()`
-    /// will then fall back to the last known offset.
-    private func snapToMainAnchor(coord: CLLocationCoordinate2D) -> CLLocationDistance? {
+    /// Snap a GPS fix to the route offset of the nearest MAIN-row anchor.
+    ///
+    /// `allowJump` defaults to false, which constrains the search to
+    /// anchors near `lastRiderRouteOffset` — see below. Pass true only
+    /// when there is no continuity to preserve (first fix of a ride, or a
+    /// fresh route after a reroute), where the rider genuinely can be
+    /// anywhere along the new polyline.
+    ///
+    /// WHY THE CONSTRAINT (field report, 8/2026): the rider's position on
+    /// the streamed map jumped several km ahead of where they actually
+    /// were, while the dash's maneuver glyph kept navigating correctly.
+    /// That split is the tell — the two consume different position logic:
+    ///
+    ///   * the glyph goes through `PolylineMath.nearestSegment(from:)`,
+    ///     which carries a forward cursor (`lastSegmentIndex`) and so is
+    ///     monotonic — it cannot latch onto a distant part of the route;
+    ///   * this function scanned EVERY anchor on the whole route, took the
+    ///     global argmin and accepted anything within 3 km, with no
+    ///     reference at all to where the rider was a moment ago.
+    ///
+    /// So anywhere the route passes near itself — a loop, a switchback, an
+    /// out-and-back, or simply a parallel carriageway — the global argmin
+    /// can pick an anchor kilometres away along the route while the glyph
+    /// stays right. The 3 km tolerance made it worse: it is more than four
+    /// anchor strides (700 m), so a large jump was well inside tolerance.
+    ///
+    /// The window is asymmetric on purpose: a rider moves forward along
+    /// the route between fixes, so allow a generous forward reach but only
+    /// a small backward one (GPS jitter, or genuinely turning around,
+    /// which a reroute will handle properly).
+    private func snapToMainAnchor(
+        coord: CLLocationCoordinate2D,
+        allowJump: Bool = false
+    ) -> CLLocationDistance? {
         var bestOffset: CLLocationDistance = 0
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
+        let lowerBound = lastRiderRouteOffset - Self.snapBackwardWindow
+        let upperBound = lastRiderRouteOffset + Self.snapForwardWindow
         for a in allAnchors where a.lateralRow == 0 {
+            if !allowJump {
+                // Continuity gate: ignore anchors that are not plausibly
+                // reachable from the last known route offset. This is what
+                // stops a self-intersecting route teleporting the map.
+                guard a.routeOffsetMeters >= lowerBound,
+                      a.routeOffsetMeters <= upperBound else { continue }
+            }
             let d = PolylineMath.haversine(coord, a.coord)
             if d < bestDist {
                 bestDist = d
@@ -919,7 +1082,9 @@ final class RouteTileCache {
         let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
         let bitmapSize = tilePixels
 
-        // Fractional tile coords for the center.
+        // Fractional tile coords for the center. `WebMercator.tile` is
+        // NaN-hardened: a non-finite coordinate used to trap in the
+        // `Int(floor(fx))` below, which is a hard process kill.
         let (fx, fy) = WebMercator.tile(for: center, zoom: z)
 
         // Top-left tile index of the gridSide × gridSide block.
@@ -946,8 +1111,22 @@ final class RouteTileCache {
         // Fetch all gridSide² (25 at gridSide=5) tiles in parallel. Each call
         // hits TileDiskCache first then OSMTileFetcher; misses are
         // rare on a re-bake of familiar territory.
-        let tilesData: [(tx: Int, ty: Int, data: Data?)] = await withTaskGroup(
-            of: (Int, Int, Data?).self
+        //
+        // DIAG (rider question, 8/2026: "does re-planning the same route
+        // re-download tiles that are already cached?"): tag each result
+        // hit/miss (3rd tuple element) so a re-bake of the same corridor
+        // can be checked numerically instead of going on
+        // gut feel. Expected/working: near-0 HTTP fetches on a second
+        // bake of the identical route. If the field log instead shows a
+        // high miss count on a re-plan, that's the actual repro to chase
+        // (candidates: `zoom` changing between bakes so the (z,x,y) key
+        // never matches, or eviction running between rides). Counted
+        // AFTER collection (below), not mutated from inside the
+        // concurrent `addTask` closures — those aren't MainActor-isolated
+        // here, so a shared var would be a data race under strict
+        // concurrency.
+        let tilesData: [(tx: Int, ty: Int, data: Data?, wasCacheHit: Bool)] = await withTaskGroup(
+            of: (Int, Int, Data?, Bool).self
         ) { group in
             for ty in 0..<gridSide {
                 for tx in 0..<gridSide {
@@ -956,7 +1135,7 @@ final class RouteTileCache {
                     group.addTask {
                         // Disk cache first — synchronous-ish via actor.
                         if let cached = await TileDiskCache.shared.read(style: style, z: z, x: absX, y: absY) {
-                            return (tx, ty, cached)
+                            return (tx, ty, cached, true)
                         }
                         // HTTP fallback. On error (network, 429) we
                         // return nil; the composite still draws with
@@ -965,14 +1144,14 @@ final class RouteTileCache {
                         do {
                             let data = try await OSMTileFetcher.shared.fetch(style: style, z: z, x: absX, y: absY)
                             await TileDiskCache.shared.write(style: style, z: z, x: absX, y: absY, pngData: data)
-                            return (tx, ty, data)
+                            return (tx, ty, data, false)
                         } catch {
-                            return (tx, ty, nil)
+                            return (tx, ty, nil, false)
                         }
                     }
                 }
             }
-            var collected: [(Int, Int, Data?)] = []
+            var collected: [(Int, Int, Data?, Bool)] = []
             collected.reserveCapacity(gridSide * gridSide)
             for await result in group {
                 collected.append(result)

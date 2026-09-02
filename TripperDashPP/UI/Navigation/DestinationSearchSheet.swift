@@ -93,14 +93,29 @@ struct DestinationSearchSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                // Identify rows by array offset, not `\.self`. The completer
+                // Identify rows by offset + rendered content, not by the
+                // element and not by offset alone. The completer
                 // (MKLocalSearchCompleter) rewrites the whole array on every
                 // keystroke and can emit content-duplicate rows; keying on the
                 // element made SwiftUI's diff see a different item count than
                 // it actually inserted into its backing UICollectionView,
-                // crashing with "Invalid Number Of Items In Section". Offsets
-                // are always unique for the current snapshot.
-                ForEach(Array(search.completions.enumerated()), id: \.offset) { _, c in
+                // crashing with "Invalid Number Of Items In Section".
+                //
+                // Bare offsets fixed the uniqueness half of that but are not
+                // STABLE: when the array goes 5 → 3 items, offsets 0/1/2 now
+                // address different places, so SwiftUI treats them as the same
+                // rows with new content and animates a diff whose endpoints
+                // disagree. A crash with this exact signature came back from
+                // TestFlight on 1.0.2 (see `LocalSearchService.applyCompletions`
+                // for the full report).
+                //
+                // `CompletionRow.id` therefore folds BOTH in: the offset keeps
+                // content-duplicate rows distinct (the original bug), and the
+                // title/subtitle make a changed place at the same offset read
+                // as a genuinely different row (the new one). Dropping either
+                // half reintroduces one of the two crashes.
+                ForEach(CompletionRow.rows(from: search.completions)) { row in
+                    let c = row.completion
                     Button {
                         Task { await pick(c) }
                     } label: {
@@ -162,6 +177,31 @@ struct DestinationSearchSheet: View {
             dismiss()
         } catch {
             resolveError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Stable row identity for completer results
+
+/// One autocomplete row, carrying an identity that is BOTH unique within a
+/// snapshot AND stable in content — the two properties SwiftUI's `List` diff
+/// needs, and which neither `\.self` nor `\.offset` provides on its own.
+///
+/// `MKLocalSearchCompletion` is a reference type with no usable identity: two
+/// results for the same place compare unequal, while genuinely different
+/// results can render identically. Keying on the element itself once crashed
+/// the app with "Invalid Number Of Items In Section"; keying on bare offsets
+/// fixed that but let a changed place reuse a row identity, which is the
+/// shape the 1.0.2 TestFlight crash came back in. Combining both closes each
+/// other's gap — see the `ForEach` above and
+/// `LocalSearchService.applyCompletions`.
+private struct CompletionRow: Identifiable {
+    let id: String
+    let completion: MKLocalSearchCompletion
+
+    static func rows(from completions: [MKLocalSearchCompletion]) -> [CompletionRow] {
+        completions.enumerated().map { offset, c in
+            CompletionRow(id: "\(offset)\u{1F}\(c.title)\u{1F}\(c.subtitle)", completion: c)
         }
     }
 }

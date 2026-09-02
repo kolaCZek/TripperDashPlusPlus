@@ -257,4 +257,20 @@ final class RtpStreamer {
         lastTickAt = now
         onMetrics?(metrics)
     }
+
+
+    /// Human-readable NWConnection state for the throughput line — tells a
+    /// "never became ready" failure apart from "ready but nothing to send".
+    private var connectionStateLabel: String {
+        guard let connection else { return "nil" }
+        switch connection.state {
+        case .setup:      return "setup"
+        case .waiting:    return "waiting"
+        case .preparing:  return "preparing"
+        case .ready:      return "ready"
+        case .failed:     return "failed"
+        case .cancelled:  return "cancelled"
+        @unknown default: return "unknown"
+        }
+    }
 }

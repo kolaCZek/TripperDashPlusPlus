@@ -101,6 +101,9 @@ final class AppStatus {
         }
 
         Task { @MainActor in
+            // Flip to "Connecting…" up front so the UI reflects the several-
+            // second Wi-Fi join+verify instead of sitting on "Connect to…".
+            bikeLink.beginWifiJoin()
             let outcome = await wifiJoiner.ensureJoined(ssid: bike.ssid)
             switch outcome {
             case .alreadyJoined, .joined:
@@ -147,6 +150,20 @@ final class AppStatus {
     /// supported default mode of operation.
     var keepAwakeWhileStreaming: Bool = true {
         didSet { applyKeepAwake() }
+    }
+
+    /// True while the rider has an ACTIVE projection session — navigating a
+    /// route or free-riding — regardless of whether RTP frames are flowing
+    /// at this instant.
+    ///
+    /// This is the "intent to stream", as opposed to `isStreaming`, which is
+    /// the "currently streaming" fact (`streamer?.state == .running`). The
+    /// two diverge exactly during a reconnect, and that gap is what this
+    /// property exists to cover — see `applyKeepAwake` for the deadlock it
+    /// fixes.
+    var hasStreamingIntent: Bool {
+        isFreeRiding
+            || (activeNavigator.isNavigating && !activeNavigator.hasArrived)
     }
 
     /// Reflects whether the location wakelock is active right now. Used
@@ -215,6 +232,15 @@ final class AppStatus {
             bikeLink.ssid = active.ssid
         }
 
+        // NOTE: `BikeLink` deliberately has NO way to re-join the AP. The
+        // reconnect loop waits for iOS auto-join instead of forcing an
+        // association, because forcing one can raise a system join dialog and
+        // the rider is typically riding off with the phone in their pocket —
+        // see the long note in `BikeLink.runConnectFlow`. `WiFiJoiner` is used
+        // only from `connectToBike()` (an explicit, foreground user action)
+        // and `addBike()` (which persists the network with joinOnce = false so
+        // iOS can auto-join it forever after).
+
         // Watch `bikeLink.state` so the wakelock follows the link, not
         // just the streamer. When the bike disconnects mid-ride, we
         // tear the keepers (and the now-pointless streamer) down within
@@ -240,7 +266,7 @@ final class AppStatus {
                 let state = self.bikeLink.state
                 // Session teardown detector: the link reached a terminal
                 // down-state. `.idle` = user disconnect; `.error` =
-                // auto-reconnect gave up after its 10-min budget (motorcycle
+                // auto-reconnect gave up after its reconnect budget (motorcycle
                 // switched off). Both end the ride session.
                 let sessionEnded: Bool
                 switch state {
@@ -262,6 +288,45 @@ final class AppStatus {
                     // watch the link itself and would keep encoding into the
                     // void. The stream re-arms below once we're back.
                     self.stopStreaming()
+                } else if state != .connected, self.streamer != nil {
+                    // SAME cleanup, for the case `isStreaming` already went
+                    // false on its own. THIS is the reconnect-hang bug
+                    // (field log, 8/2026, free-ride):
+                    //
+                    //   19:09:26.132  RtpStreamer failed: NWError 57
+                    //                 (Socket is not connected)
+                    //                 → fail() → stop() → state = .idle
+                    //   19:09:26.227  Link dropped (wifi-path-down)   [+95 ms]
+                    //
+                    // The trigger is the ordinary, expected one: the rider
+                    // switching the motorcycle off and on again (the AP goes
+                    // away with it). Not an exotic radio failure — this is
+                    // the normal petrol-stop / restart case the whole
+                    // auto-reconnect path exists to survive, and it is
+                    // trivially reproducible on demand.
+                    //
+                    // `isStreaming` is derived purely from
+                    // `streamer?.state == .running`, so the streamer's own
+                    // failure had ALREADY flipped it false 95 ms before the
+                    // link-drop observation arrived. The branch above
+                    // therefore did not fire, `stopStreaming()` never ran,
+                    // and `streamer` was left non-nil holding a dead
+                    // RtpStreamer. Both resume paths guard on
+                    // `streamer == nil`, so on reconnect:
+                    //
+                    //   19:09:41.218  Free-ride resume skipped —
+                    //                 state=connected streamer=present
+                    //
+                    // …no RTP was ever started and the dash sat on Timeout.
+                    // The dead streamer would have blocked EVERY subsequent
+                    // start for the rest of the app session, not just this
+                    // reconnect.
+                    //
+                    // Ordering note: this is deliberately a second branch
+                    // rather than a relaxed condition on the first, so the
+                    // healthy case (still .running when the link drops)
+                    // keeps its existing log line and behaviour untouched.
+                    self.stopStreaming()
                 } else if state == .connected
                             && self.activeNavigator.isNavigating
                             && !self.activeNavigator.hasArrived
@@ -281,8 +346,46 @@ final class AppStatus {
                     // maneuver) — a bare map with no navigation, exactly what
                     // we just stopped. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
-                    self.startStreaming()
+                    //
+                    // Field report (8/2026): this branch fires (dash shows
+                    // "iPhone connected"), but the dash then sits on
+                    // "Timeout" and the phone UI stays on "Connected — idle"
+                    // for tens of seconds — i.e. `startStreaming()` never
+                    // reaches `.running`. Everything inside that call
+                    // (sendRouteCard / sendNavStart / the post-z2 warmup /
+                    // RtpStreamer.start()) previously logged ONLY through
+                    // os.log, which never leaves the phone in a field
+                    // the logs — this exact resume path had zero
+                    // exported diagnostics, unlike the free-ride branch just
+                    // below. Log entry/exit here and instrument the guard
+                    // inside `startStreaming()` so the next report shows
+                    // exactly which step stalled instead of a silent gap.
+                    await self.startStreaming()
+                } else if state == .connected
+                            && self.isFreeRiding
+                            && !self.isStreaming {
+                    // Reconnected mid-free-ride → resume projection
+                    // automatically, mirroring the navigation-resume branch
+                    // above. `isFreeRiding` is the rider's persistent INTENT
+                    // (set by startFreeRide(), cleared only by an explicit
+                    // stopFreeRide() — never by the involuntary stopStreaming()
+                    // a drop triggers), so it correctly survives the drop.
+                    // Without this branch the phone's UI kept showing
+                    // "free-riding" (isFreeRiding still true) while no RTP
+                    // stream was actually running — the dash timed out
+                    // waiting for frames that never came (rider feedback
+                    // 8/2026: reconnect after the bike was switched off).
+                    await self.resumeFreeRideAfterReconnect()
                 } else {
+                    if state == .connected && !self.isStreaming {
+                        // Reconnected but NEITHER resume branch fired, so no
+                        // RTP will be started and the dash will sit on its
+                        // loading dots until it times out. Log the inputs:
+                        // field reports of "reconnect OK on the phone, timeout
+                        // on the dash" are indistinguishable from a genuine
+                        // stream failure without them, and AppStatus otherwise
+                        // writes nothing to the log at all.
+                    }
                     self.applyKeepAwake()
                 }
                 self.observeBikeLink()
@@ -304,7 +407,15 @@ final class AppStatus {
     }
     /// Spin up the RTP pipeline pointed at the currently-connected dash.
     /// No-op if the link isn't connected yet.
-    func startStreaming() {
+    ///
+    /// `async` (not fire-and-forget) so callers that need the dash to have
+    /// actually entered nav projection before doing anything else (there
+    /// currently are none downstream of the await point, but the ordering
+    /// guarantee inside this function — nav-start MUST land before the
+    /// first RTP packets, see the comment at the `await
+    /// bikeLink.sendNavStart()` call below — needs `startStreaming` itself
+    /// to be awaitable for that to be real rather than cosmetic).
+    func startStreaming() async {
         guard bikeLink.dashHost != nil else { return }
 
         // ── Demo mode: fake dash, no UDP ────────────────────────────────
@@ -354,7 +465,36 @@ final class AppStatus {
             return
         }
 
-        guard streamer == nil, let host = bikeLink.dashHost else { return }
+        // A streamer that exists but is NOT running is dead weight — it can
+        // never produce frames again (RtpStreamer.start() only accepts
+        // .idle/.failed, and this instance's encoder + UDP connection are
+        // already torn down by fail()/stop()). Holding onto it makes the
+        // guard below reject every future start for the rest of the app
+        // session. Clear it and carry on rather than returning.
+        //
+        // Field log 8/2026: `RtpStreamer failed: NWError 57 (Socket is not
+        // connected)` left exactly this state behind, and the next
+        // reconnect logged "Free-ride resume skipped — streamer=present"
+        // and never started RTP → dash Timeout. The observer in
+        // `observeBikeLink` now also clears it on a link drop, but this
+        // covers the case where the streamer dies while the link stays
+        // .connected, where no state-change observation fires at all.
+        if let existing = streamer, existing.state != .running, existing.state != .starting {
+            existing.stop()
+            streamer = nil
+        }
+
+        guard streamer == nil, let host = bikeLink.dashHost else {
+            // Silent no-op before this fix: if `streamer` was somehow
+            // non-nil (a previous stop didn't clear it) or `dashHost` came
+            // back nil (link state raced this call), `startStreaming`
+            // returned having done NOTHING — no route card, no nav-start,
+            // no RTP — with zero trace anywhere. That is indistinguishable
+            // in the field from every step below actually running and
+            // silently stalling. Name it explicitly so the two cases can be
+            // told apart from the logs.
+            return
+        }
 
         let source = mapViewSource   // shared instance, lazily created
         let s = RtpStreamer(bikeHost: host, source: source)
@@ -372,16 +512,76 @@ final class AppStatus {
             )
         }
         streamer = s
+        // Route card FIRST, then nav-start, then the RTP stream — the dash
+        // gates its UDP/5000 decoder surface on ALL THREE happening in
+        // that order (see `BikeLink.sendRouteCard`'s doc / the
+        // `royal-enfield-tripper-dash` skill's network-transport
+        // reference). Field report (8/2026): free-ride reconnects kept
+        // landing on the dash's "Press the cast button on RE App!" idle
+        // screen even after the nav-start-ordering and post-z2-warmup
+        // fixes above, because THIS packet was never sent for free-ride at
+        // all — `ActiveNavLoop.tick()` only sends anything route-shaped
+        // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
+        // design, no route) announced no destination whatsoever. Use the
+        // staged destination's name when navigating; fall back to a
+        // generic title for free-ride, matching the reference
+        // implementation's own default ("Navigation").
+        await bikeLink.sendRouteCard(
+            title: stagedDestination?.name ?? "Free ride",
+            includeManeuverPlaceholders: !isFreeRiding
+        )
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
-        let link = bikeLink
-        Task { await link.sendNavStart() }
+        //
+        // MUST be awaited here, not fire-and-forget. It used to be
+        // `Task { await link.sendNavStart() }` immediately followed by
+        // `s.start()` — spawning the send and starting the RTP stream
+        // ran CONCURRENTLY, not in the sequence the comment above
+        // describes, so there was no actual ordering guarantee that
+        // nav-start reached the dash before the first video packets did.
+        // Under normal conditions the K1G send (~1ms) easily wins that
+        // race against RTP spin-up, so this went unnoticed for months.
+        // Field report (8/2026): right after a reconnect that needed
+        // several boot-race retries (dash's K1G control-plane task
+        // visibly still catching up — see the reconnect fast-retry fix
+        // two commits ago), the dash showed a plain Wi-Fi "share" screen
+        // instead of entering nav projection, exactly the failure mode
+        // this comment warns about. A dash still finishing its own
+        // internal recovery is far more likely to be slow to process
+        // q3c.z2/q3c.q, which is exactly when this unenforced ordering
+        // actually matters. Awaiting a UDP send is cheap (single-digit
+        // ms in practice) — no perceptible startup delay for the normal
+        // case, and a real ordering guarantee for the racy one.
+        await bikeLink.sendNavStart()
+        // Post-z2 confirmation route card — ONE more 0x007E immediately
+        // after nav-start, mirroring the reference (`_enter_nav_mode`:
+        // "Post-z2 confirmation route card", and
+        // `tripper_app_like_nav.py` step 4: "one more 0x007E right after
+        // z2, mirroring the phone (frame 1475, 22ms after z2). Acts as a
+        // 'destination still valid' confirmation while the dash allocates
+        // the decoder surface."). Distinct from both the pre-z2 burst
+        // above and the 1Hz keep-alive in ActiveNavLoop: this one lands
+        // inside the window where the dash is actually setting the surface
+        // up, which is exactly when its "is there still a destination?"
+        // check runs.
+        await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
+        // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
+        // 450ms and why the ordering fix above wasn't sufficient on its
+        // own): give the dash's firmware time to actually allocate its
+        // nav-decoder surface before the first RTP/H.264 packets arrive,
+        // not just time for our UDP send() to return. Field report
+        // (8/2026): even with nav-start correctly ordered before
+        // s.start(), the dash still bounced back to its "Press the cast
+        // button on RE App!" idle screen on some reconnects — the decoder
+        // surface plainly wasn't ready yet when the video hit the wire.
+        try? await Task.sleep(nanoseconds: UInt64(K1G.postZ2Warmup * 1_000_000_000))
         s.start()
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the
         // RTP UDP connection to reach .ready.
+        let link = bikeLink
         Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()
@@ -485,11 +685,45 @@ final class AppStatus {
     /// latch open without drawing a bogus turn arrow.
     ///
     /// No-op if not connected, already streaming, or already free-riding.
-    func startFreeRide() {
-        guard bikeLink.state == .connected, streamer == nil, !isFreeRiding else { return }
+    func startFreeRide() async {
+        // Same "dead streamer isn't a live stream" reasoning as
+        // `resumeFreeRideAfterReconnect` — a corpse left in .idle/.failed
+        // must not block the rider's manual "Start free ride" tap either.
+        // `startStreaming()` discards it.
+        let alive = streamer.map { $0.state == .running || $0.state == .starting } ?? false
+        guard bikeLink.state == .connected, !alive, !isFreeRiding else { return }
         isFreeRiding = true
         installFreeRideContent()
-        startStreaming()
+        await startStreaming()
+    }
+
+    /// Resume a free-ride projection after the link drops and reconnects.
+    /// Deliberately does NOT go through `startFreeRide()`: that guards on
+    /// `!isFreeRiding`, but `isFreeRiding` is the rider's persistent INTENT
+    /// and is still `true` here (a drop never clears it) — routing through
+    /// `startFreeRide()` would be a silent no-op. `isFreeRiding` is already
+    /// `true`, so only reinstall the content (fresh empty tile cache + camera
+    /// prefetch — cheap, no re-bake needed) and restart the stream.
+    private func resumeFreeRideAfterReconnect() async {
+        // Only a RUNNING (or starting) streamer means "already projecting"
+        // and should suppress the resume. A streamer left behind in
+        // .idle/.failed/.stopping is dead weight — `startStreaming()` now
+        // discards it — and must NOT block the resume.
+        //
+        // Field log 8/2026, the exact line this fixes:
+        //   19:09:41.218 Free-ride resume skipped — state=connected
+        //                streamer=present
+        // The "present" streamer there was a corpse: it had failed 15 s
+        // earlier with NWError 57 and was sitting in .idle. The old
+        // `streamer == nil` guard could not tell that apart from a healthy
+        // live stream, so it skipped the resume, no RTP was ever sent, and
+        // the dash timed out.
+        let alive = streamer.map { $0.state == .running || $0.state == .starting } ?? false
+        guard bikeLink.state == .connected, !alive else {
+            return
+        }
+        installFreeRideContent()
+        await startStreaming()
     }
 
     /// Swap the streamed content from active-navigation to free-ride WITHOUT
@@ -585,9 +819,41 @@ final class AppStatus {
     ///   3. the bike link is up — otherwise we'd be shoving UDP into a
     ///      black hole and holding the app alive for no reason.
     private func applyKeepAwake() {
+        // `isStreaming` alone is the WRONG gate here, and it caused a
+        // self-sustaining deadlock in the field (log 1/9/2026):
+        //
+        //   1. the bike is switched off → Wi-Fi drops
+        //   2. RtpStreamer fails → `isStreaming` goes false
+        //   3. the link leaves .connected → `.reconnecting`
+        //   4. BOTH old conditions are now false → the wakelock is RELEASED
+        //   5. with the screen off and the phone in a pocket, iOS suspends
+        //      the app within seconds
+        //   6. the reconnect loop can no longer run at any useful rate, so
+        //      the stream never comes back → step 4 stays true forever
+        //
+        // The measurement that proves it: `waitForWifiReady` has a HARD
+        // ceiling of 5 s (20 × 250 ms), yet the log shows
+        //     08:29:12.944  [0ms]      Waiting for Wi-Fi to be ready…
+        //     08:32:12.055  [179112ms] Wi-Fi ready after 3750ms
+        // — 15 iterations of a 250 ms sleep taking 179 REAL seconds
+        // (~12 s per sleep), and it only completed at the instant the rider
+        // picked the phone up (`scenePhase → inactive` 0.5 s earlier).
+        //
+        // So the wakelock was dropped at exactly the moment it was most
+        // needed. Gate on the rider's INTENT to stream instead: while a
+        // ride is in progress we must stay alive across the reconnect gap,
+        // not just while frames happen to be flowing. Once the rider stops
+        // (or arrives), intent goes false and the wakelock is released as
+        // before — an idle app still never holds it.
+        //
+        // The link condition is relaxed the same way: `.reconnecting` is
+        // precisely the state we must survive. `.idle`/`.error` are not —
+        // there is nothing to come back to, so we stop burning battery.
+        let linkWorthStayingAwakeFor = bikeLink.state == .connected
+            || bikeLink.state == .reconnecting
         let shouldRun = keepAwakeWhileStreaming
-            && isStreaming
-            && bikeLink.state == .connected
+            && (isStreaming || hasStreamingIntent)
+            && linkWorthStayingAwakeFor
         if shouldRun {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)

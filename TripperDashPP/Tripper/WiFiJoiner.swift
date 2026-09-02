@@ -95,8 +95,42 @@ final class WiFiJoiner {
                     cont.resume(returning: .failed(error.localizedDescription))
                     return
                 }
-                self.log.info("Joined \(ssid, privacy: .public)")
-                cont.resume(returning: .joined)
+                // `apply` succeeding only means iOS SAVED the config — it does
+                // NOT prove we actually associated (tap "Join" for an AP that
+                // isn't in range and apply still reports success). Verify the
+                // live SSID before claiming a join. Association can lag `apply`
+                // by a real margin: iOS shows the system "Join Wi-Fi?" sheet,
+                // the rider taps Join, THEN the radio associates and DHCP hands
+                // out a lease — easily 8-12s end to end on a cold join. Poll
+                // generously so a genuine (but slow) join isn't false-negatived
+                // into "saved but not associated". ~15s total: 30 tries × 500ms.
+                Task {
+                    var live: String?
+                    var joined = false
+                    for _ in 0..<30 {
+                        live = await self.currentSSID()
+                        // Accept the join on EITHER positive signal: the SSID
+                        // reads back as ours, OR en0 already holds a dash-subnet
+                        // IPv4 (DHCP done). fetchCurrent frequently returns nil
+                        // even while genuinely associated, so relying on the SSID
+                        // alone false-negatives real joins — the IPv4 check is
+                        // the permission-free backstop.
+                        if live == ssid || BikeLink.wifiHasDashSubnetIPv4() {
+                            joined = true
+                            break
+                        }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                    if joined {
+                        let how = live == ssid ? "SSID confirmed" : "dash-subnet IPv4 present"
+                        self.log.info("Joined \(ssid, privacy: .public) (\(how, privacy: .public))")
+                        cont.resume(returning: .joined)
+                    } else {
+                        let detail = live.map { "on \"\($0)\"" } ?? "not on Wi-Fi"
+                        self.log.error("Join \(ssid, privacy: .public) reported OK but \(detail, privacy: .public)")
+                        cont.resume(returning: .failed("couldn't reach \(ssid) — \(detail). Is the bike on and in range?"))
+                    }
+                }
             }
         }
     }
