@@ -45,6 +45,45 @@ final class BikeLink {
 
     private(set) var state: LinkState = .idle
 
+    /// Consecutive reconnect attempts where the datagrams left the phone but
+    /// the dash never answered. Reset by any attempt that fails differently,
+    /// and by a successful connect.
+    ///
+    /// The distinction matters because the two failure shapes need opposite
+    /// things from the rider. `sendto` failing (`Host is down`, `No route to
+    /// host`) means the phone cannot reach the dash's address at all —
+    /// normal when riding away from the bike, and it fixes itself on return.
+    /// `sendto` succeeding while the handshake times out with rx=0 means
+    /// something IS at 192.168.1.1 answering at the link layer, but the K1G
+    /// control plane is not replying: the dash's Wi-Fi and network stack are
+    /// alive while its app-level server is wedged. No amount of retrying
+    /// fixes that — only power-cycling the dash does.
+    private(set) var consecutiveSilentAttempts = 0
+
+    /// True when the dash looks reachable but its K1G server has stopped
+    /// answering, so the UI can say something more useful than
+    /// "Reconnecting…".
+    ///
+    /// Threshold is deliberately above the dash's own boot time: per
+    /// `K1G.bootRaceMaxAttempts`, the Tripper brings its Wi-Fi AP up ~28 s
+    /// before its control-plane task is ready, and every ordinary ignition-on
+    /// produces exactly this rx=0 shape while that happens. At roughly
+    /// `handshakeStepTimeout + bootRaceRetryInterval` (~7 s) per attempt,
+    /// 8 attempts is ~56 s — twice the boot window, so a normal start never
+    /// trips it.
+    ///
+    /// Field case that motivated it (2026-09-02, 16:23-16:36): a heartbeat
+    /// drop after 63 minutes of a healthy link, then 110 reconnect attempts
+    /// over 13 minutes, most of them sendto-OK/rx=0. The rider had no way to
+    /// tell that from "out of range" and was left checking iOS Settings,
+    /// which correctly showed Wi-Fi connected.
+    var dashUnresponsive: Bool {
+        consecutiveSilentAttempts >= Self.silentAttemptsBeforeUnresponsive
+    }
+
+    /// See `dashUnresponsive`.
+    static let silentAttemptsBeforeUnresponsive = 8
+
     /// True only while `runConnectFlow` is blocked waiting for the Wi-Fi
     /// interface to become usable (DHCP lease) right after association, before
     /// the socket opens. Drives a distinct "Waiting for Wi-Fi…" label so the
@@ -900,6 +939,10 @@ final class BikeLink {
         socket = nil
         aesKey = nil
         state = .reconnecting
+        // Fresh drop episode — don't inherit a stale silent-attempt run from
+        // an earlier one, or the UI could claim the dash is wedged on this
+        // episode's very first attempt.
+        consecutiveSilentAttempts = 0
         // Absolute reconnect budget from the moment we dropped — survives
         // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
         reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
@@ -954,11 +997,24 @@ final class BikeLink {
                 case .connected:
                     self.log.info("Reconnected after \(attempt) attempt(s)")
                     ConnDiag.log("reconnect", "✅ Reconnected after \(attempt) attempt(s)")
+                    self.consecutiveSilentAttempts = 0
                     return
                 case .bootRaceMissingReply:
+                    // Datagrams left the phone; the dash never replied. On a
+                    // fresh ignition this is just the dash still booting, so
+                    // only a sustained run of these means it is wedged — see
+                    // `dashUnresponsive`.
+                    self.consecutiveSilentAttempts += 1
+                    if self.consecutiveSilentAttempts == Self.silentAttemptsBeforeUnresponsive {
+                        ConnDiag.log("reconnect", "⚠️ \(self.consecutiveSilentAttempts) consecutive attempts reached the dash but got no K1G reply — dash appears wedged (needs an ignition cycle)")
+                    }
                     ConnDiag.log("reconnect", "Boot-race shape (rx=0) — retrying in \(K1G.bootRaceRetryInterval)s instead of \(K1G.reconnectInterval)s")
                     retryDelay = K1G.bootRaceRetryInterval
                 case .cancelled, .otherFailure:
+                    // A different failure shape (sendto refused, cancelled,
+                    // handshake error): whatever we were seeing before, this
+                    // is not the wedged-dash pattern any more.
+                    self.consecutiveSilentAttempts = 0
                     retryDelay = K1G.reconnectInterval
                 }
                 try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))

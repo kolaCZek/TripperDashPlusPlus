@@ -123,7 +123,9 @@ struct MapPickerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusBanner(state: status.connectionState, ssid: status.bikeSsid)
+            StatusBanner(state: status.connectionState,
+                         ssid: status.bikeSsid,
+                         dashUnresponsive: status.bikeLink.dashUnresponsive)
 
             ZStack {
                 switch mode {
@@ -688,6 +690,7 @@ struct MapPickerView: View {
             }
             NavigationHUD(
                 isReconnecting: status.bikeLink.state == .reconnecting,
+                dashUnresponsive: status.bikeLink.dashUnresponsive,
                 imperial: status.dashNavSettings.units == .imperial,
                 useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
                 is24Hour: status.dashNavSettings.is24Hour
@@ -893,7 +896,12 @@ struct MapPickerView: View {
         VStack(spacing: 8) {
             HStack {
                 ProgressView()
-                Text("Reconnecting to dash…")
+                // Distinguish "can't reach the dash" from "the dash is there
+                // but its K1G server stopped answering" — the second needs an
+                // ignition cycle, and retrying will never fix it on its own.
+                Text(status.bikeLink.dashUnresponsive
+                     ? "Dash not responding — try the ignition"
+                     : "Reconnecting to dash…")
             }
             .frame(maxWidth: .infinity).padding()
             .background(Color.yellow.opacity(0.15))
@@ -1374,6 +1382,11 @@ struct MapPickerView: View {
 private struct StatusBanner: View {
     let state: BikeConnectionState
     let ssid: String?
+    /// See `BikeLink.dashUnresponsive`. Passed in rather than read from the
+    /// environment because this banner is driven by `BikeConnectionState`,
+    /// which deliberately collapses the link's sub-states and so cannot
+    /// express "reconnecting, but the dash is the thing that's broken".
+    var dashUnresponsive: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1406,7 +1419,10 @@ private struct StatusBanner: View {
         case .disconnected: "Not connected"
         case .wifiJoining:  "Join the Tripper Wi-Fi…"
         case .handshaking:  "Handshaking with dash…"
-        case .reconnecting: "Reconnecting to dash…"
+        case .reconnecting:
+            dashUnresponsive
+                ? "Dash not responding — try the ignition"
+                : "Reconnecting to dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
         case .error:        "Connection failed — tap to retry"
