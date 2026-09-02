@@ -57,11 +57,6 @@ final class MapViewSource: NSObject, FrameSource {
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
 
-    /// Smooths marker motion between ~1 Hz GPS fixes up to the 6 fps render
-    /// cadence: dead-reckons along the road (route-follow) or velocity vector,
-    /// with acceleration and soft correction. See MotionInterpolator.
-    private var motion = MotionInterpolator()
-
     /// Effective heading used to rotate the rendered frame (degrees,
     /// CW from north). Lerped per-tick toward `targetHeading`.
     ///
@@ -874,21 +869,33 @@ extension MapViewSource {
 
     private func handleFix(_ fix: Fix) {
         lastFix = fix
-        // Diagnostic BEFORE ingest: `motion.ingest` performs the hard-snap
-        // check internally and would already have corrected by the time we
-        // could read it back, so measure the drift here to log the violation
-        // (see `MotionInterpolator.maxDriftBeforeSnapM`'s doc for why this
-        // check exists — a field report of the map desyncing km from the
-        // rider while the nav glyph, which reads raw fixes, stayed correct).
-        if let displayed = motion.displayCoordinate {
-            let drift = MotionInterpolator.haversine(displayed, fix.coordinate)
-            let limit = motion.maxDriftBeforeSnapM
-            if drift > limit {
-                log.error("Smoothed position \(Int(drift), privacy: .public) m from fix (limit \(Int(limit), privacy: .public) m) — hard-snapping")
-                ConnDiag.log("tiles", "⚠️ motion interpolator drift \(Int(drift)) m from fix (limit \(Int(limit)) m) — hard-snapping to GPS")
-            }
-        }
-        motion.ingest(fix: fix)
+        // The rider marker uses this fix directly.
+        //
+        // A MotionInterpolator used to sit here, dead-reckoning the displayed
+        // position between the ~1 Hz fixes so the marker moved at the 6 fps
+        // render rate. It was removed after the 2026-09-02 ride log showed it
+        // was the source of the map desyncing kilometres from the rider:
+        //
+        //   14:05:44  drift 1769 m      14:23:50  drift 3275 m
+        //   14:17:48  drift 5313 m      14:29:51  drift 3425 m
+        //
+        // GPS was healthy before every one of those (10 fixes per 10 s,
+        // backlog 0, hop 0 ms) — only 1 of the 8 snaps in that ride followed a
+        // CoreLocation outage, so this was not a GPS problem. The cause was
+        // `updateRouteFollowing`'s re-anchor:
+        //
+        //     routeProgressM = max(routeProgressM, proj.arcM)
+        //
+        // whose comment claimed "so drift can't accumulate", but which only
+        // corrected when the fix was AHEAD of the marker. Whenever the bike
+        // slowed relative to the extrapolation — lights, corners, traffic —
+        // the marker ran ahead and `max` locked that lead in permanently. The
+        // error was one-way and grew over minutes until it crossed the 100 m
+        // threshold and forced a hard-snap, which in turn made the tile cache
+        // bake a whole fresh window in one block and starved the stream.
+        //
+        // Dropping the interpolator removes the drift, the snaps, and that
+        // whole failure chain at the cost of a marker that steps at GPS rate.
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
         let region = MKCoordinateRegion(
@@ -965,23 +972,16 @@ extension MapViewSource {
     private func tickOnMain() async {
         guard onFrame != nil else { return }
 
-        // 0. Smooth the rider marker: advance the motion interpolator to this
-        //    tick and overwrite the display coordinate the renderer reads.
-        //    GPS lands at ~1 Hz but we render at 6 fps — without this the marker
-        //    freezes for ~6 frames then jumps. `motion` dead-reckons along the
-        //    road (or velocity vector when off-route) and soft-corrects toward
-        //    each real fix. We keep the raw speed/course on the struct so
-        //    heading + speed-limit logic are unaffected; only the coordinate is
-        //    replaced.
-        if let raw = lastFix,
-           let smooth = motion.tick(now: Date()) {
-            lastFix = Fix(coordinate: smooth,
-                          altitude: raw.altitude,
-                          horizontalAccuracy: raw.horizontalAccuracy,
-                          speed: raw.speed,
-                          course: raw.course,
-                          timestamp: raw.timestamp)
-        }
+        // The rider marker follows raw GPS fixes directly. There used to be a
+        // MotionInterpolator here that dead-reckoned between the ~1 Hz fixes
+        // to give a 6 fps marker; it was removed because it accumulated a
+        // one-way error that eventually had to be corrected with a visible
+        // hard-snap. See `handleFix` for the field evidence.
+        //
+        // Tradeoff, stated plainly: the marker now steps at GPS rate (~1 Hz)
+        // instead of gliding at 6 fps. The map still renders at 6 fps, and
+        // heading/zoom still animate per tick below — only the position is
+        // no longer extrapolated between fixes.
 
         // 1. Advance the per-tick animation state (heading + zoom lerps)
         //    every tick (6 Hz) so an in-progress rotation/zoom dribbles
@@ -1935,9 +1935,6 @@ extension MapViewSource {
                       waypoints: [CLLocationCoordinate2D]) {
         fullRouteCoords = full
         waypointDots = waypoints
-        // Feed the motion smoother the same line the renderer strokes so it can
-        // dead-reckon along the road through curves (and detect off-route).
-        motion.setRoute(routeDrawCoords.isEmpty ? nil : routeDrawCoords)
     }
 
     /// Push the rider's travelled breadcrumb (grey "already ridden" line).

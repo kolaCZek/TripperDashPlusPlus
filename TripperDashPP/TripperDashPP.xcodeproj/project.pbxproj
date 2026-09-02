@@ -63,7 +63,6 @@
 		B7DA00000000000000000001 /* DashMediaControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7DA00000000000000000002 /* DashMediaControl.swift */; };
 		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
 		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
-		F00DBABE0000000AMOTION01 /* MotionInterpolator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED0000000AMOTION01 /* MotionInterpolator.swift */; };
 		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
 		F00DBABE00000000DEADBEF7 /* TileDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */; };
 		F00DBABE00000000DEADBEF8 /* WebMercator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF8 /* WebMercator.swift */; };
@@ -110,7 +109,6 @@
 		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
 		A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */; };
 		A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */; };
-		A4F0FFFF00000000MOTIONT1 /* MotionInterpolatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF00000000MOTIONT0 /* MotionInterpolatorTests.swift */; };
 		A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */; };
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
@@ -197,7 +195,6 @@
 		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
 		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
-		CAFEFEED0000000AMOTION01 /* MotionInterpolator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionInterpolator.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTileCache.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileDiskCache.swift; sourceTree = "<group>"; };
 		CAFEFEED00000000DEADBEF8 /* WebMercator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMercator.swift; sourceTree = "<group>"; };
@@ -242,7 +239,6 @@
 		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncerTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjectionTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF00000000MOTIONT0 /* MotionInterpolatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionInterpolatorTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStoreTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
@@ -437,7 +433,6 @@
 			isa = PBXGroup;
 			children = (
 				CAFEFEED00000000DEADBEEF /* MapViewSource.swift */,
-				CAFEFEED0000000AMOTION01 /* MotionInterpolator.swift */,
 				CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */,
 				CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */,
 				CAFEFEED00000000DEADBEF8 /* WebMercator.swift */,
@@ -532,7 +527,6 @@
 				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
 				A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */,
 				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
-				A4F0FFFF00000000MOTIONT0 /* MotionInterpolatorTests.swift */,
 				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
 			);
 			path = TripperDashPPTests;
@@ -801,7 +795,6 @@
 				D1A6C0DE0000000000C2FFEF /* CrashDiagnostics.swift in Sources */,
 				A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */,
 				F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */,
-				F00DBABE0000000AMOTION01 /* MotionInterpolator.swift in Sources */,
 				F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */,
 				F00DBABE00000000DEADBEF7 /* TileDiskCache.swift in Sources */,
 				F00DBABE00000000DEADBEF8 /* WebMercator.swift in Sources */,
@@ -875,7 +868,6 @@
 				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
 				A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */,
 				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
-				A4F0FFFF00000000MOTIONT1 /* MotionInterpolatorTests.swift in Sources */,
 				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
