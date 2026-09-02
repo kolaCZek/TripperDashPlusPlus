@@ -161,6 +161,24 @@ final class RouteTileCache {
     /// "0% … 0% … 0% … 100%" in chunks.
     static let parallelism = 3
 
+    /// Most anchors a single `extend()` will queue for baking.
+    ///
+    /// Chosen from the 2026-09-02 ride: steady-state windows baked 6-11
+    /// anchors, so 12 leaves normal riding completely unchanged, while the
+    /// post-hard-snap bursts of 84-99 anchors get split across several passes
+    /// instead of occupying the main actor in one block. Those bursts are
+    /// where the 1.7-2.5 s main-actor hops and 0 fps RTP windows happened.
+    ///
+    /// Note this is per CACHE, and `MapViewSource.extendTileCache` extends
+    /// three of them (base + coarse + fine, the z=13/15/16 seen in the logs),
+    /// so one throttled pass can still bake up to ~36 anchors — with a yield
+    /// between each tile and between layers, rather than as one block.
+    ///
+    /// It is a per-PASS cap, not a rate limit: `extend()` is called
+    /// continuously while navigating, so the remaining anchors are picked
+    /// up on subsequent passes rather than dropped.
+    static let maxAnchorsPerExtend = 12
+
     /// Lateral buffer distance — how far perpendicular to the route
     /// the wing anchor rows sit. 1500 m means the user can drift up
     /// to ~2 km from the centerline (lateral offset + ~half a tile
@@ -519,10 +537,47 @@ final class RouteTileCache {
         let backEdge = max(0, snappedOffset - Self.rollingTrailMeters)
 
         let candidateIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
-        let missing = candidateIndices.filter {
+        let allMissing = candidateIndices.filter {
             bakedTileByIndex[$0] == nil && !inFlight.contains($0)
         }
-        guard !missing.isEmpty else { return }
+        guard !allMissing.isEmpty else { return }
+
+        // Cap how much a single extend() may queue.
+        //
+        // Baking runs on the main actor (see `bakeAnchors`), so a large
+        // batch is a long main-thread occupation. Normally extend() finds a
+        // handful of new anchors as the rider rolls forward, but after a
+        // hard-snap — the motion interpolator jumping the displayed position
+        // km back onto the GPS fix — the rider's route offset moves by a
+        // large distance at once and the whole new window is missing.
+        //
+        // Measured on the 2026-09-02 ride: snaps of 1769 m / 3275 m / 5313 m
+        // were each followed within seconds by bake bursts of 130-180/min and
+        // main-actor hops of 1.7-2.5 s, during which RTP throughput fell to
+        // 0 fps. Windows above ~90 bakes/min showed a stall 43% of the time
+        // versus 4% below it.
+        //
+        // The remainder is not dropped: extend() is called continuously
+        // while navigating, so the next call picks up where this one stopped.
+        // Spreading the work costs a little latency on tiles far ahead of the
+        // rider and keeps the ones under them arriving on time.
+        //
+        // Nearest-first so the cap always spends its budget on the tiles the
+        // rider is about to need, not on whatever the index order happens to
+        // put first.
+        let missing: [Int]
+        if allMissing.count > Self.maxAnchorsPerExtend {
+            missing = Array(
+                allMissing.sorted { a, b in
+                    abs(allAnchors[a].routeOffsetMeters - snappedOffset)
+                        < abs(allAnchors[b].routeOffsetMeters - snappedOffset)
+                }.prefix(Self.maxAnchorsPerExtend)
+            )
+            ConnDiag.log("tiles", "large bake batch capped: \(allMissing.count) missing → \(missing.count) this pass (rider @ \(Int(snappedOffset)) m)")
+        } else {
+            missing = allMissing
+        }
+
         log.debug("extend: rider @ \(Int(snappedOffset), privacy: .public) m, baking \(missing.count, privacy: .public) new anchors (window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m)")
         await bakeAnchors(at: missing, progress: nil)
     }
@@ -572,6 +627,23 @@ final class RouteTileCache {
                     nextSlot += 1
                     let center = allAnchors[i].coord
                     let style = self.style
+                    // Yield before queueing the next composite so the main
+                    // actor can service anything waiting behind us.
+                    //
+                    // `composite` is @MainActor and does real CPU work
+                    // (CGContext setup, ~49 PNG decodes and blits, the dark
+                    // palette's vImage colour matrix). Back-to-back tiles
+                    // therefore hold the main actor for as long as the batch
+                    // takes, which starves the RTP metrics timer and the
+                    // CoreLocation delivery hop — visible on the 2026-09-02
+                    // ride as hops of 1.7-2.5 s and RTP dropping to 0 fps
+                    // during heavy bake windows.
+                    //
+                    // A yield does not make baking cheaper or move it off the
+                    // main actor; it just stops one batch monopolising it, so
+                    // the stream keeps flowing while tiles are produced
+                    // slightly slower.
+                    await Task.yield()
                     group.addTask { @MainActor in
                         let tile = await self.composite(center: center, style: style)
                         return (i, tile)

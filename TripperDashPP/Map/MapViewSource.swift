@@ -707,9 +707,20 @@ final class MapViewSource: NSObject, FrameSource {
         let coarse = coarseTileCache
         let fine = fineTileCache
         Task { @MainActor in
+            // Yield between layers as well as between individual tiles (see
+            // RouteTileCache.bakeAnchors). Each cache applies its own
+            // per-pass cap, so without a break here the three of them still
+            // run back-to-back as one long main-actor occupation — which is
+            // the shape that starved the stream on 2026-09-02.
             await cache.extend(near: coord)
-            if let coarse { await coarse.extend(near: coord) }
-            if let fine { await fine.extend(near: coord) }
+            if let coarse {
+                await Task.yield()
+                await coarse.extend(near: coord)
+            }
+            if let fine {
+                await Task.yield()
+                await fine.extend(near: coord)
+            }
         }
     }
 
