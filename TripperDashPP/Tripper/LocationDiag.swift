@@ -64,6 +64,25 @@ enum LocationDiag {
     private nonisolated(unsafe) static var deliveries = 0
     /// Fixes that completed the main-actor hop since the last flush.
     private nonisolated(unsafe) static var arrivals = 0
+
+    /// Lifetime totals, never reset.
+    ///
+    /// The backlog MUST be derived from these, not from the windowed
+    /// counters above. Those are zeroed every flush, while a fix delivered
+    /// near the end of one window completes its hop in the next — so their
+    /// difference measures the window boundary as much as the actual
+    /// backlog, and can even go negative (observed in the field: `1
+    /// delivered, 2 reached main actor, backlog=-1`, which is a straggler
+    /// from the previous window, not a fault).
+    ///
+    /// It also delays stall detection, which is the point of this type: if a
+    /// freeze begins shortly before a flush, the reset discards the backlog
+    /// accumulated so far and the threshold has to be re-reached from zero.
+    /// Simulated at 1 fix/s with a >3 threshold, that pushes the alert from
+    /// t=4 s out to t=7 s. Lifetime totals have neither problem.
+    private nonisolated(unsafe) static var totalDeliveries = 0
+    private nonisolated(unsafe) static var totalArrivals = 0
+
     /// Worst main-actor hop latency seen since the last flush, in seconds.
     private nonisolated(unsafe) static var worstHopDelay: TimeInterval = 0
     /// Cumulative hop latency, for reporting an average alongside the worst.
@@ -138,7 +157,7 @@ enum LocationDiag {
         let now = Date()
         os_unfair_lock_lock(&lock)
         let gap = lastDeliveryAt.map { now.timeIntervalSince($0) }
-        let backlog = deliveries - arrivals
+        let backlog = totalDeliveries - totalArrivals
         let due = now.timeIntervalSince(lastFlushAt) >= flushInterval
         let alreadyWarnedGap = starvationWarned
         let alreadyWarnedStall = stallWarned
@@ -164,6 +183,7 @@ enum LocationDiag {
     nonisolated static func recordDelivery(at now: Date) {
         os_unfair_lock_lock(&lock)
         deliveries += 1
+        totalDeliveries += 1
         let gap = lastDeliveryAt.map { now.timeIntervalSince($0) }
         lastDeliveryAt = now
         let resumed = starvationWarned
@@ -187,10 +207,11 @@ enum LocationDiag {
         let delay = Date().timeIntervalSince(deliveredAt)
         os_unfair_lock_lock(&lock)
         arrivals += 1
+        totalArrivals += 1
         totalHopDelay += delay
         if delay > worstHopDelay { worstHopDelay = delay }
         // Backlog drained — re-arm the stall warning for the next episode.
-        if deliveries - arrivals <= 0 { stallWarned = false }
+        if totalDeliveries - totalArrivals <= 0 { stallWarned = false }
         os_unfair_lock_unlock(&lock)
 
         if delay >= hopAlertThreshold {
@@ -203,6 +224,9 @@ enum LocationDiag {
     private nonisolated struct Snapshot {
         let deliveries: Int
         let arrivals: Int
+        /// Lifetime backlog — see `totalDeliveries`. Not `deliveries -
+        /// arrivals`, which straddles the window boundary.
+        let backlog: Int
         let worstHop: TimeInterval
         let avgHop: TimeInterval
         let window: TimeInterval
@@ -214,6 +238,7 @@ enum LocationDiag {
         let snap = Snapshot(
             deliveries: deliveries,
             arrivals: arrivals,
+            backlog: totalDeliveries - totalArrivals,
             worstHop: worstHopDelay,
             avgHop: arrivals > 0 ? totalHopDelay / Double(arrivals) : 0,
             window: window
@@ -228,13 +253,14 @@ enum LocationDiag {
 
     private nonisolated static func emit(_ s: Snapshot) {
         let rate = s.window > 0 ? Double(s.deliveries) / s.window : 0
-        // A backlog (delivered but not yet arrived) is the clearest single
-        // number for "the main actor is behind", so call it out by name.
-        let backlog = s.deliveries - s.arrivals
-        let mark = (s.deliveries == 0 || backlog > 2 || s.worstHop >= hopAlertThreshold) ? "⚠️ " : ""
+        // Backlog is the lifetime figure, so it reads 0 in steady state and
+        // only climbs when fixes really are piling up unprocessed. The
+        // per-window delivered/arrived counts are reported alongside it for
+        // rate, and may legitimately disagree by one at a window boundary.
+        let mark = (s.deliveries == 0 || s.backlog > 2 || s.worstHop >= hopAlertThreshold) ? "⚠️ " : ""
         ConnDiag.log("gps", String(
             format: "%@fixes: %d delivered (%.1f/s), %d reached main actor, backlog=%d, hop avg %.0fms / worst %.0fms",
-            mark, s.deliveries, rate, s.arrivals, backlog,
+            mark, s.deliveries, rate, s.arrivals, s.backlog,
             s.avgHop * 1000, s.worstHop * 1000
         ))
     }
