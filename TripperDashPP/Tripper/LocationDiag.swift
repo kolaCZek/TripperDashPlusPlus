@@ -113,7 +113,7 @@ enum LocationDiag {
     ///
     /// `static let` gives one-time, thread-safe setup, so `start()` is safe to
     /// call from anywhere as often as callers like.
-    private nonisolated(unsafe) static let watchdog: DispatchSourceTimer = {
+    private nonisolated static let watchdog: DispatchSourceTimer = {
         let q = DispatchQueue(label: "eu.kolaczek.tripperdashpp.locdiag", qos: .utility)
         let t = DispatchSource.makeTimerSource(queue: q)
         t.schedule(deadline: .now() + 2, repeating: .milliseconds(500))
