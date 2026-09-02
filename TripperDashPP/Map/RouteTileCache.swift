@@ -1108,7 +1108,15 @@ final class RouteTileCache {
         // than actual network traffic.
         let hits = tilesData.filter { $0.wasCacheHit }.count
         let misses = tilesData.count - hits
-        ConnDiag.log("tiles", "composite z=\(z) center=(\(String(format: "%.4f", center.latitude)),\(String(format: "%.4f", center.longitude))): \(hits) disk-cache hit(s), \(misses) HTTP fetch(es)")
+        // Aggregated, not one line per composite. At ~91 lines/min this
+        // single call was 86% of the entire diagnostic log and capped the
+        // 5000-line ring buffer at ~47 minutes of riding — short enough that
+        // a rider sharing the log after a full ride would find the incident
+        // already rotated out. Summarised every 30 s it costs 2 lines/min,
+        // which puts the buffer's reach in hours instead. Anomalies (drift,
+        // invariant violations, non-finite centres) still log immediately;
+        // only the routine per-composite chatter is folded up.
+        TileBakeStats.record(hits: hits, misses: misses, z: z, center: center)
 
         // Bail if we didn't get a single tile — composite would be
         // entirely transparent, useless to the renderer.
