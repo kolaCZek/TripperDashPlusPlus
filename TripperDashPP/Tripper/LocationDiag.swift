@@ -33,11 +33,17 @@
 //  A large gap between the two is direct evidence of main-actor starvation;
 //  no deliveries at all is evidence the wakelock itself lapsed.
 //
+//  The checks run from a private `DispatchSourceTimer` on a background queue,
+//  NOT from any of the app's existing timers. `RtpStreamer` is `@MainActor`
+//  and its metrics tick hops through `Task { @MainActor }`, so if the main
+//  actor is blocked that tick is delayed along with everything else and
+//  cannot report the blockage while it is happening. An independent beat can.
+//
 //  Deliberately quiet — ConnDiag is a 5000-line ring buffer shared with the
 //  handshake/reconnect history, and fixes arrive at ~1 Hz, so per-fix logging
 //  would evict everything useful within minutes. Instead: one aggregate line
-//  every 10 s, plus immediate lines for the two events that actually matter
-//  (a gap in deliveries, or a slow hop).
+//  every 10 s, plus immediate lines for the events that actually matter
+//  (a long delivery gap, a slow hop, a backlog that isn't draining).
 //
 //  Remove this file and its call sites before any merge.
 //
@@ -67,47 +73,89 @@ enum LocationDiag {
     private nonisolated(unsafe) static var lastFlushAt = Date()
 
     /// Latches once a delivery outage has been reported, so a long silence
-    /// logs one line instead of one per second from `tick()`. Cleared by the
-    /// next delivery, which then reports the outage's total length.
+    /// logs one line instead of one per beat. Cleared by the next delivery,
+    /// which then reports the outage's total length.
     private nonisolated(unsafe) static var starvationWarned = false
 
-    /// Report an aggregate line at most this often.
-    private static let flushInterval: TimeInterval = 10
+    /// Same latch for the main-actor-blocked warning, cleared once the
+    /// backlog drains.
+    private nonisolated(unsafe) static var stallWarned = false
 
-    /// A delivery gap longer than this is logged immediately — CoreLocation
-    /// `Always` updates on a moving vehicle arrive at roughly 1 Hz, so
-    /// several seconds of nothing means the wakelock's heartbeat has lapsed.
-    private static let gapAlertThreshold: TimeInterval = 5
+    /// Report an aggregate line at most this often.
+    private nonisolated static let flushInterval: TimeInterval = 10
+
+    /// A delivery gap longer than this is logged immediately.
+    ///
+    /// 12 s, not the 5 s first tried: indoors (and stationary) CoreLocation
+    /// legitimately paces `Always` updates at 6-9 s, so a 5 s threshold fired
+    /// on essentially every fix and buried the log in warnings that meant
+    /// nothing — observed directly in the 2026-09-02 10:18 capture. On a
+    /// moving bike fixes arrive at roughly 1 Hz, and the outage being hunted
+    /// was 91 s, so 12 s keeps a wide margin on both sides.
+    private nonisolated static let gapAlertThreshold: TimeInterval = 12
 
     /// A main-actor hop slower than this is logged immediately. The hop is
-    /// normally sub-millisecond; a full second means the main actor is
-    /// backed up behind other work.
-    private static let hopAlertThreshold: TimeInterval = 1.0
+    /// normally sub-millisecond (the same capture measured 0-32 ms), so a
+    /// full second means the main actor is backed up behind other work.
+    private nonisolated static let hopAlertThreshold: TimeInterval = 1.0
 
-    /// Called from the streamer's 1 Hz metrics tick.
+    // MARK: - Watchdog
+
+    /// Independent 2 Hz beat on a background queue.
     ///
-    /// Load-bearing: every other entry point here fires only when a fix is
-    /// DELIVERED, so a total stop in deliveries — the exact failure being
-    /// hunted — would produce silence rather than evidence. This is driven by
-    /// an independent timer, so it can still report when CoreLocation has
-    /// gone quiet.
+    /// This must NOT be driven from the app's normal timers. `RtpStreamer` is
+    /// `@MainActor` and its metrics tick hops through
+    /// `Task { @MainActor }`, so when the main actor is blocked — the very
+    /// condition under investigation — that tick is delayed with everything
+    /// else and cannot report the blockage while it is happening. A private
+    /// `DispatchSourceTimer` on its own queue keeps firing regardless, so a
+    /// stall is logged as it occurs rather than reconstructed afterwards.
     ///
-    /// (If the main actor is fully blocked this tick is delayed too, and the
-    /// gap is then visible as coalesced timestamps in the log — the effect
-    /// seen on 2026-09-02.)
-    nonisolated static func tick() {
+    /// `static let` gives one-time, thread-safe setup, so `start()` is safe to
+    /// call from anywhere as often as callers like.
+    private nonisolated(unsafe) static let watchdog: DispatchSourceTimer = {
+        let q = DispatchQueue(label: "eu.kolaczek.tripperdashpp.locdiag", qos: .utility)
+        let t = DispatchSource.makeTimerSource(queue: q)
+        t.schedule(deadline: .now() + 2, repeating: .milliseconds(500))
+        t.setEventHandler { beat() }
+        t.resume()
+        return t
+    }()
+
+    /// Begin watching. Idempotent.
+    nonisolated static func start() {
+        _ = watchdog
+    }
+
+    /// Watchdog beat — runs on a background queue, never the main actor.
+    ///
+    /// `nonisolated` is load-bearing, not decoration: the project builds with
+    /// default-MainActor isolation, so without it this would be inferred as
+    /// `@MainActor` and the timer handler would hop onto the main actor to run
+    /// — the exact thing it exists to observe from the outside, which would
+    /// make it as blind as the tick it replaced.
+    private nonisolated static func beat() {
         let now = Date()
         os_unfair_lock_lock(&lock)
         let gap = lastDeliveryAt.map { now.timeIntervalSince($0) }
+        let backlog = deliveries - arrivals
         let due = now.timeIntervalSince(lastFlushAt) >= flushInterval
-        let alreadyWarned = starvationWarned
-        // Latch the warning so a long outage logs once, not once per second.
+        let alreadyWarnedGap = starvationWarned
+        let alreadyWarnedStall = stallWarned
         if let gap, gap >= gapAlertThreshold { starvationWarned = true }
+        // Fixes still landing but not being processed = the main actor is
+        // stuck. This is the signature the 2026-09-02 freeze would have
+        // produced, and the one a main-actor-driven timer cannot report.
+        let stalled = backlog > 3
+        if stalled { stallWarned = true }
         let snapshot = due ? takeSnapshotLocked(now: now) : nil
         os_unfair_lock_unlock(&lock)
 
-        if let gap, gap >= gapAlertThreshold, !alreadyWarned {
+        if let gap, gap >= gapAlertThreshold, !alreadyWarnedGap {
             ConnDiag.log("gps", String(format: "⚠️ NO fixes for %.1fs — CoreLocation has gone quiet (wakelock at risk)", gap))
+        }
+        if stalled, !alreadyWarnedStall {
+            ConnDiag.log("gps", "⚠️ \(backlog) fixes delivered but not processed — MAIN ACTOR IS BLOCKED")
         }
         if let snapshot { emit(snapshot) }
     }
@@ -141,6 +189,8 @@ enum LocationDiag {
         arrivals += 1
         totalHopDelay += delay
         if delay > worstHopDelay { worstHopDelay = delay }
+        // Backlog drained — re-arm the stall warning for the next episode.
+        if deliveries - arrivals <= 0 { stallWarned = false }
         os_unfair_lock_unlock(&lock)
 
         if delay >= hopAlertThreshold {
@@ -150,7 +200,7 @@ enum LocationDiag {
 
     // MARK: - Flushing
 
-    private struct Snapshot {
+    private nonisolated struct Snapshot {
         let deliveries: Int
         let arrivals: Int
         let worstHop: TimeInterval
@@ -159,7 +209,7 @@ enum LocationDiag {
     }
 
     /// Read and reset the counters. Caller must hold the lock.
-    private static func takeSnapshotLocked(now: Date) -> Snapshot {
+    private nonisolated static func takeSnapshotLocked(now: Date) -> Snapshot {
         let window = now.timeIntervalSince(lastFlushAt)
         let snap = Snapshot(
             deliveries: deliveries,
@@ -176,7 +226,7 @@ enum LocationDiag {
         return snap
     }
 
-    private static func emit(_ s: Snapshot) {
+    private nonisolated static func emit(_ s: Snapshot) {
         let rate = s.window > 0 ? Double(s.deliveries) / s.window : 0
         // A backlog (delivered but not yet arrived) is the clearest single
         // number for "the main actor is behind", so call it out by name.

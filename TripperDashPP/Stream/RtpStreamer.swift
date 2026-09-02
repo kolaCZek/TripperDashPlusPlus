@@ -275,10 +275,6 @@ final class RtpStreamer {
         lastTickAt = now
         onMetrics?(metrics)
         logThroughputToDiag(fps: fps, kbps: kbps)
-        // Piggyback the CoreLocation health check on this 1 Hz tick — it is
-        // the only periodic beat that keeps running when fixes stop arriving,
-        // which is exactly the case that needs reporting.
-        LocationDiag.tick()
     }
 
     /// Record whether frames are actually reaching the wire, into the log
