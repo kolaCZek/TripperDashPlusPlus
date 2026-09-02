@@ -25,7 +25,7 @@ struct PrerenderProgressView: View {
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
 
-                Text("Cache for navigating with the phone locked.")
+                Text("Caching tiles ahead so the map still works with no signal.")
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
