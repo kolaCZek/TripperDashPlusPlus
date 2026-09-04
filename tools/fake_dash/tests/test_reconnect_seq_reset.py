@@ -37,6 +37,8 @@ from pathlib import Path
 
 from fake_dash.protocol import RollingSeq
 
+from tests.swift_source import decl_body, strip_comments
+
 
 # --- Model of BikeLink's long-lived seq across connect episodes --------------
 #
@@ -128,11 +130,18 @@ def test_swift_connect_flow_resets_seq():
     is the power-cycle reconnect fix; removing it reintroduces the 10-min
     reconnect timeout after the bike is switched off and on."""
     src = _read("TripperDashPP/Tripper/BikeLink.swift")
-    idx = src.index("func runConnectFlow")
-    # Guard against the reset being far away / in a different function.
-    body = src[idx:idx + 1600]
+    # Scope to the real brace-balanced body, not a fixed character window: a
+    # window silently stops covering the call as soon as the function grows.
+    body = strip_comments(decl_body(src, "func runConnectFlow"))
     assert "seq.reset()" in body, (
         "runConnectFlow must call seq.reset() before the handshake — "
         "otherwise a reconnect after a power-cycle replays a stale seq and "
         "the rebooted dash drops the initial burst (blank-reconnect timeout)"
+    )
+    # Ordering is the part that actually matters: resetting *after* the
+    # handshake would still satisfy a plain containment check while leaving
+    # the stale-seq bug fully intact.
+    assert body.index("seq.reset()") < body.index("runHandshake("), (
+        "seq.reset() runs after runHandshake() — the handshake burst still "
+        "goes out on the stale sequence the rebooted dash rejects"
     )

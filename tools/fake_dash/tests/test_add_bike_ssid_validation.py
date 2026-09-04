@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.swift_source import decl_body
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -42,9 +44,13 @@ def _sheet_ssid_footer() -> str:
     """The helper text under the SSID field (the `footer:` after the
     'Wi-Fi network (SSID)' header)."""
     src = _add_bike_sheet_src()
-    i = src.index('Text("Wi-Fi network (SSID)")')
-    # Grab a generous slice after that header — the footer closure follows it.
-    return src[i : i + 700]
+    # Scope to the footer closure that follows the header, brace-balanced.
+    # This matters because the only assertion on this text is a NEGATIVE one:
+    # a fixed slice that is too short would silently stop covering the footer
+    # and the guard would pass while the dash IP sat right back in it. Too
+    # long is no better — it would reach into the toolbar and could fail on
+    # unrelated text.
+    return decl_body(src, 'Text("Wi-Fi network (SSID)")')
 
 
 # --- The mistake the field report was about -------------------------------

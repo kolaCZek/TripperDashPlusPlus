@@ -46,6 +46,8 @@ import math
 from pathlib import Path
 from typing import Optional, Sequence
 
+from tests.swift_source import decl_body
+
 
 EARTH_R = 6_371_000.0
 
@@ -256,8 +258,10 @@ def _polyline_math_src() -> str:
 
 def test_swift_dropped_the_hard_5m_threshold_walk():
     src = _polyline_math_src()
-    idx = src.index("static func nextStepIndex")
-    body = src[idx:idx + 2600]
+    # NOTE: these are negative assertions, so an undersized window doesn't
+    # just risk a false failure — it makes the guard blind to a regression
+    # reintroduced past the window. Scope to the whole declaration.
+    body = decl_body(src, "static func nextStepIndex")
     # The old failure shape was `haversine(p, stepStart) < 5` driving a
     # shared `pointIdx += 1` walk. Neither may survive in the function.
     assert "< 5 { break }" not in body, (
@@ -272,8 +276,7 @@ def test_swift_dropped_the_hard_5m_threshold_walk():
 
 def test_swift_uses_nearest_vertex_with_cursor_advance():
     src = _polyline_math_src()
-    idx = src.index("static func nextStepIndex")
-    body = src[idx:idx + 2600]
+    body = decl_body(src, "static func nextStepIndex")
     # New algorithm markers: argmin (bestIdx / bestDist) + cursor advance to
     # just past the matched vertex.
     assert "bestIdx" in body and "bestDist" in body, (
@@ -313,8 +316,7 @@ def test_swift_guards_empty_step_polyline_in_next_step_index():
     """Drift guard: the `pointCount > 0` skip must stay in nextStepIndex so
     the zero-point `points()[0]` crash can't silently come back."""
     src = _polyline_math_src()
-    idx = src.index("static func nextStepIndex")
-    body = src[idx:idx + 2600]
+    body = decl_body(src, "static func nextStepIndex")
     assert "pointCount > 0" in body, (
         "empty-step-polyline guard gone from nextStepIndex — points()[0] "
         "on a zero-point step polyline will trap again (off-route crash)"

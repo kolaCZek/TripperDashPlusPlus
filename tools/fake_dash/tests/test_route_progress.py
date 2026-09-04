@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.swift_source import decl_body
+
 
 # --------------------------------------------------------------------------
 # Python mirror of the Swift pure core
@@ -250,8 +252,7 @@ class TestProgressBarRenderDriftGuard:
         # Ticks must be the bright white-core + dark-outline overhang marker,
         # not the old 1.5 px dark hairline that was invisible.
         src = _swift_mapviewsource()
-        idx = src.index("func drawProgressBar")
-        body = src[idx:idx + 6000]
+        body = decl_body(src, "func drawProgressBar")
         assert "tickOverhang" in body
         # The old invisible hairline width must be gone.
         assert "let tickW: CGFloat = 1.5" not in body
