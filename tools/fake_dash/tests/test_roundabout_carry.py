@@ -37,6 +37,8 @@ import pytest
 
 from fake_dash.roundabout_parser import parse_exit_number
 
+from tests.swift_source import decl_body
+
 # Roundabout family keywords — mirror of `Keywords.roundabout` in
 # ManeuverKeywords.swift. Used to decide whether a previous step is a
 # roundabout we may carry an ordinal from.
@@ -163,11 +165,11 @@ def test_swift_classify_carries_exit_from_previous_step():
         repo_root / "TripperDashPP" / "Navigation" / "Models" / "ManeuverIcon.swift"
     )
     src = swift.read_text(encoding="utf-8")
-    # Find the roundabout branch in classify(...). The branch carries a
-    # long explanatory comment before the carry logic, so widen the slice
-    # enough to include the precedingStep carry path below it.
-    idx = src.index("if Keywords.isRoundabout(s)")
-    branch = src[idx:idx + 1600]
+    # Find the roundabout branch in classify(...) and scope to its real
+    # brace-balanced extent — the branch carries a long explanatory comment
+    # before the carry logic, and a fixed slice stops covering it as soon as
+    # that prose grows.
+    branch = decl_body(src, "if Keywords.isRoundabout(s)")
     # The carry path must: reference the preceding step, re-check
     # isRoundabout on it, and re-parse its instructions. We assert all
     # three so a future refactor that drops the carry fails loudly here.

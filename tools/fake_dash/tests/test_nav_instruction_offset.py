@@ -56,6 +56,7 @@ from pathlib import Path
 import pytest
 
 from tests.maneuver_geometry_mirror import signed_turn_angle, turn as geo_turn
+from tests.swift_source import decl_body, strip_comments
 
 # ----------------------------------------------------------------------
 # Fixture loading.
@@ -229,8 +230,7 @@ def test_swift_upcoming_instructions_reads_arriving_step():
     step ending at the node), not `nextStep` (the DEPARTING step). This is
     the heart of the fix."""
     src = _navigator_src()
-    idx = src.index("var upcomingInstructions")
-    decl = src[idx:idx + 200]
+    decl = decl_body(src, "var upcomingInstructions")
     assert "stepBeforeNext" in decl, (
         "upcomingInstructions no longer reads stepBeforeNext — the "
         "instruction off-by-one is back"
@@ -245,8 +245,7 @@ def test_swift_upcoming_maneuver_classifies_arriving_against_departing():
     """The derived `upcomingManeuver` must classify the ARRIVING step
     (text/family) against the DEPARTING step (`nextStep`, geometry)."""
     src = _navigator_src()
-    idx = src.index("var upcomingManeuver")
-    body = src[idx:idx + 320]
+    body = decl_body(src, "var upcomingManeuver")
     assert "arrivingStep:" in body and "stepBeforeNext" in body, (
         "upcomingManeuver no longer feeds the arriving step (stepBeforeNext) "
         "as the text/family source"
@@ -266,8 +265,7 @@ def test_swift_classify_signature_is_arriving_departing():
     assert "departingStep:" in src, "classify lost the departingStep parameter"
     # The arriving step's instructions drive the family; assert the text is
     # taken from the arriving step, not a departing/next one.
-    idx = src.index("func classify(arrivingStep:")
-    body = src[idx:idx + 600]
+    body = decl_body(src, "func classify(arrivingStep:")
     assert "arrivingStep.instructions" in body, (
         "classify no longer reads the maneuver text from the arriving step"
     )
@@ -291,17 +289,22 @@ def test_swift_secondary_distance_uses_departing_leg():
     `secondStep.distance` (the leg AFTER the secondary node), which
     overshot the chevron by a whole step on the field log."""
     src = _navigator_src()
-    idx = src.index("// F2c: secondary (look-ahead) maneuver")
-    body = src[idx:idx + 1100]
+    # Scope to the whole ingest function that contains the F2c block. That is
+    # both stable (no magic length) and strictly stronger for the negative
+    # assertions below — a reintroduced `secondStep.distance` anywhere in the
+    # ingest path is caught, not just one within N characters of a comment.
+    body = decl_body(src, "func ingest")
+    assert "// F2c: secondary (look-ahead) maneuver" in body, (
+        "the F2c secondary-maneuver block moved out of ingest — re-point "
+        "this guard at its new home"
+    )
     assert "+ step.distance" in body, (
         "secondary distance no longer adds the departing leg's own length"
     )
     # The CODE (not the comment) must not assign from secondStep.distance.
     # Strip comment lines so the historical "previously added
     # secondStep.distance" note doesn't trip this guard.
-    code_only = "\n".join(
-        ln for ln in body.splitlines() if not ln.lstrip().startswith("//")
-    )
+    code_only = strip_comments(body)
     assert "secondStep.distance" not in code_only, (
         "secondary distance adds secondStep.distance again — the look-ahead "
         "chip overshoots by a whole maneuver"

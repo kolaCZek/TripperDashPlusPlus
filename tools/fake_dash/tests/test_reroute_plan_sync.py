@@ -39,6 +39,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 from pathlib import Path
 
+from tests.swift_source import decl_body
+
 
 # --- Minimal mirror of the plan + draw-selection logic ----------------------
 
@@ -171,8 +173,7 @@ def test_swift_install_swapped_route_syncs_the_plan():
     route-changed hook, or the stale-full-route bug returns."""
     nav = _repo_root() / "TripperDashPP" / "Navigation" / "ActiveNavigator.swift"
     src = nav.read_text(encoding="utf-8")
-    idx = src.index("private func installSwappedRoute")
-    body = src[idx:idx + 2200]
+    body = decl_body(src, "private func installSwappedRoute")
     assert "replaceLegRoute" in body, (
         "installSwappedRoute no longer syncs the plan leg — the whole-trip "
         "line will be rebuilt from the stale pre-reroute road and hide the "
