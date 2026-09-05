@@ -1075,6 +1075,55 @@ final class ActiveNavigator {
                 self.secondNextStep = nil
                 self.distanceToSecondNextStep = 0
             }
+        } else {
+            // NO STEP AHEAD IN THIS LEG — the rider has passed the last
+            // maneuver node and is riding the final stretch to the leg's
+            // end. `nextStepIndex` returns nil here (no step start lies
+            // beyond `segIdx`), and before this `else` existed the whole
+            // block above was simply skipped: `distanceToNextStep`,
+            // `nextStep`, `stepBeforeNext` and the look-ahead all KEPT
+            // their last values and went stale until the leg boundary
+            // reseeded them.
+            //
+            // On a normal point-to-point route that tail is short. On an
+            // imported GPX `<trk>` it is the dominant case: Douglas–Peucker
+            // reduces the track to ≤`RoutePoint.navigableCap` waypoints, so
+            // a leg is often ONE straight-ish hop with no intermediate
+            // junction at all — measured on Ari's 2Flags.gpx (752 pts,
+            // 52.6 km, 39 legs) the frozen tail covers 100% of every leg
+            // when MapKit emits no mid-leg maneuver. That is the field
+            // report: "it takes quite a long way after the turn to update
+            // how far the next turn is" (the frozen distance) and "it does
+            // not show which direction you need to turn when you get to
+            // the turn" (the frozen/`.arrive` glyph).
+            //
+            // The honest answer for this state is that the upcoming
+            // maneuver IS the end of the leg. So:
+            //   • arriving  = the last step with real geometry (its
+            //     polyline ENDS at the leg's end node, and Apple writes
+            //     that node's text on it),
+            //   • departing = nothing in THIS route — which is precisely
+            //     the `nextStep == nil` condition `upcomingManeuver`
+            //     needs before it will borrow `nextLegFirstStep` and form
+            //     the turn angle ACROSS the boundary (PR #120). Leaving a
+            //     stale `nextStep` here is why that fix could almost never
+            //     fire: the borrow is guarded on `nextStep == nil`, and the
+            //     freeze kept it non-nil.
+            //   • distance  = `remaining`, the live distance along the
+            //     polyline to the leg's end, so it counts down every fix
+            //     instead of sitting on a stale number.
+            //
+            // The look-ahead is cleared rather than left stale: a wrong
+            // secondary chip is worse than none.
+            self.nextStep = nil
+            let geometricSteps = route.steps.filter { $0.polyline.pointCount > 0 }
+            self.stepBeforeNext = geometricSteps.last ?? route.steps.last
+            self.precedingStep = geometricSteps.count > 1
+                ? geometricSteps[geometricSteps.count - 2]
+                : nil
+            self.distanceToNextStep = remaining
+            self.secondNextStep = nil
+            self.distanceToSecondNextStep = 0
         }
 
         // On-route detection + hysteresis-based reroute trigger.
