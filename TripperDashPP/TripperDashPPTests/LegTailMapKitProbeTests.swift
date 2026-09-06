@@ -44,6 +44,20 @@
 //  maneuvers here, the fix is inert for this leg rather than harmful —
 //  and this test is how we'd find that out.
 //
+//  RESULT (run 2026-09-06, iPhone 17 Simulator, TEST_RUNNER_ prefix
+//  correctly set): MapKit returned 5 steps for this leg, ALL with real
+//  (non-empty) geometry — not the single-hop [depart, arrive] the GPX
+//  premise assumed for THIS particular pair of waypoints. The tail still
+//  froze: nextStepIndex went nil at vertex 14/19, freezing the last 126 m
+//  of 546 m (23%). This shows the freeze mechanism is more general than
+//  "the arrive step is empty" — nextStepIndex can only return a step that
+//  comes AFTER the currently-matched one in route.steps order, so once
+//  the rider's position matches at or past the LAST step's own vertex,
+//  there is no "next" step left to report, empty polyline or not. The
+//  empty-arrive case (GPX one-hop legs) is the EXTREME end of this same
+//  mechanism — the "last usable step" collapses to the departure step
+//  itself, so the frozen fraction approaches 100% instead of this normal
+//  route's 23%. See the PR #125 discussion for the corrected framing.
 
 import Testing
 import CoreLocation

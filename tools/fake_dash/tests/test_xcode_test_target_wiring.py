@@ -129,3 +129,23 @@ class TestLiveMapKitProbeStaysOptIn:
             "the probe must call the real nextStepIndex, not a copy"
         )
         assert "@testable import TripperDashPP" in body
+
+    def test_probe_doc_records_the_corrected_freeze_mechanism(self) -> None:
+        """The live run (2026-09-06) falsified PR #125's original framing
+        that the freeze needs an EMPTY terminal `arrive` polyline: leg 0
+        of a real point-to-point route had 5 non-empty steps and still
+        froze its last 23%. The probe's header must keep recording the
+        corrected, more general mechanism (nextStepIndex can't return a
+        step past the LAST one in route.steps, full stop) — not just the
+        empty-polyline special case — so a future reader doesn't reapply
+        the disproven narrower claim."""
+        body = PROBE.read_text(encoding="utf-8")
+        assert "RESULT (run 2026-09-06" in body, (
+            "the probe lost its recorded live-run result — without it, "
+            "the header's ONE-CLAIM framing reads as still-unverified "
+            "or, worse, as the ONLY mechanism, which the run disproved"
+        )
+        assert "more general than" in body, (
+            "the corrected-mechanism explanation is gone — the doc must "
+            "not leave 'empty arrive polyline' as the sole framing"
+        )
