@@ -194,6 +194,44 @@ class TestLegTailNotFrozen:
             "not the empty terminal arrive step (index 2)"
         )
 
+    def test_point_to_point_route_also_enters_the_leg_tail(self) -> None:
+        """SCOPE: the else is NOT limited to track routes.
+
+        Any route whose terminal `arrive` step has an empty polyline ends
+        in a tail. A plain A->B route therefore takes the new branch for
+        its final stretch too. Pinned explicitly because the first draft
+        of this PR claimed point-to-point was "unchanged" — it is not, and
+        a reviewer must see that stated rather than discover it.
+
+        The old behaviour there was the SAME freeze, just shorter; the
+        change makes that stretch count down instead of sticking.
+        """
+        route = [(50.0, 14.0), (50.001, 14.0), (50.002, 14.0),
+                 (50.003, 14.001), (50.004, 14.002), (50.005, 14.003),
+                 (50.006, 14.004), (50.007, 14.004), (50.008, 14.004)]
+        # MapKit shape: depart@v0, turn@v2, turn@v5, arrive(EMPTY).
+        step_starts: list[Optional[tuple[float, float]]] = [
+            route[0], route[2], route[5], None,
+        ]
+
+        branches = []
+        for v in range(len(route)):
+            si = next_step_index(route, step_starts, v)
+            branches.append("if" if si is not None else "else")
+
+        assert "else" in branches, (
+            "a point-to-point route must still reach the leg tail — if it "
+            "no longer does, this guard's premise is stale"
+        )
+        # Mid-leg must still take the untouched `if` branch.
+        assert branches[0] == "if"
+        # And once in the tail it never flips back.
+        first_else = branches.index("else")
+        assert all(b == "else" for b in branches[first_else:]), (
+            "the tail must be contiguous — a flip back to `if` would mean "
+            "nextStepIndex is non-monotonic"
+        )
+
     def test_leg_tail_clears_the_lookahead(self) -> None:
         """A stale secondary chip is worse than none."""
         step_starts: list[Optional[tuple[float, float]]] = [ARI_LEG[0], None]

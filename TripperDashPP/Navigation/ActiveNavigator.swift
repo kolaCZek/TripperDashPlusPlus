@@ -1113,6 +1113,16 @@ final class ActiveNavigator {
             //     polyline to the leg's end, so it counts down every fix
             //     instead of sitting on a stale number.
             //
+            // Scope note: this branch is NOT limited to track routes. Any
+            // route whose terminal `arrive` step has an empty polyline ends
+            // in a tail where `nextStepIndex` returns nil, so a plain
+            // point-to-point route takes this path for its final stretch
+            // too (modelled: the last ~36% of a short A→B route). That is
+            // intended — the old behaviour there was the same freeze, just
+            // shorter and therefore unnoticed. What must NOT change is
+            // mid-leg behaviour, and that is guaranteed by the `if` branch
+            // above being byte-for-byte untouched.
+            //
             // The look-ahead is cleared rather than left stale: a wrong
             // secondary chip is worse than none.
             self.nextStep = nil
