@@ -55,10 +55,17 @@ private var liveProbeEnabled: Bool {
 struct LegTailMapKitProbeTests {
 
     /// Probe the real MKDirections response for a single GPX-track leg.
-    @Test func mapKitLegShapeMatchesTheLegTailPremise() async throws {
-        try #require(liveProbeEnabled,
-                     "Live MapKit probe disabled — set TRIPPERDASH_LIVE_MAPKIT=1 to run.")
-
+    ///
+    /// Gated with the `.enabled(if:)` CONDITION TRAIT, not with a
+    /// `try #require(...)` inside the body. That distinction cost a red CI
+    /// run: `#require` is an unwrap/precondition — when it fails it RECORDS
+    /// AN ISSUE and fails the test. It does not skip. Only a condition
+    /// trait makes Swift Testing skip the test outright, which is what an
+    /// opt-in network probe needs so the default CI run stays green and
+    /// offline.
+    @Test(.enabled(if: liveProbeEnabled,
+                   "Live MapKit probe — set TRIPPERDASH_LIVE_MAPKIT=1 to run"))
+    func mapKitLegShapeMatchesTheLegTailPremise() async throws {
         let req = MKDirections.Request()
         req.source = MKMapItem(placemark: MKPlacemark(coordinate: ariLegStart))
         req.destination = MKMapItem(placemark: MKPlacemark(coordinate: ariLegEnd))

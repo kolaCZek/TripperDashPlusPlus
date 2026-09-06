@@ -74,9 +74,15 @@ class TestLiveMapKitProbeStaysOptIn:
             "the live MapKit probe lost its env-var gate — it would now "
             "run on every CI build and make the suite network-dependent"
         )
-        assert "try #require(liveProbeEnabled" in body, (
-            "the probe no longer bails out when the gate is unset; a "
-            "`#expect` is not enough, the test must SKIP"
+        assert ".enabled(if: liveProbeEnabled" in body, (
+            "the probe no longer uses the .enabled(if:) condition trait. "
+            "A `try #require(...)` inside the body does NOT skip — it "
+            "records an issue and FAILS the test, which turned CI red once "
+            "already. Only a condition trait actually skips."
+        )
+        assert "#require(liveProbeEnabled" not in body, (
+            "the probe is gated with #require again — that fails instead "
+            "of skipping when the env var is unset"
         )
 
     def test_probe_uses_the_real_helpers_not_a_reimplementation(self) -> None:
