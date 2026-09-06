@@ -103,14 +103,27 @@ final class RoutingService {
     /// Legs that DO compute are written back even if a sibling fails,
     /// so a partial network blip doesn't wipe a half-good plan; the
     /// failure is reported after all legs are attempted.
+    ///
+    /// `isStillLive` is consulted after every network round trip. Each
+    /// `calculateLeg` suspends for ~1 s, and `plan.setOptions` on resume
+    /// mutates an `@Observable` object the planning UI is bound to. If the
+    /// rider cancelled planning during that window the plan is detached but
+    /// its SwiftUI observers are mid-teardown, and the late write aborts
+    /// with "Invalid Number Of Items In Section" (TestFlight, 1.0.3).
+    /// Bailing out here stops the writes at the source rather than only at
+    /// the caller. `nil` means "always live", so existing callers and tests
+    /// keep the old behaviour.
     func recompute(_ plan: PlannedRoute,
                    dirtyLegIndices: Set<Int>,
-                   preferences: RoutePreferences) async throws {
+                   preferences: RoutePreferences,
+                   isStillLive: (@MainActor () -> Bool)? = nil) async throws {
         let dirty = dirtyLegIndices.filter { plan.legs.indices.contains($0) }.sorted()
         guard !dirty.isEmpty else { return }
+        func stillLive() -> Bool { isStillLive?() ?? true }
 
         var failed: [Int] = []
         for i in dirty {
+            guard stillLive() else { return }
             let leg = plan.legs[i]
             guard let fromWp = plan.waypoint(id: leg.fromWaypointId),
                   let toWp = plan.waypoint(id: leg.toWaypointId) else {
@@ -119,6 +132,11 @@ final class RoutingService {
             }
             do {
                 let opts = try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+                // Re-check AFTER the await — this is the window the crash
+                // lands in. Returning without throwing is deliberate: the
+                // work was abandoned, not failed, so no error is surfaced
+                // into a UI that no longer exists.
+                guard stillLive() else { return }
                 if opts.isEmpty {
                     failed.append(i)
                 } else {
@@ -130,6 +148,7 @@ final class RoutingService {
             }
         }
 
+        guard stillLive() else { return }
         if !failed.isEmpty {
             throw RoutingError.legComputationFailed(legIndices: failed.sorted())
         }
