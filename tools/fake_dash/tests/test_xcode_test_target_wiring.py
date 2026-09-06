@@ -85,6 +85,20 @@ class TestLiveMapKitProbeStaysOptIn:
             "of skipping when the env var is unset"
         )
 
+    def test_live_probe_enabled_is_nonisolated(self) -> None:
+        """CI (build 34043405676) warned:
+        'main actor-isolated var liveProbeEnabled can not be referenced
+        from a nonisolated context'. The project has default MainActor
+        isolation on, so a bare top-level `var` is silently isolated —
+        but `.enabled(if:)` is evaluated from a nonisolated context
+        before the test body runs. A warning today, a hard error under a
+        stricter concurrency mode tomorrow."""
+        body = PROBE.read_text(encoding="utf-8")
+        assert "nonisolated private var liveProbeEnabled" in body, (
+            "liveProbeEnabled lost its `nonisolated` — the condition "
+            "trait needs to read it from outside the MainActor"
+        )
+
     def test_probe_uses_the_real_helpers_not_a_reimplementation(self) -> None:
         """The probe's value is that it exercises the SAME lookup the app
         uses. A local copy of the algorithm would prove nothing."""

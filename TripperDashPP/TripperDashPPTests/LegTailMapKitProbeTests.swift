@@ -47,7 +47,13 @@ import MapKit
 private let ariLegStart = CLLocationCoordinate2D(latitude: 52.67126, longitude: -0.8186)
 private let ariLegEnd   = CLLocationCoordinate2D(latitude: 52.67016, longitude: -0.81314)
 
-private var liveProbeEnabled: Bool {
+/// `nonisolated` is required, not decorative: this project turns on
+/// default MainActor isolation, so a bare top-level `var` picks that up
+/// silently. The `.enabled(if:)` condition trait is evaluated by Swift
+/// Testing BEFORE the (MainActor-isolated) test body runs, from a
+/// nonisolated context — without this the build only warns today, but a
+/// future stricter concurrency mode turns that into a hard error.
+nonisolated private var liveProbeEnabled: Bool {
     ProcessInfo.processInfo.environment["TRIPPERDASH_LIVE_MAPKIT"] == "1"
 }
 
