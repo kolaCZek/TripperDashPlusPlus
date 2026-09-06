@@ -11,14 +11,21 @@
 //  a network-dependent assertion in CI is a flaky test, and flaky tests
 //  get ignored, which is worse than no test. Enable it deliberately:
 //
-//      TRIPPERDASH_LIVE_MAPKIT=1 xcodebuild test \
+//      TEST_RUNNER_TRIPPERDASH_LIVE_MAPKIT=1 xcodebuild test \
 //        -project TripperDashPP/TripperDashPP.xcodeproj \
 //        -scheme TripperDashPP \
 //        -destination 'platform=iOS Simulator,name=iPhone 16' \
 //        -only-testing:TripperDashPPTests/LegTailMapKitProbeTests
 //
-//  It runs fine in the plain iOS Simulator — no bike, no dash, no device.
-//  MKDirections is rate-limited by Apple, so it probes ONE leg, not forty.
+//  The TEST_RUNNER_ PREFIX IS NOT OPTIONAL. `xcodebuild test` does not
+//  forward the invoking shell's environment to the test-runner process —
+//  only variables prefixed `TEST_RUNNER_` get passed through (with the
+//  prefix stripped) — see `man xcodebuild`. Setting plain
+//  TRIPPERDASH_LIVE_MAPKIT=1 builds and runs fine and skips with the exact
+//  same message as when it's unset, which looks like the gate working and
+//  is actually the gate never seeing the variable at all. This bit twice
+//  in the field (2026-09-06, two separate xcodebuild invocations, both
+//  "successfully" skipped) before the prefix requirement was traced.
 //
 //  The coordinates are two real, adjacent Douglas–Peucker waypoints from
 //  Ari's `2Flags.gpx` (Kurviger `<trk>`, 752 trkpt, 52.6 km, reduced to 40
@@ -70,7 +77,7 @@ struct LegTailMapKitProbeTests {
     /// opt-in network probe needs so the default CI run stays green and
     /// offline.
     @Test(.enabled(if: liveProbeEnabled,
-                   "Live MapKit probe — set TRIPPERDASH_LIVE_MAPKIT=1 to run"))
+                   "Live MapKit probe — set TEST_RUNNER_TRIPPERDASH_LIVE_MAPKIT=1 to run"))
     func mapKitLegShapeMatchesTheLegTailPremise() async throws {
         let req = MKDirections.Request()
         req.source = MKMapItem(placemark: MKPlacemark(coordinate: ariLegStart))

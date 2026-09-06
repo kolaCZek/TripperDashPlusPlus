@@ -85,6 +85,28 @@ class TestLiveMapKitProbeStaysOptIn:
             "of skipping when the env var is unset"
         )
 
+    def test_probe_docs_and_skip_message_use_the_test_runner_prefix(self) -> None:
+        """Field incident (2026-09-06): `xcodebuild test` does not forward
+        the invoking shell's environment to the test-runner process — only
+        `TEST_RUNNER_`-prefixed variables get passed through (with the
+        prefix stripped; see `man xcodebuild`). Plain
+        `TRIPPERDASH_LIVE_MAPKIT=1 xcodebuild test ...` builds and runs
+        fine and silently skips with the SAME message as when it's unset —
+        indistinguishable from the gate working. It happened twice before
+        being traced. The usage instructions and the trait's own skip
+        message must say `TEST_RUNNER_TRIPPERDASH_LIVE_MAPKIT`, not the
+        bare name, or the next person hits the same trap."""
+        body = PROBE.read_text(encoding="utf-8")
+        assert "TEST_RUNNER_TRIPPERDASH_LIVE_MAPKIT=1 xcodebuild test" in body, (
+            "the usage example dropped the TEST_RUNNER_ prefix — copying "
+            "it verbatim would silently skip the probe again"
+        )
+        assert '"Live MapKit probe — set TEST_RUNNER_TRIPPERDASH_LIVE_MAPKIT=1 to run"' in body, (
+            "the .enabled(if:) skip message dropped the TEST_RUNNER_ "
+            "prefix — anyone reading the skip reason in CI output would "
+            "be told the wrong variable name"
+        )
+
     def test_live_probe_enabled_is_nonisolated(self) -> None:
         """CI (build 34043405676) warned:
         'main actor-isolated var liveProbeEnabled can not be referenced
