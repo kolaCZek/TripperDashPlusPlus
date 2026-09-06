@@ -185,7 +185,26 @@ struct MapPickerView: View {
         .fullScreenCover(isPresented: $prerenderActive) {
             PrerenderProgressView(progress: prerenderProgress)
         }
-        .sheet(isPresented: $showSearch) {
+        .sheet(isPresented: $showSearch, onDismiss: {
+            // Clear the one-shot routing flags. Both are set BEFORE the
+            // sheet opens and were previously cleared ONLY inside
+            // `handlePickedDestination` — i.e. only when the rider actually
+            // picked something. Swiping the sheet away left them armed, so
+            // the NEXT unrelated search (the plain search pill) was still
+            // routed as "add a stop to the current plan" / "fill a quick
+            // slot". Picking a destination then silently inserted a via-
+            // point instead of creating a new destination, changing
+            // `plan.waypoints.count` — which both drives the Stops List's
+            // row count AND, at the `editableListThreshold` boundary,
+            // swaps the whole list out for the summary view. A row-count
+            // change plus a view-identity change in the same update is the
+            // "Invalid Number Of Items In Section" shape reported from
+            // TestFlight on 1.0.3 ("odejít z možnosti trasy a vytvořit
+            // nový cíl").
+            addingStopToPlan = false
+            slotToFill = nil
+            sharedSearchSeed = nil
+        }) {
             DestinationSearchSheet(onPick: { dest in
                 handlePickedDestination(dest)
             }, initialQuery: sharedSearchSeed)

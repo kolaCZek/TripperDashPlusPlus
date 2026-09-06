@@ -1029,18 +1029,47 @@ final class AppStatus {
     /// Recompute the given dirty legs of `plan` (defaults to the live
     /// `plannedRoute`). Tracks `recomputingLegs` for the UI spinner and
     /// surfaces failures into `planError`.
+    ///
+    /// The `plan` argument is captured strongly and `RoutingService`
+    /// mutates it AFTER each `await calculateLeg(...)` — a network round
+    /// trip of ~1 s per leg. If the rider cancels planning (or starts a
+    /// different plan) while that is in flight, the task resumes and
+    /// writes into a `PlannedRoute` that is no longer `plannedRoute`.
+    /// That object is still `@Observable` and still has the SwiftUI
+    /// observers registered by the Stops `List`, so the late write fires
+    /// an observation change into a view SwiftUI has already begun
+    /// tearing down — the "Invalid Number Of Items In Section" abort
+    /// reported from TestFlight on 1.0.3.
+    ///
+    /// The guard is to stop as soon as the plan is no longer live.
+    /// Checked BOTH before and after the await: before, so an already
+    /// stale call never starts; after, because that is the window the
+    /// crash actually lands in.
     func recomputeDirtyLegs(_ dirty: Set<Int>, in plan: PlannedRoute? = nil) async {
         guard let plan = plan ?? plannedRoute, !dirty.isEmpty else { return }
+        // Identity, not equality — `PlannedRoute` is a reference type and
+        // this asks "is this still the plan the UI is bound to?".
+        guard plannedRoute === plan else { return }
         recomputingLegs.formUnion(dirty)
         defer { recomputingLegs.subtract(dirty) }
         do {
             try await routingService.recompute(
                 plan,
                 dirtyLegIndices: dirty,
-                preferences: navigationStore.routePreferences
+                preferences: navigationStore.routePreferences,
+                // Stop writing into the plan the moment it stops being the
+                // live one — checked inside the per-leg loop, so a cancel
+                // mid-recompute abandons the remaining legs instead of
+                // mutating a detached @Observable the UI is tearing down.
+                isStillLive: { [weak self] in self?.plannedRoute === plan }
             )
+            // The rider may have cancelled while the legs were computing.
+            // Publishing `planError`/clearing it would mutate state the
+            // torn-down planning UI is still observing.
+            guard plannedRoute === plan else { return }
             planError = nil
         } catch {
+            guard plannedRoute === plan else { return }
             planError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
