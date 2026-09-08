@@ -956,7 +956,7 @@ extension MapViewSource {
 extension MapViewSource {
     /// Render loop via Swift Concurrency Task + Task.sleep.
     /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
-    /// keeps ticking on the locked screen under the silent-audio wakelock.
+    /// keeps ticking on the locked screen under the CoreLocation wakelock.
     private func startTimer() {
         renderTask?.cancel()
         let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)

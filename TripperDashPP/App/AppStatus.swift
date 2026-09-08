@@ -142,8 +142,8 @@ final class AppStatus {
 
     // MARK: - Background keep-alive (Phase 6)
 
-    /// User-controlled: when true, we hold a CoreLocation Always +
-    /// silent-audio wakelock while streaming so the iPhone screen can
+    /// User-controlled: when true, we hold a CoreLocation Always
+    /// wakelock while streaming so the iPhone screen can
     /// lock without iOS suspending the app (which kills the
     /// VTCompressionSession with `kVTInvalidSessionErr` / -12903).
     /// Defaults to ON — the whole point of Phase 6 is that this is the
