@@ -185,10 +185,30 @@ Field-tested on a Guerrilla 450.
 
 ## Screenshots
 
-Required: 6.9" (iPhone 17 Pro Max or similar). Everything else can be
-auto-scaled by App Store Connect from that one size.
+### Technical requirements (verified July 2026)
 
-Capture all of these in Demo Mode — no motorcycle needed:
+The project is `TARGETED_DEVICE_FAMILY = 1` (iPhone only), so **one iPhone set
+is all that is needed** — no iPad shelf.
+
+- **Size:** one 6.9" set, portrait. Accepted: **1320×2868** (iPhone 17 Pro Max
+  / Air / 16 Pro Max — the newest and preferred), or 1290×2796, or 1260×2736.
+  App Store Connect scales that set down to every smaller iPhone class
+  automatically.
+- **Count:** minimum 3, maximum 10 per shelf.
+- **Format:** sRGB PNG or JPEG, **no transparency** (an alpha channel is
+  rejected).
+- **Exact pixels:** the parser is strict — 1320×2867 fails. Take them on a
+  real 6.9" device or the matching simulator, do not resize by hand.
+- Screenshots must show the actual app. Device frames, marketing text and
+  background colour are allowed as long as real app UI is underneath.
+
+Simplest capture path: run the app in the **iPhone 17 Pro Max simulator**
+(Device → Screenshot, or `xcrun simctl io booted screenshot shot.png`) — it
+saves at exactly 1320×2868 with no alpha.
+
+### What to capture
+
+All of these work in Demo Mode — no motorcycle needed:
 
 1. **Active navigation, dash preview visible** — the money shot. Shows the
    phone and what the dash is getting at the same time.
