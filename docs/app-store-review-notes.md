@@ -62,7 +62,7 @@ internet. Two simultaneous networks (cellular + bike Wi-Fi) are by design.
 
 ### Privacy policy
 
-https://privacy.kolaczek.cz/tripperdash/
+https://tripperdash.kolaczek.cz/privacy.html
 
 ### Trademark note
 
