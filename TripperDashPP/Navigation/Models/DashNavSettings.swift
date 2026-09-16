@@ -287,6 +287,28 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Bake map tiles for the ENTIRE route up front instead of the default
+    /// 8 km fast-start window that the rolling extender then keeps topping
+    /// up as the rider moves.
+    ///
+    /// Defaults OFF, and deliberately so: the default window is ~250 unique
+    /// tiles and finishes in a few seconds, whereas a whole-route bake grows
+    /// linearly with distance — a 50 km ride is roughly 6× that, minutes of
+    /// waiting and tens of MB before navigation can start. That is a bad
+    /// trade for the common case (a rider with signal), and a very good one
+    /// for the case this exists for: riding somewhere the mobile data will
+    /// drop out, where the rolling extender cannot fetch what it needs and
+    /// the dash falls back to a bare route line on an empty background.
+    ///
+    /// Only the base corridor layer honours this. The coarse/fine zoom
+    /// sibling layers keep their own short windows — they exist to cover the
+    /// rider's immediate surroundings at another zoom band, so pre-baking
+    /// them for the whole route would multiply the cost for tiles that are
+    /// only ever shown near the rider anyway.
+    var cacheWholeRouteEnabled: Bool = false {
+        didSet { persist() }
+    }
+
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
     /// the `.overOnly` mode lights the sign. A few km/h of slop keeps the
     /// sign from flickering on/off as GPS speed jitters right at the limit
@@ -461,6 +483,7 @@ final class DashNavSettings {
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
+        var cacheWholeRouteEnabled: Bool?
     }
 
     init() {
@@ -487,6 +510,7 @@ final class DashNavSettings {
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
         self.progressBarEnabled = p.progressBarEnabled ?? true
+        self.cacheWholeRouteEnabled = p.cacheWholeRouteEnabled ?? false
     }
 
     private func persist() {
@@ -506,7 +530,8 @@ final class DashNavSettings {
             voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
-            progressBarEnabled: progressBarEnabled
+            progressBarEnabled: progressBarEnabled,
+            cacheWholeRouteEnabled: cacheWholeRouteEnabled
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

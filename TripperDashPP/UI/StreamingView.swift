@@ -227,6 +227,16 @@ struct StreamingView: View {
             // here so there's a single source of truth the user edits.
 
             Section("Map") {
+                Toggle(isOn: Binding(
+                    get: { status.dashNavSettings.cacheWholeRouteEnabled },
+                    set: { status.dashNavSettings.cacheWholeRouteEnabled = $0 }
+                )) {
+                    Text("Cache the whole route")
+                }
+                Text("Downloads the map for the entire route before you set off, so it keeps drawing where mobile data drops out. Normally only the first 8 km are fetched up front and the rest arrives as you ride. On a long route this can take several minutes and use a lot of data — start it on Wi-Fi.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Appearance", selection: Binding(
                     get: { status.mapStyleSettings.mode },
                     set: { status.setMapStyleMode($0) }
