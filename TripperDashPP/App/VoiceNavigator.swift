@@ -51,6 +51,29 @@ final class VoiceNavigator: NSObject {
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "VoiceNav")
     private let synth = AVSpeechSynthesizer()
 
+    /// Serial queue owning every `AVAudioSession` mutation.
+    ///
+    /// `setCategory` / `setActive` are synchronous IPC to `mediaserverd` and
+    /// can block for tens of milliseconds — on the main thread that is a
+    /// dropped-frame hang, which is what Xcode's "AVAudioSession Hang Risk"
+    /// diagnostic flags. This type is `@MainActor` (it has to be: it drives
+    /// `AVSpeechSynthesizer` and its delegate callbacks), so the session work
+    /// is hopped off here instead.
+    ///
+    /// Deliberately a serial `DispatchQueue` rather than an `actor`: these
+    /// calls are order-sensitive (duck on → duck off, activate → deactivate)
+    /// and a queue guarantees FIFO, whereas Swift actors make no ordering
+    /// promise about the tasks awaiting them. Reordering a duck pair would
+    /// leave the rider's music permanently quiet.
+    ///
+    /// Apple's suggested `activate(options:completionHandler:)` is not an
+    /// option: it is watchOS-only, and it would not cover `setCategory`,
+    /// which is two of the three flagged call sites.
+    private let sessionQueue = DispatchQueue(
+        label: "eu.kolaczek.tripperdashpp.audio-session",
+        qos: .userInitiated
+    )
+
     /// Priority of a spoken prompt. A higher-priority prompt interrupts a
     /// lower-priority one that is mid-sentence.
     enum Priority: Int, Comparable {
@@ -120,13 +143,16 @@ final class VoiceNavigator: NSObject {
     /// (backed by the `audio` UIBackgroundMode). Idempotent — iOS
     /// tolerates re-activating an already-active session.
     func startSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers])
-            try session.setActive(true, options: [])
-            log.info("audio session active (playback/voicePrompt, mixWithOthers)")
-        } catch {
-            log.error("startSession failed: \(error.localizedDescription, privacy: .public)")
+        let log = self.log
+        sessionQueue.async {
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers])
+                try session.setActive(true, options: [])
+                log.info("audio session active (playback/voicePrompt, mixWithOthers)")
+            } catch {
+                log.error("startSession failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -134,12 +160,15 @@ final class VoiceNavigator: NSObject {
     /// stop holding audio focus. Notifies others so their audio un-ducks.
     func stopSession() {
         stop()
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setActive(false, options: [.notifyOthersOnDeactivation])
-            log.info("audio session deactivated")
-        } catch {
-            log.error("stopSession failed: \(error.localizedDescription, privacy: .public)")
+        let log = self.log
+        sessionQueue.async {
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setActive(false, options: [.notifyOthersOnDeactivation])
+                log.info("audio session deactivated")
+            } catch {
+                log.error("stopSession failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -149,14 +178,24 @@ final class VoiceNavigator: NSObject {
     /// `.duckOthers`. We never call `setActive(false)` here — the session
     /// stays active for the whole ride (see `startSession`/`stopSession`).
     /// We only flip the ducking option, which iOS applies live.
+    ///
+    /// Runs on `sessionQueue`, so the duck lands a moment after the
+    /// utterance is handed to the synthesizer rather than strictly before
+    /// it. That ordering is fine — the synthesizer takes its own time to
+    /// start producing audio, and iOS applies ducking to a live session —
+    /// but the on/off pair must stay in order, which the serial queue
+    /// guarantees.
     private func duckOthers(_ duck: Bool) {
-        let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.mixWithOthers]
-        if duck { options.insert(.duckOthers) }
-        do {
-            try session.setCategory(.playback, mode: .voicePrompt, options: options)
-        } catch {
-            log.error("duck(\(duck)) setCategory failed: \(error.localizedDescription, privacy: .public)")
+        let log = self.log
+        sessionQueue.async {
+            let session = AVAudioSession.sharedInstance()
+            var options: AVAudioSession.CategoryOptions = [.mixWithOthers]
+            if duck { options.insert(.duckOthers) }
+            do {
+                try session.setCategory(.playback, mode: .voicePrompt, options: options)
+            } catch {
+                log.error("duck(\(duck)) setCategory failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
