@@ -19,7 +19,15 @@ import ActivityKit
 import Foundation
 
 /// Attributes for the "ride in progress" Live Activity.
-struct RideActivityAttributes: ActivityAttributes {
+///
+/// Explicitly `nonisolated`: the target builds with
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which would otherwise make this
+/// type's `ActivityAttributes` conformance main-actor-isolated. ActivityKit
+/// consumes that conformance from its own concurrent contexts (`activity.update`,
+/// `activity.end`), which is an error under the Swift 6 language mode. Nothing
+/// here touches UI state — it is plain pre-formatted values shared with the
+/// widget extension — so isolating it buys nothing and only breaks the callers.
+nonisolated struct RideActivityAttributes: ActivityAttributes {
 
     /// Per-update state. Everything here is pre-formatted in the app so the
     /// widget is a dumb renderer — it never does unit math or date formatting.
