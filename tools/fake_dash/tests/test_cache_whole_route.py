@@ -144,6 +144,6 @@ def test_settings_ui_explains_the_cost():
             f"enabling this needs to know what it costs and what the "
             f"default behaviour already is. Caption was: {caption!r}"
         )
-    assert "minutes" in caption or "Wi-Fi" in caption, (
+    assert "minutes" in caption, (
         f"the caption must warn about the time cost. Caption was: {caption!r}"
     )
