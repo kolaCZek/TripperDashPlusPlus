@@ -260,8 +260,8 @@ final class AppStatus {
     private func observeBikeLink() {
         withObservationTracking {
             _ = bikeLink.state
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 let state = self.bikeLink.state
                 // Session teardown detector: the link reached a terminal
@@ -1302,8 +1302,8 @@ final class AppStatus {
         withObservationTracking {
             _ = dashNavSettings.trafficRerouteEnabled
             _ = dashNavSettings.trafficRerouteSavingSeconds
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 self.activeNavigator.trafficRerouteEnabled = self.dashNavSettings.trafficRerouteEnabled
                 self.activeNavigator.trafficRerouteSavingSeconds = self.dashNavSettings.trafficRerouteSavingSeconds
@@ -1353,8 +1353,8 @@ final class AppStatus {
     private func observeCallStateToggle() {
         withObservationTracking {
             _ = dashNavSettings.callStateEnabled
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 if self.dashNavSettings.callStateEnabled == false {
                     await self.bikeLink.sendCallState(.none)
@@ -1555,8 +1555,8 @@ final class AppStatus {
     private func observeWeatherToggle() {
         withObservationTracking {
             _ = dashNavSettings.weatherAlertsEnabled
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 if self.dashNavSettings.weatherAlertsEnabled == false {
                     self.mapViewSource.setWeatherAlert(nil)
@@ -1569,8 +1569,8 @@ final class AppStatus {
     private func observeSpeedCameraToggle() {
         withObservationTracking {
             _ = dashNavSettings.speedCamerasEnabled
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 if self.dashNavSettings.speedCamerasEnabled == false {
                     self.speedCameraPrefetchTask?.cancel()
@@ -1597,8 +1597,8 @@ final class AppStatus {
             _ = dashNavSettings.speedLimitDisplay
             _ = dashNavSettings.speedLimitOverToleranceKmh
             _ = dashNavSettings.units
-        } onChange: {
-            Task { @MainActor [weak self] in
+        } onChange: { [weak self] in
+            Task { @MainActor in
                 guard let self else { return }
                 self.pushSpeedLimitConfig()
                 if self.dashNavSettings.speedLimitDisplay == .off {
