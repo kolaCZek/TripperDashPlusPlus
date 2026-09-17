@@ -259,6 +259,28 @@ final class RouteTileCache {
     /// tile (→ no re-bake) until they drift 800 m from where it was baked.
     static let positionFallbackValidRadius: CLLocationDistance = 800
 
+    /// Distance from the tile's centre at which we start baking the NEXT
+    /// position-fallback tile, while the current one is still valid.
+    ///
+    /// Must be strictly smaller than `positionFallbackValidRadius`, and the
+    /// gap between them is the whole point. Baking only once the tile stops
+    /// covering the rider means the render path has already fallen through
+    /// to the bare vector frame by the time the fetch starts: the rider
+    /// watches an empty background for as long as the composite takes, then
+    /// the map reappears. A tester on a free ride — where this tile is the
+    /// ONLY source of map imagery, so the miss repeats every 800 m — saw
+    /// exactly that, reporting the screen going "blank and back 10/20/30
+    /// seconds later" with full cellular coverage the whole time.
+    ///
+    /// 500 m leaves 300 m of travel (~20 s at 55 km/h, and more in the town
+    /// riding where this is most visible) for the bake to land before the
+    /// old tile expires, while still being far enough out that a rider
+    /// pottering around one spot doesn't re-bake constantly. The composite
+    /// covers ~3.9 km on a side, so at 500 m from centre the rider is still
+    /// deep inside the painted area — this spends nothing but an earlier
+    /// fetch.
+    static let positionFallbackRefreshRadius: CLLocationDistance = 500
+
     // MARK: - Stored state
 
     // MARK: - Rolling-window state
@@ -896,7 +918,7 @@ final class RouteTileCache {
     /// Ensure a position-fallback tile exists that covers `coord`, baking
     /// a fresh one around the rider's raw GPS position if the current
     /// slot is missing or the rider has drifted more than
-    /// `positionFallbackValidRadius` from it.
+    /// `positionFallbackRefreshRadius` from it.
     ///
     /// This is the ONLY producer of position-fallback tiles, and the
     /// render path calls it ONLY when off the route corridor. So when the
@@ -914,9 +936,13 @@ final class RouteTileCache {
     /// and until then the render path keeps using vector-only, so there's
     /// never a blank wait.
     func ensurePositionFallback(near coord: CLLocationCoordinate2D) async {
-        // Already covered by the current slot → nothing to do.
+        // Already covered AND not yet near the refresh ring → nothing to do.
+        // Note this checks the REFRESH radius, not the validity radius: the
+        // point is to have the next tile ready BEFORE the current one stops
+        // covering the rider, so the render path never falls through to the
+        // bare vector frame while a fetch is in flight.
         if let tile = positionFallbackTile,
-           PolylineMath.haversine(coord, tile.center) <= Self.positionFallbackValidRadius {
+           PolylineMath.haversine(coord, tile.center) <= Self.positionFallbackRefreshRadius {
             return
         }
         // A bake is already running; it'll install a tile shortly. Don't
