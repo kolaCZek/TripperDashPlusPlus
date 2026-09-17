@@ -59,16 +59,30 @@ def test_refresh_ring_is_strictly_inside_the_validity_ring(cache_src):
     )
 
 
-def test_refresh_lead_is_big_enough_to_hide_a_bake(cache_src):
-    """The gap is travel time for the fetch; too small and it still blanks."""
+def test_refresh_lead_covers_a_slow_bake_at_speed(cache_src):
+    """The gap is a distance, but what it buys is time for the fetch.
+
+    The binding constraint is a slow composite (~25 tile fetches on poor
+    mobile data), not a fast rider: at 200 km/h a 400 m lead is 7.2 s, and
+    at 130 km/h it is 11.1 s. Both must stay comfortably above the ~2 s
+    tileExtendThrottle plus a multi-second fetch, or the blank frame is
+    back for anyone on bad data.
+    """
     valid = _radius(cache_src, "positionFallbackValidRadius")
     refresh = _radius(cache_src, "positionFallbackRefreshRadius")
     lead = valid - refresh
-    assert lead >= 200, (
-        f"only {lead} m of lead between the refresh ring and expiry. A "
-        f"composite is ~25 tile fetches; at town speeds this needs a couple "
-        f"of hundred metres of travel to land before the old tile expires"
-    )
+
+    THROTTLE_S = 2.0        # MapViewSource.tileExtendThrottle
+    MIN_BAKE_BUDGET_S = 5.0  # ~25 tile fetches on poor mobile data
+
+    for kmh in (130, 200):
+        seconds = lead / (kmh / 3.6)
+        assert seconds >= THROTTLE_S + MIN_BAKE_BUDGET_S, (
+            f"{lead:.0f} m of lead is only {seconds:.1f} s at {kmh} km/h — "
+            f"not enough for the {THROTTLE_S:.0f} s throttle plus a "
+            f"{MIN_BAKE_BUDGET_S:.0f} s composite, so a rider on slow data "
+            f"would still watch the map blank out"
+        )
 
 
 def test_bake_trigger_uses_the_refresh_radius(cache_src):
