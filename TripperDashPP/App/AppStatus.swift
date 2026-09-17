@@ -261,8 +261,8 @@ final class AppStatus {
         withObservationTracking {
             _ = bikeLink.state
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 let state = self.bikeLink.state
                 // Session teardown detector: the link reached a terminal
                 // down-state. `.idle` = user disconnect; `.error` =
@@ -1303,8 +1303,8 @@ final class AppStatus {
             _ = dashNavSettings.trafficRerouteEnabled
             _ = dashNavSettings.trafficRerouteSavingSeconds
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 self.activeNavigator.trafficRerouteEnabled = self.dashNavSettings.trafficRerouteEnabled
                 self.activeNavigator.trafficRerouteSavingSeconds = self.dashNavSettings.trafficRerouteSavingSeconds
                 self.observeTrafficRerouteSettings()
@@ -1354,8 +1354,8 @@ final class AppStatus {
         withObservationTracking {
             _ = dashNavSettings.callStateEnabled
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 if self.dashNavSettings.callStateEnabled == false {
                     await self.bikeLink.sendCallState(.none)
                 }
@@ -1556,8 +1556,8 @@ final class AppStatus {
         withObservationTracking {
             _ = dashNavSettings.weatherAlertsEnabled
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 if self.dashNavSettings.weatherAlertsEnabled == false {
                     self.mapViewSource.setWeatherAlert(nil)
                 }
@@ -1570,8 +1570,8 @@ final class AppStatus {
         withObservationTracking {
             _ = dashNavSettings.speedCamerasEnabled
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 if self.dashNavSettings.speedCamerasEnabled == false {
                     self.speedCameraPrefetchTask?.cancel()
                     self.mapViewSource.setSpeedCameras([])
@@ -1598,8 +1598,8 @@ final class AppStatus {
             _ = dashNavSettings.speedLimitOverToleranceKmh
             _ = dashNavSettings.units
         } onChange: { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 self.pushSpeedLimitConfig()
                 if self.dashNavSettings.speedLimitDisplay == .off {
                     self.speedLimitPrefetchTask?.cancel()

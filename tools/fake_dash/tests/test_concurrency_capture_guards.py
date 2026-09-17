@@ -98,6 +98,31 @@ def test_onchange_still_unwraps_self_before_use(app_status_src, anchor):
     )
 
 
+@pytest.mark.parametrize("anchor", OBSERVERS)
+def test_onchange_unwraps_self_outside_the_task(app_status_src, anchor):
+    """The unwrap must happen in the closure, not inside the Task.
+
+    Unwrapping inside the Task makes the body read the closure's *captured
+    variable* across a concurrency boundary, which trades one Swift 6
+    diagnostic for another:
+
+        reference to captured var 'self' in concurrently-executing code
+
+    Unwrapping first gives the Task a plain immutable value to capture. Only
+    the observers whose bodies contain an `await` happened to escape the
+    second warning, so ordering this correctly everywhere is what keeps the
+    file clean rather than coincidence.
+    """
+    body = decl_body(app_status_src, anchor)
+    unwrap = body.index("guard let self else { return }")
+    task = body.index("Task { @MainActor in")
+    assert unwrap < task, (
+        f"{anchor} unwraps self inside the Task. The guard must sit in the "
+        f"onChange closure, before the Task, so the Task captures an "
+        f"already-unwrapped immutable self."
+    )
+
+
 def test_ride_activity_attributes_conformance_is_nonisolated(ride_attrs_src):
     """ActivityKit calls into this conformance from its own concurrent context.
 
