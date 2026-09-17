@@ -245,19 +245,60 @@ final class RouteTileCache {
     // MARK: - Position-fallback tunables
 
     /// How far the rider can move from the position-fallback tile's
-    /// centre before we bake a fresh one. The composite covers ~3.9 km
-    /// on a side (see the `gridSide` coverage note), so 800 m keeps the
-    /// rider well inside the painted area — never near the edge where a
-    /// black wedge could show — while making re-bakes rare: a straight
-    /// off-corridor ride re-bakes roughly every 800 m, not every fix.
+    /// centre before the tile stops being drawn. The composite covers
+    /// 3.7 km on a side at UK latitudes (more nearer the equator — it is a
+    /// fixed 5x5 grid of 256 px z=15 tiles, so a degree of longitude buys
+    /// more ground the lower the latitude), so 800 m keeps the rider well
+    /// inside the painted area — never near the edge where a blank wedge
+    /// could show.
+    ///
+    /// The re-bake is triggered earlier, at `positionFallbackRefreshRadius`,
+    /// so a replacement is already on its way before this one expires.
     ///
     /// This is deliberately SMALLER than `nearestTile`'s 2.5 km miss
     /// guardrail. The two don't overlap in purpose: `nearestTile` decides
     /// "am I still on the baked ROUTE corridor?", this decides "does my
     /// one-off rescue tile still cover me?". A rider 1 km off-route misses
     /// the corridor (→ fallback path) yet stays inside a fresh position
-    /// tile (→ no re-bake) until they drift 800 m from where it was baked.
+    /// tile (→ still drawn) until they drift 800 m from where it was baked.
     static let positionFallbackValidRadius: CLLocationDistance = 800
+
+    /// Distance from the tile's centre at which we start baking the NEXT
+    /// position-fallback tile, while the current one is still valid.
+    ///
+    /// Must be strictly smaller than `positionFallbackValidRadius`, and the
+    /// gap between them is the whole point. Baking only once the tile stops
+    /// covering the rider means the render path has already fallen through
+    /// to the bare vector frame by the time the fetch starts: the rider
+    /// watches an empty background for as long as the composite takes, then
+    /// the map reappears. A tester on a free ride — where this tile is the
+    /// ONLY source of map imagery, so the miss repeats every 800 m — saw
+    /// exactly that, reporting the screen going "blank and back 10/20/30
+    /// seconds later" with full cellular coverage the whole time.
+    ///
+    /// The gap is a DISTANCE but what it really buys is TIME for the bake,
+    /// so size it against the worst plausible combination of both. The
+    /// binding constraint is a slow bake, not a fast rider:
+    ///
+    ///     lead  speed      time    covers a bake of
+    ///     400 m 130 km/h   11.1 s  ~9 s  (2 s throttle + 7 s fetch)
+    ///     400 m 200 km/h    7.2 s  ~5 s  (2 s throttle + 3 s fetch)
+    ///
+    /// 130 km/h is about all a Guerrilla 450 has; 200 km/h is well past it
+    /// and still leaves room for a 3 s composite. A composite is ~25 tile
+    /// fetches, so several seconds is realistic on poor mobile data — which
+    /// is exactly when this matters. An earlier revision used 300 m, which
+    /// is only 5.4 s at 200 km/h — too tight once the throttle is paid.
+    /// `ponytail: fixed distance, not speed-scaled — if a rider on
+    /// genuinely bad data still sees the gap, derive the ring from current
+    /// speed rather than widening this again.`
+    ///
+    /// Spending 400 m instead of 300 m is close to free: the composite is
+    /// 3.7 km on a side at UK latitudes and ~6 km near the equator (it is a
+    /// fixed pixel grid, so it covers more ground the closer to the equator
+    /// you are), putting the edge 1.8-3 km from centre. At 400 m the rider
+    /// is nowhere near it.
+    static let positionFallbackRefreshRadius: CLLocationDistance = 400
 
     // MARK: - Stored state
 
@@ -896,7 +937,7 @@ final class RouteTileCache {
     /// Ensure a position-fallback tile exists that covers `coord`, baking
     /// a fresh one around the rider's raw GPS position if the current
     /// slot is missing or the rider has drifted more than
-    /// `positionFallbackValidRadius` from it.
+    /// `positionFallbackRefreshRadius` from it.
     ///
     /// This is the ONLY producer of position-fallback tiles, and the
     /// render path calls it ONLY when off the route corridor. So when the
@@ -914,9 +955,13 @@ final class RouteTileCache {
     /// and until then the render path keeps using vector-only, so there's
     /// never a blank wait.
     func ensurePositionFallback(near coord: CLLocationCoordinate2D) async {
-        // Already covered by the current slot → nothing to do.
+        // Already covered AND not yet near the refresh ring → nothing to do.
+        // Note this checks the REFRESH radius, not the validity radius: the
+        // point is to have the next tile ready BEFORE the current one stops
+        // covering the rider, so the render path never falls through to the
+        // bare vector frame while a fetch is in flight.
         if let tile = positionFallbackTile,
-           PolylineMath.haversine(coord, tile.center) <= Self.positionFallbackValidRadius {
+           PolylineMath.haversine(coord, tile.center) <= Self.positionFallbackRefreshRadius {
             return
         }
         // A bake is already running; it'll install a tile shortly. Don't
