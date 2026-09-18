@@ -849,6 +849,18 @@ final class RouteTileCache {
     /// main tile is visually correct (the wing tile's geographic centre
     /// sits 1.5 km off-route, so the rider would appear in the bitmap
     /// 1.5 km off the polyline). Bias the search toward main-row.
+    /// **Hint validity**: `hintIndex` comes from the caller's *previous*
+    /// call and may index a DIFFERENT cache instance. `MapViewSource`
+    /// keeps one hint but renders from three sibling layers (base
+    /// bakeAhead 8 km, coarse 3 km, fine 2 km) whose `tiles` arrays have
+    /// very different lengths, and a batch bake reorders `tiles` under a
+    /// live hint too. A hint past the end of THIS array must therefore be
+    /// discarded rather than clamped: clamping `lo` to a nonsensical
+    /// window still searches the wrong tiles, whereas falling through to
+    /// the full scan below is correct by construction. Crashed a rider
+    /// mid-ride with `Range requires lowerBound <= upperBound` when a
+    /// base-cache hint (~300) was applied to a freshly-installed fine
+    /// layer (~80 tiles), making `lo=296 > hi=79`.
     func nearestTile(to coord: CLLocationCoordinate2D, hintIndex: Int? = nil) -> (RouteTile, Int)? {
         guard !tiles.isEmpty else { return nil }
 
@@ -858,7 +870,7 @@ final class RouteTileCache {
             return tileRowKind[i] == 0
         }
 
-        if let hint = hintIndex {
+        if let hint = hintIndex, hint < tiles.count {
             let lo = max(0, hint - 4)
             let hi = min(tiles.count - 1, hint + 4)
             // First pass: main-row only.
@@ -877,9 +889,14 @@ final class RouteTileCache {
                 return (tiles[bestMain], bestMain)
             }
             // Otherwise fall back to ANY tile (main or wing) within window.
+            // Seed with `greatestFiniteMagnitude` and iterate the whole
+            // window rather than special-casing `lo` and starting at
+            // `lo + 1`: the closed range `(lo + 1)...hi` traps when
+            // `lo == hi`, which a single-tile cache reaches with a
+            // perfectly valid hint of 0.
             var best = lo
-            var bestDist = PolylineMath.haversine(coord, tiles[lo].center)
-            for i in (lo + 1)...hi {
+            var bestDist = CLLocationDistance.greatestFiniteMagnitude
+            for i in lo...hi {
                 let d = PolylineMath.haversine(coord, tiles[i].center)
                 if d < bestDist {
                     bestDist = d
