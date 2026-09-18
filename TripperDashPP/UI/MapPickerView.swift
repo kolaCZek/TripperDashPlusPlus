@@ -1095,7 +1095,18 @@ struct MapPickerView: View {
     /// tile while no longer contending with the handshake for the main
     /// actor.
     private func prerenderRouteTiles(_ route: MKRoute) async {
-        let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
+        // Whole-route caching (opt-in) simply widens the fast-start window
+        // past the end of the route, so the existing offset-range bake picks
+        // up every anchor in one pass — no separate code path to keep in
+        // step with the rolling extender. `route.distance` is the leg length;
+        // the extra kilometre covers the wing anchors that sit slightly past
+        // the final one.
+        let cache = status.dashNavSettings.cacheWholeRouteEnabled
+            ? RouteTileCache(
+                style: status.mapViewSource.currentStyle,
+                bakeAheadMeters: route.distance + 1_000
+              )
+            : RouteTileCache(style: status.mapViewSource.currentStyle)
         status.mapViewSource.setTileCache(cache, buildLayers: false)
         prerenderProgress = 0
         prerenderActive = true
