@@ -889,12 +889,14 @@ final class RouteTileCache {
                 return (tiles[bestMain], bestMain)
             }
             // Otherwise fall back to ANY tile (main or wing) within window.
-            // Half-open `lo..<hi` + seeding at `lo`, not `(lo + 1)...hi`:
-            // the closed form traps when `lo == hi`, which is a real state
-            // for a single-tile cache (hint 0, count 1).
+            // Seed with `greatestFiniteMagnitude` and iterate the whole
+            // window rather than special-casing `lo` and starting at
+            // `lo + 1`: the closed range `(lo + 1)...hi` traps when
+            // `lo == hi`, which a single-tile cache reaches with a
+            // perfectly valid hint of 0.
             var best = lo
-            var bestDist = PolylineMath.haversine(coord, tiles[lo].center)
-            for i in stride(from: lo + 1, through: hi, by: 1) {
+            var bestDist = CLLocationDistance.greatestFiniteMagnitude
+            for i in lo...hi {
                 let d = PolylineMath.haversine(coord, tiles[i].center)
                 if d < bestDist {
                     bestDist = d

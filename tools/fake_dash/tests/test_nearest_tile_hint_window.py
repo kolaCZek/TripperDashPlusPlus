@@ -169,8 +169,38 @@ def test_second_pass_does_not_use_a_closed_range_from_lo_plus_one(cache_src):
     body = decl_body(cache_src, "func nearestTile(to coord: CLLocationCoordinate2D")
     assert "(lo + 1)...hi" not in body, (
         "the second pass must not use `(lo + 1)...hi` — it traps when "
-        "lo == hi, which a single-tile cache with hint 0 produces. Use "
-        "stride(from:through:by:), which yields an empty sequence instead."
+        "lo == hi, which a single-tile cache with hint 0 produces. Iterate "
+        "the whole `lo...hi` window seeded with greatestFiniteMagnitude."
+    )
+    assert "var bestDist = CLLocationDistance.greatestFiniteMagnitude" in body, (
+        "iterating the full window requires seeding bestDist with "
+        "greatestFiniteMagnitude rather than tiles[lo]'s distance"
+    )
+
+
+def test_swifts_global_stride_is_not_called_in_this_type(cache_src):
+    """`RouteTileCache.stride` shadows the global `stride(from:through:by:)`.
+
+    The type declares `static let stride: CLLocationDistance = 700` (the
+    anchor spacing), so inside its own scope a bare `stride(...)` call
+    resolves to that Double and fails to compile with
+
+        cannot call value of non-function type 'CLLocationDistance'
+        static member 'stride' cannot be used on instance of type 'RouteTileCache'
+
+    Reach for a plain range instead; if a strided sequence is ever truly
+    needed here it must be spelled `Swift.stride(...)`.
+    """
+    assert "static let stride: CLLocationDistance" in cache_src, (
+        "this guard assumes RouteTileCache still declares a `stride` "
+        "constant — if it was renamed, the shadowing hazard is gone and "
+        "this test should be removed"
+    )
+    body = decl_body(cache_src, "func nearestTile(to coord: CLLocationCoordinate2D")
+    assert "stride(from:" not in body or "Swift.stride(from:" in body, (
+        "a bare `stride(from:...)` inside RouteTileCache resolves to the "
+        "type's own `stride` constant, not Swift's global function. Use a "
+        "plain range, or qualify it as `Swift.stride(...)`."
     )
 
 
