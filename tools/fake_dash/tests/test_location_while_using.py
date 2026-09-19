@@ -25,6 +25,7 @@ screen-locked / in-pocket case needs Always.
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
@@ -59,6 +60,11 @@ def test_while_using_starts_updates_in_begin(src: str):
         "the Always upgrade only once, so a rider who declines it would "
         "otherwise never get a single location fix"
     )
+    assert "if false" not in branch and "if false {" not in branch, (
+        "startUpdates() must not sit behind dead code — a literal `if "
+        "false { startUpdates() }` satisfies a plain substring check while "
+        "never actually starting updates"
+    )
 
 
 def test_while_using_starts_updates_in_auth_callback(src: str):
@@ -68,6 +74,9 @@ def test_while_using_starts_updates_in_auth_callback(src: str):
         "the authorization-change callback must start updates on While "
         "Using; this is the path taken right after the user answers the "
         "permission prompt"
+    )
+    assert "if false" not in branch, (
+        "startUpdates() must not sit behind dead code"
     )
 
 
@@ -99,15 +108,32 @@ def test_background_updates_are_gated_on_always(src: str):
     That runtime exception is exactly why the original code gated the whole
     function behind `.authorizedAlways`. The flag must be gated instead, so
     foreground updates — all the map renderer needs — can still run.
+
+    Substring presence of both halves is not enough: a rewrite like
+    `let alwaysAuth = true; manager.allowsBackgroundLocationUpdates =
+    alwaysAuth` plus an unrelated `if manager.authorizationStatus ==
+    .authorizedAlways { }` sitting nearby satisfies every required substring
+    while reintroducing the exact unconditional-true assignment this test
+    exists to forbid. Require the comparison to be the RHS of the
+    assignment via regex, on one statement.
     """
     body = decl_body(src, START)
-    assert "manager.allowsBackgroundLocationUpdates =" in body
-    assert "authorizationStatus == .authorizedAlways" in body, (
-        "allowsBackgroundLocationUpdates must be conditioned on Always; "
-        "setting it true on While Using throws at runtime"
+    assert re.search(
+        r"manager\.allowsBackgroundLocationUpdates\s*=\s*"
+        r"manager\.authorizationStatus\s*==\s*\.authorizedAlways",
+        body,
+    ), (
+        "allowsBackgroundLocationUpdates must be assigned DIRECTLY from "
+        "the `authorizationStatus == .authorizedAlways` comparison — not "
+        "merely have both appear somewhere in the function"
     )
     assert "manager.allowsBackgroundLocationUpdates = true" not in body, (
         "never set it unconditionally true — it throws unless auth is Always"
+    )
+    # Guard against an indirection: `let x = true; ... = x`.
+    assert not re.search(r"let\s+\w+\s*=\s*true\b.*allowsBackgroundLocationUpdates\s*=\s*\w+\s*$", body, re.DOTALL), (
+        "do not launder an unconditional true through an intermediate "
+        "variable — assign the comparison result directly"
     )
 
 
@@ -118,6 +144,13 @@ def test_upgrade_to_always_is_not_skipped_by_a_running_check(src: str):
     one call that flips `allowsBackgroundLocationUpdates` on, leaving an app
     that works in the foreground and dies on the lock screen — the single
     most important scenario for this product.
+
+    Checking for the literal token `isRunning` is not enough: a rewrite
+    could reintroduce the identical skip-bug under a renamed shadow flag
+    (e.g. `hasAlreadyStarted`) that tracks the same thing under a new name.
+    So additionally require the branch to match the known-good shape
+    exactly: a single unconditional (consumer-gated only) `startUpdates()`
+    call, with no OTHER boolean guarding it.
     """
     branch = _branch(decl_body(src, AUTH_CB), "case .authorizedAlways:")
     assert "isRunning" not in branch, (
@@ -125,7 +158,15 @@ def test_upgrade_to_always_is_not_skipped_by_a_running_check(src: str):
         "path is already running, and skipping startUpdates() would leave "
         "background location updates disabled for the whole ride"
     )
-    assert "startUpdates()" in branch
+    assert re.fullmatch(
+        r"\s*if\s+!self\.consumers\.isEmpty\s*\{\s*self\.startUpdates\(\)\s*\}\s*",
+        branch,
+    ), (
+        "the Always branch must be EXACTLY `if !self.consumers.isEmpty { "
+        "self.startUpdates() }` — any extra boolean ANDed into that "
+        "condition (under any name) reintroduces a skip-bug that renaming "
+        "away from `isRunning` would not be caught by a token-absence check"
+    )
 
 
 @pytest.mark.parametrize(
@@ -133,16 +174,33 @@ def test_upgrade_to_always_is_not_skipped_by_a_running_check(src: str):
     ["case .authorizedWhenInUse:", "case .authorizedAlways:"],
 )
 def test_each_callback_start_is_consumer_gated(src: str, case_label: str):
-    """Per branch, not per function.
+    """Per branch, not per function, and the gate must actually GOVERN the call.
 
     Checking the whole callback body would pass while one branch starts the
     GPS with nobody listening — the other branch's gate satisfies the grep.
     Mutation-proven: stripping the gate from a single branch survived that
     weaker assertion.
+
+    Checking mere presence of both substrings is ALSO not enough: a rewrite
+    like `self.startUpdates(); if self.consumers.isEmpty { }` (unconditional
+    start, with an unrelated empty check sitting next to it) satisfies both
+    substring checks while reintroducing exactly the bug this test exists
+    to catch. Require `startUpdates()` textually INSIDE the `if
+    !consumers.isEmpty { ... }` body via regex, not just present somewhere
+    in the branch.
     """
     branch = _branch(decl_body(src, AUTH_CB), case_label)
-    assert "startUpdates()" in branch
-    assert "consumers.isEmpty" in branch, (
-        f"{case_label} must gate startUpdates() on there being a consumer, "
-        "or the GPS runs with nobody listening and drains the battery"
+    gated = re.search(
+        r"if\s+!self\.consumers\.isEmpty\s*\{\s*self\.startUpdates\(\)\s*\}",
+        branch,
+    )
+    assert gated, (
+        f"{case_label} must call startUpdates() DIRECTLY inside "
+        "`if !self.consumers.isEmpty { ... }` — not merely have both "
+        "tokens present somewhere in the branch"
+    )
+    # And there must be no OTHER, ungated startUpdates() call in the branch.
+    assert branch.count("startUpdates()") == 1, (
+        f"{case_label} has more than one startUpdates() call — the extra "
+        "one is likely ungated"
     )
