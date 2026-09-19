@@ -261,8 +261,18 @@ final class LocationService: NSObject {
             log.info("Requesting whenInUse authorization (will escalate to always)")
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse:
-            log.info("Escalating to Always authorization")
+            // Ask for the Always upgrade, but START ANYWAY. iOS prompts for
+            // that upgrade only once; a rider who answers "Keep While Using"
+            // is pinned to this status for good. Returning here left
+            // `startUpdates()` unreachable, so no fix ever reached
+            // MapViewSource and the dash drew a permanently blank map —
+            // while routing kept working, because MKDirections
+            // `.forCurrentLocation()` uses MapKit's own location, not ours.
+            // Foreground nav works fine on While Using; only the
+            // screen-locked/in-pocket case needs Always.
+            log.info("Escalating to Always authorization (starting on While Using meanwhile)")
             manager.requestAlwaysAuthorization()
+            startUpdates()
         case .authorizedAlways:
             startUpdates()
         case .denied, .restricted:
@@ -274,8 +284,11 @@ final class LocationService: NSObject {
 
     private func startUpdates() {
         // `allowsBackgroundLocationUpdates` MUST be set AFTER auth is
-        // Always; setting it before throws at runtime.
-        manager.allowsBackgroundLocationUpdates = true
+        // Always; setting it on While Using throws at runtime. Gate it
+        // rather than gating the whole function: foreground updates are
+        // exactly what the map renderer needs, and they are legal here.
+        manager.allowsBackgroundLocationUpdates =
+            manager.authorizationStatus == .authorizedAlways
         manager.startUpdatingLocation()
         if CLLocationManager.headingAvailable() {
             manager.headingFilter = 2 // degrees
@@ -309,8 +322,14 @@ extension LocationService: CLLocationManagerDelegate {
             switch status {
             case .authorizedWhenInUse:
                 self.manager.requestAlwaysAuthorization()
+                if !self.consumers.isEmpty { self.startUpdates() }
             case .authorizedAlways:
-                if !self.isRunning && !self.consumers.isEmpty { self.startUpdates() }
+                // Unconditional (when wanted): `startUpdates` is idempotent,
+                // and on an upgrade from While Using we are ALREADY running,
+                // so an `!isRunning` guard would skip the one call that flips
+                // `allowsBackgroundLocationUpdates` on — the app would keep
+                // working in the foreground and die on the lock screen.
+                if !self.consumers.isEmpty { self.startUpdates() }
             case .denied, .restricted:
                 self.isRunning = false
             default:
