@@ -57,6 +57,12 @@ final class MapViewSource: NSObject, FrameSource {
     private var headingSubscription: LocationSubscription?
     private var lastFix: Fix?
 
+    /// Reason text of the last blank-frame notice raised, so the 6 fps
+    /// render loop reports a blank episode once instead of re-arming the
+    /// notice on every frame (which would never let it expire). Cleared on
+    /// `start()` so each streaming session reports afresh.
+    private var lastBlankFrameReason: String?
+
     /// Effective heading used to rotate the rendered frame (degrees,
     /// CW from north). Lerped per-tick toward `targetHeading`.
     ///
@@ -519,6 +525,7 @@ final class MapViewSource: NSObject, FrameSource {
         self.onFrame = onFrame
         self.frameIndex = 0
         self.streamStartMediaTime = CACurrentMediaTime()
+        self.lastBlankFrameReason = nil
         preparePool()
         subscribeLocation()
         startTimer()
@@ -1788,7 +1795,14 @@ extension MapViewSource {
         ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
 
         guard let fix = lastFix, !routeDrawCoords.isEmpty else {
-            // Nothing useful to draw.
+            // Nothing useful to draw. Say why, once: a blank frame is what
+            // the rider photographs, and a TestFlight *screenshot* report
+            // carries no app logs (only the image plus device metadata —
+            // `crashlog.crash` ships with crashes only). Without a reason in
+            // the picture, "blank map" is indistinguishable from a dozen
+            // causes; it cost a round of wrong guesses on a real report
+            // (permanently blank map on a planned route, 9/2026).
+            reportBlankFrameReason()
             return
         }
 
@@ -2464,6 +2478,37 @@ extension MapViewSource {
                                  y: card.midY - fontSize / 2 - 1)
         Self.drawText(notice.text, in: ctx, at: textOrigin,
                       width: textW + 4, fontSize: fontSize, bold: true)
+    }
+
+    /// Raise a one-shot notice naming why the frame is blank.
+    ///
+    /// A TestFlight *screenshot* report carries no app logs — verified
+    /// against two real reports: the screenshot one holds `feedback.json`
+    /// plus the image, while `crashlog.crash` ships only with crashes. So
+    /// `os.Logger` output never reaches us for a non-crashing bug, and the
+    /// video frame is the only channel back from a rider's bike.
+    ///
+    /// Latched on the reason text, because `drawVectorOnlyFrame` runs at
+    /// the 6 fps render rate: re-raising every frame would push the expiry
+    /// forward forever and the notice would never clear, turning a
+    /// diagnostic into a permanent obstruction. Raise once, let it expire.
+    ///
+    /// ponytail: the latch only resets on `start()`, so a blank episode
+    /// that recovers and recurs within one streaming session reports once.
+    /// Enough for a permanently-blank map; reset it per episode if an
+    /// intermittent one ever needs counting.
+    private func reportBlankFrameReason() {
+        let reason: String
+        switch (lastFix == nil, routeDrawCoords.isEmpty) {
+        case (true, true):   reason = "No GPS fix or route"
+        case (true, false):  reason = "No GPS fix"
+        case (false, true):  reason = "No route to draw"
+        case (false, false): return   // unreachable: the guard passed
+        }
+        guard reason != lastBlankFrameReason else { return }
+        lastBlankFrameReason = reason
+        log.warning("Blank map frame: \(reason, privacy: .public)")
+        showNotice(DashNotice(text: reason, level: .warning, duration: 10))
     }
 
     /// Draw the severity glyph in a `size`×`size` box at the current ctx
