@@ -189,6 +189,29 @@ struct ColdAndCrosswindTests {
         #expect(Svc.travelBearing([], from: route[0], atMeters: 0) == nil)
     }
 
+    @Test func frostEverywhereLeavesTheBarEmpty() {
+        // Winter: frost at the rider and all the way ahead. The pill shows
+        // it at the rider (no distance, no span), so the progress bar
+        // paints nothing instead of turning amber end to end.
+        let samples = [0.0, 10_000, 20_000, 30_000].map { sample(temp: -1, dist: $0) }
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.title == "Frost risk")
+        #expect(a?.distanceAhead == nil)
+        #expect(a?.spanStartMeters == nil)
+        #expect(a?.spanEndMeters == nil)
+    }
+
+    @Test func mountainPassFrostPaintsOnlyThePass() {
+        // Warm valley, cold pass from 20 to 40 km, warm again after.
+        let temps: [Double] = [9, 8, 3, 1, 2, 7, 9]
+        let samples = temps.enumerated().map { sample(temp: $1, dist: Double($0) * 10_000) }
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.title == "Frost risk")
+        #expect(a?.distanceAhead == 20_000)
+        #expect(a?.spanStartMeters == 20_000)
+        #expect(a?.spanEndMeters == 40_000)
+    }
+
     @Test func routeEndSampleKeepsABearing() {
         // samplesAlong stamps the clamped end point with distanceM up to one
         // spacing PAST the real end (here ~1.4 km route, sample at 2.5 km).
