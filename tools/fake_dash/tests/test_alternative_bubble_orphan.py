@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tests.swift_source import decl_body
+from tests.swift_source import decl_body, strip_comments
 
 
 # --- Mirror of the render model + the two draw passes -----------------------
@@ -137,7 +137,9 @@ def _repo_root() -> Path:
 
 
 def test_swift_push_alternative_renders_filters_degenerate():
-    src = (_repo_root() / "TripperDashPP" / "UI" / "MapPickerView.swift").read_text("utf-8")
+    # Comments stripped: the doc comment explaining the guard mentions
+    # `coords.count > 1` too, so deleting the guard itself used to pass.
+    src = strip_comments((_repo_root() / "TripperDashPP" / "UI" / "MapPickerView.swift").read_text("utf-8"))
     body = decl_body(src, "func pushAlternativeRenders")
     assert "compactMap" in body, (
         "pushAlternativeRenders no longer compactMaps — a degenerate alt "
@@ -156,7 +158,7 @@ def test_swift_push_alternative_renders_filters_degenerate():
 
 
 def test_swift_bubble_pass_has_symmetric_guard():
-    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text("utf-8")
+    src = strip_comments((_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text("utf-8"))
     body = decl_body(src, "func drawAlternativeBubbles")
     assert "alt.coords.count > 1" in body, (
         "drawAlternativeBubbles lost its symmetric count > 1 guard — a "
