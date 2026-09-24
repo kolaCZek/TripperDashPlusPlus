@@ -78,11 +78,11 @@ class TestAltRouteDivergence(unittest.TestCase):
         self.assertLess(max_divergence(alt, active), 1.0)
         self.assertFalse(is_distinct_fork(alt, active))
 
-    def test_bubble_sits_on_the_visible_detour_not_the_shared_stretch(self):
+    def test_bubble_sits_at_the_fork_not_the_shared_stretch(self):
         # Alt shares the first 12 km and the last few km with the active
         # route and detours ~800 m north in between. Its vertex midpoint lies
         # on the SHARED stretch (grey under blue, invisible); the bubble
-        # must go where the lines are actually apart.
+        # must go where the rider has to turn — the fork.
         a0, a1 = (50.0, 14.0), (50.0, 14.28)
         active = self._line(a0, a1, 400)
         alt = (self._line(a0, (50.0, 14.168), 240)
@@ -91,9 +91,26 @@ class TestAltRouteDivergence(unittest.TestCase):
         mid = alt[len(alt) // 2]
         self.assertLess(min(haversine(mid, q) for q in active), 25,
                         "precondition: the old midpoint anchor was on the blue line")
-        anchor = alt[bubble_anchor_index(alt, active)]
-        self.assertGreater(max_divergence([anchor, anchor], active), 700)
-        self.assertTrue(14.175 <= anchor[1] <= 14.225)
+        i = bubble_anchor_index(alt, active)
+        fork = alt[i]
+        # On the junction itself (still on the blue line)…
+        self.assertLess(max_divergence([fork, fork], active), ALT_MIN_DIVERGENCE_M)
+        # …and the very next alt vertex already leaves it.
+        self.assertGreaterEqual(max_divergence([alt[i + 1], alt[i + 1]], active),
+                                ALT_MIN_DIVERGENCE_M)
+        self.assertLess(haversine(fork, (50.0, 14.168)), 100)
+
+    def test_long_detour_bubble_stays_at_the_turn(self):
+        # 6 km detour, 2 km off at its widest: the farthest point is ~3 km
+        # past the turn — off the ~1 km dash view when the rider is at the
+        # fork. The bubble must stay at the turn.
+        a0, a1 = (50.0, 14.0), (50.0, 14.28)
+        active = self._line(a0, a1, 400)
+        alt = (self._line(a0, (50.0, 14.10), 150)
+               + self._line((50.018, 14.14), (50.018, 14.18), 60)
+               + self._line((50.0, 14.22), a1, 90))
+        fork = alt[bubble_anchor_index(alt, active)]
+        self.assertLess(haversine(fork, (50.0, 14.10)), 100)
 
     def test_no_reference_anchors_at_midpoint(self):
         alt = [(50.0, 14.0), (50.0, 14.01), (50.0, 14.02)]
@@ -114,14 +131,24 @@ class TestSwiftDriftGuard(unittest.TestCase):
     def test_divergence_is_measured_to_segments(self):
         src, _ = self._body()
         from tests.swift_source import decl_body
+        poly = decl_body(src, "static func distance(from p: CLLocationCoordinate2D,\n                         toPolyline")
+        self.assertIn("distance(from: p, toSegment: polyline[j], polyline[j + 1])", poly)
         md = decl_body(src, "static func maxDivergence(of coords: [CLLocationCoordinate2D],")
-        self.assertIn("distance(from: p, toSegment: reference[j], reference[j + 1])", md)
-        self.assertNotIn("p.distance(from: CLLocation(", md)
+        self.assertIn("distance(from: coords[i], toPolyline: reference)", md)
+        self.assertNotIn("CLLocation(", md)
 
-    def test_bubble_anchored_at_max_divergence_vertex(self):
-        _, body = self._body()
-        self.assertIn("let anchor = coords[divergence.index]", body)
-        self.assertNotIn("let anchor = coords[coords.count / 2]", body)
+    def test_bubble_anchored_at_the_fork(self):
+        src, body = self._body()
+        from tests.swift_source import decl_body
+        self.assertIn("coords[Self.forkIndex(of: coords, from: activeCoords)]", body)
+        self.assertNotIn("divergence.index", body)
+        fork = decl_body(src, "static func forkIndex(of coords: [CLLocationCoordinate2D],")
+        # Scans EVERY vertex from the start (no stride) and returns the one
+        # before the first departure.
+        self.assertIn("for i in coords.indices", fork)
+        self.assertIn(">= altMinDivergenceMeters", fork)
+        self.assertIn("return max(0, i - 1)", fork)
+        self.assertNotIn("stride", fork)
 
 
 if __name__ == "__main__":

@@ -1224,19 +1224,22 @@ struct MapPickerView: View {
             // 8/2026). Require the alt to diverge from the active line by at
             // least `altMinDivergenceMeters` at its farthest point; otherwise
             // it isn't a real fork worth labelling.
-            let divergence = activeCoords.isEmpty
-                ? (meters: CLLocationDistance.greatestFiniteMagnitude, index: coords.count / 2)
-                : Self.maxDivergence(of: coords, from: activeCoords)
-            if divergence.meters < Self.altMinDivergenceMeters {
+            if !activeCoords.isEmpty,
+               Self.maxDivergence(of: coords, from: activeCoords) < Self.altMinDivergenceMeters {
                 return nil
             }
-            // Anchor the ETA bubble at the alt's point FARTHEST from the
-            // active line — where the grey line is guaranteed to be visibly
-            // apart from the blue one. The old vertex midpoint usually fell
-            // on the stretch the alt SHARES with the active route (grey
-            // hidden under blue), so the bubble floated on the blue line
-            // while the actual fork sat off-screen (field report, 9/2026).
-            let anchor = coords[divergence.index]
+            // Anchor the ETA bubble at the FORK — the last point the alt
+            // shares with the active route before it peels off. That's where
+            // the rider has to decide, and where the grey line visibly
+            // leaves the blue one. The old vertex midpoint usually fell on
+            // a stretch the alt SHARES with the active route (grey hidden
+            // under blue), so the bubble floated on the blue line with no
+            // alternative in sight (field report, 9/2026). Farthest-point
+            // anchoring was rejected too: on a long detour that point can be
+            // kilometres past the turn, off the ~1 km-wide dash view.
+            let anchor = activeCoords.isEmpty
+                ? coords[coords.count / 2]
+                : coords[Self.forkIndex(of: coords, from: activeCoords)]
             return AlternativeRouteRender(
                 id: UUID(),
                 coords: coords,
@@ -1255,10 +1258,8 @@ struct MapPickerView: View {
     static let altMinDivergenceMeters: CLLocationDistance = 25
 
     /// Largest distance from any vertex of `coords` to the polyline
-    /// `reference`, plus the index of that vertex. A cheap "how far apart
-    /// are these two lines at their most separated" measure — enough to
-    /// tell a real fork from a near-duplicate, and the returned vertex is
-    /// where the grey alternative is most visibly apart from the blue line.
+    /// `reference`. A cheap "how far apart are these two lines at their most
+    /// separated" measure — enough to tell a real fork from a near-duplicate.
     ///
     /// Distance is to the reference's SEGMENTS, not its vertices: MapKit
     /// polylines are sparse on straight roads (a motorway can have one
@@ -1268,25 +1269,43 @@ struct MapPickerView: View {
     /// "similar" / "+4 min" bubble with no route under it (field report,
     /// 9/2026).
     static func maxDivergence(of coords: [CLLocationCoordinate2D],
-                              from reference: [CLLocationCoordinate2D])
-        -> (meters: CLLocationDistance, index: Int) {
-        guard reference.count > 1 else { return (.greatestFiniteMagnitude, coords.count / 2) }
+                              from reference: [CLLocationCoordinate2D]) -> CLLocationDistance {
+        guard reference.count > 1 else { return .greatestFiniteMagnitude }
         var worst: CLLocationDistance = 0
-        var worstIndex = coords.count / 2
         // Sample up to ~40 vertices so a dense polyline stays cheap.
         let stride = max(1, coords.count / 40)
         var i = 0
         while i < coords.count {
-            let p = coords[i]
-            var nearest = CLLocationDistance.greatestFiniteMagnitude
-            for j in 0..<(reference.count - 1) {
-                let d = distance(from: p, toSegment: reference[j], reference[j + 1])
-                if d < nearest { nearest = d }
-            }
-            if nearest > worst { worst = nearest; worstIndex = i }
+            worst = max(worst, distance(from: coords[i], toPolyline: reference))
             i += stride
         }
-        return (worst, worstIndex)
+        return worst
+    }
+
+    /// Index of the fork: the last vertex of `coords` still on `reference`
+    /// (within `altMinDivergenceMeters`) before the first one that leaves
+    /// it. Scans vertex by vertex from the start — no sampling, the fork
+    /// must be exact — and stops at the first departure, so the cost is
+    /// only the shared stretch. Falls back to the midpoint if the alt never
+    /// leaves (not reachable once `maxDivergence` has passed the filter).
+    static func forkIndex(of coords: [CLLocationCoordinate2D],
+                          from reference: [CLLocationCoordinate2D]) -> Int {
+        guard reference.count > 1 else { return coords.count / 2 }
+        for i in coords.indices
+        where distance(from: coords[i], toPolyline: reference) >= altMinDivergenceMeters {
+            return max(0, i - 1)
+        }
+        return coords.count / 2
+    }
+
+    /// Metres from `p` to the nearest segment of `polyline`.
+    static func distance(from p: CLLocationCoordinate2D,
+                         toPolyline polyline: [CLLocationCoordinate2D]) -> CLLocationDistance {
+        var nearest = CLLocationDistance.greatestFiniteMagnitude
+        for j in 0..<(polyline.count - 1) {
+            nearest = min(nearest, distance(from: p, toSegment: polyline[j], polyline[j + 1]))
+        }
+        return nearest
     }
 
     /// Metres from `p` to the segment `a`–`b`, on a local equirectangular
