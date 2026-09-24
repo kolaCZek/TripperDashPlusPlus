@@ -90,6 +90,11 @@ class TestAdaptiveSpacing:
 def pick_span(glyphs: Sequence[Optional[str]], dists: Sequence[float]):
     """Mirror of the span walk in `WeatherAlertService.pickAlongRoute`.
 
+    NOTE: the Swift walk also stops at a LOWER severity of the same glyph
+    (a red "Ice" does not stretch over amber "Frost risk"). That rule is
+    pinned by `test_weather_cold_crosswind.py` and the Swift
+    `ColdAndCrosswindTests`; this mirror only models single-severity runs.
+
     `glyphs[i]` is the classified hazard glyph at sample i, or None for a
     clear sample. `dists[i]` is that sample's along-route distance. Picks
     the nearest highest-severity hazard as "best" is out of scope here — we

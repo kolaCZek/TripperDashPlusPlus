@@ -94,5 +94,27 @@ def test_crosswind_is_the_perpendicular_component(src: str):
 
 def test_refresh_threads_a_bearing_into_every_point(src: str):
     body = decl_body(src, REFRESH)
-    assert "bearingDeg: Self.travelBearing(routeAhead" in body
+    # Each point's OWN distance — not the rider's (atMeters: 0), which would
+    # measure every look-ahead crosswind against the current heading.
+    assert re.search(
+        r"bearingDeg: Self\.travelBearing\(routeAhead, from: position,\s*atMeters: p\.distanceM\)",
+        body,
+    )
     assert "travelBearingDeg: idx < points.count ? points[idx].bearingDeg : nil" in src
+
+
+def test_precipitation_is_measured_amount_or_wmo_51_to_99(src: str):
+    body = decl_body(src, "nonisolated static func hasPrecipitation(_ s: Sample) -> Bool")
+    assert re.search(
+        r"\{\s*s\.precipitationMm > 0 \|\| \(51\.\.\.99\)\.contains\(s\.weatherCode\)\s*\}\s*$", body
+    ), "fog (45/48) must not count as precipitation"
+
+
+def test_travel_bearing_clamps_to_route_length(src: str):
+    body = decl_body(src, "nonisolated static func travelBearing(_ coords: [CLLocationCoordinate2D],")
+    assert "polylineLength(coords, from: from, maxMeters: atMeters)" in body
+
+
+def test_span_walk_requires_same_or_higher_severity(src: str):
+    body = decl_body(src, "nonisolated static func pickAlongRoute(_ samples: [Sample]) -> WeatherAlert?")
+    assert body.count("s.alert.severity >= best.alert.severity") == 2

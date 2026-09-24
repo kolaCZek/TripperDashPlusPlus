@@ -364,10 +364,11 @@ final class WeatherAlertService {
 
         // Compute the CONTIGUOUS span of hazard around the surfaced one:
         // walk outward from the best sample's index over neighbouring
-        // classified (non-clear) samples of the SAME glyph, so a run of
-        // "rain, rain, rain" becomes one band. A clear sample (nil) or a
-        // different hazard type stops the walk. Only meaningful for an
-        // ahead hazard (a run needs distances > 0).
+        // classified (non-clear) samples of the SAME glyph and at least the
+        // same severity, so a run of "rain, rain, rain" becomes one band. A
+        // clear sample (nil), a different hazard type, or a LOWER severity
+        // (e.g. "Frost risk" next to a red "Ice" — same glyph) stops the
+        // walk. Only meaningful for an ahead hazard (a run needs distances > 0).
         var spanStart: CLLocationDistance? = nil
         var spanEnd: CLLocationDistance? = nil
         if !atRider,
@@ -376,11 +377,13 @@ final class WeatherAlertService {
            }) {
             var lo = bestIdx
             var hi = bestIdx
-            while lo - 1 >= 0, let s = classified[lo - 1], s.alert.glyph == best.alert.glyph {
+            while lo - 1 >= 0, let s = classified[lo - 1], s.alert.glyph == best.alert.glyph,
+                  s.alert.severity >= best.alert.severity {
                 lo -= 1
             }
             while hi + 1 < classified.count, let s = classified[hi + 1],
-                  s.alert.glyph == best.alert.glyph {
+                  s.alert.glyph == best.alert.glyph,
+                  s.alert.severity >= best.alert.severity {
                 hi += 1
             }
             if let s = classified[lo], let e = classified[hi] {
@@ -645,9 +648,13 @@ final class WeatherAlertService {
                                           from: CLLocationCoordinate2D,
                                           atMeters: Double,
                                           spanMeters: Double = 200) -> Double? {
+        // Clamp to the route length first: the last sample can sit up to
+        // one spacing past the real end, and a window placed entirely
+        // beyond it collapses to one point (nil bearing, crosswind skipped).
+        let at = polylineLength(coords, from: from, maxMeters: atMeters)
         guard coords.count >= 2,
-              let a = pointAlong(coords, from: from, meters: max(0, atMeters - spanMeters / 2)),
-              let b = pointAlong(coords, from: from, meters: atMeters + spanMeters / 2),
+              let a = pointAlong(coords, from: from, meters: max(0, at - spanMeters / 2)),
+              let b = pointAlong(coords, from: from, meters: at + spanMeters / 2),
               haversine(a, b) >= 1 else { return nil }
         return bearing(a, b)
     }

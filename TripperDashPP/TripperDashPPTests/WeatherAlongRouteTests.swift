@@ -69,7 +69,44 @@ struct ColdAndCrosswindTests {
     }
 
     @Test func zeroWithRainCodeIsIce() {
-        #expect(at(sample(code: 61, temp: 0, dist: 0))?.severity == .warning)
+        let a = at(sample(code: 61, temp: 0, dist: 0))
+        #expect(a?.title == "Ice")
+        #expect(a?.severity == .warning)
+    }
+
+    @Test func subZeroFogIsNotPrecipitation() {
+        // Fog codes (45/48) are not precipitation → Frost risk, not Ice.
+        #expect(at(sample(code: 45, temp: -2, dist: 0))?.title == "Frost risk")
+        #expect(at(sample(code: 48, temp: -2, dist: 0))?.title == "Frost risk")
+    }
+
+    @Test func iceSpanStopsAtLowerSeverityFrost() {
+        // Frost 10 km, Ice 20 km, frost 30…50 km: the red Ice band must not
+        // stretch over the surrounding amber frost (same .ice glyph).
+        let samples = [
+            sample(temp: 8, dist: 0),
+            sample(temp: 2, dist: 10_000),
+            sample(code: 61, temp: -1, dist: 20_000),
+            sample(temp: 2, dist: 30_000),
+            sample(temp: 2, dist: 40_000),
+        ]
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.title == "Ice")
+        #expect(a?.distanceAhead == 20_000)
+        #expect(a?.spanStartMeters == nil)
+        #expect(a?.spanEndMeters == nil)
+    }
+
+    @Test func iceRunStillFormsASpan() {
+        let samples = [
+            sample(temp: 8, dist: 0),
+            sample(code: 71, temp: -2, dist: 10_000),
+            sample(code: 71, temp: -2, dist: 20_000),
+            sample(temp: 2, dist: 30_000),
+        ]
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.spanStartMeters == 10_000)
+        #expect(a?.spanEndMeters == 20_000)
     }
 
     @Test func subZeroSnowReadsIce() {
@@ -150,6 +187,26 @@ struct ColdAndCrosswindTests {
         #expect(abs(east - 90) < 1)
         #expect(north < 1 || north > 359)
         #expect(Svc.travelBearing([], from: route[0], atMeters: 0) == nil)
+    }
+
+    @Test func routeEndSampleKeepsABearing() {
+        // samplesAlong stamps the clamped end point with distanceM up to one
+        // spacing PAST the real end (here ~1.4 km route, sample at 2.5 km).
+        let route = [
+            CLLocationCoordinate2D(latitude: 50, longitude: 14),
+            CLLocationCoordinate2D(latitude: 50, longitude: 14.02),
+        ]
+        let b = Svc.travelBearing(route, from: route[0], atMeters: 2_500)
+        #expect(b != nil)
+        #expect(abs((b ?? 0) - 90) < 1)
+    }
+
+    @Test func crosswindComponentAtObliqueAngles() {
+        // sin(30°) = 0.5, sin(150°) = 0.5, sin(0°) = 0.
+        let g = 60.0
+        #expect(abs(Svc.crosswindKmh(sample(gusts: g, windFrom: 30, heading: 0, dist: 0))! - 30) < 0.001)
+        #expect(abs(Svc.crosswindKmh(sample(gusts: g, windFrom: 150, heading: 0, dist: 0))! - 30) < 0.001)
+        #expect(Svc.crosswindKmh(sample(gusts: g, windFrom: 180, heading: 0, dist: 0))! < 0.001)
     }
 }
 
