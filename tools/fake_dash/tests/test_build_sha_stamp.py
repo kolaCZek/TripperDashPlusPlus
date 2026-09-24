@@ -161,3 +161,17 @@ def test_dirty_tree_appends_star(tmp_repo):
     got = _derive_sha(tmp_repo)
     assert got.endswith("*"), f"dirty tree must append '*', got {got!r}"
     assert got[:-1], "there must still be a SHA before the '*'"
+
+
+def test_settings_about_row_shows_version_build_and_commit():
+    """Settings → About must show the TestFlight build number, not just the
+    marketing version + commit: "1.0.3 (6) · abc1234". Testers report
+    builds by that number, and several builds share one marketing version."""
+    import re
+    src = (_repo_root() / "TripperDashPP" / "UI" / "StreamingView.swift").read_text("utf-8")
+    code = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("//"))
+    row = re.search(r'LabeledContent\("Version", value: "(.*)"\)', code)
+    assert row, "Settings → About version row not found"
+    value = row.group(1)
+    assert value.index(r"\(status.buildVersion)") < value.index(r"(\(status.buildNumber))") \
+        < value.index(r"\(status.buildCommitSHA)"), value
