@@ -100,6 +100,12 @@ struct WeatherAlert: Equatable, Sendable {
     var spanStartMeters: CLLocationDistance? = nil
     var spanEndMeters: CLLocationDistance? = nil
 
+    /// True for a "background" caution ("Frost risk") that covers whole
+    /// regions: it must not hide a localised caution (rain, fog, wind…)
+    /// further along the route, so the along-route picker ranks it below
+    /// every other caution regardless of distance (Martin, 9/2026).
+    var yieldsToOtherCautions: Bool = false
+
     nonisolated enum Glyph: Sendable, Equatable {
         case rain
         case storm
@@ -337,7 +343,11 @@ final class WeatherAlertService {
     ///   1. Classify every sample; drop the clears.
     ///   2. A `.warning` anywhere in range outranks any `.caution` (the
     ///      storm matters more than the nearby drizzle).
-    ///   3. Within one severity, the NEAREST hazard wins (you hit it first).
+    ///   3. Within one severity, the NEAREST hazard wins (you hit it first) —
+    ///      except that a `yieldsToOtherCautions` alert ("Frost risk") ranks
+    ///      below every other caution, so a region-wide frost doesn't hide
+    ///      rain or crosswind further ahead. It still surfaces when it's the
+    ///      only caution in range.
     ///   4. A hazard at the rider's position (`distanceM == 0`) reports
     ///      with no "ahead" flag and no distance suffix.
     /// Returns `nil` when nothing ride-relevant is anywhere on the sampled
@@ -357,6 +367,9 @@ final class WeatherAlertService {
         let best = hazards.max { lhs, rhs in
             if lhs.alert.severity != rhs.alert.severity {
                 return lhs.alert.severity < rhs.alert.severity   // higher severity wins
+            }
+            if lhs.alert.yieldsToOtherCautions != rhs.alert.yieldsToOtherCautions {
+                return lhs.alert.yieldsToOtherCautions            // Frost risk yields
             }
             return lhs.dist > rhs.dist                            // nearer wins
         }!
@@ -403,7 +416,8 @@ final class WeatherAlertService {
             glyph: best.alert.glyph,
             distanceAhead: atRider ? nil : best.dist,
             spanStartMeters: spanStart,
-            spanEndMeters: spanEnd
+            spanEndMeters: spanEnd,
+            yieldsToOtherCautions: best.alert.yieldsToOtherCautions
         )
     }
 
@@ -515,7 +529,8 @@ final class WeatherAlertService {
         // 6b. Frost risk — cold enough for the road to freeze. Ahead of
         //     rain on purpose: a 2 °C drizzle must read "Frost risk".
         if let t = s.temperatureC, t < frostRiskBelowC {
-            return WeatherAlert(title: "Frost risk", severity: .caution, isAhead: isAhead, glyph: .ice)
+            return WeatherAlert(title: "Frost risk", severity: .caution, isAhead: isAhead, glyph: .ice,
+                                yieldsToOtherCautions: true)
         }
 
         // 7. Ordinary rain / drizzle / showers.

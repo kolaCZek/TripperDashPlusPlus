@@ -189,6 +189,42 @@ struct ColdAndCrosswindTests {
         #expect(Svc.travelBearing([], from: route[0], atMeters: 0) == nil)
     }
 
+    @Test func frostAtRiderDoesNotHideRainAhead() {
+        // Cold at the rider, rain 20 km ahead: the pill must show the rain.
+        let samples = [
+            sample(temp: 2, dist: 0),
+            sample(temp: 2, dist: 10_000),
+            sample(code: 61, temp: 5, dist: 20_000),
+        ]
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.title == "Rain")
+        #expect(a?.distanceAhead == 20_000)
+    }
+
+    @Test func frostDoesNotHideCrosswindAhead() {
+        let samples = [
+            sample(temp: 1, dist: 0),
+            sample(gusts: 45, temp: 6, windFrom: 90, heading: 0, dist: 30_000),
+        ]
+        #expect(Svc.pickAlongRoute(samples)?.title == "Crosswind")
+    }
+
+    @Test func frostStillSurfacesWhenItIsTheOnlyCaution() {
+        let samples = [sample(temp: 8, dist: 0), sample(temp: 2, dist: 10_000)]
+        let a = Svc.pickAlongRoute(samples)
+        #expect(a?.title == "Frost risk")
+        #expect(a?.distanceAhead == 10_000)
+    }
+
+    @Test func warningStillBeatsFrostAndRain() {
+        let samples = [
+            sample(temp: 2, dist: 0),
+            sample(code: 61, temp: 5, dist: 10_000),
+            sample(code: 95, temp: 6, dist: 40_000),
+        ]
+        #expect(Svc.pickAlongRoute(samples)?.title == "Storm")
+    }
+
     @Test func frostEverywhereLeavesTheBarEmpty() {
         // Winter: frost at the rider and all the way ahead. The pill shows
         // it at the rider (no distance, no span), so the progress bar

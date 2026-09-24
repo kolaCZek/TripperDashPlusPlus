@@ -118,3 +118,16 @@ def test_travel_bearing_clamps_to_route_length(src: str):
 def test_span_walk_requires_same_or_higher_severity(src: str):
     body = decl_body(src, "nonisolated static func pickAlongRoute(_ samples: [Sample]) -> WeatherAlert?")
     assert body.count("s.alert.severity >= best.alert.severity") == 2
+
+
+def test_frost_yields_to_other_cautions(src: str, classify: str):
+    # Only Frost risk carries the flag…
+    assert classify.count("yieldsToOtherCautions: true") == 1
+    frost = classify[classify.index('title: "Frost risk"'):]
+    assert frost.index("yieldsToOtherCautions: true") < frost.index("return", 1)
+    # …and the picker ranks it between severity and distance.
+    body = decl_body(src, "nonisolated static func pickAlongRoute(_ samples: [Sample]) -> WeatherAlert?")
+    sev = body.index("lhs.alert.severity < rhs.alert.severity")
+    yld = body.index("return lhs.alert.yieldsToOtherCautions")
+    near = body.index("return lhs.dist > rhs.dist")
+    assert sev < yld < near
