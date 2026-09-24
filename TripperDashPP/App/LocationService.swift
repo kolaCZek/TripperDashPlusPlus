@@ -264,8 +264,8 @@ final class LocationService: NSObject {
             // MapViewSource and the dash drew a permanently blank map —
             // while routing kept working, because MKDirections
             // `.forCurrentLocation()` uses MapKit's own location, not ours.
-            // Foreground nav works fine on While Using; only the
-            // screen-locked/in-pocket case needs Always.
+            // While Using covers the locked-screen ride too, because
+            // updates start in the foreground (see `startUpdates`).
             log.info("Escalating to Always authorization (starting on While Using meanwhile)")
             manager.requestAlwaysAuthorization()
             startUpdates()
@@ -279,12 +279,19 @@ final class LocationService: NSObject {
     }
 
     private func startUpdates() {
-        // `allowsBackgroundLocationUpdates` MUST be set AFTER auth is
-        // Always; setting it on While Using throws at runtime. Gate it
-        // rather than gating the whole function: foreground updates are
-        // exactly what the map renderer needs, and they are legal here.
-        manager.allowsBackgroundLocationUpdates =
-            manager.authorizationStatus == .authorizedAlways
+        // True on While Using too. Updates are always started from a
+        // foreground user action (connect / start ride), and a While Using
+        // app that started them in the foreground with this flag set keeps
+        // receiving them in the background, with the blue indicator pill
+        // (WWDC19 "What's New in Core Location"; Apple's
+        // "Choosing the Location Services Authorization to Request").
+        // The only documented fatal error is setting it without `location`
+        // in UIBackgroundModes, which Info.plist has. An earlier comment
+        // here claimed it throws on While Using; nothing backed that, and
+        // gating on Always made the dash drop 2-3 min after the phone
+        // locked for every While Using rider. Always is still what lets
+        // iOS relaunch us in the background; While Using is enough to ride.
+        manager.allowsBackgroundLocationUpdates = true
         manager.startUpdatingLocation()
         if CLLocationManager.headingAvailable() {
             manager.headingFilter = 2 // degrees
@@ -320,11 +327,10 @@ extension LocationService: CLLocationManagerDelegate {
                 self.manager.requestAlwaysAuthorization()
                 if !self.consumers.isEmpty { self.startUpdates() }
             case .authorizedAlways:
-                // Unconditional (when wanted): `startUpdates` is idempotent,
-                // and on an upgrade from While Using we are ALREADY running,
-                // so an `!isRunning` guard would skip the one call that flips
-                // `allowsBackgroundLocationUpdates` on — the app would keep
-                // working in the foreground and die on the lock screen.
+                // Unconditional (when wanted): `startUpdates` is idempotent.
+                // No `!isRunning` guard: a status change while running must
+                // still re-apply the manager config, and skipping it here
+                // is the kind of silent gap #133 was about.
                 if !self.consumers.isEmpty { self.startUpdates() }
             case .denied, .restricted:
                 self.isRunning = false
