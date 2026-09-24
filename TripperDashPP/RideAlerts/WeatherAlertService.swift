@@ -21,13 +21,16 @@
 //      weather codes + wind gusts + visibility + precipitation in one
 //      GET, and supports MULTI-POINT queries (comma-separated lat/lon)
 //      so the rider-position sample and EVERY along-route look-ahead
-//      sample cost a single request. Verified shape (6/2026):
+//      sample cost a single request. Verified shape (9/2026):
 //        GET /v1/forecast?latitude=A,B,C&longitude=A,B,C
-//            &current=weather_code,temperature_2m,precipitation,
-//                     wind_gusts_10m,visibility&timezone=UTC
+//            &current=weather_code,precipitation,wind_gusts_10m,
+//                     visibility,temperature_2m,wind_direction_10m
+//            &timezone=UTC
 //        → top-level ARRAY (one object per point), each with
 //          `.current.weather_code` (WMO), `.wind_gusts_10m` (km/h),
-//          `.visibility` (m), `.precipitation` (mm).
+//          `.visibility` (m), `.precipitation` (mm),
+//          `.temperature_2m` (°C), `.wind_direction_10m` (° the wind
+//          blows FROM).
 //
 //  Severity policy is deliberately CONSERVATIVE (Martin, 6/2026: only
 //  surface things that matter on the bike — no clear/cloudy spam). The
@@ -212,8 +215,12 @@ final class WeatherAlertService {
         let aheadSamples = Self.samplesAlong(
             routeAhead, from: position,
             everyMeters: spacing, maxMeters: Self.sampleRangeMeters)
-        let points: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)] =
-            [(coord: position, distanceM: 0)] + aheadSamples
+        let points: [WeatherPoint] =
+            ([(coord: position, distanceM: 0)] + aheadSamples).map { p in
+                WeatherPoint(coord: p.coord, distanceM: p.distanceM,
+                           bearingDeg: Self.travelBearing(routeAhead, from: position,
+                                                          atMeters: p.distanceM))
+            }
         do {
             let samples = try await fetch(points: points)
             current = Self.pickAlongRoute(samples)
@@ -236,6 +243,14 @@ final class WeatherAlertService {
 
     // MARK: - Network
 
+    /// One point of the multi-point request: where, how far along the
+    /// route, and which way the rider is heading there.
+    struct WeatherPoint: Sendable {
+        var coord: CLLocationCoordinate2D
+        var distanceM: CLLocationDistance
+        var bearingDeg: Double?
+    }
+
     /// Raw decoded sample for one geographic point — only the fields the
     /// classifier consumes, plus the along-route distance the caller
     /// tagged the point with.
@@ -248,6 +263,14 @@ final class WeatherAlertService {
         /// Distance from the rider along the route, in metres. `0` for the
         /// rider's own position sample.
         var distanceM: CLLocationDistance
+        /// Air temperature at 2 m, °C. `nil` when the API omitted it.
+        var temperatureC: Double? = nil
+        /// Direction the wind blows FROM, degrees (0 = north).
+        var windDirectionDeg: Double? = nil
+        /// Rider's direction of travel along the route at this sample,
+        /// degrees (0 = north). `nil` with no route (free ride), which
+        /// disables the crosswind rule for the sample.
+        var travelBearingDeg: Double? = nil
     }
 
     private struct OMResponse: Decodable {
@@ -256,15 +279,18 @@ final class WeatherAlertService {
             let wind_gusts_10m: Double?
             let visibility: Double?
             let precipitation: Double?
+            let temperature_2m: Double?
+            let wind_direction_10m: Double?
         }
         let current: Current
     }
 
-    /// Fetch weather for every `(coord, distanceM)` point in one
+    /// Fetch weather for every `(coord, distanceM, bearing)` point in one
     /// multi-point Open-Meteo GET. The returned `Sample`s carry each
-    /// point's along-route distance straight through, so the picker can
-    /// report "how far".
-    private func fetch(points: [(coord: CLLocationCoordinate2D, distanceM: CLLocationDistance)]) async throws -> [Sample] {
+    /// point's along-route distance and travel bearing straight through,
+    /// so the picker can report "how far" and the classifier can resolve
+    /// the crosswind component.
+    private func fetch(points: [WeatherPoint]) async throws -> [Sample] {
         guard !points.isEmpty else { return [] }
         let lats = points.map { String(format: "%.4f", $0.coord.latitude) }.joined(separator: ",")
         let lons = points.map { String(format: "%.4f", $0.coord.longitude) }.joined(separator: ",")
@@ -272,7 +298,7 @@ final class WeatherAlertService {
         comp.queryItems = [
             .init(name: "latitude", value: lats),
             .init(name: "longitude", value: lons),
-            .init(name: "current", value: "weather_code,precipitation,wind_gusts_10m,visibility"),
+            .init(name: "current", value: "weather_code,precipitation,wind_gusts_10m,visibility,temperature_2m,wind_direction_10m"),
             .init(name: "timezone", value: "UTC"),
         ]
         let (data, response) = try await session.data(from: comp.url!)
@@ -295,7 +321,10 @@ final class WeatherAlertService {
                 visibilityM: r.current.visibility ?? .greatestFiniteMagnitude,
                 precipitationMm: r.current.precipitation ?? 0,
                 isAhead: idx > 0,
-                distanceM: idx < points.count ? points[idx].distanceM : 0
+                distanceM: idx < points.count ? points[idx].distanceM : 0,
+                temperatureC: r.current.temperature_2m,
+                windDirectionDeg: r.current.wind_direction_10m,
+                travelBearingDeg: idx < points.count ? points[idx].bearingDeg : nil
             )
         }
     }
@@ -395,6 +424,37 @@ final class WeatherAlertService {
     ///
     /// Severity ranking is biased for a motorcycle: ICE and THUNDERSTORM
     /// always warn; gusts matter far more than they would in a car.
+    ///
+    /// Temperature thresholds (Martin, 9/2026): below 4 °C the road can
+    /// freeze even with the air above zero — the 2 m air reading runs
+    /// several °C warmer than the surface on clear, calm nights, and
+    /// bridges freeze first. At or below 0 °C with any precipitation it
+    /// is treated as ice outright.
+    nonisolated static let frostRiskBelowC: Double = 4.0
+    nonisolated static let iceAtOrBelowC: Double = 0.0
+
+    /// Crosswind thresholds, km/h of the gust component ACROSS the
+    /// direction of travel. From rider-safety guidance (sustained
+    /// ~32-40 km/h already hard work, ~48-64 km/h hazardous, gusts are
+    /// worse than steady wind); starting values, tune after field rides.
+    nonisolated static let crosswindCautionKmh: Double = 40
+    nonisolated static let crosswindWarningKmh: Double = 55
+
+    /// Gust component perpendicular to the direction of travel, or `nil`
+    /// when the wind direction or the travel bearing is unknown.
+    /// ponytail: uses the MEAN wind direction for the gust — Open-Meteo
+    /// publishes no gust direction.
+    nonisolated static func crosswindKmh(_ s: Sample) -> Double? {
+        guard let wind = s.windDirectionDeg, let travel = s.travelBearingDeg else { return nil }
+        return s.gustsKmh * abs(sin((wind - travel) * .pi / 180))
+    }
+
+    /// Any precipitation at all: a measured amount, or a drizzle / rain /
+    /// snow / shower / storm WMO code.
+    nonisolated static func hasPrecipitation(_ s: Sample) -> Bool {
+        s.precipitationMm > 0 || (51...99).contains(s.weatherCode)
+    }
+
     nonisolated static func classify(_ s: Sample, isAhead: Bool) -> WeatherAlert? {
         let code = s.weatherCode
 
@@ -405,6 +465,12 @@ final class WeatherAlertService {
         // 1. Ice — freezing rain/drizzle. Catastrophic on two wheels;
         //    always a WARNING regardless of anything else.
         if [56, 57, 66, 67].contains(code) {
+            return WeatherAlert(title: "Ice", severity: .warning, isAhead: isAhead, glyph: .ice)
+        }
+
+        // 1b. Ice — anything falling at or below freezing. Also outranks
+        //     "Heavy snow"/"Snow": snow on a sub-zero road IS the ice case.
+        if let t = s.temperatureC, t <= iceAtOrBelowC, hasPrecipitation(s) {
             return WeatherAlert(title: "Ice", severity: .warning, isAhead: isAhead, glyph: .ice)
         }
 
@@ -423,6 +489,13 @@ final class WeatherAlertService {
             return WeatherAlert(title: "Heavy snow", severity: .warning, isAhead: isAhead, glyph: .snow)
         }
 
+        // 5a. Strong crosswind — the gust component across the direction
+        //     of travel. Named separately so it reports "Crosswind" rather
+        //     than the direction-blind "Strong wind" below.
+        if let c = crosswindKmh(s), c >= crosswindWarningKmh {
+            return WeatherAlert(title: "Crosswind", severity: .warning, isAhead: isAhead, glyph: .wind)
+        }
+
         // 5. Strong gusts — independent of precip. >65 km/h is a genuine
         //    hazard for a motorcycle (lane-keeping, crosswinds on bridges).
         if s.gustsKmh >= 65 {
@@ -435,6 +508,12 @@ final class WeatherAlertService {
         }
 
         // ── CAUTION tier ──────────────────────────────────────────────
+
+        // 6b. Frost risk — cold enough for the road to freeze. Ahead of
+        //     rain on purpose: a 2 °C drizzle must read "Frost risk".
+        if let t = s.temperatureC, t < frostRiskBelowC {
+            return WeatherAlert(title: "Frost risk", severity: .caution, isAhead: isAhead, glyph: .ice)
+        }
 
         // 7. Ordinary rain / drizzle / showers.
         if [51, 53, 55, 61, 63, 80, 81].contains(code) {
@@ -449,6 +528,11 @@ final class WeatherAlertService {
         // 9. Fog (45/48) or moderate low visibility.
         if [45, 48].contains(code) || s.visibilityM < 2000 {
             return WeatherAlert(title: "Fog", severity: .caution, isAhead: isAhead, glyph: .fog)
+        }
+
+        // 10a. Moderate crosswind.
+        if let c = crosswindKmh(s), c >= crosswindCautionKmh {
+            return WeatherAlert(title: "Crosswind", severity: .caution, isAhead: isAhead, glyph: .wind)
         }
 
         // 10. Moderate gusts.
@@ -550,6 +634,34 @@ final class WeatherAlertService {
             i += 1
         }
         return coords.last
+    }
+
+    /// Rider's direction of travel (degrees, 0 = north) at `atMeters`
+    /// along `coords` ahead of `from`: the bearing across a `spanMeters`
+    /// window centred on that point (clamped at the route ends, so the
+    /// last sample still gets a bearing). `nil` when there's no usable
+    /// route (free ride), which disables the crosswind rule.
+    nonisolated static func travelBearing(_ coords: [CLLocationCoordinate2D],
+                                          from: CLLocationCoordinate2D,
+                                          atMeters: Double,
+                                          spanMeters: Double = 200) -> Double? {
+        guard coords.count >= 2,
+              let a = pointAlong(coords, from: from, meters: max(0, atMeters - spanMeters / 2)),
+              let b = pointAlong(coords, from: from, meters: atMeters + spanMeters / 2),
+              haversine(a, b) >= 1 else { return nil }
+        return bearing(a, b)
+    }
+
+    /// Initial great-circle bearing from `a` to `b`, degrees in [0, 360).
+    nonisolated static func bearing(_ a: CLLocationCoordinate2D,
+                                    _ b: CLLocationCoordinate2D) -> Double {
+        let la1 = a.latitude * .pi / 180
+        let la2 = b.latitude * .pi / 180
+        let dLon = (b.longitude - a.longitude) * .pi / 180
+        let y = sin(dLon) * cos(la2)
+        let x = cos(la1) * sin(la2) - sin(la1) * cos(la2) * cos(dLon)
+        let deg = atan2(y, x) * 180 / .pi
+        return (deg + 360).truncatingRemainder(dividingBy: 360)
     }
 
     /// Great-circle distance in metres. Local copy so the service has no

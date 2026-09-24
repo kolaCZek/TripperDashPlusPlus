@@ -22,9 +22,135 @@ private func sample(code: Int = 0,
                     gusts: Double = 0,
                     visibility: Double = 1_000_000,
                     precip: Double = 0,
+                    temp: Double? = nil,
+                    windFrom: Double? = nil,
+                    heading: Double? = nil,
                     dist: CLLocationDistance) -> Sample {
     Sample(weatherCode: code, gustsKmh: gusts, visibilityM: visibility,
-           precipitationMm: precip, isAhead: dist > 0, distanceM: dist)
+           precipitationMm: precip, isAhead: dist > 0, distanceM: dist,
+           temperatureC: temp, windDirectionDeg: windFrom, travelBearingDeg: heading)
+}
+
+// MARK: - Cold road + crosswind
+
+struct ColdAndCrosswindTests {
+
+    private func at(_ s: Sample) -> WeatherAlert? { Svc.classify(s, isAhead: false) }
+
+    @Test func frostRiskBelowFourDegrees() {
+        let a = at(sample(temp: 3.9, dist: 0))
+        #expect(a?.title == "Frost risk")
+        #expect(a?.severity == .caution)
+        #expect(a?.glyph == .ice)
+    }
+
+    @Test func fourDegreesIsNotFrost() {
+        #expect(at(sample(temp: 4.0, dist: 0)) == nil)
+    }
+
+    @Test func missingTemperatureIsNotFrost() {
+        #expect(at(sample(temp: nil, dist: 0)) == nil)
+    }
+
+    @Test func frostBeatsRain() {
+        #expect(at(sample(code: 61, temp: 2, dist: 0))?.title == "Frost risk")
+    }
+
+    @Test func freezingRainStillWinsAboveZero() {
+        let a = at(sample(code: 66, temp: 2, dist: 0))
+        #expect(a?.title == "Ice")
+        #expect(a?.severity == .warning)
+    }
+
+    @Test func zeroWithMeasuredPrecipIsIce() {
+        let a = at(sample(precip: 0.2, temp: 0, dist: 0))
+        #expect(a?.title == "Ice")
+        #expect(a?.severity == .warning)
+    }
+
+    @Test func zeroWithRainCodeIsIce() {
+        #expect(at(sample(code: 61, temp: 0, dist: 0))?.severity == .warning)
+    }
+
+    @Test func subZeroSnowReadsIce() {
+        let a = at(sample(code: 71, temp: -3, dist: 0))
+        #expect(a?.title == "Ice")
+        #expect(a?.severity == .warning)
+    }
+
+    @Test func zeroWithoutPrecipIsOnlyFrost() {
+        let a = at(sample(temp: 0, dist: 0))
+        #expect(a?.title == "Frost risk")
+        #expect(a?.severity == .caution)
+    }
+
+    @Test func justAboveZeroRainIsOnlyFrost() {
+        let a = at(sample(code: 61, temp: 0.1, dist: 0))
+        #expect(a?.title == "Frost risk")
+        #expect(a?.severity == .caution)
+    }
+
+    @Test func fullCrosswindWarns() {
+        let a = at(sample(gusts: 60, windFrom: 90, heading: 0, dist: 0))
+        #expect(a?.title == "Crosswind")
+        #expect(a?.severity == .warning)
+        #expect(a?.glyph == .wind)
+    }
+
+    @Test func moderateCrosswindCautions() {
+        let a = at(sample(gusts: 45, windFrom: 270, heading: 0, dist: 0))
+        #expect(a?.title == "Crosswind")
+        #expect(a?.severity == .caution)
+    }
+
+    @Test func obliqueGustIsPlainGustyWind() {
+        // 60 km/h at 30° to travel → 30 km/h across: no crosswind,
+        // but the direction-blind ≥ 50 km/h gust rule still fires.
+        let a = at(sample(gusts: 60, windFrom: 30, heading: 0, dist: 0))
+        #expect(a?.title == "Gusty wind")
+        #expect(a?.severity == .caution)
+    }
+
+    @Test func headwindKeepsStrongWind() {
+        #expect(at(sample(gusts: 70, windFrom: 0, heading: 0, dist: 0))?.title == "Strong wind")
+    }
+
+    @Test func noRouteNoCrosswind() {
+        #expect(at(sample(gusts: 60, windFrom: 90, heading: nil, dist: 0))?.title == "Gusty wind")
+    }
+
+    @Test func crosswindIsSymmetric() {
+        // Wind from the left or the right, heading either way — same push.
+        let l = Svc.crosswindKmh(sample(gusts: 50, windFrom: 45, heading: 315, dist: 0))!
+        let r = Svc.crosswindKmh(sample(gusts: 50, windFrom: 225, heading: 315, dist: 0))!
+        #expect(abs(l - 50) < 0.001)
+        #expect(abs(r - 50) < 0.001)
+    }
+
+    @Test func bearingCardinalPoints() {
+        let o = CLLocationCoordinate2D(latitude: 50, longitude: 14)
+        func b(_ dLat: Double, _ dLon: Double) -> Double {
+            Svc.bearing(o, CLLocationCoordinate2D(latitude: 50 + dLat, longitude: 14 + dLon))
+        }
+        #expect(abs(b(0.01, 0) - 0) < 0.5)
+        #expect(abs(b(0, 0.01) - 90) < 0.5)
+        #expect(abs(b(-0.01, 0) - 180) < 0.5)
+        #expect(abs(b(0, -0.01) - 270) < 0.5)
+    }
+
+    @Test func travelBearingFollowsRoute() {
+        // East for ~1.4 km, then north.
+        let route = [
+            CLLocationCoordinate2D(latitude: 50, longitude: 14),
+            CLLocationCoordinate2D(latitude: 50, longitude: 14.02),
+            CLLocationCoordinate2D(latitude: 50.02, longitude: 14.02),
+        ]
+        let east = Svc.travelBearing(route, from: route[0], atMeters: 500)!
+        let north = Svc.travelBearing(route, from: route[0], atMeters: 2_500)!
+        #expect(abs(east - 90) < 1)
+        #expect(north < 1 || north > 359)
+        #expect(Svc.travelBearing([], from: route[0], atMeters: 0) == nil)
+    }
 }
 
 // MARK: - Model
