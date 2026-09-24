@@ -32,22 +32,52 @@ def haversine(a: tuple[float, float], b: tuple[float, float]) -> float:
     return 2 * EARTH_R * math.asin(min(1.0, math.sqrt(h)))
 
 
-def max_divergence(coords: list[tuple[float, float]],
-                   reference: list[tuple[float, float]]) -> float:
-    """Largest distance from any sampled vertex of `coords` to the
-    nearest vertex of `reference`. Mirrors the Swift vertex-sampled
-    (up to ~40) nearest-vertex scan."""
+def _dist_to_segment(p, a, b) -> float:
+    """Metres from p to segment a–b on a local equirectangular plane
+    centred at p. Mirrors `MapPickerView.distance(from:toSegment:_:)`."""
+    m_lat = 111_320.0
+    m_lon = 111_320.0 * math.cos(math.radians(p[0]))
+    ax, ay = (a[1] - p[1]) * m_lon, (a[0] - p[0]) * m_lat
+    bx, by = (b[1] - p[1]) * m_lon, (b[0] - p[0]) * m_lat
+    dx, dy = bx - ax, by - ay
+    len2 = dx * dx + dy * dy
+    t = max(0.0, min(1.0, -(ax * dx + ay * dy) / len2)) if len2 > 0 else 0.0
+    cx, cy = ax + t * dx, ay + t * dy
+    return math.hypot(cx, cy)
+
+
+def max_divergence_at(coords: list[tuple[float, float]],
+                      reference: list[tuple[float, float]]) -> tuple[float, int]:
+    """(largest distance, vertex index) from sampled vertices of `coords`
+    to the SEGMENTS of `reference`. Mirrors the Swift up-to-~40-vertex
+    sampled scan. Segment distance matters: MapKit polylines are sparse on
+    straight roads, and a vertex-only scan made a retiming of the SAME
+    road look ~1 km off (field report, 9/2026)."""
     if len(reference) < 2:
-        return float("inf")
-    worst = 0.0
+        return float("inf"), len(coords) // 2
+    worst, worst_i = 0.0, len(coords) // 2
     stride = max(1, len(coords) // 40)
     i = 0
     while i < len(coords):
         p = coords[i]
-        nearest = min(haversine(p, r) for r in reference)
-        worst = max(worst, nearest)
+        nearest = min(_dist_to_segment(p, reference[j], reference[j + 1])
+                      for j in range(len(reference) - 1))
+        if nearest > worst:
+            worst, worst_i = nearest, i
         i += stride
-    return worst
+    return worst, worst_i
+
+
+def max_divergence(coords: list[tuple[float, float]],
+                   reference: list[tuple[float, float]]) -> float:
+    return max_divergence_at(coords, reference)[0]
+
+
+def bubble_anchor_index(coords: list[tuple[float, float]],
+                        reference: list[tuple[float, float]]) -> int:
+    """Where `pushAlternativeRenders` pins the ETA bubble: the alt vertex
+    farthest from the active line (midpoint when there is no active line)."""
+    return max_divergence_at(coords, reference)[1] if reference else len(coords) // 2
 
 
 def is_distinct_fork(coords: list[tuple[float, float]],
