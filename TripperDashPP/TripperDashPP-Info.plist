@@ -55,8 +55,9 @@
 	<key>NSAppleMusicUsageDescription</key>
 	<string>TripperDash++ uses the dash joystick to skip to the next or previous song in your music.</string>
 
-	<!-- No Bonjour service types yet; the key must exist or iOS blocks
-	     the local-network prompt. Phase 7 may register `_tripper._tcp`. -->
+	<!-- No Bonjour service types: the dash is reached by fixed IP, not
+	     discovery. Harmless placeholder; plain unicast UDP triggers the
+	     local-network prompt without it. -->
 	<key>NSBonjourServices</key>
 	<array/>
 

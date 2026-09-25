@@ -216,12 +216,15 @@ def _run_button(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = _make_parser()
     args = parser.parse_args(argv)
-    cmd = args.command or "server"
-    if cmd == "server":
+    if args.command is None:
+        # Bare `fake-dash` = `fake-dash server`; re-parse so the server
+        # subparser fills in its defaults (bind, ports, log level, …).
+        args = parser.parse_args(["server"])
+    if args.command == "server":
         return _run_server(args)
-    if cmd == "button":
+    if args.command == "button":
         return _run_button(args)
-    parser.error(f"unknown command {cmd!r}")
+    parser.error(f"unknown command {args.command!r}")
     return 2  # unreachable
 
 

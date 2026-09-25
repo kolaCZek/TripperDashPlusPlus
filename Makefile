@@ -34,14 +34,16 @@ fake-dash-down:  ## Stop fake_dash
 fake-dash-logs:  ## Tail fake_dash container logs
 	$(COMPOSE) logs -f --tail=100
 
-fake-dash-test:  ## Run the fake_dash pytest suite (in container)
-	$(COMPOSE) run --rm fake_dash pytest -q
+fake-dash-test:  ## Run the fake_dash pytest suite (on the host; needs `pip install -e "tools/fake_dash[dev]"`)
+	cd $(FAKE_DASH_DIR) && python3 -m pytest -q
 
 fake-dash-shell:  ## Drop into a shell in the running container
 	$(COMPOSE) exec fake_dash /bin/bash
 
+# Deletes from inside the container: the files are owned by its root user,
+# so a host-side rm fails on Linux.
 fake-dash-clean:  ## Remove captures and persistent RSA keys (DESTRUCTIVE)
-	rm -rf $(FAKE_DASH_DIR)/captures/* $(FAKE_DASH_DIR)/keys/*
+	$(COMPOSE) run --rm --no-deps --entrypoint sh fake_dash -c 'rm -rf /captures/* /keys/*'
 
 fake-dash-btn-left:   ## Send joystick LEFT to all known phone peers
 	$(COMPOSE) exec fake_dash python -m fake_dash button left

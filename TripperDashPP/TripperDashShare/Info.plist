@@ -56,7 +56,8 @@
 			<!--
 			  Predicate form of the activation rule. Offer the extension
 			  whenever the share contains at least one web URL OR at least
-			  one text item. Keeps us out of photo/file-only shares.
+			  one text item. Keeps us out of photo-only shares; note that a
+			  file URL also conforms to public.url, so file shares match too.
 			-->
 			<key>NSExtensionActivationRule</key>
 			<string>SUBQUERY (

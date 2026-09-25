@@ -62,7 +62,7 @@ make fake-dash-down       # stop
 
 **The harness is the plumbing regression net for everything in `TripperDashPP/Tripper/` and `TripperDashPP/Stream/`.** It is intentionally permissive — it will accept packets the real dash rejects. **It is NOT authority on the wire format.** Byte-level protocol correctness is verified against `better-dash` (see the `scripts/verify_initial_burst.py` workflow). When adding Swift code that touches the wire format, add a matching Python test that drives `fake_dash`, but also byte-compare against the better-dash reference.
 
-**CI:** the fake_dash Python tests + a Docker image build (`.github/workflows/fake_dash.yml`) on PRs and pushes to `main` that touch `tools/fake_dash/`, and an `xcodebuild test` of the app + Swift unit-test target on a macOS runner on every push (`.github/workflows/ios-build.yml`). `.github/workflows/stale.yml` closes stale issues on a daily schedule.
+**CI:** the fake_dash Python tests + a Docker image build (`.github/workflows/fake_dash.yml`) on PRs and pushes to `main` that touch `tools/` or `TripperDashPP/` (the suite includes Swift-source drift guards), and an `xcodebuild test` of the app + Swift unit-test target on a macOS runner on every push (`.github/workflows/ios-build.yml`). `.github/workflows/stale.yml` closes stale issues on a daily schedule.
 
 ## K1G control plane (`TripperDashPP/Tripper/`)
 
@@ -162,7 +162,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 2. **Verify wire bytes against better-dash, not against fake_dash.** The `tools/fake_dash/` emulator is a permissive plumbing test — it accepts packets the real dash rejects. For any protocol change, byte-compare against the better-dash reference (`scripts/verify_initial_burst.py` is the pattern). The build server has no Swift compiler / iOS SDK, so port the Swift builder to Python and assert hex equality.
 
-3. **No new paid-only capabilities.** The paid program is used for TestFlight/App Store distribution and exactly one entitlement: Hotspot Configuration (`NEHotspotConfiguration` in `WiFiJoiner.swift`). Everything else stays keyless and free-tier. If you find yourself reaching for WeatherKit, Apple Watch targets, push notifications, App Groups, or associated domains — stop and ask.
+3. **No new paid-only capabilities.** The paid program is used for TestFlight/App Store distribution and the Wi-Fi entitlements: Hotspot Configuration (`NEHotspotConfiguration` in `WiFiJoiner.swift`) plus Access Wi-Fi Information (`com.apple.developer.networking.wifi-info`, without which `NEHotspotNetwork.fetchCurrent` always returns nil). Everything else stays keyless and free-tier. If you find yourself reaching for WeatherKit, Apple Watch targets, push notifications, App Groups, or associated domains — stop and ask.
 
 4. **No third-party map SDK.** Mapbox and Google Maps iOS SDKs are both pure-Metal renderers that fail instantly in the background (`IOGPUMetalError` on the lock screen) — the whole "phone in pocket" use case rules them out. We render OSM Carto raster tiles ourselves via CPU CGContext composition, and the dark palette is likewise a CPU (vImage) recolour of that composite — all background-safe, no GPU. Don't reintroduce a map SDK, and don't move the dark recolour to CoreImage/Metal (it dies on the lock screen).
 
@@ -194,7 +194,7 @@ No API keys, no service accounts, no SDK token plumbing — OSM tiles and MapKit
 
 ## Tests
 
-- **fake_dash Python suite** (`tools/fake_dash/tests/`): K1G packet builders, RTP FU-A reassembly, RSA handshake, ETA pipeline, rolling-window tile prefetch, reroute lifecycle, maneuver catalog, roundabout parser — plus Python mirrors of pure Swift logic (GPX import/export, weather sampling, solar clock, Web Mercator, alternative-route divergence, …) and Swift-source drift guards (`tests/swift_source.py`). Run `make fake-dash-test` or `cd tools/fake_dash && pytest -v`.
+- **fake_dash Python suite** (`tools/fake_dash/tests/`): K1G packet builders, RTP FU-A reassembly, RSA handshake, ETA pipeline, rolling-window tile prefetch, reroute lifecycle, maneuver catalog, roundabout parser — plus Python mirrors of pure Swift logic (GPX import/export, weather sampling, solar clock, Web Mercator, alternative-route divergence, …) and Swift-source drift guards (`tests/swift_source.py`). Run `make fake-dash-test` (on the host, after `pip install -e "tools/fake_dash[dev]"`) or `cd tools/fake_dash && pytest -v`.
 - **Swift unit tests** (`TripperDashPP/TripperDashPPTests/`, Swift Testing): pure ride logic that doesn't need the bike — weather-along-route sampling/classification (incl. frost/ice/crosswind), ride-stats accumulation/formatting/persistence, next-waypoint ETA label, ETA TLV format, voice phrases + prompt scheduling, speed-camera announcer, route projection, saved-bikes and recent-destinations stores. Run via `xcodebuild test` on a Mac (needs a concrete simulator destination); CI does this on every push (`.github/workflows/ios-build.yml`).
 - **Byte-verification scripts** (`scripts/` in the `royal-enfield-tripper-dash` skill): assert the Swift wire builders match `better-dash` byte-for-byte.
 - **Manual on-bike tests**: the real regression net for anything touching background rendering, the projection lifecycle, or maneuver glyphs. fake_dash is blind to sequencing and rendering bugs.

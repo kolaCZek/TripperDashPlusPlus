@@ -56,11 +56,16 @@ def haversine(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def read_points(path: Path) -> list[tuple[float, float]]:
-    """Every trkpt / rtept / wpt in document order, whichever the file has."""
+    """The track/route geometry: every trkpt + rtept in document order.
+
+    Standalone <wpt> are only used when the file has no track or route —
+    in a planner export they are POIs (fuel, cafe, …), and splicing them into
+    the geometry would add phantom legs across the map.
+    """
     root = ET.parse(path).getroot()
     # Namespace-agnostic: GPX 1.0 and 1.1 use different namespace URIs and
     # some exporters emit none at all.
-    pts: list[tuple[float, float]] = []
+    by_tag: dict[str, list[tuple[float, float]]] = {"line": [], "wpt": []}
     for el in root.iter():
         tag = el.tag.rsplit("}", 1)[-1]
         if tag in ("trkpt", "rtept", "wpt"):
@@ -68,10 +73,11 @@ def read_points(path: Path) -> list[tuple[float, float]]:
             if lat is None or lon is None:
                 continue
             try:
-                pts.append((float(lat), float(lon)))
+                p = (float(lat), float(lon))
             except ValueError:
                 continue
-    return pts
+            by_tag["wpt" if tag == "wpt" else "line"].append(p)
+    return by_tag["line"] or by_tag["wpt"]
 
 
 def densify(pts: list[tuple[float, float]],
@@ -97,21 +103,40 @@ def build(pts: list[tuple[float, float]], kmh: float,
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<gpx version="1.1" creator="TripperDashPP gpx_to_xcode_sim">',
-        f'  <!-- {len(pts)} waypoints, constant {kmh:g} km/h -->',
+        '',  # summary comment, filled in below
         '  <!-- Xcode reads <wpt> ONLY; <trk>/<trkpt> is ignored. -->',
     ]
-    t = start
+    # Xcode only takes whole-second <time> values and wants them strictly
+    # increasing. Points closer than ~1 s of travel (tight --densify, or a
+    # dense track) would share a stamp, so a later point in the same second
+    # REPLACES the earlier one. Rounding the cumulative time keeps each fix
+    # within 0.5 s of ideal and the average speed exact.
+    # ponytail: per-gap speed still jitters by up to 1 s per gap (Xcode's
+    # whole-second limit); keep --densify at >= ~2 s of travel to damp it.
+    elapsed = 0.0
     prev: tuple[float, float] | None = None
+    last_stamp = ""
     for p in pts:
         if prev is not None:
-            gap = haversine(prev, p)
-            t += timedelta(seconds=gap / mps if mps > 0 else 1.0)
-        stamp = t.strftime("%Y-%m-%dT%H:%M:%SZ")
-        lines.append(f'  <wpt lat="{p[0]:.6f}" lon="{p[1]:.6f}">'
-                     f'<time>{stamp}</time></wpt>')
+            elapsed += haversine(prev, p) / mps
+        stamp = (start + timedelta(seconds=round(elapsed))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        line = f'  <wpt lat="{p[0]:.6f}" lon="{p[1]:.6f}"><time>{stamp}</time></wpt>'
+        if stamp == last_stamp:
+            lines[-1] = line
+        else:
+            lines.append(line)
+        last_stamp = stamp
         prev = p
+    lines[2] = f'  <!-- {len(lines) - 4} waypoints, constant {kmh:g} km/h -->'
     lines.append('</gpx>')
     return "\n".join(lines) + "\n"
+
+
+def _positive(s: str) -> float:
+    v = float(s)
+    if not v > 0:
+        raise argparse.ArgumentTypeError(f"must be > 0, got {s}")
+    return v
 
 
 def main(argv: list[str]) -> int:
@@ -119,7 +144,7 @@ def main(argv: list[str]) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("input", type=Path)
     ap.add_argument("output", type=Path)
-    ap.add_argument("--kmh", type=float, default=50.0,
+    ap.add_argument("--kmh", type=_positive, default=50.0,
                     help="constant playback speed (default 50)")
     ap.add_argument("--densify", type=float, default=0.0, metavar="METRES",
                     help="insert points so gaps are at most this far apart")
@@ -134,11 +159,12 @@ def main(argv: list[str]) -> int:
     pts = densify(pts, args.densify)
 
     start = datetime(2026, 1, 1, 9, 0, 0, tzinfo=timezone.utc)
-    args.output.write_text(build(pts, args.kmh, start), encoding="utf-8")
+    out = build(pts, args.kmh, start)
+    args.output.write_text(out, encoding="utf-8")
 
     ride_s = raw_len / (args.kmh / 3.6)
     print(f"{args.input.name}: {raw_len/1000:.1f} km")
-    print(f"  -> {args.output} : {len(pts)} <wpt> points at {args.kmh:g} km/h")
+    print(f"  -> {args.output} : {out.count('<wpt ')} <wpt> points at {args.kmh:g} km/h")
     print(f"  -> simulated ride time {ride_s/60:.1f} min")
     if args.densify:
         print(f"  -> densified to <= {args.densify:g} m between fixes")
