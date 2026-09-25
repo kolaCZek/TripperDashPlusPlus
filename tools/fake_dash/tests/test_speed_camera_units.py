@@ -190,3 +190,78 @@ def test_maxspeed_parser_is_in_pbxproj():
     assert "path = MaxspeedParser.swift" in pbx, (
         "MaxspeedParser.swift must have a PBXFileReference"
     )
+
+
+def test_section_devices_are_fetched_and_drawn():
+    """Czech average-speed sections are often mapped as a relation whose
+    `device` members are `man_made=surveillance` nodes with NO
+    `highway=speed_camera` node (e.g. II/608 Nove Ouholice). The query must
+    pull the device nodes and `makeCameras` must turn them into section
+    cameras, or the section gets no map marker at all."""
+    cam = camera_src()
+    assert 'node(r.sec:"device");' in cam
+    assert 'm.role == "device"' in cam
+    # Older caches were written without device nodes -> must re-fetch.
+    assert "env.schema == Self.cacheSchema" in cam
+    assert "private static let cacheSchema = 2" in cam
+
+
+def test_eta_bubble_measures_text_without_ctx_text_position():
+    """CTLineGetImageBounds(line, ctx) is offset by the ctx's current text
+    position (not reset by saveGState), which shifted the bubble text out
+    of its pill on the dash."""
+    src = mapsource_src()
+    body = src[src.index("private func drawEtaBubble"):src.index("// MARK: Speed cameras")]
+    assert "CTLineGetImageBounds(line, nil)" in body
+    assert "CTLineGetImageBounds(line, ctx)" not in body
+
+
+def _make_cameras(elements):
+    """Python mirror of `SpeedCameraService.makeCameras` (keep identical)."""
+    device_limit = {}
+    for e in elements:
+        if e.get("type") != "relation":
+            continue
+        kmh = (e.get("tags") or {}).get("maxspeed")
+        kmh = int(kmh) if kmh and kmh.isdigit() else None
+        for m in e.get("members", []):
+            if m["type"] == "node" and m["role"] == "device":
+                if device_limit.get(m["ref"]) is None:
+                    device_limit[m["ref"]] = kmh
+    seen, out = set(), []
+    for e in elements:
+        if (e.get("tags") or {}).get("highway") == "speed_camera" and e["id"] not in seen:
+            seen.add(e["id"])
+            out.append((e["id"], True if e["id"] in device_limit else False))
+    for e in elements:
+        if e.get("type") == "node" and e["id"] in device_limit and "lat" in e and e["id"] not in seen:
+            seen.add(e["id"])
+            out.append((e["id"], True))
+    return out
+
+
+def test_make_cameras_mirror_on_ii608_shape():
+    """Live Overpass shape of II/608 Nove Ouholice (2026-09): both
+    carriageway relations share two device nodes; from/to are bare nodes."""
+    rel = lambda rid, a, b: {"type": "relation", "id": rid, "tags": {"maxspeed": "50"},
+                             "members": [{"type": "node", "ref": a, "role": "from"},
+                                         {"type": "node", "ref": 9373412467, "role": "device"},
+                                         {"type": "node", "ref": 9373412468, "role": "device"},
+                                         {"type": "node", "ref": b, "role": "to"}]}
+    elements = [rel(20137713, 73379245, 7294673828), rel(20137714, 7294673828, 73379245)] + [
+        {"type": "node", "id": i, "lat": 50.3, "lon": 14.3}
+        for i in (73379245, 7294673828, 9373412467, 9373412468)]
+    assert _make_cameras(elements) == [(9373412467, True), (9373412468, True)]
+
+
+def test_section_end_cameras_are_not_announced():
+    """Voice: a section is announced at its start only. The nav loop must
+    update the section tracker BEFORE the camera voice and filter the
+    targets by the tracker's section end points."""
+    loop = _src("Navigation/ActiveNavLoop.swift")
+    ann = _src("RideAlerts/SpeedCameraAnnouncer.swift")
+    assert "static func excludingSectionEnds(" in ann
+    assert "private(set) var endPoints" in ann
+    assert "excludingSectionEnds(\n            speedCameraTargets, ends: sectionTracker.endPoints)" in loop
+    tick = loop[loop.index("if !isRerouting {"):]
+    assert tick.index("updateSpeedSection()") < tick.index("emitCameraVoice()")

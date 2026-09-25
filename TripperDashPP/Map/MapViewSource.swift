@@ -2679,7 +2679,11 @@ extension MapViewSource {
         ]
         let attr = NSAttributedString(string: label, attributes: attrs)
         let line = CTLineCreateWithAttributedString(attr)
-        let textBounds = CTLineGetImageBounds(line, ctx)
+        // Measure with a nil context (bounds relative to the origin). With
+        // `ctx`, the bounds are offset by its current text position, which
+        // saveGState/restoreGState don't reset — whatever an earlier text
+        // draw in the frame left behind shifted the text out of the pill.
+        let textBounds = CTLineGetImageBounds(line, nil)
         let padX: CGFloat = 9, padY: CGFloat = 5
         let pillW = textBounds.width + padX * 2
         let pillH = fontSize + padY * 2
@@ -2692,11 +2696,12 @@ extension MapViewSource {
         ctx.addPath(CGPath(roundedRect: pill, cornerWidth: pillH / 2,
                            cornerHeight: pillH / 2, transform: nil))
         ctx.fillPath()
-        // Text baseline-centred inside the pill. The outer buffer is
-        // Y-DOWN; flip locally so CoreText draws upright.
+        // Glyph box centred on `p` (baseline placed from the measured ink
+        // bounds, not a font-size guess). The outer buffer is Y-DOWN; flip
+        // locally so CoreText draws upright.
         ctx.textMatrix = .identity
-        ctx.translateBy(x: p.x - textBounds.width / 2 - textBounds.minX,
-                        y: p.y + fontSize / 2 - 1)
+        ctx.translateBy(x: p.x - textBounds.midX,
+                        y: p.y + textBounds.midY)
         ctx.scaleBy(x: 1, y: -1)
         ctx.textPosition = .zero
         CTLineDraw(line, ctx)

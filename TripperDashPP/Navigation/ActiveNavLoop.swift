@@ -543,8 +543,10 @@ final class ActiveNavLoop {
         //     rider closes in on one that's ahead. Suppressed during a
         //     reroute (stale route → don't chase cameras off the old line).
         if !isRerouting {
-            emitCameraVoice()
+            // Section first: the camera voice skips section-end cameras
+            // using this tick's `sectionTracker.endPoints`.
             updateSpeedSection()
+            emitCameraVoice()
         }
 
         // Keep the speed-limit sign's policy in sync with settings every
@@ -640,6 +642,8 @@ final class ActiveNavLoop {
             .routeAheadCoordinates
             .map { ($0.latitude, $0.longitude) } ?? []
 
+        let targets = SpeedCameraAnnouncer.excludingSectionEnds(
+            speedCameraTargets, ends: sectionTracker.endPoints)
         let cam: SpeedCameraAnnouncer.Target?
         if routeAhead.count >= 2 {
             cam = cameraAnnouncer.onTickAlongRoute(
@@ -647,13 +651,13 @@ final class ActiveNavLoop {
                 riderLon: fix.coordinate.longitude,
                 routeAhead: routeAhead,
                 headingDegrees: fix.course,
-                cameras: speedCameraTargets)
+                cameras: targets)
         } else {
             cam = cameraAnnouncer.onTick(
                 riderLat: fix.coordinate.latitude,
                 riderLon: fix.coordinate.longitude,
                 headingDegrees: fix.course,
-                cameras: speedCameraTargets)
+                cameras: targets)
         }
         guard let cam else { return }
         _ = cam   // the phrase is camera-agnostic; the target only drives timing
