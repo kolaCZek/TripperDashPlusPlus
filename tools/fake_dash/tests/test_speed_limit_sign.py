@@ -599,3 +599,12 @@ def test_route_changes_extend_camera_and_section_prefetch():
     # Skip when already covered, merge (not replace) the result.
     assert "if extending, speedCameraCoverage.contains(where: { $0.contains(routeBox) })" in body
     assert "self.speedCameraData.merged(with: fetched)" in body
+
+
+def test_free_ride_retires_route_camera_fetches():
+    # Reroute fetches aren't cancellable; a late one must not overwrite the
+    # free-ride markers after arrival / manual stop.
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(_src("App/AppStatus.swift"), "private func prefetchFreeRideCameras()"))
+    assert "speedCameraGeneration += 1" in body
+    assert "speedCameraData = .empty" in body

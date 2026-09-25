@@ -781,6 +781,12 @@ final class AppStatus {
     /// generous neighbourhood without a huge Overpass query.
     private func prefetchFreeRideCameras() {
         speedCameraPrefetchTask?.cancel()
+        // Retire the finished route's camera/section set: a reroute fetch
+        // still in flight (those aren't cancellable) must not land on the
+        // free-ride map, and a later nav loop must not be seeded with it.
+        speedCameraGeneration += 1
+        speedCameraData = .empty
+        speedCameraCoverage = []
         guard dashNavSettings.speedCamerasEnabled else {
             mapViewSource.setSpeedCameras([])
             return
