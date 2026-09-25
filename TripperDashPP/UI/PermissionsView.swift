@@ -16,10 +16,18 @@
 //    • Local Network — talking to the dash AP at 192.168.1.1. iOS exposes
 //      NO API to read this permission's state, so it's shown as
 //      informational; "Set" opens Settings where the toggle lives.
+//    • Live Activities — ActivityKit. Lock Screen / Dynamic Island ride
+//      card; a Settings-only toggle (no in-app prompt).
+//    • Cellular Data — CoreTelephony `CTCellularData`. Map tiles, routing
+//      and ride alerts go over cellular while Wi-Fi is on the dash AP.
+//      Settings-only toggle; "not restricted" doesn't prove there's a
+//      signal or a SIM, only that the app is allowed to use it.
 //
 
 import SwiftUI
+import ActivityKit
 import CoreLocation
+import CoreTelephony
 import MediaPlayer
 
 struct PermissionsView: View {
@@ -29,6 +37,12 @@ struct PermissionsView: View {
 
     /// Apple Music authorization, re-read on appear / foreground.
     @State private var musicStatus: MPMediaLibraryAuthorizationStatus = MPMediaLibrary.authorizationStatus()
+    /// Live Activities toggle, re-read on foreground (changed in Settings).
+    @State private var liveActivitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+    /// Held for the sheet's lifetime; its state can read "unknown" for a
+    /// moment right after creation.
+    @State private var cellularData = CTCellularData()
+    @State private var cellularState: CTCellularDataRestrictedState = .restrictedStateUnknown
 
     var body: some View {
         NavigationStack {
@@ -55,6 +69,22 @@ struct PermissionsView: View {
                         actionable: true,
                         action: openSettings
                     )
+                    row(
+                        title: "Cellular Data",
+                        detail: cellularDetail,
+                        granted: cellularGranted,
+                        actionable: cellularState != .notRestricted,
+                        action: openSettings
+                    )
+                    row(
+                        title: "Live Activities",
+                        detail: liveActivitiesEnabled
+                            ? "On — the ride shows on the Lock Screen and in the Dynamic Island."
+                            : "Off. Turn on Live Activities in Settings to see the ride on the Lock Screen.",
+                        granted: liveActivitiesEnabled,
+                        actionable: !liveActivitiesEnabled,
+                        action: openSettings
+                    )
                 } footer: {
                     Text("A green check means the permission is granted. “Set” asks the system for it; if it was denied earlier, iOS only lets you change it in Settings.")
                 }
@@ -68,8 +98,17 @@ struct PermissionsView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { musicStatus = MPMediaLibrary.authorizationStatus() }
+            if phase == .active {
+                musicStatus = MPMediaLibrary.authorizationStatus()
+                liveActivitiesEnabled = ActivityAuthorizationInfo().areActivitiesEnabled
+                cellularState = cellularData.restrictedState
+            }
         }
+        // Polled, not the update notifier: that callback runs on a
+        // background queue, and under default MainActor isolation a closure
+        // written here would be MainActor-isolated and trap when called
+        // off-main.
+        .onAppear { cellularState = cellularData.restrictedState }
     }
 
     // MARK: - Row builder
@@ -172,6 +211,27 @@ struct PermissionsView: View {
             }
         default:
             openSettings()
+        }
+    }
+
+    // MARK: - Cellular data
+
+    private var cellularGranted: Bool? {
+        switch cellularState {
+        case .notRestricted: return true
+        case .restricted: return false
+        default: return nil
+        }
+    }
+
+    private var cellularDetail: String {
+        switch cellularState {
+        case .notRestricted:
+            return "Allowed — map tiles, routing and ride alerts load over cellular while Wi-Fi is on the dash."
+        case .restricted:
+            return "Off for this app. Without it nothing loads while the phone is on the dash Wi-Fi — turn it on in Settings."
+        default:
+            return "Unknown — iOS hasn't reported it yet. Map tiles, routing and ride alerts need cellular data while Wi-Fi is on the dash."
         }
     }
 
