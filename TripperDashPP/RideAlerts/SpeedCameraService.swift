@@ -31,6 +31,8 @@
 //        → { elements: [ { type:"node", id, lat, lon,
 //                          tags:{ highway:"speed_camera",
 //                                 maxspeed?, direction?, note? } }, … ] }
+//      The live query (`fetch`) also pulls average-speed relations and
+//      their from/to/device nodes; see `makeCameras` / `makeSections`.
 //
 
 import CoreLocation
@@ -174,7 +176,7 @@ actor SpeedCameraService {
     /// which has no route corridor to query along — instead it shows all
     /// cameras in the rider's vicinity on the map (map overlay only, NO
     /// voice: free-ride has no turn-by-turn, so the announcer is never
-    /// fed this set). Same fetch / disk-cache / `makeCamera` path as
+    /// fed this set). Same fetch / disk-cache / `makeCameras` path as
     /// `camerasAlong`; only the bbox construction differs (a square around
     /// a point vs. a route corridor). Returns `[]` on total failure.
     func camerasAround(center: CLLocationCoordinate2D,
@@ -226,9 +228,9 @@ actor SpeedCameraService {
     }
 
     /// ONE query for both layers: camera nodes, plus the average-speed
-    /// section relations and (as bare `skel` nodes) their `from` / `to`
-    /// points. The skel nodes carry no tags, which is how `makeCameras`
-    /// tells them apart from real cameras.
+    /// section relations and (as bare `skel` nodes) their `from` / `to` /
+    /// `device` members. `makeCameras` keeps tagged camera nodes and the
+    /// relations' `device` nodes; bare `from` / `to` nodes are not cameras.
     private func fetch(box: BBox) async throws -> SpeedCameraData {
         let bbox = "(\(box.south),\(box.west),\(box.north),\(box.east))"
         let query = """
@@ -308,8 +310,12 @@ actor SpeedCameraService {
     nonisolated static func makeCameras(_ elements: [OverpassResponse.Element]) -> [SpeedCamera] {
         var deviceLimit: [Int64: Int?] = [:]
         for e in elements where e.type == "relation" {
+            let kmh = MaxspeedParser.kmh(e.tags?["maxspeed"])
             for m in e.members ?? [] where m.type == "node" && m.role == "device" {
-                deviceLimit[m.ref] = MaxspeedParser.kmh(e.tags?["maxspeed"])
+                // A device shared by both carriageways' relations: keep a
+                // known limit over a missing one. (`.some(nil)` = device
+                // with no limit; the key's presence is what marks a device.)
+                if deviceLimit[m.ref].flatMap({ $0 }) == nil { deviceLimit[m.ref] = .some(kmh) }
             }
         }
         var seen = Set<Int64>()

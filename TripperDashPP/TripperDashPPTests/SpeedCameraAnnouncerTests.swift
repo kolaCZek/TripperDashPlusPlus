@@ -315,6 +315,56 @@ struct SpeedCameraAnnouncerTests {
         #expect(cams.allSatisfy { $0.isSection && $0.maxspeedKmh == 50 })
     }
 
+    @Test func sharedDeviceKeepsKnownLimitAndLimitlessDeviceStays() throws {
+        let json = """
+        {"elements":[
+          {"type":"relation","id":7,"tags":{"maxspeed":"50"},
+           "members":[{"type":"node","ref":4,"role":"device"}]},
+          {"type":"relation","id":8,
+           "members":[{"type":"node","ref":4,"role":"device"},{"type":"node","ref":6,"role":"device"}]},
+          {"type":"node","id":4,"lat":50.011,"lon":14.0},
+          {"type":"node","id":6,"lat":50.012,"lon":14.0}
+        ]}
+        """
+        let elements = try JSONDecoder()
+            .decode(SpeedCameraService.OverpassResponse.self, from: Data(json.utf8)).elements
+        let cams = SpeedCameraService.makeCameras(elements)
+        #expect(cams.map(\.id) == [4, 6])
+        #expect(cams.map(\.maxspeedKmh) == [50, nil])
+    }
+
+    /// Short (~333 m, under the 400 m warn radius) two-way section with a
+    /// device at each end, shared by both relations like II/608: only the
+    /// start camera may be announced, never the end one.
+    @Test func sectionEndCameraIsNotAnnounced() {
+        let north = SpeedSection(id: 20, fromLat: 50.010, fromLon: 14.0003,
+                                 toLat: 50.013, toLon: 14.0003, maxspeedKmh: 50)
+        let south = SpeedSection(id: 21, fromLat: 50.013, fromLon: 14.0003,
+                                 toLat: 50.010, toLon: 14.0003, maxspeedKmh: 50)
+        let startCam = Target(id: 1, latitude: 50.010, longitude: 14.0003)
+        let endCam = Target(id: 2, latitude: 50.013, longitude: 14.0003)
+        var tracker = SpeedSectionTracker()
+        var announcer = SpeedCameraAnnouncer()
+        var fired: [Int64] = []
+        let t0 = Date(timeIntervalSince1970: 0)
+        for t in 0..<160 {
+            let lat = 50.0005 + 20.0 / 111_195.0 * Double(t)
+            guard lat < 50.029 else { break }
+            let ahead = Array(route[Int((lat - 50.0) / 0.001)...])
+            _ = tracker.onTick(riderLat: lat, riderLon: 14.0,
+                               time: t0.addingTimeInterval(Double(t)),
+                               routeAhead: ahead, sections: [north, south])
+            let targets = SpeedCameraAnnouncer.excludingSectionEnds(
+                [startCam, endCam], ends: tracker.endPoints)
+            if let hit = announcer.onTickAlongRoute(riderLat: lat, riderLon: 14.0,
+                                                    routeAhead: ahead, headingDegrees: 0,
+                                                    cameras: targets) {
+                fired.append(hit.id)
+            }
+        }
+        #expect(fired == [1])
+    }
+
     @Test func rerouteFetchMergesWithoutDuplicates() {
         let a = SpeedCameraData(cameras: [], sections: [northbound])
         let b = SpeedCameraData(cameras: [], sections: [northbound, southbound])

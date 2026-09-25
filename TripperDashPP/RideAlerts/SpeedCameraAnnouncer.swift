@@ -199,6 +199,24 @@ struct SpeedCameraAnnouncer {
         return best
     }
 
+    /// A camera this close to a section end point counts as that end's
+    /// camera (OSM devices sit a few metres off the `to` node).
+    static let sectionEndRadiusMeters: Double = 50
+
+    /// `cameras` minus those at the end of a section being approached or
+    /// ridden (`SpeedSectionTracker.endPoints`), so a section is announced
+    /// once, at its start, and never again at its end.
+    static func excludingSectionEnds(_ cameras: [Target],
+                                     ends: [(lat: Double, lon: Double)]) -> [Target] {
+        guard !ends.isEmpty else { return cameras }
+        return cameras.filter { cam in
+            !ends.contains {
+                haversineMeters(lat1: cam.latitude, lon1: cam.longitude,
+                                lat2: $0.lat, lon2: $0.lon) < sectionEndRadiusMeters
+            }
+        }
+    }
+
     /// Forget all announced cameras (e.g. nav stopped or rerouted). Next
     /// tick starts fresh so the same road can warn again.
     mutating func reset() {
@@ -276,15 +294,22 @@ struct SpeedSectionTracker {
     /// Hide the average until this many seconds into the section.
     static let minElapsedSeconds: Double = 3
 
-    private struct Approach { let fromAhead: Double; let toAhead: Double; let time: Date }
+    private struct Approach { let section: SpeedSection; let fromAhead: Double; let toAhead: Double; let time: Date }
     private struct Inside { let section: SpeedSection; let length: Double; let start: Date }
 
     private var approaching: [Int64: Approach] = [:]
     private var inside: Inside?
 
+    /// `to` points of the sections the rider is approaching (in the right
+    /// direction) or inside, as of the last tick. The camera announcer skips
+    /// cameras here: the section's start camera is the warning, the end one
+    /// would be a second callout while the dash panel is already up.
+    private(set) var endPoints: [(lat: Double, lon: Double)] = []
+
     mutating func reset() {
         approaching = [:]
         inside = nil
+        endPoints = []
     }
 
     mutating func onTick(riderLat: Double, riderLon: Double, time: Date,
@@ -316,7 +341,7 @@ struct SpeedSectionTracker {
             else { continue }
             if let fromAhead = ahead(s.fromLat, s.fromLon) {
                 if toAhead > fromAhead {
-                    next[s.id] = Approach(fromAhead: fromAhead, toAhead: toAhead, time: time)
+                    next[s.id] = Approach(section: s, fromAhead: fromAhead, toAhead: toAhead, time: time)
                 }
             } else if inside == nil, let prev = approaching[s.id] {
                 // Crossed `from` since the last tick. Interpolate the
@@ -331,6 +356,8 @@ struct SpeedSectionTracker {
             }
         }
         approaching = next
+        endPoints = (approaching.values.map(\.section) + [inside?.section].compactMap { $0 })
+            .map { (lat: $0.toLat, lon: $0.toLon) }
 
         guard let cur = inside,
               let remaining = ahead(cur.section.toLat, cur.section.toLon)
