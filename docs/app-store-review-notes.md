@@ -39,9 +39,8 @@ map/route current with the screen off, the app needs background location.
 - It is NOT used for advertising, analytics, profiling, or any secondary purpose.
 - Nothing is uploaded to a server we operate — there is no backend. Location stays
   on the device and is sent only to the bike's local dash over Wi-Fi.
-- The "Always" prompt copy, the in-app permissions checklist (Settings → About →
-  Check permissions) and a warning shown before a ride on "While Using" all explain
-  this to the user.
+- The "Always" prompt copy and the in-app permissions checklist (Settings → About →
+  Check permissions) explain this to the user.
 
 The app declares the `location` and `audio` background modes:
 - `location` — the wakelock that keeps the map/dash live with the screen off.
