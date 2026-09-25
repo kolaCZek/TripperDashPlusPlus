@@ -1,8 +1,8 @@
 # TripperDash++ — top-level Makefile
 #
 # Convenience wrapper around the most common dev tasks. Anything more
-# specialised (Xcode signing, IPA build, etc.) lives in the iOS project's
-# own scripts.
+# specialised (Xcode signing, iOS builds, etc.) lives in the Xcode project
+# and .github/workflows/.
 
 .PHONY: help fake-dash-build fake-dash-up fake-dash-down fake-dash-logs \
         fake-dash-test fake-dash-shell fake-dash-clean \

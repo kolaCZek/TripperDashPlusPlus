@@ -352,7 +352,7 @@ class TestImportRoute:
         # Import NO LONGER reduces — a dense track keeps every point so the
         # preview map + GPX export reproduce the real ride. The reduction to
         # NAVIGABLE_CAP now happens at navigation time (see
-        # test_navigable_points_reduces_track below / beginPlanningFromSavedRoute).
+        # TestPlannedNavigablePoints below / beginPlanningFromSavedRoute).
         body = (
             "<trk><trkseg>"
             + "".join(

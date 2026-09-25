@@ -60,9 +60,9 @@ struct RouteProjectionTests {
     // MARK: - Along-route camera selection
 
     /// A hairpin: the road runs north, then doubles back south on a parallel
-    /// leg slightly east. A camera on the SECOND leg is only a short way
-    /// ahead along the road, but sits nearly due south of the rider (bearing
-    /// ~180° off a "heading north" rider) — the classic cone false-negative.
+    /// leg slightly east. A camera on the SECOND leg is ~170 m away in a
+    /// straight line but ~600 m ahead ALONG THE ROAD — the along-route
+    /// distance is what must be reported.
     @Test func cameraPastSharpBendIsAhead() {
         // Leg 1: north up lon 14.000, from 50.000 to 50.004 (~444 m).
         // Leg 2: back south down lon 14.0006 (~43 m east), 50.004 → 50.000.
@@ -75,9 +75,8 @@ struct RouteProjectionTests {
         // Rider near the start of leg 1.
         let rider = Point(latitude: 50.0005, longitude: 14.0000)
         // Camera on leg 2 at latitude 50.002 (past the bend). Straight-line
-        // it's slightly EAST and roughly level → way off the heading cone,
-        // but along the road it's: rest of leg 1 up to 50.004, then down
-        // leg 2 to 50.002 — a few hundred metres ahead.
+        // it's ~170 m away (bearing ~14°), but along the road it's: rest of
+        // leg 1 up to 50.004, then down leg 2 to 50.002 — ~600 m ahead.
         let cam = Target(id: 1, latitude: 50.002, longitude: 14.0006)
         let ahead = proj.alongRouteDistanceAhead(
             rider: rider, target: cam, maxLateralMeters: 60)

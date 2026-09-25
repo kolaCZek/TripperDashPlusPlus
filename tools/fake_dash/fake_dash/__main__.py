@@ -4,7 +4,8 @@ CLI entry point — `python -m fake_dash` or the `fake-dash` console script.
 Subcommands:
   server          Start the bike emulator (K1G + RTP). Default for Docker.
   button <name>   Send one joystick event to the running server (over IPC).
-                  Names: left, right, down, click.
+                  Names: any Button, lowercased (left, right, down, click,
+                  next_track, prev_track, remove_waypoint, exit_nav).
 
 Configuration via env vars (overridable on the CLI):
   FAKE_DASH_BIND            (default: 0.0.0.0)

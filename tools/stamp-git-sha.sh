@@ -4,7 +4,7 @@
 #
 # Runs as an Xcode "Run Script" build phase. The app reads the resulting
 # `GitCommitSHA` key at runtime (see AppStatus.buildCommitSHA) and shows it
-# in Settings → Build → Version, e.g. "1.0 (46ab7a9)".
+# in Settings → About → Version, e.g. "1.0.3 (6) · 46ab7a9".
 #
 # Works for local Xcode builds, the GitHub Actions macOS CI build, and
 # Archive / TestFlight — the script always stamps the SHA of the commit the
@@ -19,8 +19,8 @@
 #     sandbox would otherwise deny the read.
 #   - A dirty working tree appends "*" so a local build with uncommitted
 #     changes is visibly distinct from a clean commit (CI is always clean).
-#   - Never fails the build: if git or the plist is missing it stamps
-#     "unknown" and moves on.
+#   - Never fails the build: if git is missing it stamps "unknown"; if the
+#     plist is missing it warns and skips the stamp.
 
 set -eu
 

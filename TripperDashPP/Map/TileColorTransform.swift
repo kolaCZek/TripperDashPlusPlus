@@ -13,7 +13,8 @@
 //  riding" case this app exists for (see `OSMTileFetcher` header). So the
 //  recolour is a single integer 4×4 matrix multiply over interleaved
 //  ARGB8888 pixels via Accelerate's vImage, which runs fine in the
-//  background and is fast enough to do per composite (one 1024×1024 pass).
+//  background and is fast enough to do per composite (one 1280×1280 pass
+//  for the base layer).
 //
 //  Why invert *and* hue-rotate, not just invert:
 //  a plain lightness invert flips hue too — OSM water (#AAD3DF, blue)

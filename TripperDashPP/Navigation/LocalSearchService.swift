@@ -34,7 +34,7 @@ final class LocalSearchService: NSObject {
     }
 
     /// Centre of the search region (typically current GPS). UI sets
-    /// this on appear and on each location update. Setting it
+    /// this on appear. Setting it
     /// re-applies the current query so suggestions reflect the new
     /// area.
     var biasCenter: CLLocationCoordinate2D? {
@@ -163,7 +163,7 @@ extension LocalSearchService: MKLocalSearchCompleterDelegate {
     nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
         let nsError = error as NSError
         let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        // MKErrorDomain code 5 = directionsNotFound / loadingThrottled / serverFailure;
+        // MKErrorDomain code 5 = MKError.directionsNotFound;
         // MKLocalSearchCompleter routinely throws it on empty or single-character
         // queries (Apple's server rejects them). Don't surface to the UI or warn —
         // just clear results so the dropdown closes cleanly.

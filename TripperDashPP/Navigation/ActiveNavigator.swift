@@ -7,7 +7,7 @@
 //  distance, upcoming maneuver, and ETA. Phase 7h adds reroute
 //  hysteresis on top.
 //
-//  Lifecycle: start(route:) → tick on each location update → stop().
+//  Lifecycle: start(plan:) → ingest(fix:) on each location update → stop().
 //  All published state goes through @Observable so the HUD reactively
 //  updates without timers in the view.
 //
@@ -24,12 +24,12 @@ final class ActiveNavigator {
 
     // MARK: - Published state
 
-    /// True once start(route:) was called and we haven't stopped.
+    /// True once start(...) was called and we haven't stopped.
     private(set) var isNavigating: Bool = false
 
     /// True once we've reached the final destination. The HUD shows an
     /// "arrived" confirmation; MapPickerView auto-dismisses after a few
-    /// seconds and AppStatus tears down the stream the moment this flips.
+    /// seconds and swaps the still-running stream to free-ride in place.
     private(set) var hasArrived: Bool = false
 
     /// The route currently being followed (may be replaced on reroute).
@@ -262,8 +262,9 @@ final class ActiveNavigator {
                                      precedingStep: stepBeforeNext)
     }
 
-    /// True if we're currently off-route. Reroute logic in 7h reads
-    /// this together with the timestamps below.
+    /// True if we're currently off-route (drives the HUD banner). The
+    /// reroute trigger in `ingest(fix:)` uses the same distance test plus
+    /// the hysteresis timestamps below.
     private(set) var isOffRoute: Bool = false
 
     /// Whether a reroute is currently in flight.
@@ -296,8 +297,9 @@ final class ActiveNavigator {
     /// Materialised coordinates of all plan legs AFTER the current one,
     /// concatenated in order. Empty for single-destination nav and once
     /// the rider is on the final leg. Refreshed whenever the leg /plan
-    /// changes (`seed` sees the up-to-date `plan`/`currentLegIndex`),
-    /// NOT on reroute (a reroute only swaps the current leg's route).
+    /// changes (`seed` sees the up-to-date `plan`/`currentLegIndex`).
+    /// A reroute recomputes it too (`refreshOverviewCaches`) but the
+    /// content is unchanged — a reroute only swaps the current leg's route.
     private var subsequentLegsCoordsCache: [CLLocationCoordinate2D] = []
 
     /// Minimum spacing between retained breadcrumb points. 30 m keeps
@@ -478,8 +480,9 @@ final class ActiveNavigator {
     /// active route or the alternatives change.
     private var altCommitStreak: [Int: Int] = [:]
 
-    /// Fired whenever `currentAlternatives` changes (leg swap, reroute,
-    /// clear) so AppStatus can push the render models into MapViewSource.
+    /// Fired whenever `currentAlternatives` changes (`seed`: start, leg
+    /// swap, alt auto-switch; `stop`: clear) so MapPickerView can push the
+    /// render models into MapViewSource. A reroute does NOT refire it.
     /// The navigator itself never touches MapViewSource.
     var onAlternativesChanged: (@MainActor ([MKRoute]) -> Void)?
 
@@ -489,7 +492,7 @@ final class ActiveNavigator {
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ActiveNavigator")
 
     /// Caller hook for when we lose the route and want a new one. Set by
-    /// AppStatus / RootView so the navigator can call back into
+    /// AppStatus (`wireNavigation`) so the navigator can call back into
     /// RoutingService without owning a reference to it.
     ///
     /// DUAL PURPOSE (F6, Martin 7/2026): also used by
@@ -517,11 +520,11 @@ final class ActiveNavigator {
     /// destination (i.e. `MKDirections` with `requestsAlternateRoutes`),
     /// or nil/empty on failure. Distinct from `onRerouteRequested` (which
     /// returns a single best route for OFF-route recovery): the traffic
-    /// check needs the WHOLE candidate set so it can (a) find the option
-    /// geometrically matching the rider's CURRENT road to read its live
-    /// with-traffic time, and (b) find the fastest alternative — then
-    /// compare the two. Wired by AppStatus. `nil` when the feature is off
-    /// or unwired → the periodic check no-ops.
+    /// check needs the WHOLE candidate set so it can pick the fastest
+    /// candidate that is a genuinely different road from the active route
+    /// (`trafficRerouteDecision`). Wired by AppStatus. `nil` when unwired →
+    /// the periodic check no-ops (the feature toggle is
+    /// `trafficRerouteEnabled`).
     var onTrafficRoutesRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> [MKRoute]))?
 
     /// Mirror of `DashNavSettings.trafficRerouteEnabled`. Set by AppStatus
@@ -534,7 +537,8 @@ final class ActiveNavigator {
     var trafficRerouteSavingSeconds: TimeInterval = 300
 
     /// Caller hook fired whenever the active route is replaced —
-    /// fresh `start()` AND every successful reroute. Callers wire
+    /// fresh `start()`, leg-advance, alt auto-switch AND every successful
+    /// (off-route or live-traffic) reroute. Callers wire
     /// this to: (1) push the new polyline into `MapViewSource` so
     /// the dash + Map UI render the right line, (2) tear down the
     /// stale `RouteTileCache` and pre-render a new one. Without
@@ -544,16 +548,18 @@ final class ActiveNavigator {
     var onActiveRouteChanged: (@MainActor (MKRoute) async -> Void)?
 
     /// Fired once when the rider reaches the FINAL destination (single
-    /// route, or the last leg of a plan). AppStatus wires this to tear
-    /// down the stream + route artefacts. Distinct from a leg-advance,
-    /// which is internal and silent.
+    /// route, or the last leg of a plan). AppStatus wires this to speak
+    /// the arrival prompt; the stream stays up and MapPickerView's
+    /// `finishArrival` later swaps it to free-ride. Distinct from a
+    /// leg-advance, which is internal and silent.
     var onArrived: (@MainActor () -> Void)?
 
     // MARK: - API
 
-    /// Classic single-destination entry point. Unchanged behaviour —
-    /// used by reroute and as the n=2 fallback. Internally seeds with
-    /// no plan, so leg-advance never triggers.
+    /// Classic single-destination entry point. Currently has no caller —
+    /// the app starts every ride (incl. single destinations) via
+    /// `start(plan:)`, and reroute swaps via `installSwappedRoute`.
+    /// Internally seeds with no plan, so leg-advance never triggers.
     func start(route: MKRoute, destination: Destination) async {
         self.plan = nil
         self.currentLegIndex = 0
@@ -882,7 +888,7 @@ final class ActiveNavigator {
 
     /// Reached the final destination. Flip into the `hasArrived` display
     /// state (HUD shows the "You've arrived" card) and fire `onArrived`
-    /// so AppStatus tears down the stream promptly. We DON'T call stop()
+    /// so AppStatus speaks the arrival prompt. We DON'T call stop()
     /// here — the HUD needs `hasArrived == true` for the dismiss beat;
     /// MapPickerView calls stop() after the auto-dismiss delay.
     private func handleArrival() {
@@ -898,8 +904,8 @@ final class ActiveNavigator {
     }
 
     /// Push a fresh GPS fix into the navigator. Call from a location
-    /// observer wherever the app already digests fixes (e.g.
-    /// AppStatus.observe(locationService:)).
+    /// observer wherever the app already digests fixes (today:
+    /// `AppStatus.navigatorIngest(_:)`).
     func ingest(fix: Fix) async {
         guard isNavigating, let route = activeRoute else { return }
         let coord = fix.coordinate
@@ -937,7 +943,7 @@ final class ActiveNavigator {
         // arrival on its very first fix (where remaining may start small).
         // Two independent ways to arm, whichever comes first:
         //  1) Distance-to-destination exceeded 2× the arrival radius — the
-        //     normal case for any route longer than ~80 m.
+        //     normal case for any route longer than ~50 m.
         //  2) Physical movement past `underwayMovementThreshold` from the
         //     ride's start — the ONLY way a very short route (destination
         //     already inside the arrival radius, e.g. the end of the
@@ -1334,17 +1340,15 @@ final class ActiveNavigator {
     // MARK: - Live-traffic reroute (feat/live-traffic-reroute)
 
     /// Periodic live-traffic reroute check. Fetches Apple's current
-    /// traffic-aware alternatives from the rider's live position, finds
-    /// the option matching the road the rider is CURRENTLY on (its live
-    /// with-traffic time) and the fastest option overall, and — if the
-    /// fastest saves at least `trafficRerouteSavingSeconds` AND is a
-    /// genuinely different road — swaps navigation onto it. Silent
-    /// (Martin 8/2026 chose automatic swap, like the off-route reroute).
+    /// traffic-aware alternatives from the rider's live position and,
+    /// against a baseline of the active route's own `expectedTravelTime`,
+    /// picks the fastest candidate that is a genuinely different road; if
+    /// it saves at least `trafficRerouteSavingSeconds`, swaps navigation
+    /// onto it. Silent (Martin 8/2026 chose automatic swap, like the
+    /// off-route reroute).
     ///
-    /// Conservative by design: if we CAN'T confidently identify the
-    /// rider's current corridor among the returned alternatives, we do
-    /// NOT reroute (a false "saving" from comparing against the wrong
-    /// baseline is worse than missing one jam). Respects the same
+    /// Conservative by design: no distinct + faster-by-threshold
+    /// candidate → no reroute (see `trafficRerouteDecision`). Respects the same
     /// `rerouteCooldown` and `isRerouting` guards as the off-route path,
     /// so the two reroute sources can't fire on top of each other.
     private func checkLiveTrafficReroute(from coord: CLLocationCoordinate2D,
@@ -1357,12 +1361,10 @@ final class ActiveNavigator {
         let candidates = await cb(coord, dest)
         guard !candidates.isEmpty else { return }
 
-        // Baseline = live with-traffic time of the corridor the rider is
-        // ON RIGHT NOW. Prefer the candidate whose geometry matches the
-        // current active route (Apple usually returns the current road as
-        // one alternative, now re-timed for traffic). If none matches
-        // closely enough, fall back to the live re-time of the current
-        // route itself IF Apple returned it; otherwise bail (conservative).
+        // Baseline = the active route's `expectedTravelTime` as returned
+        // when that route was installed (not re-timed here). Candidates
+        // that merely re-time the same road are filtered out by
+        // `routesAreDistinct` inside the decision core.
         let currentTime = current.expectedTravelTime
         guard let decision = Self.trafficRerouteDecision(
             currentBaselineTime: currentTime,
@@ -1384,7 +1386,7 @@ final class ActiveNavigator {
     /// Pure decision core for the live-traffic reroute — no MapKit calls,
     /// no actor state, fully deterministic so it can be unit-tested and
     /// mirrored in Python (`tools/fake_dash/tests`). Given the current
-    /// route's live baseline time and a set of candidate (route, time,
+    /// route's baseline time and a set of candidate (route, time,
     /// coords) tuples, decide whether to swap and to which candidate.
     ///
     /// Returns `nil` (DON'T reroute) when:
@@ -1456,9 +1458,8 @@ final class ActiveNavigator {
 
     // MARK: - Formatting helpers
 
-    /// "320 m" under 1 km, "1.4 km" otherwise. Both the HUD and the
-    /// dash maneuver card render this string so the rider's eye sees
-    /// the same number in both places.
+    /// "320 m" under 1 km, "1.4 km" otherwise. Currently has no caller —
+    /// the HUD and the dash overlay use their own unit-aware formatters.
     static func formatDistance(_ meters: CLLocationDistance) -> String {
         if meters < 1000 {
             return "\(Int(meters.rounded())) m"

@@ -4,10 +4,6 @@
 //
 //  Shared application state — observable, injected as @Environment.
 //
-//  Phase 1: minimal placeholders so the UI compiles. Real implementations
-//  arrive incrementally in Phases 3 (BikeLink → connectionState),
-//  4 (encoder → fps / kbps), and 6 (Nav → currentDestination, route).
-//
 
 import CoreImage
 import CoreLocation
@@ -20,10 +16,10 @@ import UIKit
 private let shareLog = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ShareIntake")
 
 /// High-level connection lifecycle as seen by the UI. Mirrors the
-/// `BikeLink` state machine that lands in Phase 3.
+/// `BikeLink` state machine.
 enum BikeConnectionState: String, Sendable {
     case disconnected
-    case wifiJoining       // Waiting for the user to join the Tripper AP
+    case wifiJoining       // Joining the Tripper AP / opening the link
     case handshaking       // RSA exchange in flight
     case reconnecting      // Link dropped after being connected; retrying
     case connected         // Heartbeats flowing, no video yet
@@ -237,7 +233,7 @@ final class AppStatus {
         // association, because forcing one can raise a system join dialog and
         // the rider is typically riding off with the phone in their pocket —
         // see the long note in `BikeLink.runConnectFlow`. `WiFiJoiner` is used
-        // only from `connectToBike()` (an explicit, foreground user action)
+        // only from `connect(to:)` (an explicit, foreground user action)
         // and `addBike()` (which persists the network with joinOnce = false so
         // iOS can auto-join it forever after).
 
@@ -325,7 +321,7 @@ final class AppStatus {
                     // Ordering note: this is deliberately a second branch
                     // rather than a relaxed condition on the first, so the
                     // healthy case (still .running when the link drops)
-                    // keeps its existing log line and behaviour untouched.
+                    // keeps its existing behaviour untouched.
                     self.stopStreaming()
                 } else if state == .connected
                             && self.activeNavigator.isNavigating
@@ -351,15 +347,8 @@ final class AppStatus {
                     // "iPhone connected"), but the dash then sits on
                     // "Timeout" and the phone UI stays on "Connected — idle"
                     // for tens of seconds — i.e. `startStreaming()` never
-                    // reaches `.running`. Everything inside that call
-                    // (sendRouteCard / sendNavStart / the post-z2 warmup /
-                    // RtpStreamer.start()) previously logged ONLY through
-                    // os.log, which never leaves the phone in a field
-                    // the logs — this exact resume path had zero
-                    // exported diagnostics, unlike the free-ride branch just
-                    // below. Log entry/exit here and instrument the guard
-                    // inside `startStreaming()` so the next report shows
-                    // exactly which step stalled instead of a silent gap.
+                    // reaches `.running`. (The diagnostic logging once added
+                    // around this path to chase it has since been removed.)
                     await self.startStreaming()
                 } else if state == .connected
                             && self.isFreeRiding
@@ -380,11 +369,8 @@ final class AppStatus {
                     if state == .connected && !self.isStreaming {
                         // Reconnected but NEITHER resume branch fired, so no
                         // RTP will be started and the dash will sit on its
-                        // loading dots until it times out. Log the inputs:
-                        // field reports of "reconnect OK on the phone, timeout
-                        // on the dash" are indistinguishable from a genuine
-                        // stream failure without them, and AppStatus otherwise
-                        // writes nothing to the log at all.
+                        // loading dots until it times out. (A diagnostic log
+                        // of the inputs used to live here; since removed.)
                     }
                     self.applyKeepAwake()
                 }
@@ -395,8 +381,8 @@ final class AppStatus {
 
     /// Strong reference to the live MKMapView source. Created lazily
     /// on first access. Lives for the duration of the app session so
-    /// the FG-baked tile cache and the location subscription persist
-    /// across start/stop streaming cycles.
+    /// the FG-baked tile cache persists across start/stop streaming
+    /// cycles.
     @ObservationIgnored private var _mapViewSource: MapViewSource?
     var mapViewSource: MapViewSource {
         if let s = _mapViewSource { return s }
@@ -433,9 +419,9 @@ final class AppStatus {
             let ctx = demoCIContext
             let model = demoDashModel
             mapViewSource.start { pixelBuffer, _ in
-                // Fires on MapViewSource's background render queue. Convert
-                // the BGRA CVPixelBuffer to a CGImage here (cheap, off-main),
-                // then hop to the main actor to publish for SwiftUI.
+                // Fires from MapViewSource's main-actor render tick. Convert
+                // the BGRA CVPixelBuffer to a CGImage here, then publish via
+                // a main-actor Task for SwiftUI.
                 let ci = CIImage(cvPixelBuffer: pixelBuffer)
                 let w = CVPixelBufferGetWidth(pixelBuffer)
                 let h = CVPixelBufferGetHeight(pixelBuffer)
@@ -485,14 +471,12 @@ final class AppStatus {
         }
 
         guard streamer == nil, let host = bikeLink.dashHost else {
-            // Silent no-op before this fix: if `streamer` was somehow
-            // non-nil (a previous stop didn't clear it) or `dashHost` came
-            // back nil (link state raced this call), `startStreaming`
-            // returned having done NOTHING — no route card, no nav-start,
-            // no RTP — with zero trace anywhere. That is indistinguishable
-            // in the field from every step below actually running and
-            // silently stalling. Name it explicitly so the two cases can be
-            // told apart from the logs.
+            // Silent no-op: if `streamer` is non-nil (still running or
+            // starting) or `dashHost` came back nil (link state raced this
+            // call), `startStreaming` returns having done NOTHING — no route
+            // card, no nav-start, no RTP — with zero trace anywhere. That is
+            // indistinguishable in the field from every step below actually
+            // running and silently stalling.
             return
         }
 
@@ -519,13 +503,13 @@ final class AppStatus {
         // reference). Field report (8/2026): free-ride reconnects kept
         // landing on the dash's "Press the cast button on RE App!" idle
         // screen even after the nav-start-ordering and post-z2-warmup
-        // fixes above, because THIS packet was never sent for free-ride at
+        // fixes below, because THIS packet was never sent for free-ride at
         // all — `ActiveNavLoop.tick()` only sends anything route-shaped
         // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
         // design, no route) announced no destination whatsoever. Use the
         // staged destination's name when navigating; fall back to a
-        // generic title for free-ride, matching the reference
-        // implementation's own default ("Navigation").
+        // generic "Free ride" title, as the reference implementation
+        // falls back to its own default ("Navigation").
         await bikeLink.sendRouteCard(
             title: stagedDestination?.name ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
@@ -640,16 +624,16 @@ final class AppStatus {
         liveActivity = nil
         // Silence spoken guidance on teardown. On a MANUAL stop this cuts any
         // prompt mid-sentence (rider ended the ride — no reason to keep
-        // talking). On ARRIVAL, onArrived speaks its confirmation AFTER this
-        // returns, so the arrival line is not lost.
+        // talking). ARRIVAL no longer comes through here — the stream stays
+        // up and onArrived speaks its confirmation, so the line is not cut.
         voiceNavigator.stop()
         Task { await link.sendNavStop() }
         streamer?.stop()
         streamer = nil
         rideStats.end()   // drop the fix subscription; totals stay on screen
         // mapViewSource is intentionally NOT released — its tile cache
-        // + location subscription should survive stop/start cycles so
-        // the next ride doesn't have to re-bake.
+        // should survive stop/start cycles so the next ride doesn't have
+        // to re-bake.
         metrics = .zero
         applyKeepAwake()
     }
@@ -821,9 +805,9 @@ final class AppStatus {
     /// changes, or `bikeLink.state` flips. The keepers only burn
     /// battery while ALL three preconditions hold:
     ///   1. user wants screen-off survival,
-    ///   2. we're actively streaming,
-    ///   3. the bike link is up — otherwise we'd be shoving UDP into a
-    ///      black hole and holding the app alive for no reason.
+    ///   2. we're streaming or a ride is in progress (`hasStreamingIntent`),
+    ///   3. the bike link is up or reconnecting — otherwise we'd be shoving
+    ///      UDP into a black hole and holding the app alive for no reason.
     private func applyKeepAwake() {
         // `isStreaming` alone is the WRONG gate here, and it caused a
         // self-sustaining deadlock in the field (log 1/9/2026):
@@ -1467,7 +1451,7 @@ final class AppStatus {
         // ~60 s — far coarser than the GPS fix rate, fine for the sun.
         maybeUpdateMapStyle(fix)
         // Ride-relevant weather, throttled inside the service (≥5 min /
-        // ≥~100 m). Off entirely when the toggle is disabled, and the
+        // ~1 km). Off entirely when the toggle is disabled, and the
         // pill is cleared so a stale warning doesn't linger.
         refreshWeather(at: fix.coordinate)
         Task { @MainActor in

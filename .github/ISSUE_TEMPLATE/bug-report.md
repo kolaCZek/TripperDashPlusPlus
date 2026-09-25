@@ -24,13 +24,13 @@ assignees: ''
 
 - **iPhone model**:
 - **iOS version**:
-- **TripperDash++ version / commit SHA**:
+- **TripperDash++ version / commit SHA** (Settings → About):
 - **Bike model + year**:
 - **Tripper firmware** (visible in official RE app → About):
 
 ## Logs
 
-<!-- Settings → Export logs (once that exists). Paste relevant lines or attach the .txt file. -->
+<!-- The app has no log export yet. If you can, capture logs with Console.app on a Mac (subsystem eu.kolaczek.tripperdashpp) or Xcode's debug console, and paste the relevant lines. -->
 
 ```
 paste log lines here

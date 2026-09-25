@@ -9,10 +9,11 @@
 //  Owns the lifecycle (start/stop), wires the components together, and
 //  publishes live metrics that the AppStatus / StreamingView read.
 //
-//  Threading: the FrameSource fires on its own queue; the encoder
-//  callback runs on a VideoToolbox-managed thread; the packetizer and
-//  UDP send happen on the streamer's serial queue to keep RTP sequence
-//  numbers monotonic without locks.
+//  Threading: the FrameSource fires its callback (MapViewSource: on the
+//  main actor); the encoder callback runs on a VideoToolbox-managed
+//  thread and hops via `sendQueue` onto the main actor, where the
+//  packetizer runs (this class is @MainActor); the NWConnection itself
+//  runs on `sendQueue`.
 //
 
 import Foundation
@@ -20,8 +21,7 @@ import Network
 import CoreMedia
 import os.log
 
-/// Live counters surfaced to the UI. Updated from the streamer's serial
-/// queue; consumers read on the main actor.
+/// Live counters surfaced to the UI. Updated and read on the main actor.
 struct RtpStreamerMetrics: Sendable, Equatable {
     var encodedFps: Double = 0
     var kbpsOut: Double = 0
@@ -130,8 +130,9 @@ final class RtpStreamer {
             return
         }
 
-        // 3. Source → encoder. Callback is on the source's background
-        //    queue; encoder serialises onto its own VideoToolbox queue.
+        // 3. Source → encoder. Callback thread is the source's choice
+        //    (MapViewSource: main actor); encoder serialises onto its own
+        //    VideoToolbox queue.
         source.start { [weak self] pixelBuffer, pts in
             self?.encoder.encode(pixelBuffer: pixelBuffer, presentationTime: pts)
         }
@@ -259,8 +260,8 @@ final class RtpStreamer {
     }
 
 
-    /// Human-readable NWConnection state for the throughput line — tells a
-    /// "never became ready" failure apart from "ready but nothing to send".
+    /// Human-readable NWConnection state — tells a "never became ready"
+    /// failure apart from "ready but nothing to send". Currently unused.
     private var connectionStateLabel: String {
         guard let connection else { return "nil" }
         switch connection.state {

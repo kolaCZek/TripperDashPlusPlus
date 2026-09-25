@@ -357,7 +357,7 @@ enum GPXGeometry {
 
     /// Reduce a dense ordered point list to at most `cap` points,
     /// preserving shape. Strategy:
-    ///   1. Douglas–Peucker with an initial epsilon, doubling epsilon
+    ///   1. Douglas–Peucker with an initial epsilon, growing epsilon ×1.6
     ///      until the result fits under `cap` (RDP alone can't take a
     ///      hard count, so we binary-feel our way to ≤cap).
     ///   2. First + last point are ALWAYS retained.

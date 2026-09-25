@@ -8,7 +8,8 @@ behaviour, wired in:
     (`showNotice(_:)` entry point, `activeNotice` state with time-based
      expiry, `drawNotice` / `drawNoticeGlyph` render path)
   - TripperDashPP/UI/MapPickerView.swift
-    (`finishArrival` drops into `startFreeRide()` + raises a "You've arrived"
+    (`finishArrival` drops into free ride — `transitionToFreeRideInPlace()`,
+     or `startFreeRide()` if no stream is running — + raises a "You've arrived"
      info notice — now STANDARD behaviour, no opt-out setting)
 
 Rider feedback (8/2026): after arriving, the dash sat on the blank nav-logo

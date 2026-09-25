@@ -127,8 +127,8 @@ def test_swift_rollingseq_has_reset():
 def test_swift_connect_flow_resets_seq():
     """`runConnectFlow` must call `seq.reset()` so every connect episode
     (fresh OR reconnect) starts the handshake from a fresh sequence. This
-    is the power-cycle reconnect fix; removing it reintroduces the 10-min
-    reconnect timeout after the bike is switched off and on."""
+    is the power-cycle reconnect fix; removing it reintroduces the
+    reconnect-budget timeout after the bike is switched off and on."""
     src = _read("TripperDashPP/Tripper/BikeLink.swift")
     # Scope to the real brace-balanced body, not a fixed character window: a
     # window silently stops covering the call as soon as the function grows.

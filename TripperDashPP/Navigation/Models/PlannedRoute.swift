@@ -93,7 +93,7 @@ final class PlannedRoute {
     // MARK: - Init
 
     /// Build from an ordered list of waypoints. Legs start empty —
-    /// the caller runs `RoutingService.recompute(_:dirtyLegIndices:)`
+    /// the caller runs `RoutingService.recompute(_:dirtyLegIndices:preferences:isStillLive:)`
     /// with `allLegIndices` to fill them.
     init(waypoints: [Waypoint]) {
         precondition(waypoints.count >= 2, "A PlannedRoute needs at least origin + destination")
@@ -185,7 +185,7 @@ final class PlannedRoute {
 
     // MARK: - Mutation (returns the leg indices needing recompute)
 
-    /// Insert a waypoint at `index` (clamped to [1, count-1] so the
+    /// Insert a waypoint at `index` (clamped to [1, count] so the
     /// origin stays first and a new stop lands before the final
     /// destination by default when index == count-1 is requested via
     /// `insertBeforeDestination`). Returns the leg indices that must be
@@ -216,8 +216,7 @@ final class PlannedRoute {
         addWaypoint(wp, at: waypoints.count - 1)
     }
 
-    /// Remove a waypoint by id. Refuses to drop below 2 waypoints, and
-    /// (when removing the current-location origin) keeps a sane origin.
+    /// Remove a waypoint by id. Refuses to drop below 2 waypoints.
     /// Returns the leg indices that must be recomputed (the merged leg
     /// across the gap).
     @discardableResult

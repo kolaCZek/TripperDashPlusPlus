@@ -3,10 +3,10 @@
 //  TripperDashPP
 //
 //  Settings surface. The actual stream lifecycle is driven from
-//  MapPickerView: starting navigation also starts the RTP pipeline
-//  (MapViewSource → H264Encoder → RtpPacketizer), and ending navigation
-//  tears it down. This view is read-mostly — pick units, watch live
-//  stream counters, read the build.
+//  MapPickerView: starting navigation (or a free ride) also starts the RTP
+//  pipeline (MapViewSource → H264Encoder → RtpPacketizer), and ending it
+//  tears it down. This view is settings only — manage bikes, pick units /
+//  voice / alerts / map style, clear caches, read the build.
 //
 
 import CoreLocation

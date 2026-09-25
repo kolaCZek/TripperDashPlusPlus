@@ -19,7 +19,7 @@
 //  here is the CPU-composited RouteProgressMap thumbnail, not a live map.
 //
 //  Stats come straight from the live RideStatsService accumulator — the
-//  same numbers the post-ride "Trip" card shows — so "Save ride as GPX"
+//  same numbers the post-ride "Trip" card shows — so "Save ride"
 //  stays on that Trip card after the ride ends, exactly as it does after
 //  navigation. This HUD is purely informational; the "Stop free ride"
 //  button lives in MapPickerView's control bar.

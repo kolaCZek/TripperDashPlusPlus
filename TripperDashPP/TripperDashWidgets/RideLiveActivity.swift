@@ -144,8 +144,9 @@ private struct LockScreenView: View {
 
 // MARK: - Shared glyph
 
-/// The maneuver arrow. While rerouting we spin the recalculating symbol so the
-/// rider sees the route is being recomputed even at a glance.
+/// The maneuver arrow. While rerouting the app sends the recalculating symbol
+/// and we tint it yellow so the rider sees the route is being recomputed even
+/// at a glance.
 private struct ManeuverGlyph: View {
     let symbol: String
     let rerouting: Bool

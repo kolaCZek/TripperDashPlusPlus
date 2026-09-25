@@ -7,7 +7,7 @@
 //
 //  Deliberately NOT a live MKMapView. The detail view lives inside the
 //  Saved-routes sheet, which can be pushed/popped while the picker's own
-//  MapPreviewView snapshotter and (when streaming) MapViewSource are also
+//  live InteractiveMapView and (when streaming) MapViewSource are also
 //  competing for Apple's shared Metal pool. A live MKMapView here risks
 //  the MTLDebugDevice drain assertion on dismiss — the exact failure
 //  MapPreviewView was written to avoid. So we reuse that proven recipe:

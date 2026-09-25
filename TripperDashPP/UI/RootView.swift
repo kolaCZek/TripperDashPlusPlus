@@ -2,8 +2,8 @@
 //  RootView.swift
 //  TripperDashPP
 //
-//  Top-level navigation container. Phase 1 stub — full picker + streaming
-//  views land in Phases 5/6.
+//  Top-level navigation container: hosts MapPickerView in a
+//  NavigationStack.
 //
 
 import SwiftUI

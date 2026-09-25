@@ -53,8 +53,8 @@ struct RoutePoint: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-/// Where the route's geometry came from — drives the import reduction
-/// strategy and a small badge in the UI.
+/// Where the route's geometry came from — drives the navigation-time
+/// reduction strategy and a small badge in the UI.
 enum RouteKind: String, Codable, Sendable {
     /// Standalone GPX `<wpt>` stops: sparse, every one is a real
     /// destination. Kept as-is.
@@ -68,8 +68,8 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var kind: RouteKind
-    /// Ordered navigable points. For `.track` these are already reduced
-    /// to ≤`RoutePoint.navigableCap`; for `.waypoints` it's the full set.
+    /// Ordered points at full precision. For `.track` the reduction to
+    /// ≤`RoutePoint.navigableCap` happens only at navigation time.
     var points: [RoutePoint]
     /// Length measured along the ORIGINAL trace (haversine sum), metres.
     /// Stored at import so the list doesn't have to recompute, and so a
@@ -142,8 +142,8 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Bridge each point into a `Waypoint`. The first point is flagged so
-    /// callers can choose to replace it with the live-GPS origin.
+    /// Bridge each point into a `Waypoint`. An unnamed first point gets the
+    /// "Route start" name; callers can choose to replace it with the live-GPS origin.
     func waypoints() -> [Waypoint] {
         points.enumerated().map { idx, p in
             Waypoint(name: p.name ?? (idx == 0 ? "Route start"

@@ -14,9 +14,10 @@ async + timer-driven; here we model it as discrete ticks so the
 transitions and the 10-min cap are pinned deterministically. Mirrors
 the structure of test_reroute_lifecycle.py / test_arrival_detection.py.
 
-Decisions (rider-confirmed): retry every 5 s; hard cap 10 min → then
-.error; Cancel (user disconnect) clears the intent any time; Wi-Fi
-return wakes a retry immediately but does NOT extend the 10-min budget.
+Decisions (rider-confirmed): retry every 5 s; hard cap 10 min (Swift
+has since raised it to 30 min; this model keeps 10) → then .error;
+Cancel (user disconnect) clears the intent any time; Wi-Fi return wakes
+a retry immediately but does NOT extend the 10-min budget.
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-# Matches K1GConstants.swift.
+# RECONNECT_INTERVAL matches K1GConstants.swift. RECONNECT_MAX_DURATION does
+# NOT: Swift raised `reconnectMaxDuration` to 1800 s (30 min); this model keeps
+# the original 600 s — the cap mechanics are what's pinned, not the value.
 RECONNECT_INTERVAL = 5.0          # seconds between attempts
 RECONNECT_MAX_DURATION = 600.0    # 10-minute hard cap
 

@@ -11,9 +11,10 @@
 //
 //   1. **Video burn-in** — `ManeuverIcon.draw(_:in:)` renders a 70 × 70
 //      glyph into a CGContext from pure path commands (no asset bundle,
-//      no SF Symbol rasterisation). Used for the top-left overlay on
-//      the H.264 frame so the rider sees the maneuver inside the map
-//      view.
+//      no SF Symbol rasterisation). Meant for a top-left overlay on
+//      the H.264 frame; currently unused (the `drawNavOverlay` call in
+//      `MapViewSource` is commented out, so the dash bubble is the only
+//      glyph).
 //
 //   2. **Native dash bubble** — `ManeuverKind.wireByte` returns the
 //      catalog byte the dash firmware uses to render its own bubble
@@ -44,10 +45,10 @@ import Foundation
 ///
 /// Cases are intentionally finer-grained than the legacy enum so the
 /// `wireByte` mapping can pick a distinct catalog entry per variant.
-/// Where MapKit can't disambiguate (e.g. roundabout exit count) we fall
-/// back to a "best guess" exit number (0 by default), which renders as
-/// a generic CCW roundabout glyph on the dash; F2b will replace that
-/// with a proper exit counter.
+/// The roundabout exit count is parsed from text (carried from the
+/// preceding step or inferred from the turn direction when missing);
+/// only when all of that fails does it fall back to exit 0, a generic
+/// roundabout glyph (CCW or CW per driving side).
 enum ManeuverKind: Equatable {
     case straight                                  // 0x09 (short) / 0x3B (long)
     case slightLeft                                // 0x18
@@ -347,8 +348,8 @@ enum ManeuverKind: Equatable {
 /// table — several wire-byte variants (different roundabout exit counts,
 /// arrive-left vs arrive-right, fork variants) collapse to a single
 /// drawn glyph here. That's OK: the dash bubble is the authoritative
-/// rendering; the video burn-in is a fallback so the rider can still
-/// see *something* if the K1G control plane stalls.
+/// rendering; the video burn-in (currently not drawn) was a fallback so
+/// the rider could still see *something* if the K1G control plane stalls.
 enum ManeuverIcon {
     /// Standard glyph size. Tuned to read cleanly at 526 × 300 on the
     /// dash TFT (rider distance ~50 cm).
@@ -361,8 +362,8 @@ enum ManeuverIcon {
         ctx.saveGState()
         defer { ctx.restoreGState() }
 
-        // Common pen settings — bold white-on-dark arrow body with a
-        // 1 px black halo so it stays legible over any map background.
+        // Common pen settings — bold white arrow body; the caller draws
+        // the dark backdrop so it stays legible over any map background.
         ctx.setLineWidth(8)
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
@@ -461,9 +462,8 @@ enum ManeuverIcon {
 
     private static func drawMerge(_ ctx: CGContext) {
         ctx.beginPath()
-        // Two shafts converging upward: one straight from (35,60) up,
-        // one diagonal from (18,55) up-right meeting at (35,30), then
-        // continuing up with arrowhead.
+        // A diagonal from (18,58) up-right to (35,30), then a shaft
+        // continuing up to (35,14) with arrowhead.
         ctx.move(to: CGPoint(x: 18, y: 58))
         ctx.addLine(to: CGPoint(x: 35, y: 30))
         ctx.move(to: CGPoint(x: 35, y: 30))

@@ -44,7 +44,7 @@ struct RecentDestinationsStoreTests {
     @Test func samePlaceToleratesTinyCoordinateJitter() {
         let s = freshStore()
         s.record(dest("Cafe", 50.123456, 14.123456))
-        // ~5 m jitter on the same POI — must be treated as the same place.
+        // Sub-metre jitter on the same POI — must be treated as the same place.
         s.record(dest("Cafe", 50.123459, 14.123458))
         #expect(s.items.count == 1)
     }

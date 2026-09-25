@@ -60,11 +60,11 @@ final class UserPuckAnnotationView: MKAnnotationView {
 
     private func setup() {
         frame = CGRect(x: 0, y: 0, width: side, height: side)
-        // Let touches fall through to the map (tap-to-drop-pin must keep
-        // working even right on the puck). hit-testing is gated by
+        // Let touches fall through to the map (long-press-to-drop-pin must
+        // keep working even right on the puck). hit-testing is gated by
         // `isUserInteractionEnabled`, NOT `isEnabled` (which only blocks
         // annotation *selection*) — so disable interaction outright and
-        // the map's tap recognizer fires even directly over the puck.
+        // the map's long-press recognizer fires even directly over the puck.
         isUserInteractionEnabled = false
         isEnabled = false
         canShowCallout = false

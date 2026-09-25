@@ -9,7 +9,7 @@
 //   - A modal sheet (even at `.medium`) covers ~half the map and, more
 //     importantly, BLOCKS the map underneath — the rider couldn't tap a
 //     nearby point to retarget without first dismissing the card.
-//   - This card floats at the bottom over a still-live map. Tapping
+//   - This card floats at the bottom over a still-live map. Long-pressing
 //     another point on the map just re-seeds the card with the new
 //     coordinate (handled by the parent's `onTap`), so "pick something,
 //     then nudge to a neighbour" is one fluid gesture.

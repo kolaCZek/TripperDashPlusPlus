@@ -5,20 +5,20 @@
 //  Best-effort speed-camera overlay for the dash map. Mirrors the kind of
 //  radar awareness riders expect from a nav app, sourced from
 //  OpenStreetMap (`highway=speed_camera`) via the public Overpass API.
-//  Cameras along the active route are prefetched once when navigation
-//  starts (bbox query around the route corridor), cached on disk, and
-//  handed to `MapViewSource` which draws a small camera pictograph at each
+//  Cameras along the active route are prefetched when navigation starts
+//  (bbox query around the route corridor) and again when a reroute / leg
+//  change leaves the covered area, cached on disk, and handed to
+//  `MapViewSource` which draws a small camera pictograph at each
 //  position (see `MapViewSource.drawSpeedCameras`).
 //
 //  IMPORTANT — this is a BEST-EFFORT map enrichment, not a guaranteed
 //  safety system. OSM speed-camera coverage is crowd-sourced and
 //  incomplete: some real cameras are missing, some mapped ones are gone,
 //  and mobile/temporary cameras are never in the data. The rider must
-//  not treat an empty map as "no enforcement here." This is stated again
-//  in the settings footer so the expectation is set in the UI too.
+//  not treat an empty map as "no enforcement here."
 //
 //  Why Overpass + OSM (not a commercial radar DB):
-//    - Keyless and free, consistent with the app's no-paid-entitlement
+//    - Keyless and free, consistent with the app's keyless
 //      stance (see CLAUDE.md). Commercial radar feeds (TomTom, RadarBot)
 //      need an API key + a paid plan + per-region licensing.
 //    - OSM already underpins the basemap; staying in the OSM ecosystem
@@ -92,7 +92,7 @@ nonisolated struct SpeedCameraData: Sendable {
 // MARK: - Service
 
 /// Fetches + caches OSM speed cameras along a route. The actor owns the
-/// network session, the in-RAM cache and the disk cache. Results are
+/// network session and the disk cache. Results are
 /// `Sendable` value types so the MainActor renderer can hold them without
 /// a hop.
 actor SpeedCameraService {

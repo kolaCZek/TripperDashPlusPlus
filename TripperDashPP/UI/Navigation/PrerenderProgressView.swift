@@ -3,7 +3,8 @@
 //  TripperDashPP
 //
 //  Full-screen progress sheet shown while the route tile cache bakes
-//  before navigation can start. The bake takes ~10-20 s for a typical
+//  right after navigation starts (the stream is already live; see
+//  MapPickerView.prerenderRouteTiles). The bake takes ~10-20 s for a typical
 //  35 km route — long enough to need explicit progress feedback,
 //  short enough to not need a cancel button.
 //

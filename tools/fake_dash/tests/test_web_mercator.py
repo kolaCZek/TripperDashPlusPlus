@@ -186,7 +186,7 @@ class TestTileBox:
     a given anchor at a given radius."""
 
     def test_4x4_box_at_1500m_radius(self):
-        """At z=15 near Prague, gridSide=4 (our RouteTileCache setting)
+        """At z=15 near Prague, gridSide=4 (RouteTileCache's old value; now 5)
         should bracket a ~1.5 km radius. mpp ≈ 4.9 m/px at 50°N → one
         tile = 1254 m, 4 tiles diameter = ~5 km, which covers a ~2.5 km
         radius. We test a smaller 1500 m radius so the 4 tiles have a

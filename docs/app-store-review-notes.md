@@ -21,7 +21,7 @@ the full navigation pipeline with no hardware required.
    connected dash (no real Wi-Fi/socket needed) and shows the streamed map preview
    in-app.
 3. Pick any destination (search or tap the map) and start navigation, or use
-   "Free ride (map only)". You will see the same 526×300 map that would be sent to
+   "Start free ride (map only)". You will see the same 526×300 map that would be sent to
    the dash, with route line, heading, ETA, speed limits and voice guidance.
 4. Everything works on a plain iPhone with no accessory. No pairing, no account,
    no login.
@@ -39,7 +39,9 @@ map/route current with the screen off, the app needs background location.
 - It is NOT used for advertising, analytics, profiling, or any secondary purpose.
 - Nothing is uploaded to a server we operate — there is no backend. Location stays
   on the device and is sent only to the bike's local dash over Wi-Fi.
-- The "Always" prompt copy and the in-app onboarding both explain this to the user.
+- The "Always" prompt copy, the in-app permissions checklist (Settings → About →
+  Check permissions) and a warning shown before a ride on "While Using" all explain
+  this to the user.
 
 The app declares the `location` and `audio` background modes:
 - `location` — the wakelock that keeps the map/dash live with the screen off.
@@ -56,7 +58,8 @@ This needs no interaction in Demo Mode. The entitlement is
 ### Networking / keyless design
 
 Map tiles come from OpenStreetMap, routing/search from Apple MapKit, weather from
-Open-Meteo, speed cameras from OpenStreetMap Overpass — all keyless, over cellular.
+Open-Meteo, speed cameras and speed limits from OpenStreetMap Overpass — all keyless,
+over cellular.
 The Wi-Fi link to the bike (192.168.1.1) carries only the rendered video; it has no
 internet. Two simultaneous networks (cellular + bike Wi-Fi) are by design.
 

@@ -16,7 +16,8 @@
 //  raw 1 Hz feed would waste the budget and could stall the Lock Screen. We
 //  keep the last-pushed snapshot and only push when a rider would actually
 //  notice a difference (maneuver glyph, reroute flag, distance bucket, ETA
-//  minute, or ≥1% progress). 1 Hz in, ≪1 Hz out.
+//  minute, secondary line, remaining distance, or ≥1% progress). 1 Hz in,
+//  ≪1 Hz out.
 //
 //  Availability: ActivityKit is iOS 16.1+. The app targets iOS 18.6, so the
 //  APIs are always present; the `areActivitiesEnabled` gate still matters
@@ -104,7 +105,7 @@ final class LiveActivityController {
         }
     }
 
-    /// End the activity immediately (rider stopped or arrived).
+    /// End the activity immediately (streaming stopped).
     func end() {
         guard let activity else { return }
         self.activity = nil

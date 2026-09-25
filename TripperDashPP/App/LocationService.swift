@@ -11,10 +11,10 @@
 //       while the screen is locked (this is the only reason Phase 6
 //       worked at all).
 //    2. Live position feed for the map frame source — `MapViewSource`
-//       subscribes to `lastLocation` / `lastHeading` and re-centres the
+//       subscribes via `subscribeFixes` / `subscribeHeading` and re-centres the
 //       composited tile on every update.
 //    3. Turn-by-turn nav — the active-nav route engine consumes
-//       `lastLocation` updates to advance maneuver state.
+//       `lastFix` updates to advance maneuver state.
 //
 //  Owning a single CLLocationManager (instead of one per consumer)
 //  matters because:
@@ -54,10 +54,9 @@ nonisolated struct Fix: Sendable, Equatable {
         timestamp = loc.timestamp
     }
 
-    /// Memberwise init used by the motion interpolator to synthesize a display
-    /// `Fix` at an extrapolated coordinate while carrying the real GPS-derived
-    /// speed/course forward (so heading + speed-limit logic keep working off
-    /// the same struct).
+    /// Memberwise init. Was used by the since-removed motion interpolator to
+    /// synthesize a display `Fix` at an extrapolated coordinate while carrying
+    /// the real GPS-derived speed/course forward; no callers remain.
     init(coordinate: CLLocationCoordinate2D,
          altitude: CLLocationDistance,
          horizontalAccuracy: CLLocationAccuracy,
@@ -149,7 +148,7 @@ final class LocationService: NSObject {
     /// consumers have released.
     private var consumers: [UUID: LocationMode] = [:]
 
-    /// Fix subscribers (map source, nav engine, telemetry).
+    /// Fix subscribers (map source, ride stats).
     private var fixSubscribers: [UUID: (Fix) -> Void] = [:]
     private var headingSubscribers: [UUID: (Heading) -> Void] = [:]
 
@@ -186,9 +185,6 @@ final class LocationService: NSObject {
     /// across all active slots.
     @discardableResult
     func start(mode: LocationMode) -> UUID {
-        // Arm the delivery watchdog alongside the first consumer. Idempotent,
-        // and it must not be tied to the streamer: the whole point is that it
-        // keeps beating on its own queue when the main actor is blocked.
         let token = UUID()
         consumers[token] = mode
         log.info("Consumer \(token.uuidString.prefix(8)) added (mode=\(mode.rawValue), total=\(self.consumers.count))")

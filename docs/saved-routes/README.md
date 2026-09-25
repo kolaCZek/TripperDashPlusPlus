@@ -34,6 +34,8 @@ editing in the *Points* section:
 - **Delete a point** — swipe or the red minus. The store enforces a
   **2-point floor** (`updatePoints` refuses to drop below start+end), and
   a multi-delete that would cross the floor only removes down to it.
+- Inline editing is only offered for routes with ≤20 points; a longer
+  route (e.g. a recorded track) just shows its point count.
 - **Reorder points** — drag handles, **waypoint routes only**. A recorded
   `.track`'s order *is* its shape, so reordering is disabled there (the
   `.onMove` handler is `nil`) — only deletion of a stray point is offered.
@@ -47,8 +49,8 @@ The importer (`GPXImporter.parse`) picks ONE geometry, by priority:
 
 | GPX content          | `RouteKind`  | Treatment                                  |
 |----------------------|--------------|--------------------------------------------|
-| `<rte><rtept>`       | `.track`     | reduced to ≤24 via-points (Douglas–Peucker)|
-| `<trk><trkseg><trkpt>` | `.track`   | all segments concatenated, then reduced    |
+| `<rte><rtept>`       | `.waypoints` if ≤20 points (`RoutePoint.editableListThreshold`), else `.track` | kept as-is |
+| `<trk><trkseg><trkpt>` | `.track`   | all segments concatenated                  |
 | `<wpt>` only         | `.waypoints` | every waypoint kept as a real stop         |
 
 - If a file has **both** a track and loose waypoints, the **track wins**
@@ -58,16 +60,20 @@ The importer (`GPXImporter.parse`) picks ONE geometry, by priority:
   on the element's **local name**.
 - Points with missing / NaN / out-of-range `lat`/`lon` are skipped, not
   fatal.
+- The FULL point set is saved at import (preview map + GPX export keep
+  full precision). A `.track` is reduced to ≤40 via-points
+  (`RoutePoint.navigableCap`, Douglas–Peucker) only transiently when it
+  is handed to the planner (`beginPlanningFromSavedRoute`).
 - Named points (`<name>` inside a `<wpt>`/`<rtept>`) are **force-kept**
-  through reduction — a rider-named fuel stop or viewpoint never gets
+  through that reduction — a rider-named fuel stop or viewpoint never gets
   simplified away.
 - **Distance** is measured along the FULL, pre-reduction trace, so a
   simplified track still reports its true on-the-ground length.
 
-### Why ≤24 via-points
+### Why ≤40 via-points
 
 MKDirections is called once per leg (point→point), so the cap bounds
-network + recompute cost. 24 legs is already a long tour; Douglas–Peucker
+network + recompute cost and stays within Apple's rate limits; Douglas–Peucker
 keeps the most significant vertices, so the navigated line still tracks
 the original GPX closely. This reuses the existing multi-waypoint engine
 (`PlannedRoute` + `RoutingService`) verbatim — see
@@ -103,6 +109,7 @@ route library can't take the rider's Home/Work pins down with it.
 |------|------|
 | `Navigation/Models/SavedRoute.swift` | `SavedRoute` + `RoutePoint` + `RouteKind` (Codable) |
 | `Navigation/GPXParser.swift` | `GPXImporter` (SAX) + `GPXGeometry` (haversine, RDP, validity) |
+| `RideStats/GPXExporter.swift` | GPX 1.1 export of a saved route (detail view → *Export as GPX*) |
 | `Navigation/SavedRoutesStore.swift` | persisted library, CRUD |
 | `Navigation/RouteStartPlanner.swift` | pure first/nearest decision logic |
 | `UI/Navigation/SavedRoutesListView.swift` | library list + `.fileImporter` |
@@ -120,7 +127,7 @@ build on a Mac):
 - `tools/fake_dash/tests/gpx_geometry_mirror.py` — port of `GPXGeometry`
   (incl. `bounding_span` used by the preview map) + `RouteStartPlanner` +
   the GPX extraction-priority rule.
-- `tools/fake_dash/tests/test_gpx_import.py` — 48 tests: haversine,
+- `tools/fake_dash/tests/test_gpx_import.py` — 61 tests: haversine,
   perpendicular distance, RDP reduce (endpoints/names kept, hard cap,
   order preserved, idempotent), extraction priority (rte>trk>wpt),
   tolerance (namespaces, bad coords, name fallback), full-trace distance,
@@ -143,6 +150,6 @@ cd tools/fake_dash && python3 -m pytest tests/test_gpx_import.py -q
   MKDirections between reduced points, not by snapping to the raw GPX
   line. This keeps maneuver glyphs, reroute, and ETA working. A true
   "ride the exact line" mode would be a separate engine.
-- **Build verification** — written + statically checked on Linux
-  (cross-file API audit, brace balance, Python mirror suite green). A
-  real `xcodebuild` pass on a Mac is still required before shipping.
+- **Build verification** — the Python mirror suite pins the logic; the
+  app itself is built and unit-tested by `xcodebuild test` in
+  `.github/workflows/ios-build.yml` on every push.

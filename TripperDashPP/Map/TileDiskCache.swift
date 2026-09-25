@@ -15,13 +15,13 @@
 //       came from tile.openstreetmap.org, OpenTopoMap, or a future
 //       tiles.kolaczek.cz self-host. Switching providers doesn't
 //       invalidate the cache (it just becomes "wrong style" until
-//       OSM-ToS dictates re-fetch, see `clear()`).
+//       OSM-ToS dictates re-fetch, see `clear(style:)`).
 //
-//    3. **Browseable** — `Caches/RouteTiles/15/8800/5512.png` is a
+//    3. **Browseable** — `Caches/RouteTiles/osm/15/8800/5512.png` is a
 //       real PNG you can open in Preview. Debugging is delightful.
 //
 //  Layout:
-//      Caches/RouteTiles/<z>/<x>/<y>.png
+//      Caches/RouteTiles/<namespace>/<z>/<x>/<y>.png
 //
 //  Eviction: lightweight age-based purge on app startup. Tiles older
 //  than `maxAgeDays` (default 30 — matches OSM tile cache header
@@ -119,8 +119,8 @@ actor TileDiskCache {
         }
     }
 
-    /// Returns (count, bytes) for ONE style's namespace — used by the
-    /// Settings UI so we can show "Light tiles • 84 • 7.2 MB" per palette.
+    /// Returns (count, bytes) for ONE style's namespace. Not called by the
+    /// Settings UI (it uses `statsAll`); both palettes share `osm` anyway.
     func stats(style: MapStyle) -> (count: Int, bytes: Int) {
         let dir = baseDir.appendingPathComponent(style.tileCacheNamespace, isDirectory: true)
         return stats(in: dir)
@@ -145,7 +145,8 @@ actor TileDiskCache {
         return (count, total)
     }
 
-    /// Nuke ONE style's tiles (Settings → per-palette trash). Recreates
+    /// Nuke ONE style's tiles (not called by the UI — Settings uses
+    /// `clearAll`). Recreates
     /// the empty namespace directory so subsequent writes don't have to.
     func clear(style: MapStyle) {
         let fm = FileManager.default
@@ -160,7 +161,7 @@ actor TileDiskCache {
     }
 
     /// Nuke the entire disk cache (all styles). Called from Settings →
-    /// "Clear map cache". Recreates the empty directory so subsequent
+    /// "Clear cache". Recreates the empty directory so subsequent
     /// writes don't have to re-create it under the hood.
     func clearAll() {
         let fm = FileManager.default

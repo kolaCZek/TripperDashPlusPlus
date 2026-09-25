@@ -5,7 +5,10 @@ implemented in:
   - TripperDashPP/Map/RouteTileCache.swift
     (`coveringPositionFallbackTile(for:)` pure query,
      `ensurePositionFallback(near:)` the sole bake producer,
-     `positionFallbackValidRadius` = 800 m re-bake radius)
+     `positionFallbackValidRadius` = 800 m cover radius; Swift now
+     re-bakes earlier at `positionFallbackRefreshRadius` = 400 m — see
+     test_position_fallback_refresh.py — while this mirror still uses
+     the single 800 m radius for both)
   - TripperDashPP/Map/MapViewSource.swift
     (`drawTileCacheFrame` → `drawOffCorridorFallbackFrame` when
      `nearestTile` misses; `ensurePositionFallbackTile` throttle wrapper;

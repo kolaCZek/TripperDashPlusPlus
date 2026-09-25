@@ -25,7 +25,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Install Python deps first (cached layer) before copying source.
+# Copy metadata + source, then editable-install (pulls in Python deps).
 COPY pyproject.toml README.md ./
 COPY fake_dash/ ./fake_dash/
 

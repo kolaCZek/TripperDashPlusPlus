@@ -4,10 +4,10 @@
 //
 //  Phase 7 (full) — top-level navigation experience.
 //
-//  Architecture: the picker has THREE mutually exclusive UI phases:
+//  Architecture: the picker has FOUR mutually exclusive UI phases:
 //
 //    • .picking     — live MKMapView + sticky search bar + quick access
-//                      tiles, "Navigate" CTA, no stream running.
+//                      tiles, connect / "Start navigation" CTA, no stream running.
 //                      feat/route-waypoints: when a plan is being built
 //                      (status.plannedRoute != nil) the picking phase
 //                      shows the PLANNING UI instead (PlanningMapView +
@@ -16,6 +16,8 @@
 //                      is preserved.
 //    • .navigating  — NavigationHUD on phone (ETA/turn/distance),
 //                      MapViewSource pushing frames to dash.
+//    • .freeRiding  — FreeRideHUD on phone, MapViewSource streaming the
+//                      map to the dash with no route.
 //    • .transitioning — brief blank state (~500 ms) between the above
 //                      so Apple Maps' shared GPU pool drains before we
 //                      swap the live MKMapView <-> the BG tile renderer.
@@ -68,7 +70,7 @@ struct MapPickerView: View {
     @State private var selectedDestination: Destination?
     /// One-shot camera focus request handed to InteractiveMapView. Set
     /// when a search result / favorite is picked, or the recenter button
-    /// is tapped. A plain map tap deliberately does NOT set it, so the
+    /// is tapped. A map long-press deliberately does NOT set it, so the
     /// camera holds still while the rider drops pins around.
     @State private var focusRequest: MapFocusRequest?
     /// Rider dismissed the post-arrival RideStatsPanel via its close
@@ -759,9 +761,9 @@ struct MapPickerView: View {
     /// navigation — `FreeRideHUD` — with the maneuver/ETA slots swapped
     /// for a "Free ride" card + Duration/Distance + a position-only map.
     ///
-    /// No GPX affordance here: like navigation, "Save ride as GPX" lives
-    /// only on the post-ride "Trip" card once the ride has ENDED (surfaced
-    /// via `rideStatsPanel` in `pickingBody` after `stopFreeRide()`).
+    /// No save affordance here: like navigation, "Save ride" lives only on
+    /// the post-ride "Trip" card (`RideStatsPanel`) once the ride has ENDED
+    /// (surfaced in `browsingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
         VStack(spacing: 0) {
@@ -1051,9 +1053,6 @@ struct MapPickerView: View {
 
     // MARK: - Navigation transitions
 
-    /// Push the route geometry into the renderer + bake fresh tiles.
-    /// Called both at navigation start AND on every reroute / leg
-    /// advance (via the `onActiveRouteChanged` callback).
     /// Synchronous part of route install: attach polyline + route to the
     /// renderer and kick off best-effort corridor prefetches (cameras,
     /// limits). Does NOT bake tiles — that's `prerenderRouteTiles`, run in
@@ -1093,7 +1092,7 @@ struct MapPickerView: View {
     /// starts, until tiles catch up" — this was the gap.)
     ///
     /// `buildLayers: false` on this EARLY install, though: `setTileCache`'s
-    /// side effect of kicking off the coarse (z=12, 7x7=49 tiles) + fine
+    /// side effect of kicking off the coarse (z=13, 7x7=49 tiles) + fine
     /// (z=16, 49 tiles) sibling bakes is itself real MainActor CGContext
     /// work (see `RouteTileCache.composite` — no `nonisolated`, all tile
     /// stitching runs on the main actor). Firing that at t=0 stacks THREE
@@ -1211,8 +1210,8 @@ struct MapPickerView: View {
         let renders: [AlternativeRouteRender] = alts.compactMap { route in
             let coords = route.polyline.coordinateList()
             // Only surface an alternative that has a DRAWABLE line. The
-            // renderer skips a polyline with < 2 points (`drawAlternativeLines`
-            // guards `coords.count > 1`), but the ETA bubble is drawn from a
+            // renderer skips a polyline with < 2 points (the alt-line pass in
+            // `drawProjectedTile` guards `coords.count > 1`), but the ETA bubble is drawn from a
             // separate `bubbleAnchor` that's always valid — so a degenerate
             // alt (empty / single-point polyline, which MapKit occasionally
             // returns near a fork/roundabout) produced an ORPHAN "−2 min"
@@ -1409,8 +1408,8 @@ struct MapPickerView: View {
     /// Finalize an arrival. The stream stayed UP through the "You've arrived"
     /// card (AppStatus.onArrived no longer tears it down), so here we swap the
     /// live map from navigation to free-ride IN PLACE — the dash never blinks
-    /// out of projection. `stop()` clears `isNavigating` (so `mode` returns to
-    /// `.picking` and the running ActiveNavLoop drops into its no-maneuver
+    /// out of projection. `stop()` clears `isNavigating` (so `mode` leaves
+    /// `.navigating` and the running ActiveNavLoop drops into its no-maneuver
     /// free-ride heartbeat); `transitionToFreeRideInPlace()` swaps the tile
     /// cache + route geometry without restarting the RTP stream.
     private func finishArrival() async {

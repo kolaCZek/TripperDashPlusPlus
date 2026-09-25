@@ -7,8 +7,8 @@
 //  (NetworkExtension).
 //
 //  ENTITLEMENT: this requires `com.apple.developer.networking.HotspotConfiguration`,
-//  which is a PAID Apple Developer Program capability. The rest of the app runs
-//  on a free Personal Team, but this feature does not — see CLAUDE.md.
+//  which is a PAID Apple Developer Program capability; because of it a free
+//  Personal Team can't sign the app at all — see CLAUDE.md.
 //
 //  Tripper APs all use the same fixed passphrase ("12345678", WPA2) and the
 //  same gateway (192.168.1.1). We register the network (persisted, not

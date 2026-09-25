@@ -10,8 +10,9 @@
 //
 //  Frames are delivered as `CVPixelBuffer` (BGRA, 526×300 — native
 //  Tripper TFT resolution per better-dash captures) at a caller-
-//  controlled cadence. The source owns its own dispatch timer and just
-//  hands ready buffers to the supplied callback on a background queue;
+//  controlled cadence. The source owns its own render loop (MapViewSource:
+//  a Swift `Task` ticking on the main actor) and hands ready buffers to the
+//  supplied callback;
 //  the encoder downstream handles backpressure by dropping if its
 //  compression session is busy.
 //
@@ -28,8 +29,9 @@ protocol FrameSource: AnyObject {
     var frameSize: CGSize { get }
     var targetFps: Int { get }
 
-    /// Begin producing frames. The callback fires on a background queue;
-    /// implementations MUST NOT block on it.
+    /// Begin producing frames. The callback fires on the source's own
+    /// thread (MapViewSource: main actor); implementations MUST NOT block
+    /// on it.
     func start(onFrame: @escaping (CVPixelBuffer, CMTime) -> Void)
 
     /// Stop producing frames. Safe to call multiple times.

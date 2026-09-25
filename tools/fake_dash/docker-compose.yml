@@ -8,9 +8,11 @@
 #   - On Linux dev hosts you can switch to `network_mode: host` for direct
 #     UDP socket access (uncomment below).
 #   - Default `bridge` + port mapping works everywhere (Linux, macOS Docker
-#     Desktop, Windows WSL2). iOS Simulator can hit it via 127.0.0.1.
-#   - For a physical iPhone on the same LAN, set `bike_ip = <host IP>` in
-#     the iOS app — Docker forwards UDP/2000 and UDP/5000 to this container.
+#     Desktop, Windows WSL2).
+#   - The iOS app has no dash-IP setting: it targets K1G.bikeIPv4
+#     (192.168.1.1) unless the `BikeLink.bikeHost` UserDefaults key is set
+#     (e.g. to 127.0.0.1 in the Simulator). Docker forwards UDP/2000 and
+#     UDP/5000 to this container.
 #
 
 services:
@@ -29,7 +31,7 @@ services:
     volumes:
       - ./captures:/captures
       - ./keys:/keys
-      # Mount source for hot-reload during dev (comment out for prod-like runs):
+      # Mount source so edits apply on restart, no rebuild (comment out for prod-like runs):
       - ./fake_dash:/app/fake_dash
     environment:
       FAKE_DASH_BIND: "0.0.0.0"

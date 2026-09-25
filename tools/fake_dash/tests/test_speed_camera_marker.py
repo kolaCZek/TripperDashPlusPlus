@@ -2,14 +2,15 @@
 Tests for the speed-camera map marker in `MapViewSource.swift`.
 
 The marker draws a camera pictograph at each mapped `highway=speed_camera`
-POI along the route, with the posted speed limit beside it. fake_dash
-can't run Swift / CoreGraphics, so this is a two-part guard:
+POI along the route. The speed number that used to sit beside it was
+removed (8/2026). fake_dash can't run Swift / CoreGraphics, so this is a
+two-part guard:
 
   1. A pure-Python mirror of the km/h → mph conversion + label format,
      so the unit math itself is pinned.
   2. Swift-source drift guards asserting the renderer still carries the
-     enlarged icon geometry, the speed label POSITIONED BESIDE the icon
-     (not beneath it), and the units-toggle plumbing.
+     enlarged icon geometry, that the speed pill/label stays gone, and
+     the units-toggle plumbing (still used by the speed-limit sign).
 
 Rider feedback driving these (2026-06):
   - "make the icon bigger" → marker disc r 11 → 15, body 14×9 → 20×13.
@@ -57,7 +58,8 @@ KMH_PER_MPH = 1.609344
 
 
 def camera_label(maxspeed_kmh: int, imperial: bool) -> str:
-    """Mirror of drawCameraMarker's label construction.
+    """Mirror of drawCameraMarker's former label construction (the label
+    was removed 8/2026; the conversion is still `displayLimit`).
 
     OSM `maxspeed` is always km/h (European dataset). Metric shows it
     verbatim; imperial converts to mph (rounded). The numeric conversion

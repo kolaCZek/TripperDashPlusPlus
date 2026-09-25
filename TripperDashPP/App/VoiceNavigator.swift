@@ -7,7 +7,7 @@
 //  Speaks maneuver prompts ("In 300 metres, turn right", "Recalculating",
 //  "You have arrived") through the phone's speaker / connected Bluetooth
 //  headset while the rider follows a route. Offline, keyless, account-free
-//  via `AVSpeechSynthesizer` — consistent with the app's free-account
+//  via `AVSpeechSynthesizer` — consistent with the app's keyless
 //  stance (no cloud TTS, no API key).
 //
 //  ── Audio session ownership (the load-bearing detail) ───────────────
@@ -33,7 +33,7 @@
 //  Prompts are time-sensitive: a "in 300 m" cue is worthless once the rider
 //  is at the turn. So the queue is shallow and priority-ordered — a fresh
 //  maneuver/arrival/reroute prompt CANCELS whatever lower-priority thing is
-//  mid-sentence rather than waiting behind it. Same-or-higher priority
+//  mid-sentence rather than waiting behind it. Same-or-lower priority
 //  prompts are dropped if one is already speaking within the same beat to
 //  avoid stutter.
 //

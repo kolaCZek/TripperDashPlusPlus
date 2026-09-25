@@ -8,14 +8,14 @@ The Tripper expects RTP payload-type 96 on UDP/5000 with:
     better-dash/dash_ui/rtp.py `_bundle_sps_pps_idr`).
 
 We mirror that and reverse it: parse the RTP header, reassemble FU-A
-fragments by their (timestamp, NAL-type) tuple, and write each complete
+fragments by RTP timestamp + sequence continuity, and write each complete
 NAL prefixed with `00 00 00 01` into a `.h264` file that ffmpeg/VLC can
 open directly.
 
 The output file is named `dash_capture_<ISO timestamp>.h264` inside the
 configured captures directory, with one file per server lifetime. Stats
-(packet count, bytes received, dropped fragments, framerate estimate)
-are exposed via `RtpSink.stats()` and logged every 5 s.
+(packet/byte/NAL/IDR counts, dropped fragments) are exposed via the
+`RtpSink.stats` attribute; pkt/s and kB/s are logged every 5 s.
 """
 
 from __future__ import annotations
@@ -190,8 +190,8 @@ class RtpSink:
     def _handle_packet(self, data: bytes) -> None:
         if len(data) < RTP_HEADER_LEN + 1:
             return  # bogus
-        # RTP fixed header. We don't care about CSRC list / extensions for
-        # the Tripper's traffic shape — bail if either is set (unexpected).
+        # RTP fixed header. CSRC list / extensions are unexpected for the
+        # Tripper's traffic shape — skip past them if present.
         v_p_x_cc = data[0]
         version = v_p_x_cc >> 6
         if version != 2:
