@@ -17,7 +17,7 @@
 //  Apple exposes no public API to send next/previous to an arbitrary
 //  now-playing app. If the rider streams from a third-party app, these
 //  presses are a safe no-op (the call just does nothing to that app).
-//  Matches the app's keyless / free-account stance elsewhere (CLAUDE.md).
+//  Matches the app's keyless stance elsewhere (CLAUDE.md).
 //
 //  Concurrency: `systemMusicPlayer` is a main-actor UIKit-adjacent
 //  singleton, so the whole type is `@MainActor` — the button callback in

@@ -18,7 +18,7 @@
 //  not treat an empty map as "no enforcement here."
 //
 //  Why Overpass + OSM (not a commercial radar DB):
-//    - Keyless and free, consistent with the app's no-paid-entitlement
+//    - Keyless and free, consistent with the app's keyless
 //      stance (see CLAUDE.md). Commercial radar feeds (TomTom, RadarBot)
 //      need an API key + a paid plan + per-region licensing.
 //    - OSM already underpins the basemap; staying in the OSM ecosystem

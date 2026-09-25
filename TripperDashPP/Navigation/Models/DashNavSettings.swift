@@ -174,8 +174,8 @@ final class DashNavSettings {
 
     /// Ride-alerts: surface ride-relevant WEATHER (rain/ice/storm/strong
     /// gusts/fog) as a compact pill burned into the bottom-right of the
-    /// streamed map. Sourced keyless from Open-Meteo (WeatherKit needs a
-    /// paid entitlement we don't have — see CLAUDE.md). Defaults ON.
+    /// streamed map. Sourced keyless from Open-Meteo (WeatherKit would add
+    /// another entitlement + JWT signing — see CLAUDE.md). Defaults ON.
     /// When OFF, `WeatherAlertService` is never polled and the pill never
     /// draws. Mirrors the OEM app's "Weather Alerts" notification.
     var weatherAlertsEnabled: Bool = true {

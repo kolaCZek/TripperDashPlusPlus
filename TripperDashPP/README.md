@@ -47,7 +47,7 @@ tile-cache + CGContext path is background-safe without it.)
 
 ## Build prerequisites
 
-None beyond Xcode 26 + an Apple Developer account (free is enough for everything except the in-app Wi-Fi auto-join, which needs the paid program's Hotspot Configuration entitlement). The map uses the
+None beyond Xcode 26 + a paid Apple Developer Program membership (the Hotspot Configuration entitlement for the in-app Wi-Fi auto-join can't be signed by a free Personal Team). The map uses the
 OSM Carto raster basemap (one keyless tile source; the dark palette is a
 runtime recolour of the same tile, no second download; no third-party
 SDK, no API token, no Secrets file); routing and search use Apple MapKit,

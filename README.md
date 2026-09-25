@@ -38,7 +38,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 - **Ride-aware alerts.** A conservative, keyless weather pill (rain/snow/ice/frost risk/storms/gusts/crosswind/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), a posted speed-limit sign in the corner (OSM `maxspeed`, map-matched to the road you're on, imperial-aware), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map. Inside an OSM average-speed section (`enforcement=average_speed`) a panel next to the sign shows your GPS-estimated section average and the distance left.
 - **GPS trip computer.** A ride summary on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw). It shows back on the map after you arrive and accumulates across a multi-leg day, zeroing when the session ends (you disconnect or the bike powers off). The last ride's summary survives the app being killed, and a recorded ride can be saved to Saved routes and exported as GPX. Phone-side only; it's never sent to the dash.
 - **Phone-side extras.** A Lock Screen / Dynamic Island Live Activity mirrors the next turn and ETA; *Share → TripperDash++* from Google Maps or Apple Maps plans a route; a demo mode simulates the dash on-screen without the bike.
-- **No keys, no SDK.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies. A free Apple Developer account builds and runs everything except the in-app Wi-Fi auto-join, which needs the paid program's Hotspot Configuration entitlement (join the dash AP manually instead).
+- **No keys, no SDK.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies. Building it needs a paid Apple Developer Program membership (Hotspot Configuration entitlement for the in-app Wi-Fi auto-join).
 
 Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full glyph catalog.
 
@@ -61,12 +61,12 @@ The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet,
 git clone https://github.com/kolaCZek/TripperDashPlusPlus.git
 cd TripperDashPlusPlus
 open TripperDashPP/TripperDashPP.xcodeproj
-# 1. Sign in with your Apple ID (Xcode Settings → Accounts)
+# 1. Sign in with your paid Apple Developer Program account (Xcode Settings → Accounts)
 # 2. Set Bundle ID to something unique (e.g. eu.YOURNAME.TripperDashPP)
 # 3. Build & Run on a real device (Simulator can't do Wi-Fi to the bike)
 ```
 
-A free Apple Developer account is enough to build and ride with it — the only paid-only capability is the in-app Wi-Fi auto-join (Hotspot Configuration entitlement); without it you join the dash's AP from iOS Settings by hand. You'll need to re-install every 7 days (Xcode → Run takes ~30 s).
+Building to a device needs a **paid Apple Developer Program** membership: the app uses the Hotspot Configuration entitlement (in-app Wi-Fi auto-join), which a free Personal Team can't sign.
 
 **No API keys, no service accounts, no SDK token plumbing.** OSM tiles are fetched anonymously and MapKit is built into iOS. Add your bike in Settings → Bikes by its Tripper Wi-Fi SSID (`RE_XXXX_XXXXXX`, shown on the dash's phone-pairing screen); the dash IP is fixed at `192.168.1.1`.
 

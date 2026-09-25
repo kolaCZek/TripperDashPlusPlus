@@ -7,7 +7,7 @@
 //  Speaks maneuver prompts ("In 300 metres, turn right", "Recalculating",
 //  "You have arrived") through the phone's speaker / connected Bluetooth
 //  headset while the rider follows a route. Offline, keyless, account-free
-//  via `AVSpeechSynthesizer` — consistent with the app's free-account
+//  via `AVSpeechSynthesizer` — consistent with the app's keyless
 //  stance (no cloud TTS, no API key).
 //
 //  ── Audio session ownership (the load-bearing detail) ───────────────

@@ -13,10 +13,10 @@
 //  `MapViewSource.drawWeatherAlert`.
 //
 //  Why Open-Meteo (not WeatherKit):
-//    - WeatherKit needs a PAID Apple Developer membership + a signed
-//      JWT entitlement. Apart from the Wi-Fi auto-join, TripperDash++ is
-//      built keyless so it still runs on a free Personal Team (see
-//      CLAUDE.md "Distribution"), so WeatherKit is off the table.
+//    - WeatherKit needs its own entitlement + a signed JWT per request.
+//      TripperDash++ adds no paid capability beyond Hotspot Configuration
+//      and stays keyless (see CLAUDE.md "Distribution"), so WeatherKit is
+//      off the table.
 //    - Open-Meteo is keyless, free for non-commercial use, returns WMO
 //      weather codes + wind gusts + visibility + precipitation in one
 //      GET, and supports MULTI-POINT queries (comma-separated lat/lon)

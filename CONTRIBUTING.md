@@ -42,7 +42,7 @@ Awesome. Please:
 
 See [README.md → Building](README.md#building). TL;DR:
 - macOS 15+, Xcode 26+
-- Free Apple ID is enough for sideload (except the in-app Wi-Fi auto-join, which needs the paid Hotspot Configuration entitlement)
+- Paid Apple Developer Program membership (the Hotspot Configuration entitlement can't be signed by a free Personal Team)
 - No API keys, no map SDK account — OSM tiles and MapKit need none
 - Real iPhone — the Simulator can't open Wi-Fi to the bike
 - Optional: Docker, to run the `fake_dash` harness (`make fake-dash-up`)
