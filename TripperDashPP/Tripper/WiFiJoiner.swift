@@ -109,13 +109,15 @@ final class WiFiJoiner {
                     var joined = false
                     for _ in 0..<30 {
                         live = await self.currentSSID()
-                        // Accept the join on EITHER positive signal: the SSID
-                        // reads back as ours, OR en0 already holds a dash-subnet
-                        // IPv4 (DHCP done). fetchCurrent frequently returns nil
-                        // even while genuinely associated, so relying on the SSID
-                        // alone false-negatives real joins — the IPv4 check is
-                        // the permission-free backstop.
-                        if live == ssid || BikeLink.wifiHasDashSubnetIPv4() {
+                        // Accept the join when the SSID reads back as ours. When
+                        // the SSID is unreadable (nil: no precise location, or a
+                        // read right after the switch), fall back to en0 holding
+                        // a dash-subnet IPv4 (DHCP done). Never let the IPv4
+                        // check override a readable FOREIGN SSID: a home router
+                        // on 192.168.1.x would pass it instantly, report "joined"
+                        // while still on home Wi-Fi, and the connect preflight
+                        // would then abort with notOnDashNetwork.
+                        if live == ssid || (live == nil && BikeLink.wifiHasDashSubnetIPv4()) {
                             joined = true
                             break
                         }

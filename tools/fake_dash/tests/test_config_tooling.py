@@ -29,6 +29,18 @@ def test_app_has_wifi_info_entitlement():
     assert ent.get("com.apple.developer.networking.HotspotConfiguration") is True
 
 
+def test_join_verify_ipv4_fallback_only_when_ssid_unreadable():
+    """A home router on 192.168.1.x must not satisfy the join check while the
+    SSID reads back as a different network (would end in notOnDashNetwork)."""
+    from tests.swift_source import strip_comments
+
+    src = strip_comments(
+        (REPO / "TripperDashPP" / "Tripper" / "WiFiJoiner.swift").read_text()
+    )
+    assert "live == ssid || (live == nil && BikeLink.wifiHasDashSubnetIPv4())" in src
+    assert "live == ssid || BikeLink.wifiHasDashSubnetIPv4()" not in src
+
+
 def test_gpx_poi_waypoints_are_not_spliced_into_track(tmp_path):
     gpx = tmp_path / "in.gpx"
     gpx.write_text(
