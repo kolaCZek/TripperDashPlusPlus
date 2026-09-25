@@ -125,6 +125,8 @@ actor SpeedCameraService {
         return dir
     }()
     private static let cacheTTL: TimeInterval = 30 * 24 * 3600
+    /// Bump when `fetch`'s query shape changes (2: section `device` nodes).
+    private static let cacheSchema = 2
 
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default
@@ -181,8 +183,10 @@ actor SpeedCameraService {
         let box = Self.boundingBox(around: center, radiusMeters: radiusMeters)
         let key = box.cacheKey
 
-        // Free-ride draws cameras only, so a pre-sections cache is fine.
-        if let cached = loadCache(key: key) {
+        // Section devices are cameras too, so an older-schema cache is
+        // re-fetched here as well; it still serves as the offline fallback.
+        let cached = loadCache(key: key)
+        if let cached, cached.complete {
             log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public))")
             return cached.data.cameras
         }
@@ -194,7 +198,7 @@ actor SpeedCameraService {
             return data.cameras
         } catch {
             log.warning("Speed cameras (around) fetch failed: \(String(describing: error), privacy: .public)")
-            return []
+            return cached?.data.cameras ?? []
         }
     }
 
@@ -233,7 +237,7 @@ actor SpeedCameraService {
         out body;
         relation["type"="enforcement"]["enforcement"="average_speed"]\(bbox)->.sec;
         .sec out body;
-        (node(r.sec:"from"); node(r.sec:"to"););
+        (node(r.sec:"from"); node(r.sec:"to"); node(r.sec:"device"););
         out skel;
         """
         let elements = try await overpass(query).elements
@@ -295,10 +299,36 @@ actor SpeedCameraService {
         )
     }
 
-    /// Camera nodes only — skips the tagless `from`/`to` skel nodes and
-    /// relations that share the response.
+    /// Camera nodes: `highway=speed_camera` nodes, plus the `device` members
+    /// of average-speed relations. Czech sections are often mapped with
+    /// `man_made=surveillance` devices and no `highway=speed_camera` node,
+    /// so without them a section drew no marker at all. Skips the tagless
+    /// `from`/`to` skel nodes. A node that is both (tagged camera AND a
+    /// device) appears twice in the response; it is kept once.
     nonisolated static func makeCameras(_ elements: [OverpassResponse.Element]) -> [SpeedCamera] {
-        elements.filter { $0.tags?["highway"] == "speed_camera" }.compactMap(makeCamera)
+        var deviceLimit: [Int64: Int?] = [:]
+        for e in elements where e.type == "relation" {
+            for m in e.members ?? [] where m.type == "node" && m.role == "device" {
+                deviceLimit[m.ref] = MaxspeedParser.kmh(e.tags?["maxspeed"])
+            }
+        }
+        var seen = Set<Int64>()
+        var out: [SpeedCamera] = []
+        for e in elements where e.tags?["highway"] == "speed_camera" {
+            guard seen.insert(e.id).inserted, var cam = makeCamera(e) else { continue }
+            if let limit = deviceLimit[e.id] {
+                cam = SpeedCamera(id: cam.id, coordinate: cam.coordinate,
+                                  maxspeedKmh: cam.maxspeedKmh ?? limit, isSection: true)
+            }
+            out.append(cam)
+        }
+        for e in elements where e.type == "node" && deviceLimit[e.id] != nil {
+            guard let lat = e.lat, let lon = e.lon, seen.insert(e.id).inserted else { continue }
+            out.append(SpeedCamera(id: e.id,
+                                   coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                   maxspeedKmh: deviceLimit[e.id] ?? nil, isSection: true))
+        }
+        return out
     }
 
     /// Average-speed relations → `SpeedSection`s. A relation needs a `from`
@@ -374,6 +404,9 @@ actor SpeedCameraService {
         /// so the route path re-fetches once but can fall back to the old
         /// cameras when offline.
         let sections: [Sec]?
+        /// Query shape the cache was written with; older caches (nil) lack
+        /// section `device` nodes, so they count as incomplete too.
+        let schema: Int?
         struct Cam: Codable {
             let id: Int64, lat: Double, lon: Double
             let maxspeed: Int?, section: Bool
@@ -408,7 +441,8 @@ actor SpeedCameraService {
             SpeedSection(id: $0.id, fromLat: $0.fromLat, fromLon: $0.fromLon,
                          toLat: $0.toLat, toLon: $0.toLon, maxspeedKmh: $0.maxspeed)
         }
-        return (SpeedCameraData(cameras: cameras, sections: sections), env.sections != nil)
+        return (SpeedCameraData(cameras: cameras, sections: sections),
+                env.sections != nil && env.schema == Self.cacheSchema)
     }
 
     private func saveCache(key: String, data: SpeedCameraData) {
@@ -421,7 +455,8 @@ actor SpeedCameraService {
             sections: data.sections.map {
                 .init(id: $0.id, fromLat: $0.fromLat, fromLon: $0.fromLon,
                       toLat: $0.toLat, toLon: $0.toLon, maxspeed: $0.maxspeedKmh)
-            }
+            },
+            schema: Self.cacheSchema
         )
         if let data = try? JSONEncoder().encode(env) {
             try? data.write(to: cacheURL(key: key), options: .atomic)

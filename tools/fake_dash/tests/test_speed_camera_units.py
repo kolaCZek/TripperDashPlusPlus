@@ -190,3 +190,27 @@ def test_maxspeed_parser_is_in_pbxproj():
     assert "path = MaxspeedParser.swift" in pbx, (
         "MaxspeedParser.swift must have a PBXFileReference"
     )
+
+
+def test_section_devices_are_fetched_and_drawn():
+    """Czech average-speed sections are often mapped as a relation whose
+    `device` members are `man_made=surveillance` nodes with NO
+    `highway=speed_camera` node (e.g. II/608 Nove Ouholice). The query must
+    pull the device nodes and `makeCameras` must turn them into section
+    cameras, or the section gets no map marker at all."""
+    cam = camera_src()
+    assert 'node(r.sec:"device");' in cam
+    assert 'm.role == "device"' in cam
+    # Older caches were written without device nodes -> must re-fetch.
+    assert "env.schema == Self.cacheSchema" in cam
+    assert "private static let cacheSchema = 2" in cam
+
+
+def test_eta_bubble_measures_text_without_ctx_text_position():
+    """CTLineGetImageBounds(line, ctx) is offset by the ctx's current text
+    position (not reset by saveGState), which shifted the bubble text out
+    of its pill on the dash."""
+    src = mapsource_src()
+    body = src[src.index("private func drawEtaBubble"):src.index("// MARK: Speed cameras")]
+    assert "CTLineGetImageBounds(line, nil)" in body
+    assert "CTLineGetImageBounds(line, ctx)" not in body

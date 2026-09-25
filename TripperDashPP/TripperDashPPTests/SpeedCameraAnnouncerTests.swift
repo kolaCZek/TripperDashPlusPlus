@@ -292,6 +292,29 @@ struct SpeedCameraAnnouncerTests {
         #expect(SpeedCameraService.makeCameras(elements).map(\.id) == [1])
     }
 
+    @Test func sectionDevicesBecomeSectionCameras() throws {
+        // Shape of the Nove Ouholice II/608 section: no highway=speed_camera
+        // node, only man_made=surveillance devices on the relation. Node 5 is
+        // also a tagged camera and must not be emitted twice.
+        let json = """
+        {"elements":[
+          {"type":"node","id":5,"lat":50.1,"lon":14.1,"tags":{"highway":"speed_camera"}},
+          {"type":"relation","id":7,"tags":{"maxspeed":"50"},
+           "members":[{"type":"node","ref":2,"role":"from"},{"type":"node","ref":4,"role":"device"},
+                      {"type":"node","ref":5,"role":"device"},{"type":"node","ref":3,"role":"to"}]},
+          {"type":"node","id":2,"lat":50.01,"lon":14.0},
+          {"type":"node","id":3,"lat":50.02,"lon":14.0},
+          {"type":"node","id":4,"lat":50.011,"lon":14.0},
+          {"type":"node","id":5,"lat":50.1,"lon":14.1}
+        ]}
+        """
+        let elements = try JSONDecoder()
+            .decode(SpeedCameraService.OverpassResponse.self, from: Data(json.utf8)).elements
+        let cams = SpeedCameraService.makeCameras(elements)
+        #expect(cams.map(\.id) == [5, 4])
+        #expect(cams.allSatisfy { $0.isSection && $0.maxspeedKmh == 50 })
+    }
+
     @Test func rerouteFetchMergesWithoutDuplicates() {
         let a = SpeedCameraData(cameras: [], sections: [northbound])
         let b = SpeedCameraData(cameras: [], sections: [northbound, southbound])
