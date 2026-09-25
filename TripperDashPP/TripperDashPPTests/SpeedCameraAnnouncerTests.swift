@@ -292,4 +292,16 @@ struct SpeedCameraAnnouncerTests {
         // Bare from/to nodes are not cameras.
         #expect(SpeedCameraService.makeCameras(elements).map(\.id) == [1])
     }
+
+    @Test func rerouteFetchMergesWithoutDuplicates() {
+        let a = SpeedCameraData(cameras: [], sections: [northbound])
+        let b = SpeedCameraData(cameras: [], sections: [northbound, southbound])
+        #expect(a.merged(with: b).sections.map(\.id) == [10, 11])
+    }
+
+    @Test func coverageContainsOnlyRoutesInsideIt() {
+        let covered = SpeedCameraService.BBox(south: 50.0, west: 14.0, north: 50.1, east: 14.1)
+        #expect(covered.contains(.init(south: 50.02, west: 14.02, north: 50.08, east: 14.08)))
+        #expect(!covered.contains(.init(south: 50.02, west: 14.02, north: 50.2, east: 14.08)))
+    }
 }

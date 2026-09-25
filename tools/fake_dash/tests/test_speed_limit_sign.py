@@ -582,3 +582,20 @@ def test_section_panel_follows_camera_toggle():
     body = strip_comments(decl_body(_src("Navigation/ActiveNavLoop.swift"),
                                     "private func updateSpeedSection()"))
     assert re.search(r"guard settings\.speedCamerasEnabled, !speedSections\.isEmpty,", body)
+
+
+def test_route_changes_extend_camera_and_section_prefetch():
+    # Reroute, leg advance and alternative switch all funnel through the
+    # route-changed hook — it must extend the camera/section set, or a new
+    # road / the next leg never gets its sections (or cameras).
+    from tests.swift_source import strip_comments
+    picker = strip_comments(_src("UI/MapPickerView.swift"))
+    hook = picker[picker.index("onActiveRouteChanged = { [weak status] newRoute in"):]
+    hook = hook[:hook.index("onAlternativesChanged")]
+    assert "status.prefetchSpeedCameras(for: newRoute, extending: true)" in hook
+    app = strip_comments(_src("App/AppStatus.swift"))
+    body = app[app.index("func prefetchSpeedCameras(for route: MKRoute, extending: Bool = false)"):]
+    body = body[:body.index("func prefetchSpeedLimits")]
+    # Skip when already covered, merge (not replace) the result.
+    assert "if extending, speedCameraCoverage.contains(where: { $0.contains(routeBox) })" in body
+    assert "self.speedCameraData.merged(with: fetched)" in body

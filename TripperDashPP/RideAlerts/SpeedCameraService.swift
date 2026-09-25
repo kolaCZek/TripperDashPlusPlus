@@ -78,6 +78,15 @@ nonisolated struct SpeedCameraData: Sendable {
     let cameras: [SpeedCamera]
     let sections: [SpeedSection]
     static let empty = SpeedCameraData(cameras: [], sections: [])
+
+    /// Union by OSM id (a reroute/leg fetch overlaps the earlier one).
+    func merged(with other: SpeedCameraData) -> SpeedCameraData {
+        let camIds = Set(cameras.map(\.id))
+        let secIds = Set(sections.map(\.id))
+        return SpeedCameraData(
+            cameras: cameras + other.cameras.filter { !camIds.contains($0.id) },
+            sections: sections + other.sections.filter { !secIds.contains($0.id) })
+    }
 }
 
 // MARK: - Service
@@ -104,7 +113,7 @@ actor SpeedCameraService {
     /// the corridor (e.g. on a parallel carriageway, or right after a
     /// junction the route takes) are still captured. 1 km is generous
     /// without ballooning the query area.
-    private static let corridorBufferMeters: Double = 1_000
+    static let corridorBufferMeters: Double = 1_000
 
     /// Disk cache directory. Cameras change slowly; a 30-day TTL means a
     /// region is fetched roughly monthly. Keyed by a coarse bbox hash so
@@ -131,9 +140,10 @@ actor SpeedCameraService {
 
     /// Fetch every speed camera within the bounding box of `route`
     /// (expanded by the corridor buffer). Disk-cache first; only the first
-    /// ride through a region hits the network. Returns `[]` on total
-    /// failure — a missing radar layer must never break navigation.
-    func camerasAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedCameraData {
+    /// ride through a region hits the network. Returns nil on total
+    /// failure (no network, no cache) so the caller can retry later — a
+    /// missing radar layer must never break navigation.
+    func camerasAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedCameraData? {
         guard coords.count >= 2 else { return .empty }
         let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
         let key = box.cacheKey
@@ -151,7 +161,7 @@ actor SpeedCameraService {
             return data
         } catch {
             log.warning("Speed cameras fetch failed: \(String(describing: error), privacy: .public)")
-            return cached?.data ?? .empty
+            return cached?.data
         }
     }
 
@@ -314,7 +324,7 @@ actor SpeedCameraService {
 
     // MARK: - Bounding box
 
-    struct BBox: Sendable {
+    struct BBox: Sendable, Equatable {
         let south: Double, west: Double, north: Double, east: Double
         /// Coarse cache key — round to 2 decimals (~1.1 km) so nearby
         /// routes share a cached region instead of each cutting a new
@@ -322,6 +332,10 @@ actor SpeedCameraService {
         var cacheKey: String {
             String(format: "%.2f_%.2f_%.2f_%.2f", south, west, north, east)
         }
+        func contains(_ o: BBox) -> Bool {
+            o.south >= south && o.north <= north && o.west >= west && o.east <= east
+        }
+
     }
 
     /// Axis-aligned bbox of `coords`, expanded by `bufferMeters` on every
