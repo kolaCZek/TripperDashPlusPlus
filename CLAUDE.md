@@ -86,7 +86,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 ## Repo conventions
 
 - **All code, file paths, identifiers, code comments are in English.** Always. No exceptions.
-- **User-facing UI strings** are English. There is no `.strings` / String Catalog in the project yet (`knownRegions` = `en`); spoken voice prompts are localized in code (`VoicePhrase`, 8 languages).
+- **User-facing UI strings** are English. There is no `.strings` / String Catalog in the project yet (`knownRegions` = `en`, `Base`); spoken voice prompts are localized in code (`VoicePhrase`, 8 languages).
 - **README, CONTRIBUTING, issue templates, PR descriptions** are in English.
 - **Internal author notes / Czech-specific docs** stay out of the repo.
 - **Commit messages**: imperative present (`Add K1G handshake`, not `Added` / `Adds`). Reference issue numbers when relevant. Conventional Commits are nice-to-have, not enforced.
