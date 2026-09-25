@@ -206,6 +206,10 @@ final class MapViewSource: NSObject, FrameSource {
     /// pump so it tracks the same `units` setting the speed labels use.
     private var weatherImperial: Bool = false
 
+    /// Live average-speed section reading, or nil outside a section. Pushed
+    /// by the nav loop each tick; drawn by `drawSpeedSectionPanel`.
+    private var speedSection: SpeedSectionTracker.Reading?
+
     /// Snap + hysteresis thresholds (m) for the map-match. A way must come
     /// within `snapMeters` to ACQUIRE the limit; once shown, the sign holds
     /// until the nearest way is further than `releaseMeters` away, so it
@@ -1070,6 +1074,10 @@ extension MapViewSource {
         // already been lifted above the sign (see `drawWeatherAlert`).
         // No-op unless a limit is map-matched and the display mode allows.
         drawSpeedLimitSign(into: ctx)
+
+        // Average-speed section panel — same row as the sign, just left of
+        // it. No-op outside a section.
+        drawSpeedSectionPanel(into: ctx)
 
         // Route progress bar — pinned to the BOTTOM EDGE, full width,
         // transform-independent (flat outer ctx) like the pills above.
@@ -2230,6 +2238,11 @@ extension MapViewSource {
         self.activeNotice = (notice, Date().addingTimeInterval(clamped))
     }
 
+    /// Show (or with nil, hide) the average-speed section panel.
+    func setSpeedSection(_ reading: SpeedSectionTracker.Reading?) {
+        self.speedSection = reading
+    }
+
     /// Install the speed cameras to plot (prefetched along the route).
     /// Pass `[]` to clear.
     func setSpeedCameras(_ cameras: [SpeedCamera]) {
@@ -2373,8 +2386,10 @@ extension MapViewSource {
         // corner (it's the more persistent element). When it's showing,
         // lift the weather pill to sit ABOVE the sign instead of on top of
         // it. The sign is a `signDiameter` disc at the same margin, so the
-        // pill's baseline moves up by the sign height + a small gap.
-        let signBump: CGFloat = shouldDrawSpeedLimit
+        // pill's baseline moves up by the sign height + a small gap. The
+        // section panel shares the sign's row, so it lifts the pill too —
+        // even when the sign itself is hidden ("overOnly" / "off").
+        let signBump: CGFloat = (shouldDrawSpeedLimit || speedSection != nil)
             ? Self.speedLimitSignDiameter + 8
             : 0
         let originY = frameSize.height - margin - pillH - signBump
@@ -2874,6 +2889,97 @@ extension MapViewSource {
                                  y: cy - textSize.height / 2)
         UIGraphicsPushContext(ctx)
         (label as NSString).draw(at: textOrigin, withAttributes: attrs)
+        UIGraphicsPopContext()
+    }
+
+    // MARK: - Average-speed section panel
+
+    /// Panel size (px). Sits in the sign's row, left of the sign's slot
+    /// (always the same spot, sign shown or not), top-aligned 2 px above
+    /// the sign so its bottom clears the progress-bar marker (top at y=276).
+    /// Measured against the round dash glass: the panel's outer corner is
+    /// ~80 px inside the visible circle.
+    fileprivate static let sectionPanelSize = CGSize(width: 110, height: 48)
+    fileprivate static let sectionPanelGap: CGFloat = 8
+
+    /// "Ø 74 km/h" + a progress mini-bar + "630 m" left. White figure under
+    /// the limit, red figure / border / bar over it (same tolerance as the
+    /// sign). Limit = the section's own `maxspeed`, else the matched road.
+    fileprivate func drawSpeedSectionPanel(into ctx: CGContext) {
+        guard let r = speedSection else { return }
+
+        let size = Self.sectionPanelSize
+        let margin = Self.speedLimitSignMargin
+        let signTop = frameSize.height - margin - Self.speedLimitSignDiameter
+        let panel = CGRect(
+            x: frameSize.width - margin - Self.speedLimitSignDiameter - Self.sectionPanelGap - size.width,
+            y: signTop - 2,
+            width: size.width, height: size.height)
+
+        let limit = r.limitKmh ?? currentLimitKmh
+        var over = false
+        if let avg = r.averageKmh, let limit {
+            over = avg > Double(limit) + speedLimitToleranceKmh
+        }
+        let red = CGColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1)
+        let grey = CGColor(red: 0.62, green: 0.64, blue: 0.67, alpha: 1)
+        let accent = over ? red : grey
+
+        // Backdrop — same look as the weather pill.
+        ctx.saveGState()
+        let path = CGPath(roundedRect: panel, cornerWidth: 9, cornerHeight: 9, transform: nil)
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.78))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(accent)
+        ctx.setLineWidth(over ? 2 : 1.5)
+        ctx.strokePath()
+
+        // Mini-bar: share of the section already ridden.
+        let padX: CGFloat = 8
+        let barRect = CGRect(x: panel.minX + padX, y: panel.maxY - 13, width: 40, height: 5)
+        let done = r.lengthMeters > 0
+            ? CGFloat(max(0, min(1, 1 - r.remainingMeters / r.lengthMeters))) : 0
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.25))
+        ctx.fill(barRect)
+        ctx.setFillColor(over ? red : CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+        ctx.fill(CGRect(x: barRect.minX, y: barRect.minY, width: barRect.width * done, height: barRect.height))
+        ctx.restoreGState()
+
+        // Text. Average in the rider's units; "--" for the first seconds.
+        let unit = speedLimitImperial ? "mph" : "km/h"
+        let avgText = r.averageKmh.map {
+            "Ø \(Int((speedLimitImperial ? $0 / 1.609344 : $0).rounded()))"
+        } ?? "Ø --"
+        // Metres to the nearest 10 (sections are 0.2–2.5 km, so "1 km"
+        // would hide most of the countdown); imperial reuses the pill format.
+        let remText = speedLimitImperial
+            ? Self.formatAheadDistance(meters: r.remainingMeters, imperial: true)
+            : "\(Int((r.remainingMeters / 10).rounded()) * 10) m"
+
+        let white = UIColor.white
+        let big: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 22, weight: .bold),
+            .foregroundColor: over ? UIColor(cgColor: red) : white,
+        ]
+        let small: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: white.withAlphaComponent(0.85),
+        ]
+        let rem: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: white,
+        ]
+        UIGraphicsPushContext(ctx)
+        let avgSize = (avgText as NSString).size(withAttributes: big)
+        (avgText as NSString).draw(at: CGPoint(x: panel.minX + padX, y: panel.minY + 2), withAttributes: big)
+        (unit as NSString).draw(at: CGPoint(x: panel.minX + padX + avgSize.width + 4, y: panel.minY + 11),
+                                withAttributes: small)
+        let remSize = (remText as NSString).size(withAttributes: rem)
+        (remText as NSString).draw(at: CGPoint(x: panel.maxX - padX - remSize.width,
+                                               y: barRect.midY - remSize.height / 2),
+                                   withAttributes: rem)
         UIGraphicsPopContext()
     }
 

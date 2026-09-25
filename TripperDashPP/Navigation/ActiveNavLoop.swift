@@ -92,6 +92,12 @@ final class ActiveNavLoop {
     /// cheap array read.
     private var speedCameraTargets: [SpeedCameraAnnouncer.Target] = []
 
+    /// Average-speed sections along the route + the tracker that turns them
+    /// into the dash section panel. NOT reset when a reroute swaps the list,
+    /// so a reroute mid-section keeps the running average.
+    private var speedSections: [SpeedSection] = []
+    private var sectionTracker = SpeedSectionTracker()
+
     private var task: Task<Void, Never>?
 
     init(
@@ -149,9 +155,16 @@ final class ActiveNavLoop {
         promptScheduler.reset()
         spokeReroutingForEpisode = false
         cameraAnnouncer.reset()
+        sectionTracker.reset()
+        mapSource?.setSpeedSection(nil)
     }
 
     // MARK: - Speed cameras
+
+    /// Average-speed sections for the current route (toggle off → `[]`).
+    func setSpeedSections(_ sections: [SpeedSection]) {
+        speedSections = sections
+    }
 
     /// Update the set of speed cameras the announcer considers each tick.
     /// Called by AppStatus when the camera prefetch completes, when the
@@ -212,6 +225,8 @@ final class ActiveNavLoop {
             promptScheduler.reset()
             spokeReroutingForEpisode = false
             cameraAnnouncer.reset()
+            sectionTracker.reset()
+            mapSource?.setSpeedSection(nil)
             mapSource?.setSpeedLimitConfig(
                 mode: settings.speedLimitDisplay.rawValue,
                 toleranceKmh: settings.speedLimitOverToleranceKmh,
@@ -528,6 +543,7 @@ final class ActiveNavLoop {
         //     reroute (stale route → don't chase cameras off the old line).
         if !isRerouting {
             emitCameraVoice()
+            updateSpeedSection()
         }
 
         // Keep the speed-limit sign's policy in sync with settings every
@@ -645,6 +661,23 @@ final class ActiveNavLoop {
         let lang = settings.voiceLanguage
         voice.speak(VoicePhrase.speedCamera(lang),
                     language: lang.rawValue, priority: .maneuver)
+    }
+
+    /// Feed the section tracker and push its reading to the dash panel
+    /// (nil outside a section). Skipped during a reroute: the old route
+    /// line is stale, so the last reading simply holds for those ticks.
+    private func updateSpeedSection() {
+        guard let fix = location?.lastFix, let navigator else {
+            mapSource?.setSpeedSection(nil)
+            return
+        }
+        let reading = sectionTracker.onTick(
+            riderLat: fix.coordinate.latitude,
+            riderLon: fix.coordinate.longitude,
+            time: fix.timestamp,
+            routeAhead: navigator.routeAheadCoordinates.map { ($0.latitude, $0.longitude) },
+            sections: speedSections)
+        mapSource?.setSpeedSection(reading)
     }
 
     /// Stable per-maneuver identity token from the arriving step's polyline.

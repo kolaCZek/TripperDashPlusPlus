@@ -321,6 +321,30 @@ def test_weather_pill_collision_bump():
     assert re.search(r"originY\s*=\s*frameSize\.height\s*-\s*margin\s*-\s*pillH\s*-\s*signBump", src)
 
 
+def test_section_panel_lifts_weather_pill_even_without_sign():
+    # The average-speed panel sits in the sign's row. With the sign hidden
+    # ("overOnly" under the limit / "off") the pill used to drop onto that
+    # row and cover the panel — the bump must fire for EITHER element, and
+    # for neither must stay 0 (pill back in the corner, as before).
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(mapsource_src(), "fileprivate func drawWeatherAlert(into ctx: CGContext)"))
+    assert re.search(
+        r"let signBump: CGFloat = \(shouldDrawSpeedLimit \|\| speedSection != nil\)\s*"
+        r"\? Self\.speedLimitSignDiameter \+ 8\s*: 0", body)
+
+
+def test_section_panel_drawn_in_sign_row():
+    from tests.swift_source import decl_body, strip_comments
+    src = mapsource_src()
+    assert src.index("drawSpeedLimitSign(into: ctx)") < src.index("drawSpeedSectionPanel(into: ctx)")
+    body = strip_comments(decl_body(src, "fileprivate func drawSpeedSectionPanel(into ctx: CGContext)"))
+    assert "guard let r = speedSection else { return }" in body
+    # Left of the sign's slot, top-aligned with the sign (not above it —
+    # the space above the sign's right side is outside the round glass).
+    assert "frameSize.width - margin - Self.speedLimitSignDiameter - Self.sectionPanelGap - size.width" in body
+    assert "y: signTop - 2," in body
+
+
 def test_three_display_modes_wired():
     src = mapsource_src()
     # shouldDrawSpeedLimit honours all three modes.

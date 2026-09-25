@@ -1491,14 +1491,16 @@ final class AppStatus {
         guard coords.count >= 2 else { return }
         speedCameraPrefetchTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let cams = await SpeedCameraService.shared.camerasAlong(route: coords)
+            let data = await SpeedCameraService.shared.camerasAlong(route: coords)
             guard !Task.isCancelled else { return }
             // Re-check the toggle after the network await.
-            let effective = self.dashNavSettings.speedCamerasEnabled ? cams : []
-            self.mapViewSource.setSpeedCameras(effective)
+            let effective = self.dashNavSettings.speedCamerasEnabled ? data : .empty
+            self.mapViewSource.setSpeedCameras(effective.cameras)
             // Hand the same set to the active-nav loop so the voice announcer
-            // can warn when the rider approaches one (feat/speed-camera-voice-alert).
-            self.activeNavLoop?.setSpeedCameras(effective)
+            // can warn when the rider approaches one (feat/speed-camera-voice-alert),
+            // plus the average-speed sections for the dash section panel.
+            self.activeNavLoop?.setSpeedCameras(effective.cameras)
+            self.activeNavLoop?.setSpeedSections(effective.sections)
         }
     }
 

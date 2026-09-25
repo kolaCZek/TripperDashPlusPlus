@@ -242,3 +242,105 @@ struct SpeedCameraAnnouncer {
         return diff
     }
 }
+
+// MARK: - Average-speed sections
+
+/// Pure "am I inside an average-speed section, and how fast have I gone"
+/// state. Fed once per nav tick with the rider's fix and the route ahead;
+/// returns a `Reading` while inside a section, nil otherwise (the dash
+/// panel shows only inside a section).
+///
+/// Entry = a section's `from` point flips from "ahead on the route" to
+/// "behind" between two ticks while its `to` is still ahead. That also
+/// settles direction: the opposite carriageway's relation has `to` before
+/// `from`, so it never qualifies. Exit = `to` is no longer ahead (passed,
+/// or the rider left the route).
+///
+/// The average is a GPS estimate — distance along the route since `from`
+/// over elapsed time — not what the enforcement cameras measure.
+struct SpeedSectionTracker {
+
+    struct Reading: Equatable {
+        /// km/h since `from`. nil for the first seconds, when a 1 Hz fix
+        /// can't give a meaningful average.
+        let averageKmh: Double?
+        let remainingMeters: Double
+        let lengthMeters: Double
+        /// Posted section limit from OSM; nil when the relation has none.
+        let limitKmh: Int?
+    }
+
+    /// Only sections whose `from` is within this straight-line distance
+    /// get projected each tick — keeps the tick cheap on long routes.
+    static let lookaheadMeters: Double = 2_000
+    /// Hide the average until this many seconds into the section.
+    static let minElapsedSeconds: Double = 3
+
+    private struct Approach { let fromAhead: Double; let toAhead: Double; let time: Date }
+    private struct Inside { let section: SpeedSection; let length: Double; let start: Date }
+
+    private var approaching: [Int64: Approach] = [:]
+    private var inside: Inside?
+
+    mutating func reset() {
+        approaching = [:]
+        inside = nil
+    }
+
+    mutating func onTick(riderLat: Double, riderLon: Double, time: Date,
+                         routeAhead: [(lat: Double, lon: Double)],
+                         sections: [SpeedSection]) -> Reading? {
+        let projection = RouteProjection(coords: routeAhead.map {
+            RouteProjection.Point(latitude: $0.lat, longitude: $0.lon)
+        })
+        let rider = RouteProjection.Point(latitude: riderLat, longitude: riderLon)
+        func ahead(_ lat: Double, _ lon: Double) -> Double? {
+            projection.alongRouteDistanceAhead(
+                rider: rider,
+                target: .init(id: 0, latitude: lat, longitude: lon),
+                maxLateralMeters: SpeedCameraAnnouncer.maxLateralOffsetMeters)
+        }
+
+        // Exit first, so a section starting exactly where this one ends
+        // can be entered on the same tick.
+        if let cur = inside, ahead(cur.section.toLat, cur.section.toLon) == nil {
+            inside = nil
+        }
+
+        // Keep tracking approaches even while inside, for the same reason.
+        var next: [Int64: Approach] = [:]
+        for s in sections where s.id != inside?.section.id {
+            guard RouteProjection.haversineMeters(lat1: riderLat, lon1: riderLon,
+                                                  lat2: s.fromLat, lon2: s.fromLon) <= Self.lookaheadMeters,
+                  let toAhead = ahead(s.toLat, s.toLon)
+            else { continue }
+            if let fromAhead = ahead(s.fromLat, s.fromLon) {
+                if toAhead > fromAhead {
+                    next[s.id] = Approach(fromAhead: fromAhead, toAhead: toAhead, time: time)
+                }
+            } else if inside == nil, let prev = approaching[s.id] {
+                // Crossed `from` since the last tick. Interpolate the
+                // crossing time from the distance covered so the first
+                // averages aren't skewed by up to a tick of latency.
+                let covered = prev.toAhead - toAhead
+                let frac = covered > 0 ? min(1, prev.fromAhead / covered) : 1
+                inside = Inside(
+                    section: s,
+                    length: prev.toAhead - prev.fromAhead,
+                    start: prev.time.addingTimeInterval(time.timeIntervalSince(prev.time) * frac))
+            }
+        }
+        approaching = next
+
+        guard let cur = inside,
+              let remaining = ahead(cur.section.toLat, cur.section.toLon)
+        else { return nil }
+        let elapsed = time.timeIntervalSince(cur.start)
+        let travelled = max(0, cur.length - remaining)
+        return Reading(
+            averageKmh: elapsed >= Self.minElapsedSeconds ? travelled / elapsed * 3.6 : nil,
+            remainingMeters: remaining,
+            lengthMeters: cur.length,
+            limitKmh: cur.section.maxspeedKmh)
+    }
+}
