@@ -18,8 +18,10 @@ confusing: `RoutingService` builds its request with
 through MapKit's own location, not through `LocationService`. Hence a live
 ETA and maneuver arrow on top of a blank map.
 
-Foreground navigation is perfectly legal on While Using; only the
-screen-locked / in-pocket case needs Always.
+Foreground navigation is perfectly legal on While Using, and so is the
+locked-screen ride: updates start in the foreground with
+`allowsBackgroundLocationUpdates = true`, which keeps a While Using app
+"in use" in the background (blue indicator pill).
 """
 
 from __future__ import annotations
@@ -102,48 +104,42 @@ def test_denied_does_not_start_updates(src: str):
     assert "startUpdates()" not in branch
 
 
-def test_background_updates_are_gated_on_always(src: str):
-    """`allowsBackgroundLocationUpdates = true` THROWS on While Using.
+def test_background_updates_are_on_regardless_of_always(src: str):
+    """While Using riders must keep streaming with the phone locked.
 
-    That runtime exception is exactly why the original code gated the whole
-    function behind `.authorizedAlways`. The flag must be gated instead, so
-    foreground updates — all the map renderer needs — can still run.
-
-    Substring presence of both halves is not enough: a rewrite like
-    `let alwaysAuth = true; manager.allowsBackgroundLocationUpdates =
-    alwaysAuth` plus an unrelated `if manager.authorizationStatus ==
-    .authorizedAlways { }` sitting nearby satisfies every required substring
-    while reintroducing the exact unconditional-true assignment this test
-    exists to forbid. Require the comparison to be the RHS of the
-    assignment via regex, on one statement.
+    Gating `allowsBackgroundLocationUpdates` on `.authorizedAlways` let a
+    While Using app be suspended shortly after the screen locked, and the
+    dash dropped the link 2-3 min into the ride (field report, build 5).
+    Apple documents one fatal-error condition for this flag: setting it
+    without `location` in UIBackgroundModes. Authorization level is not
+    one, so the flag is set unconditionally.
     """
     body = decl_body(src, START)
     assert re.search(
-        r"manager\.allowsBackgroundLocationUpdates\s*=\s*"
-        r"manager\.authorizationStatus\s*==\s*\.authorizedAlways",
-        body,
-    ), (
-        "allowsBackgroundLocationUpdates must be assigned DIRECTLY from "
-        "the `authorizationStatus == .authorizedAlways` comparison — not "
-        "merely have both appear somewhere in the function"
+        r"manager\.allowsBackgroundLocationUpdates\s*=\s*true\b", body
+    ), "startUpdates() must set allowsBackgroundLocationUpdates = true"
+    assert "authorizedAlways" not in body, (
+        "startUpdates() must not branch on Always: that is exactly what "
+        "suspended While Using riders on the lock screen"
     )
-    assert "manager.allowsBackgroundLocationUpdates = true" not in body, (
-        "never set it unconditionally true — it throws unless auth is Always"
+    assert body.count("allowsBackgroundLocationUpdates") == 1, (
+        "exactly one assignment, so a later one cannot quietly override it"
     )
-    # Guard against an indirection: `let x = true; ... = x`.
-    assert not re.search(r"let\s+\w+\s*=\s*true\b.*allowsBackgroundLocationUpdates\s*=\s*\w+\s*$", body, re.DOTALL), (
-        "do not launder an unconditional true through an intermediate "
-        "variable — assign the comparison result directly"
-    )
+
+
+def test_info_plist_declares_location_background_mode():
+    """The one documented crash for the flag above: `location` missing here."""
+    plist = (REPO / "TripperDashPP" / "TripperDashPP-Info.plist").read_text()
+    modes = plist.split("<key>UIBackgroundModes</key>", 1)[1].split("</array>", 1)[0]
+    assert "<string>location</string>" in modes
 
 
 def test_upgrade_to_always_is_not_skipped_by_a_running_check(src: str):
     """After an upgrade we are ALREADY running from the While Using start.
 
-    An `!isRunning` guard on the `.authorizedAlways` branch would skip the
-    one call that flips `allowsBackgroundLocationUpdates` on, leaving an app
-    that works in the foreground and dies on the lock screen — the single
-    most important scenario for this product.
+    An `!isRunning` guard on the `.authorizedAlways` branch would skip
+    `startUpdates()` on a status change mid-ride, so the manager config is
+    never re-applied.
 
     Checking for the literal token `isRunning` is not enough: a rewrite
     could reintroduce the identical skip-bug under a renamed shadow flag

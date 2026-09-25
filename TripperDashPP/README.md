@@ -36,7 +36,7 @@ TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride stats 
              ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations)
 ```
 
-Background keep-alive (CoreLocation Always updates) and the
+Background keep-alive (background CoreLocation updates) and the
 H.264 session auto-rebuild live in `App/` (`AppStatus`, `LocationService`) and
 `Stream/H264Encoder.swift` respectively — there is no separate `Background/` group.
 Spoken guidance (`VoiceNavigator`) owns the shared `AVAudioSession` so prompts

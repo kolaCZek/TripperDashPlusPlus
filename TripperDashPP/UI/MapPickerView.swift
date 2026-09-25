@@ -679,19 +679,6 @@ struct MapPickerView: View {
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(.regularMaterial, in: Capsule())
                 .padding(.top, 8)
-        } else if status.locationService.authorizationStatus == .authorizedWhenInUse {
-            // Foreground-only location works for planning and for a ride
-            // with the screen on, but the render loop's one wakelock is
-            // background CoreLocation delivery, which needs Always. On
-            // While Using the map goes blank the moment the phone locks —
-            // silently, with no error (see #133 for why). Warn BEFORE the
-            // ride starts, not after a rider discovers it on the bike.
-            Label("Location is set to \u{201c}While Using\u{201d} — the dash map will stop once the screen locks. Allow \u{201c}Always\u{201d} in Settings for it to keep working in your pocket.", systemImage: "exclamationmark.triangle.fill")
-                .font(.footnote)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.top, 8)
         }
     }
 

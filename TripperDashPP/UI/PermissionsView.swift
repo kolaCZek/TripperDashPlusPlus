@@ -115,7 +115,8 @@ struct PermissionsView: View {
     // MARK: - Location
 
     private var locationGranted: Bool {
-        status.locationService.authorizationStatus == .authorizedAlways
+        let s = status.locationService.authorizationStatus
+        return s == .authorizedAlways || s == .authorizedWhenInUse
     }
 
     /// Actionable (show "Set") until Always is granted. When denied/restricted
@@ -129,7 +130,7 @@ struct PermissionsView: View {
         case .authorizedAlways:
             return "Always — the map keeps streaming to the dash with the screen off."
         case .authorizedWhenInUse:
-            return "While Using — tap Set to upgrade to Always so it keeps working in your pocket."
+            return "While Using — enough to ride with the screen off. Tap Set for Always if you like."
         case .denied, .restricted:
             return "Denied. Open Settings to allow location (Always)."
         case .notDetermined:

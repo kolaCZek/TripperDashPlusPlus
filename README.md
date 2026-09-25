@@ -27,7 +27,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 
 ## Highlights
 
-- **Streams to the dash with the screen off.** A real turn-by-turn map keeps flowing to the TFT with the phone locked in a tank bag or jacket pocket — pre-rendered OSM tiles + CPU CGContext composition, kept awake by CoreLocation Always updates.
+- **Streams to the dash with the screen off.** A real turn-by-turn map keeps flowing to the TFT with the phone locked in a tank bag or jacket pocket — pre-rendered OSM tiles + CPU CGContext composition, kept awake by background CoreLocation updates (Always or While Using).
 - **6 fps / 526×300 H.264** vs. the stock app's ~4 fps of arrow icons — double the bits per frame, so road labels stay readable after encoding. Streamed as RTP over the bike's Wi-Fi; the bike never touches the internet.
 - **Native turn-by-turn**, validated on a Guerrilla 450: maneuver-TLV stream plus a burned-in next-turn glyph drawn from a [field-verified catalog of every dash glyph](docs/maneuver-glyphs/) (`0x00–0x59`), heading-up rider chevron, and route polyline.
 - **Spoken turn-by-turn (optional).** Offline `AVSpeechSynthesizer` voice prompts in 8 languages (cs/sk/en/de/pl/fr/es/it), announcing each maneuver at far (~1 km) / near (~300 m) / now (~40 m) tiers, plus optional spoken speed-camera alerts. Off by default; when on it ducks your music (never cutting it) through the shared `AVAudioSession` that backs the `audio` background mode.
