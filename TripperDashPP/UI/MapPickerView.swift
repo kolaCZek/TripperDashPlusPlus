@@ -1186,6 +1186,10 @@ struct MapPickerView: View {
             if let plan = status.activeNavigator.plan {
                 self.installFullRouteContext(plan: plan)
             }
+            // (4) Cameras + average-speed sections for a new road or the
+            //     next leg. No-op while the route stays inside the area
+            //     already fetched for this ride (incl. right after start).
+            status.prefetchSpeedCameras(for: newRoute, extending: true)
         }
         // F3: whenever the navigator's alternatives change (leg swap,
         // auto-switch, reroute, clear) rebuild the render models and push

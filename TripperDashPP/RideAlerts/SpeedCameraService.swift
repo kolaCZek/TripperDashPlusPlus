@@ -61,6 +61,34 @@ struct SpeedCamera: Equatable, Sendable, Identifiable {
     }
 }
 
+/// One OSM average-speed section (relation `type=enforcement` +
+/// `enforcement=average_speed`), reduced to its `from` / `to` points and
+/// posted limit. Direction matters: each carriageway has its own relation,
+/// so a section only applies when the rider passes `from` with `to` still
+/// ahead on the route (see `SpeedSectionTracker`).
+nonisolated struct SpeedSection: Equatable, Sendable {
+    let id: Int64
+    let fromLat: Double, fromLon: Double
+    let toLat: Double, toLon: Double
+    let maxspeedKmh: Int?
+}
+
+/// Everything one Overpass query returns for a region.
+nonisolated struct SpeedCameraData: Sendable {
+    let cameras: [SpeedCamera]
+    let sections: [SpeedSection]
+    static let empty = SpeedCameraData(cameras: [], sections: [])
+
+    /// Union by OSM id (a reroute/leg fetch overlaps the earlier one).
+    func merged(with other: SpeedCameraData) -> SpeedCameraData {
+        let camIds = Set(cameras.map(\.id))
+        let secIds = Set(sections.map(\.id))
+        return SpeedCameraData(
+            cameras: cameras + other.cameras.filter { !camIds.contains($0.id) },
+            sections: sections + other.sections.filter { !secIds.contains($0.id) })
+    }
+}
+
 // MARK: - Service
 
 /// Fetches + caches OSM speed cameras along a route. The actor owns the
@@ -85,7 +113,7 @@ actor SpeedCameraService {
     /// the corridor (e.g. on a parallel carriageway, or right after a
     /// junction the route takes) are still captured. 1 km is generous
     /// without ballooning the query area.
-    private static let corridorBufferMeters: Double = 1_000
+    static let corridorBufferMeters: Double = 1_000
 
     /// Disk cache directory. Cameras change slowly; a 30-day TTL means a
     /// region is fetched roughly monthly. Keyed by a coarse bbox hash so
@@ -112,26 +140,28 @@ actor SpeedCameraService {
 
     /// Fetch every speed camera within the bounding box of `route`
     /// (expanded by the corridor buffer). Disk-cache first; only the first
-    /// ride through a region hits the network. Returns `[]` on total
-    /// failure — a missing radar layer must never break navigation.
-    func camerasAlong(route coords: [CLLocationCoordinate2D]) async -> [SpeedCamera] {
-        guard coords.count >= 2 else { return [] }
+    /// ride through a region hits the network. Returns nil on total
+    /// failure (no network, no cache) so the caller can retry later — a
+    /// missing radar layer must never break navigation.
+    func camerasAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedCameraData? {
+        guard coords.count >= 2 else { return .empty }
         let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
         let key = box.cacheKey
 
-        if let cached = loadCache(key: key) {
-            log.info("Speed cameras: disk-cache hit \(key, privacy: .public) (\(cached.count, privacy: .public))")
-            return cached
+        let cached = loadCache(key: key)
+        if let cached, cached.complete {
+            log.info("Speed cameras: disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public) + \(cached.data.sections.count, privacy: .public) sections)")
+            return cached.data
         }
 
         do {
-            let cams = try await fetch(box: box)
-            saveCache(key: key, cameras: cams)
-            log.info("Speed cameras: fetched \(cams.count, privacy: .public) for \(key, privacy: .public)")
-            return cams
+            let data = try await fetch(box: box)
+            saveCache(key: key, data: data)
+            log.info("Speed cameras: fetched \(data.cameras.count, privacy: .public) + \(data.sections.count, privacy: .public) sections for \(key, privacy: .public)")
+            return data
         } catch {
             log.warning("Speed cameras fetch failed: \(String(describing: error), privacy: .public)")
-            return []
+            return cached?.data
         }
     }
 
@@ -151,16 +181,17 @@ actor SpeedCameraService {
         let box = Self.boundingBox(around: center, radiusMeters: radiusMeters)
         let key = box.cacheKey
 
+        // Free-ride draws cameras only, so a pre-sections cache is fine.
         if let cached = loadCache(key: key) {
-            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.count, privacy: .public))")
-            return cached
+            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public))")
+            return cached.data.cameras
         }
 
         do {
-            let cams = try await fetch(box: box)
-            saveCache(key: key, cameras: cams)
-            log.info("Speed cameras (around): fetched \(cams.count, privacy: .public) for \(key, privacy: .public)")
-            return cams
+            let data = try await fetch(box: box)
+            saveCache(key: key, data: data)
+            log.info("Speed cameras (around): fetched \(data.cameras.count, privacy: .public) for \(key, privacy: .public)")
+            return data.cameras
         } catch {
             log.warning("Speed cameras (around) fetch failed: \(String(describing: error), privacy: .public)")
             return []
@@ -175,20 +206,43 @@ actor SpeedCameraService {
     // private type". Still namespaced under the actor.
     struct OverpassResponse: Decodable {
         struct Element: Decodable {
+            let type: String?
             let id: Int64
             let lat: Double?
             let lon: Double?
             let tags: [String: String]?
+            let members: [Member]?
+        }
+        struct Member: Decodable {
+            let type: String
+            let ref: Int64
+            let role: String
         }
         let elements: [Element]
     }
 
-    private func fetch(box: BBox) async throws -> [SpeedCamera] {
+    /// ONE query for both layers: camera nodes, plus the average-speed
+    /// section relations and (as bare `skel` nodes) their `from` / `to`
+    /// points. The skel nodes carry no tags, which is how `makeCameras`
+    /// tells them apart from real cameras.
+    private func fetch(box: BBox) async throws -> SpeedCameraData {
+        let bbox = "(\(box.south),\(box.west),\(box.north),\(box.east))"
         let query = """
         [out:json][timeout:25];
-        node["highway"="speed_camera"](\(box.south),\(box.west),\(box.north),\(box.east));
+        node["highway"="speed_camera"]\(bbox);
         out body;
+        relation["type"="enforcement"]["enforcement"="average_speed"]\(bbox)->.sec;
+        .sec out body;
+        (node(r.sec:"from"); node(r.sec:"to"););
+        out skel;
         """
+        let elements = try await overpass(query).elements
+        return SpeedCameraData(cameras: Self.makeCameras(elements),
+                               sections: Self.makeSections(elements))
+    }
+
+    /// POST one Overpass query, trying each endpoint in turn.
+    private func overpass(_ query: String) async throws -> OverpassResponse {
         var lastError: Error?
         for endpoint in endpoints {
             do {
@@ -207,7 +261,7 @@ actor SpeedCameraService {
                     continue
                 }
                 let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
-                return decoded.elements.compactMap(Self.makeCamera)
+                return decoded
             } catch {
                 lastError = error
                 continue
@@ -241,9 +295,36 @@ actor SpeedCameraService {
         )
     }
 
+    /// Camera nodes only — skips the tagless `from`/`to` skel nodes and
+    /// relations that share the response.
+    nonisolated static func makeCameras(_ elements: [OverpassResponse.Element]) -> [SpeedCamera] {
+        elements.filter { $0.tags?["highway"] == "speed_camera" }.compactMap(makeCamera)
+    }
+
+    /// Average-speed relations → `SpeedSection`s. A relation needs a `from`
+    /// AND a `to` node with known coordinates; the ~15% mapped with
+    /// role-less members can't be oriented and are skipped. A missing
+    /// `maxspeed` stays nil (the renderer falls back to the road limit).
+    nonisolated static func makeSections(_ elements: [OverpassResponse.Element]) -> [SpeedSection] {
+        var coords: [Int64: (Double, Double)] = [:]
+        for e in elements where e.type == "node" {
+            if let lat = e.lat, let lon = e.lon { coords[e.id] = (lat, lon) }
+        }
+        return elements.compactMap { e in
+            guard e.type == "relation", let members = e.members else { return nil }
+            func point(_ role: String) -> (Double, Double)? {
+                members.first { $0.type == "node" && $0.role == role }.flatMap { coords[$0.ref] }
+            }
+            guard let from = point("from"), let to = point("to") else { return nil }
+            return SpeedSection(id: e.id, fromLat: from.0, fromLon: from.1,
+                                toLat: to.0, toLon: to.1,
+                                maxspeedKmh: MaxspeedParser.kmh(e.tags?["maxspeed"]))
+        }
+    }
+
     // MARK: - Bounding box
 
-    struct BBox: Sendable {
+    struct BBox: Sendable, Equatable {
         let south: Double, west: Double, north: Double, east: Double
         /// Coarse cache key — round to 2 decimals (~1.1 km) so nearby
         /// routes share a cached region instead of each cutting a new
@@ -251,6 +332,10 @@ actor SpeedCameraService {
         var cacheKey: String {
             String(format: "%.2f_%.2f_%.2f_%.2f", south, west, north, east)
         }
+        func contains(_ o: BBox) -> Bool {
+            o.south >= south && o.north <= north && o.west >= west && o.east <= east
+        }
+
     }
 
     /// Axis-aligned bbox of `coords`, expanded by `bufferMeters` on every
@@ -285,9 +370,18 @@ actor SpeedCameraService {
     private struct CacheEnvelope: Codable {
         let savedAt: Date
         let cameras: [Cam]
+        /// nil in caches written before sections existed → `complete: false`,
+        /// so the route path re-fetches once but can fall back to the old
+        /// cameras when offline.
+        let sections: [Sec]?
         struct Cam: Codable {
             let id: Int64, lat: Double, lon: Double
             let maxspeed: Int?, section: Bool
+        }
+        struct Sec: Codable {
+            let id: Int64
+            let fromLat: Double, fromLon: Double, toLat: Double, toLon: Double
+            let maxspeed: Int?
         }
     }
 
@@ -295,7 +389,7 @@ actor SpeedCameraService {
         cacheDir.appendingPathComponent("\(key).json")
     }
 
-    private func loadCache(key: String) -> [SpeedCamera]? {
+    private func loadCache(key: String) -> (data: SpeedCameraData, complete: Bool)? {
         let url = cacheURL(key: key)
         guard let data = try? Data(contentsOf: url),
               let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
@@ -304,20 +398,29 @@ actor SpeedCameraService {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
-        return env.cameras.map {
+        let cameras = env.cameras.map {
             SpeedCamera(id: $0.id,
                         coordinate: CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon),
                         maxspeedKmh: $0.maxspeed,
                         isSection: $0.section)
         }
+        let sections = (env.sections ?? []).map {
+            SpeedSection(id: $0.id, fromLat: $0.fromLat, fromLon: $0.fromLon,
+                         toLat: $0.toLat, toLon: $0.toLon, maxspeedKmh: $0.maxspeed)
+        }
+        return (SpeedCameraData(cameras: cameras, sections: sections), env.sections != nil)
     }
 
-    private func saveCache(key: String, cameras: [SpeedCamera]) {
+    private func saveCache(key: String, data: SpeedCameraData) {
         let env = CacheEnvelope(
             savedAt: Date(),
-            cameras: cameras.map {
+            cameras: data.cameras.map {
                 .init(id: $0.id, lat: $0.coordinate.latitude, lon: $0.coordinate.longitude,
                       maxspeed: $0.maxspeedKmh, section: $0.isSection)
+            },
+            sections: data.sections.map {
+                .init(id: $0.id, fromLat: $0.fromLat, fromLon: $0.fromLon,
+                      toLat: $0.toLat, toLon: $0.toLon, maxspeed: $0.maxspeedKmh)
             }
         )
         if let data = try? JSONEncoder().encode(env) {

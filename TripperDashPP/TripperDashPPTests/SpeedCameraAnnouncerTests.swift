@@ -13,6 +13,7 @@
 //  predictable.
 //
 
+import Foundation
 import Testing
 @testable import TripperDashPP
 
@@ -214,5 +215,93 @@ struct SpeedCameraAnnouncerTests {
             riderLat: 50.001, riderLon: 14.0,
             routeAhead: route, headingDegrees: 0, cameras: [cam])
         #expect(hit == nil)
+    }
+
+    // MARK: - Average-speed sections
+
+    /// Straight route due north along lon 14.0, a vertex every 0.001° lat
+    /// (~111 m). Section `from` 50.010 → `to` 50.020 (~1.11 km), its nodes
+    /// ~21 m off the line like real carriageway nodes. The opposite
+    /// carriageway's relation runs the other way and must never engage.
+    private let route = (0...30).map { (lat: 50.0 + Double($0) * 0.001, lon: 14.0) }
+    private let northbound = SpeedSection(id: 10, fromLat: 50.010, fromLon: 14.0003,
+                                          toLat: 50.020, toLon: 14.0003, maxspeedKmh: 80)
+    private let southbound = SpeedSection(id: 11, fromLat: 50.020, fromLon: 13.9997,
+                                          toLat: 50.010, toLon: 13.9997, maxspeedKmh: 80)
+
+    /// Ride the route at a constant 20 m/s (72 km/h), 1 Hz, returning the
+    /// per-tick readings.
+    private func rideThrough(_ sections: [SpeedSection]) -> [SpeedSectionTracker.Reading?] {
+        var tracker = SpeedSectionTracker()
+        let t0 = Date(timeIntervalSince1970: 0)
+        var readings: [SpeedSectionTracker.Reading?] = []
+        for t in 0..<160 {
+            let lat = 50.0005 + 20.0 / 111_195.0 * Double(t)
+            guard lat < 50.029 else { break }
+            let seg = Int((lat - 50.0) / 0.001)
+            readings.append(tracker.onTick(
+                riderLat: lat, riderLon: 14.0,
+                time: t0.addingTimeInterval(Double(t)),
+                routeAhead: Array(route[seg...]),
+                sections: sections))
+        }
+        return readings
+    }
+
+    @Test func sectionAverageMatchesSteadySpeed() {
+        let inside = rideThrough([northbound]).compactMap { $0 }
+        // ~1.11 km at 20 m/s ≈ 55 ticks inside, then the panel goes away.
+        #expect(inside.count > 50 && inside.count < 60)
+        #expect(inside.first?.averageKmh == nil)          // first seconds: no figure yet
+        #expect(inside.first?.limitKmh == 80)
+        let averages = inside.compactMap(\.averageKmh)
+        #expect(!averages.isEmpty)
+        #expect(averages.allSatisfy { abs($0 - 72) < 2 })
+        #expect(inside.last!.remainingMeters < 30)
+        #expect(abs(inside.first!.lengthMeters - 1_112) < 15)
+    }
+
+    @Test func sectionPanelHidesAfterTheEndPoint() {
+        let readings = rideThrough([northbound])
+        let lastInside = readings.lastIndex { $0 != nil }!
+        #expect(readings[(lastInside + 1)...].allSatisfy { $0 == nil })
+    }
+
+    @Test func oppositeCarriagewaySectionNeverEngages() {
+        #expect(rideThrough([southbound]).allSatisfy { $0 == nil })
+    }
+
+    @Test func sectionsNeedFromAndToRoles() throws {
+        let json = """
+        {"elements":[
+          {"type":"node","id":1,"lat":50.0,"lon":14.0,"tags":{"highway":"speed_camera"}},
+          {"type":"relation","id":7,"tags":{"maxspeed":"50"},
+           "members":[{"type":"node","ref":2,"role":"from"},{"type":"node","ref":3,"role":"to"}]},
+          {"type":"relation","id":8,
+           "members":[{"type":"node","ref":2,"role":""},{"type":"node","ref":3,"role":""}]},
+          {"type":"node","id":2,"lat":50.01,"lon":14.0},
+          {"type":"node","id":3,"lat":50.02,"lon":14.0}
+        ]}
+        """
+        let elements = try JSONDecoder()
+            .decode(SpeedCameraService.OverpassResponse.self, from: Data(json.utf8)).elements
+        let sections = SpeedCameraService.makeSections(elements)
+        #expect(sections.map(\.id) == [7])
+        #expect(sections.first?.maxspeedKmh == 50)
+        #expect(sections.first?.toLat == 50.02)
+        // Bare from/to nodes are not cameras.
+        #expect(SpeedCameraService.makeCameras(elements).map(\.id) == [1])
+    }
+
+    @Test func rerouteFetchMergesWithoutDuplicates() {
+        let a = SpeedCameraData(cameras: [], sections: [northbound])
+        let b = SpeedCameraData(cameras: [], sections: [northbound, southbound])
+        #expect(a.merged(with: b).sections.map(\.id) == [10, 11])
+    }
+
+    @Test func coverageContainsOnlyRoutesInsideIt() {
+        let covered = SpeedCameraService.BBox(south: 50.0, west: 14.0, north: 50.1, east: 14.1)
+        #expect(covered.contains(.init(south: 50.02, west: 14.02, north: 50.08, east: 14.08)))
+        #expect(!covered.contains(.init(south: 50.02, west: 14.02, north: 50.2, east: 14.08)))
     }
 }

@@ -781,6 +781,12 @@ final class AppStatus {
     /// generous neighbourhood without a huge Overpass query.
     private func prefetchFreeRideCameras() {
         speedCameraPrefetchTask?.cancel()
+        // Retire the finished route's camera/section set: a reroute fetch
+        // still in flight (those aren't cancellable) must not land on the
+        // free-ride map, and a later nav loop must not be seeded with it.
+        speedCameraGeneration += 1
+        speedCameraData = .empty
+        speedCameraCoverage = []
         guard dashNavSettings.speedCamerasEnabled else {
             mapViewSource.setSpeedCameras([])
             return
@@ -928,7 +934,24 @@ final class AppStatus {
     /// Active-nav 1 Hz pump. Created on demand when streaming starts
     /// (we need a live `mapSource` and `bikeLink.connected` first). Held
     /// here so we can stop it from `stopStreaming()`.
-    @ObservationIgnored private var activeNavLoop: ActiveNavLoop?
+    @ObservationIgnored private var activeNavLoop: ActiveNavLoop? {
+        // The camera prefetch usually finishes (disk-cache hit) BEFORE
+        // `startStreaming` creates the loop, so seed a new loop with the
+        // last result instead of relying on the prefetch to find it.
+        didSet {
+            activeNavLoop?.setSpeedCameras(speedCameraData.cameras)
+            activeNavLoop?.setSpeedSections(speedCameraData.sections)
+        }
+    }
+    /// Cameras + sections collected for the current ride (`.empty` when
+    /// the toggle is off). Seeds `activeNavLoop` on creation.
+    @ObservationIgnored private var speedCameraData: SpeedCameraData = .empty
+    /// Areas already fetched (or being fetched) for this ride. A reroute or
+    /// leg whose route fits inside one of them needs no new query.
+    @ObservationIgnored private var speedCameraCoverage: [SpeedCameraService.BBox] = []
+    /// Bumped on every fresh start / toggle-off so a late fetch from an
+    /// earlier ride can't merge into the current one.
+    @ObservationIgnored private var speedCameraGeneration = 0
 
     /// Live Activity controller (Lock Screen + Dynamic Island ride card).
     /// Created on `startStreaming`, fed by `ActiveNavLoop`, ended on
@@ -1475,31 +1498,68 @@ final class AppStatus {
         }
     }
 
-    /// Prefetch speed cameras along the freshly-installed route and hand
-    /// them to the renderer. Called from `MapPickerView.installRouteGeometry`
-    /// on nav start + every reroute / leg advance. Best-effort: a failed
-    /// or empty fetch just leaves the map without markers. No-op (and the
+    /// Prefetch speed cameras + average-speed sections along `route` and
+    /// hand them to the renderer and the nav loop. Best-effort: a failed or
+    /// empty fetch just leaves the map without markers. No-op (and the
     /// existing markers cleared) when the toggle is off.
-    func prefetchSpeedCameras(for route: MKRoute) {
-        speedCameraPrefetchTask?.cancel()
-        guard dashNavSettings.speedCamerasEnabled else {
-            mapViewSource.setSpeedCameras([])
-            activeNavLoop?.setSpeedCameras([])
-            return
-        }
+    ///
+    /// `extending: false` (nav start, toggle re-enabled) starts the ride's
+    /// set from scratch. `extending: true` (reroute, leg advance, alt
+    /// switch — the route-changed hook) fetches only when the new route
+    /// leaves the area already covered, and MERGES the result, so the
+    /// cameras and sections of a new road or the next leg show up too.
+    func prefetchSpeedCameras(for route: MKRoute, extending: Bool = false) {
         let coords = route.polyline.coordinateList()
         guard coords.count >= 2 else { return }
-        speedCameraPrefetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let cams = await SpeedCameraService.shared.camerasAlong(route: coords)
-            guard !Task.isCancelled else { return }
-            // Re-check the toggle after the network await.
-            let effective = self.dashNavSettings.speedCamerasEnabled ? cams : []
-            self.mapViewSource.setSpeedCameras(effective)
-            // Hand the same set to the active-nav loop so the voice announcer
-            // can warn when the rider approaches one (feat/speed-camera-voice-alert).
-            self.activeNavLoop?.setSpeedCameras(effective)
+        let routeBox = SpeedCameraService.boundingBox(of: coords, bufferMeters: 0)
+        if extending, speedCameraCoverage.contains(where: { $0.contains(routeBox) }) {
+            return
         }
+        if !extending {
+            speedCameraPrefetchTask?.cancel()
+            speedCameraGeneration += 1
+            speedCameraData = .empty
+            speedCameraCoverage = []
+        }
+        guard dashNavSettings.speedCamerasEnabled else {
+            speedCameraGeneration += 1
+            speedCameraData = .empty
+            speedCameraCoverage = []
+            mapViewSource.setSpeedCameras([])
+            activeNavLoop?.setSpeedCameras([])
+            activeNavLoop?.setSpeedSections([])
+            return
+        }
+        // Claimed up front so the hook firing right after nav start (same
+        // route) doesn't queue a duplicate fetch of the same corridor.
+        let box = SpeedCameraService.boundingBox(of: coords,
+                                                 bufferMeters: SpeedCameraService.corridorBufferMeters)
+        speedCameraCoverage.append(box)
+        let generation = speedCameraGeneration
+        // Extending fetches don't cancel each other (or the start fetch):
+        // results merge, so two quick reroutes both land.
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let fetched = await SpeedCameraService.shared.camerasAlong(route: coords)
+            guard !Task.isCancelled, generation == self.speedCameraGeneration else { return }
+            guard let fetched else {
+                // Total failure: release the claim so the next route change
+                // retries instead of trusting an area we never got.
+                self.speedCameraCoverage.removeAll { $0 == box }
+                return
+            }
+            // Re-check the toggle after the network await.
+            let data = self.speedCameraData.merged(with: fetched)
+            let effective = self.dashNavSettings.speedCamerasEnabled ? data : .empty
+            self.speedCameraData = effective
+            self.mapViewSource.setSpeedCameras(effective.cameras)
+            // Hand the same set to the active-nav loop so the voice announcer
+            // can warn when the rider approaches one (feat/speed-camera-voice-alert),
+            // plus the average-speed sections for the dash section panel.
+            self.activeNavLoop?.setSpeedCameras(effective.cameras)
+            self.activeNavLoop?.setSpeedSections(effective.sections)
+        }
+        if !extending { speedCameraPrefetchTask = task }
     }
 
     /// Prefetch OSM `maxspeed` ways along the freshly-installed route so

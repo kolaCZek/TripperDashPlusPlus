@@ -321,6 +321,30 @@ def test_weather_pill_collision_bump():
     assert re.search(r"originY\s*=\s*frameSize\.height\s*-\s*margin\s*-\s*pillH\s*-\s*signBump", src)
 
 
+def test_section_panel_lifts_weather_pill_even_without_sign():
+    # The average-speed panel sits in the sign's row. With the sign hidden
+    # ("overOnly" under the limit / "off") the pill used to drop onto that
+    # row and cover the panel — the bump must fire for EITHER element, and
+    # for neither must stay 0 (pill back in the corner, as before).
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(mapsource_src(), "fileprivate func drawWeatherAlert(into ctx: CGContext)"))
+    assert re.search(
+        r"let signBump: CGFloat = \(shouldDrawSpeedLimit \|\| speedSection != nil\)\s*"
+        r"\? Self\.speedLimitSignDiameter \+ 8\s*: 0", body)
+
+
+def test_section_panel_drawn_in_sign_row():
+    from tests.swift_source import decl_body, strip_comments
+    src = mapsource_src()
+    assert src.index("drawSpeedLimitSign(into: ctx)") < src.index("drawSpeedSectionPanel(into: ctx)")
+    body = strip_comments(decl_body(src, "fileprivate func drawSpeedSectionPanel(into ctx: CGContext)"))
+    assert "guard let r = speedSection else { return }" in body
+    # Left of the sign's slot, top-aligned with the sign (not above it —
+    # the space above the sign's right side is outside the round glass).
+    assert "frameSize.width - margin - Self.speedLimitSignDiameter - Self.sectionPanelGap - size.width" in body
+    assert "y: signTop - 2," in body
+
+
 def test_three_display_modes_wired():
     src = mapsource_src()
     # shouldDrawSpeedLimit honours all three modes.
@@ -517,3 +541,70 @@ def test_service_shadow_plumbing():
     assert "struct RoadShape" in src
     assert "func split(" in src
     assert "func nearestRoadDistance(" in src
+
+
+def test_section_panel_geometry_fits_round_glass():
+    # Recompute the panel rect from the Swift constants and check it against
+    # the visible circle measured on a real dash photo (centre ~(263, 267),
+    # r ~265 px in 526x300 frame pixels) and the progress-bar chevron.
+    import math
+    src = mapsource_src()
+    w, h = map(int, re.search(r"sectionPanelSize = CGSize\(width: (\d+), height: (\d+)\)", src).groups())
+    gap = int(re.search(r"sectionPanelGap: CGFloat = (\d+)", src).group(1))
+    sign = int(re.search(r"speedLimitSignDiameter: CGFloat = (\d+)", src).group(1))
+    margin = int(re.search(r"speedLimitSignMargin: CGFloat = (\d+)", src).group(1))
+    x0 = 526 - margin - sign - gap - w
+    y0 = 300 - margin - sign - 2
+    corners = [(x0, y0), (x0 + w, y0), (x0, y0 + h), (x0 + w, y0 + h)]
+    assert all(math.hypot(x - 263, y - 267) < 265 - 30 for x, y in corners)
+    chevron_top = 300 - 12 - 6 + 3 - 9          # bar y + h/2 - arrowHalfH
+    assert y0 + h < chevron_top
+    assert x0 + w + gap <= 526 - margin - sign   # clear of the sign disc
+
+
+# --- Average-speed section wiring ------------------------------------------
+
+def test_new_nav_loop_is_seeded_with_last_camera_prefetch():
+    # The prefetch usually lands (disk-cache hit) before startStreaming
+    # creates the loop — the loop must be seeded on creation, not only
+    # from the prefetch completion.
+    from tests.swift_source import strip_comments
+    src = strip_comments(_src("App/AppStatus.swift"))
+    m = re.search(r"private var activeNavLoop: ActiveNavLoop\? \{\s*didSet \{(.*?)\}\s*\}", src, re.S)
+    assert m, "activeNavLoop lost its seeding didSet"
+    assert "activeNavLoop?.setSpeedSections(speedCameraData.sections)" in m.group(1)
+    assert "activeNavLoop?.setSpeedCameras(speedCameraData.cameras)" in m.group(1)
+    assert "self.speedCameraData = effective" in src
+
+
+def test_section_panel_follows_camera_toggle():
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(_src("Navigation/ActiveNavLoop.swift"),
+                                    "private func updateSpeedSection()"))
+    assert re.search(r"guard settings\.speedCamerasEnabled, !speedSections\.isEmpty,", body)
+
+
+def test_route_changes_extend_camera_and_section_prefetch():
+    # Reroute, leg advance and alternative switch all funnel through the
+    # route-changed hook — it must extend the camera/section set, or a new
+    # road / the next leg never gets its sections (or cameras).
+    from tests.swift_source import strip_comments
+    picker = strip_comments(_src("UI/MapPickerView.swift"))
+    hook = picker[picker.index("onActiveRouteChanged = { [weak status] newRoute in"):]
+    hook = hook[:hook.index("onAlternativesChanged")]
+    assert "status.prefetchSpeedCameras(for: newRoute, extending: true)" in hook
+    app = strip_comments(_src("App/AppStatus.swift"))
+    body = app[app.index("func prefetchSpeedCameras(for route: MKRoute, extending: Bool = false)"):]
+    body = body[:body.index("func prefetchSpeedLimits")]
+    # Skip when already covered, merge (not replace) the result.
+    assert "if extending, speedCameraCoverage.contains(where: { $0.contains(routeBox) })" in body
+    assert "self.speedCameraData.merged(with: fetched)" in body
+
+
+def test_free_ride_retires_route_camera_fetches():
+    # Reroute fetches aren't cancellable; a late one must not overwrite the
+    # free-ride markers after arrival / manual stop.
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(_src("App/AppStatus.swift"), "private func prefetchFreeRideCameras()"))
+    assert "speedCameraGeneration += 1" in body
+    assert "speedCameraData = .empty" in body
