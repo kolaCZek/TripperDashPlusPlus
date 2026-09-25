@@ -270,7 +270,7 @@ ffmpeg -i SCAN_VIDEO.mov \
 
 ## See also
 
-- [`ManeuverIcon.swift`](../../TripperDashPP/Navigation/Models/ManeuverIcon.swift) — Asset-free glyph renderer for the phone-side burned arrow (used when the dash enum is untrusted)
+- [`ManeuverIcon.swift`](../../TripperDashPP/Navigation/Models/ManeuverIcon.swift) — Asset-free glyph renderer for a phone-side burned arrow (currently unused: the `drawNavOverlay` call in `MapViewSource` is commented out, so the dash bubble is the only glyph) + the `ManeuverKind.wireByte` mapping
 - [`ActiveNavLoop.swift`](../../TripperDashPP/Navigation/ActiveNavLoop.swift) — 1 Hz active-nav TLV loop that ships the maneuver byte to the dash
 - [Overview grid (90 visible glyphs captured)](all-glyphs-overview.jpg)
 

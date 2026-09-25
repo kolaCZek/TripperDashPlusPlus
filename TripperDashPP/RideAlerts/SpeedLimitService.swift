@@ -24,7 +24,7 @@ import os.log
 
 /// One OSM way carrying an explicit `maxspeed`, with its full polyline
 /// geometry so we can measure how close the rider is to it. `maxspeedKmh`
-/// is always km/h (the OSM dataset is European; we convert for display).
+/// is always km/h (`MaxspeedParser` converts mph tags; we convert for display).
 struct SpeedLimitWay: Equatable, Sendable, Identifiable {
     let id: Int64
     let coords: [CLLocationCoordinate2D]

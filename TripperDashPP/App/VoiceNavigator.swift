@@ -33,7 +33,7 @@
 //  Prompts are time-sensitive: a "in 300 m" cue is worthless once the rider
 //  is at the turn. So the queue is shallow and priority-ordered — a fresh
 //  maneuver/arrival/reroute prompt CANCELS whatever lower-priority thing is
-//  mid-sentence rather than waiting behind it. Same-or-higher priority
+//  mid-sentence rather than waiting behind it. Same-or-lower priority
 //  prompts are dropped if one is already speaking within the same beat to
 //  avoid stutter.
 //

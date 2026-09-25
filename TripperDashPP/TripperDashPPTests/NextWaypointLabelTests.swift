@@ -55,8 +55,8 @@ struct NextWaypointLabelTests {
 
     @Test func longNameClipsWithEllipsis() {
         // Budget 28, "15 min" timePart (6) + " to " joiner (4) = 10
-        // reserved -> nameBudget = 18. 18-char name fits with no ellipsis
-        // at exactly the boundary.
+        // reserved -> nameBudget = 18. A 17-char name (one under budget)
+        // fits with no ellipsis.
         let exactFit = "Rohanské nábřeží1" // 17 characters — under budget
         #expect(exactFit.count == 17)
         #expect(L.nextWaypointLabel(name: exactFit, etaSeconds: 900)

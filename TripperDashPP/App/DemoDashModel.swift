@@ -24,9 +24,9 @@
 //      have drawn from the K1G TLV bytes. These values are NOT in the video
 //      frame, so the SwiftUI preview draws them as chrome around the panel.
 //
-//  Both are written from background callbacks (`ActiveNavLoop.tick`, the
-//  MapViewSource frame callback), so this type is @MainActor-isolated and the
-//  writers hop to the main actor before touching it. It is @Observable so the
+//  Both writers (`ActiveNavLoop.tick`, the MapViewSource frame callback) run
+//  on the main actor, and this type is @MainActor-isolated to match. It is
+//  @Observable so the
 //  `DashPreviewPanel` view redraws as frames and bubbles land.
 //
 

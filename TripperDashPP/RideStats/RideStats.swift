@@ -65,8 +65,8 @@ struct RideStats: Sendable, Equatable, Codable {
     private(set) var lastFixAt: Date?
 
     /// Ordered recorded track — one entry per gate-passing fix. Feeds the
-    /// GPX export (`GPXExporter.gpx(from:)`). In-memory only, like the
-    /// rest of `RideStats`: an app kill or `reset()` drops it.
+    /// GPX export (`GPXExporter.gpx(from:)`). Persisted with the rest of
+    /// `RideStats` at teardown by `RideStatsService`; `reset()` drops it.
     private(set) var trackPoints: [TrackPoint] = []
 
     // Bookkeeping for the next fold (not part of the public readout)

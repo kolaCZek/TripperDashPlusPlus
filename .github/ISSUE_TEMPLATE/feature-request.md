@@ -20,8 +20,8 @@ assignees: ''
 
 ## Scope check
 
-- [ ] I understand MVP scope is intentionally minimal — some features (turn-by-turn voice, Apple Watch app, App Store distribution) are out of scope for now
-- [ ] This feature does not require paid-only Apple Dev entitlements (e.g. `NEHotspotConfiguration`, push notifications)
+- [ ] I understand scope is intentionally minimal — some features (e.g. an Apple Watch app) are out of scope for now
+- [ ] This feature does not require a new paid-only Apple Dev entitlement or service (e.g. push notifications, WeatherKit) — Hotspot Configuration for Wi-Fi auto-join is the only one in use
 
 ## Additional context
 

@@ -9,7 +9,9 @@ wire field that rendered the burned "SCAN 0xNN" text during
 glyph-capture sessions (see `docs/maneuver-glyphs/README.md`) and that
 sits unused/nil on an ordinary single-destination ride — to show
 "<time> to <name>" while `remainingWaypoints > 1` (i.e. the CURRENT
-leg's destination is an intermediate stop, not the final one).
+leg's destination is an intermediate stop, not the final one). Since
+8/2026 the gate is `remainingWaypoints >= 1`, so the label also shows for
+the final destination on the last leg.
 
 TIME-FIRST ordering (Martin, 7/2026 follow-up): a long waypoint name
 must never push the ETA out of the dash's visible text row. The label

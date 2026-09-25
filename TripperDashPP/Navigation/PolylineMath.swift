@@ -7,10 +7,10 @@
 //  polyline but no convenient "am I on it?" query, so we compute it
 //  here using Haversine on each segment.
 //
-//  Performance: ActiveNavigator caches the last progressIndex and
-//  only walks forward from there each tick (instead of scanning the
-//  whole polyline). For a 100 km route at 6 fps + 25 m/s that means
-//  ~4 segment checks per tick steady-state. Cheap.
+//  Performance: ActiveNavigator caches the last lastSegmentIndex and
+//  `nearestSegment` scans forward from there to the END of the polyline
+//  each fix (segments already passed are skipped, the rest are not), so
+//  cost is O(remaining segments) per fix.
 //
 
 import CoreLocation

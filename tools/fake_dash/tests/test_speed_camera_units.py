@@ -5,15 +5,15 @@ The Swift side:
   - `MaxspeedParser.swift` — the ONE parser both services share.
   - `SpeedCameraService.makeCamera` — now routes `maxspeed` through it, so
     a "55 mph" camera stores 88 km/h instead of 55 (#3).
-  - `MapViewSource.displayLimit` — the ONE km/h→display converter the
-    camera badge AND the posted-limit sign both call, so they can't show
-    different numbers for the same road (#4).
+  - `MapViewSource.displayLimit` — the ONE km/h→display converter. The
+    posted-limit sign calls it; the camera badge used to as well, but it no
+    longer draws a number (removed 8/2026) (#4).
 
 None of that compiles on the Linux host, so this file:
   1. Mirrors `MaxspeedParser.kmh` + `displayLimit` in Python and pins them
      with cases whose answers are obvious by construction.
   2. Source drift-guards the Swift wiring: both services call the shared
-     parser, the camera badge + the sign both call `displayLimit`, and the
+     parser, the sign calls `displayLimit`, and the
      old naive leading-digits parser is gone from the camera service.
 
 Compilation itself is verified by the macOS `xcodebuild` CI job.
@@ -116,8 +116,8 @@ def test_display_limit(kmh, imperial, expected):
 
 def test_mph_zone_round_trips_for_imperial_rider():
     """A 55 mph zone: parsed to 89 km/h internally, displayed back as 55
-    to an imperial rider — on BOTH the camera badge and the limit sign,
-    because they share `displayLimit`."""
+    to an imperial rider on the limit sign via `displayLimit` (the camera
+    badge no longer shows a number)."""
     internal = maxspeed_kmh("55 mph")
     assert internal == 89
     assert display_limit(internal, imperial=True) == 55
@@ -177,7 +177,7 @@ def test_maxspeed_parser_is_in_pbxproj():
     """The shared parser is a NEW file; in this non-synchronized project it
     must be referenced in project.pbxproj or it silently won't compile and
     every `MaxspeedParser.kmh` call site fails to build (the classic manual
-    pbxproj trap — see test_maneuver_log)."""
+    pbxproj trap — see test_dash_notice_is_in_pbxproj)."""
     pbx = (
         REPO / "TripperDashPP" / "TripperDashPP.xcodeproj" / "project.pbxproj"
     ).read_text(encoding="utf-8")

@@ -110,8 +110,7 @@ enum K1GPacket {
     /// include the magic in its handshake replies. Symptom: handshake
     /// step 1 times out with "no decodable segments" on every RX line
     /// even though the modulus byte sequence is clearly present in the
-    /// hex dump. See `references/k1g-wire-protocol.md` and the regression
-    /// note at the end of `K1GPacket.swift`.
+    /// hex dump. See `references/k1g-wire-protocol.md`.
     nonisolated static func decode(_ data: Data) -> [K1GSegment] {
         guard data.count >= 8 else { return [] }
 
@@ -300,9 +299,11 @@ extension K1GPacket {
     // `q3c.w` latched + `q3c.g` per frame it treats the incoming UDP
     // stream as noise and keeps the home widgets visible.
     //
-    // Recommended start sequence (mirrors better-dash `send_nav_mode_kick`):
+    // Recommended start sequence (mirrors better-dash `send_nav_mode_kick`),
+    // preceded by the `0x007E` route-card burst (see `makeRouteCard`):
     //   1. `q3c.z2` (START_NAV)        — open the nav projection screen
-    //   2. `q3c.q`  (NAV_CTX)          — enter nav context
+    //   2. `q3c.q`  (NAV_CTX)          — enter nav context, then `q3c.r`
+    //                                    (EMPTY_LISTS, see `makeEmptyLists`)
     //   3. start the RTP/H.264 stream
     //   4. `q3c.w`  (PROJ_ON)          — latch projection-live flag
     //   5. then per frame, send `q3c.g` (PROJ_FRAME) right after each
@@ -367,11 +368,9 @@ extension K1GPacket {
     /// captured, opaque template rather than composing semantic TLVs. The
     /// template's inner fields (t3c.* — distance/ETA/decimal-separator
     /// placeholders) are NOT meaningful defaults we control; they're
-    /// whatever bytes the real dash's own nav_open_ok.pcap capture showed,
-    /// preserved verbatim because their semantics are undocumented and
-    /// reverse-engineering them wasn't necessary — the dash only reads this
-    /// packet as "a destination now exists", triggering decoder-surface
-    /// allocation, not as a HUD update (that's `sendActiveNav`'s job).
+    /// whatever bytes the real dash's own nav_open_ok.pcap capture showed.
+    /// Several of them are deliberately omitted, because the dash DOES
+    /// render them as HUD fields — see the numbered history below.
     ///
     /// **Why this exists at all** (`references/network-transport.md` in
     /// the `royal-enfield-tripper-dash` skill, `better-dash/dash_ui/
@@ -431,10 +430,9 @@ extension K1GPacket {
         includeHudFields: Bool = true,
         includeManeuverPlaceholders: Bool = true
     ) -> Data {
-        // Prefix: outer_len(2, placeholder) + seg_count(2, FIXED 0x0011 —
-        // hardcoded in the captured template, NOT actual_count+1 like
-        // `encode()` computes for every other packet type in this file)
-        // + pad(4) + icHeaderMarker(4) + magic(4).
+        // Prefix: outer_len(2, placeholder) + seg_count(2, placeholder
+        // 0x0011 from the captured template — recomputed as actual+1
+        // below) + pad(4) + icHeaderMarker(4) + magic(4).
         var body = Data()
         body.append(contentsOf: [0x00, 0x00, 0x00, 0x11])
         body.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
@@ -833,12 +831,11 @@ extension K1GPacket {
     ///     rejects `0x31` and drops the ETA block. So `0x31` is confirmed
     ///     WRONG, not merely unconfirmed.
     ///
-    /// We therefore send `0x30` unconditionally. The `0x08` ETA payload is
-    /// always 24-hour HH:MM, so on a dash set to 12-hour the rider still sees
-    /// the arrival time, rendered in 24-hour form, instead of a blank field.
-    /// Driving a genuine 12-hour render is blocked on a real 12h-mode capture
-    /// of the OEM app (or a HW bisection) to learn the correct flag — we will
-    /// NOT ship another blind guess to the dash. `is24Hour` is retained in the
+    /// We therefore send `0x30` unconditionally. The 12/24-hour convention is
+    /// applied to the `0x08` ETA payload itself instead (see `tlvEta`'s
+    /// `is24Hour`). Learning a genuine 12-hour flag is blocked on a real
+    /// 12h-mode capture of the OEM app (or a HW bisection) — we will NOT ship
+    /// another blind guess to the dash. `is24Hour` is retained in the
     /// signature for call-site compatibility but no longer changes the byte.
     static func tlvEtaFormat(is24Hour: Bool) -> K1GSegment {
         _ = is24Hour  // intentionally ignored — see doc comment (0x31 blanks the dash)
@@ -1135,13 +1132,15 @@ extension K1GPacket {
 ///
 /// Source: `better-dash/tripper_app_like_nav.py:INITIAL_BURST_HEX`.
 /// Packet 1 is q3c.e (`makeRequestPubkey`). Packet 2 is the hostname
-/// announce. Packets 3-7 are constant capability ACKs (`02060600…` /
+/// announce. Packets 3-7 are capability ACKs (packet 3 carries the live
+/// set-clock TLV, see `makePacket3SetClock`) (`02060600…` /
 /// `055700`/`0556`/`0605`/`0517` families). Packet 8 is a fixed init
 /// hint (`08 0A 02 …`). Packet 9 is the initial 0044 status frame.
 enum InitialBurst {
 
-    /// Build the 9-packet sequence ready to send (in order, with their
-    /// sequence bytes set from `seq`). Pause between sends is the
+    /// Build the 9-packet sequence ready to send (in order; only packet 1
+    /// consumes a byte from `seq`, the rest carry fixed captured sequence
+    /// bytes). Pause between sends is the
     /// caller's responsibility (better-dash uses 50–100 ms).
     static func packets(hostname: String, fixedTempC: Int, seq: RollingSeq) -> [Data] {
         let p1 = K1GPacket.makeRequestPubkey(seq: seq.consume())
@@ -1151,7 +1150,7 @@ enum InitialBurst {
         // so we don't patch one in.
 
         // Packets 3-7: capability ACK templates, captured verbatim. Each
-        // already has its own embedded seq byte (03, 04, 05, 06) which
+        // already has its own embedded seq byte (02, 03, 04, 05, 06) which
         // we leave alone — the dash treats these as a fixed greeting.
         //
         // Packet 3 carries the **wall-clock set-time TLV** (06/06, 3 B):

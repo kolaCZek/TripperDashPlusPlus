@@ -367,7 +367,7 @@ actor DashSocket {
                 cancel()
                 return
             }
-            // n == 0 — not meaningful for UDP, retry once.
+            // n == 0 (empty datagram) — stop draining until the next read event.
             return
         }
     }

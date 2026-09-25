@@ -10,8 +10,8 @@
 //
 //  - `connect()` opens the UDP socket, runs the RSA handshake, and starts
 //    the heartbeat loop. On success, `state` becomes `.connected` and we
-//    expose the negotiated `aesKey` (used by Phase 4+ for encrypted
-//    payloads, if needed).
+//    expose the negotiated `aesKey` (not currently used by anything;
+//    kept for future encrypted payloads).
 //  - `disconnect()` cancels everything and returns to `.idle`.
 //
 //  We deliberately keep the API on the main actor because UI binds to
@@ -92,7 +92,7 @@ final class BikeLink {
     /// through every switch).
     private(set) var isWaitingForWifi = false
 
-    /// AES-256 session key the bike now also has (for Phase 4+).
+    /// AES-256 session key the bike now also has (currently unused).
     private(set) var aesKey: Data?
 
     /// Last error description for the UI.
@@ -199,8 +199,8 @@ final class BikeLink {
     // MARK: - Init
 
     /// Optional reference to the user's dash-display settings.
-    /// Currently consulted only for the wire-encoding helpers that live
-    /// on `DashNavSettings` (units / formatting). BikeLink is created
+    /// Currently consulted only for `callStateEnabled` (see
+    /// `sendCallState`). BikeLink is created
     /// at AppStatus init time (inline stored property), but the
     /// settings object is itself a property of AppStatus — so we can't
     /// reference it from BikeLink's inline initializer. AppStatus
@@ -237,7 +237,9 @@ final class BikeLink {
     ///
     /// Allowed from `.idle` or `.error` — in the latter case we do a
     /// silent teardown first (same as `disconnect()` would do) so the
-    /// retry is clean. Rejected from any in-progress or connected state
+    /// retry is clean. From `.reconnecting` it wakes the retry loop, and
+    /// from a pre-join `.connecting` (no connect task yet) it starts the
+    /// flow. Rejected from any other in-progress or connected state
     /// because that's almost always a UI double-tap.
     func connect() {
         startPathMonitorIfNeeded()
@@ -294,7 +296,8 @@ final class BikeLink {
     /// dash-still-booting race (`.bootRaceMissingReply`, covering BOTH
     /// `HandshakeError.noReplyAtAll` — step1 got zero reply packets at all —
     /// AND `.authNotReady` — step3 got no auth-OK despite the dash actively
-    /// sending other traffic the whole time). Any OTHER failure (bad reply,
+    /// sending other traffic the whole time — AND step1's `.missingSegment`,
+    /// see `runConnectFlow`). Any OTHER failure (bad reply,
     /// wrong Wi-Fi, cancellation) surfaces immediately as before — this is
     /// narrowly scoped to race conditions that are expected and self-
     /// resolving within a few seconds of the dash finishing its own boot.
@@ -410,13 +413,12 @@ final class BikeLink {
     func sendRouteCard(title: String, includeManeuverPlaceholders: Bool = true) async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
         guard state == .connected, let s = socket else {
-            // Silent no-op before this fix. `startStreaming` awaits this
-            // call assuming it either sent the burst or is a clean no-op
-            // (demo mode) — a guard failure here (state raced away from
-            // .connected between the reconnect handler's check and this
-            // call, or the socket was torn down concurrently) looked
-            // IDENTICAL to success from the caller's side, with nothing in
-            // any log to say the dash never got a single 0x007E.
+            // Silent no-op. `startStreaming` awaits this call assuming it
+            // either sent the burst or is a clean no-op (demo mode) — a
+            // guard failure here (state raced away from .connected between
+            // the reconnect handler's check and this call, or the socket
+            // was torn down concurrently) looks IDENTICAL to success from
+            // the caller's side, and nothing is logged.
             return
         }
         do {
@@ -435,8 +437,7 @@ final class BikeLink {
             log.info("Sent 0x007e route card x\(K1G.routeCardBurstCount, privacy: .public) (title=\(title, privacy: .public))")
         } catch {
             log.error("Route-card send failed: \(error.localizedDescription)")
-            // This previously went to os.log only — invisible in a field
-            // diagnosis. A send failure here means the dash's
+            // Logged to os.log only. A send failure here means the dash's
             // nav-decoder-surface gate never even got asked to open.
         }
     }
@@ -472,8 +473,7 @@ final class BikeLink {
             // This is the 1 Hz watchdog refresh — if THIS silently no-ops
             // while the rest of the app still thinks it's streaming, the
             // dash's "destination still valid" timer runs out with nobody
-            // aware it was ever unfed. Rate-limit isn't needed: state only
-            // flips out of .connected occasionally, not every tick.
+            // aware it was ever unfed. Nothing is logged here.
             return
         }
         let pkt = K1GPacket.makeRouteCard(
@@ -701,7 +701,8 @@ final class BikeLink {
         /// to answer the handshake — meanwhile the dash's Wi-Fi/AP layer
         /// (a lower level, independent of K1G readiness) already reports
         /// "iPhone connected" on its screen. Retryable without surfacing an
-        /// error to the rider.
+        /// error to the rider. Also used for `HandshakeError.authNotReady`
+        /// and `.missingSegment` (see `runConnectFlow`'s `isBootRace`).
         case bootRaceMissingReply(String)
         case otherFailure(String)
     }
@@ -1009,7 +1010,7 @@ final class BikeLink {
     /// dash's replies, corrupting both (field-tested 8/2026: visible attempt-
     /// counter reset + rx=0 timeouts on both flows while the dash itself
     /// reported "iPhone connected"). If a wake signal arrives mid-attempt we
-    /// just let that attempt run to completion; the path-monitor / heartbeat
+    /// just let that attempt run to completion; the path-monitor / Connect-tap
     /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {
         guard state == .reconnecting, shouldAutoReconnect else { return }
@@ -1026,7 +1027,7 @@ final class BikeLink {
     /// dash's subnet — before we open the socket and fire the handshake. The
     /// dash AP is a fixed `192.168.1.x` network, so "usable" means en0 has a
     /// `192.168.1.*` address (not just any Wi-Fi address, and not a stale
-    /// cellular/other-network one). Polls every 250 ms up to ~4 s. Returns as
+    /// cellular/other-network one). Polls every 250 ms up to ~5 s. Returns as
     /// soon as the interface is ready; on timeout it returns anyway and lets the
     /// handshake's rx=0 timeout be the real backstop — we never want to block a
     /// genuine connect just because the address probe was unlucky.

@@ -74,7 +74,7 @@ struct LegOptionPick: Equatable {
 ///   - metersPerPoint: ground meters covered by one screen point at the
 ///     tap location/zoom (`visibleMapRect.width / bounds.width`,
 ///     divided by `MKMapPointsPerMeterAtLatitude`). See
-///     `metersPerScreenPoint(in:)` for the MKMapView convenience.
+///     `metersPerScreenPoint(at:)` for the MKMapView convenience.
 ///   - tolerancePoints: screen-point radius to accept (default 22,
 ///     matching the prior RoutePreviewSheet value).
 ///   - minToleranceMeters: floor so a very zoomed-out map still accepts

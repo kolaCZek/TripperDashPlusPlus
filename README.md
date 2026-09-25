@@ -3,7 +3,7 @@
 > Stream live, full-color turn-by-turn navigation from your iPhone to the **Royal Enfield Tripper Dash** TFT (Himalayan 450 / Guerrilla 450) — even with your phone's screen off.
 
 [![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue.svg)](LICENSE)
-[![Platform: iOS 18+](https://img.shields.io/badge/platform-iOS%2018%2B-blue.svg)]()
+[![Platform: iOS 18.6+](https://img.shields.io/badge/platform-iOS%2018.6%2B-blue.svg)]()
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
 [![fake_dash CI](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml/badge.svg)](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml)
 
@@ -15,7 +15,7 @@ The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Him
 
 This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **6 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
 
-**What it does today:** open app → search a destination (or pick a favorite, or import a GPX) → preview alternative routes → start nav → put the phone in your pocket → ride. The dash shows the moving map, the route polyline, the next-maneuver glyph, distance/ETA, a whole-route progress overview, plus live phone status, a mirrored incoming-call card, a weather pill, a posted speed-limit sign, and speed-camera marks. Native turn-by-turn (TLV maneuver stream + burned-in glyph) is implemented and **validated on a Guerrilla 450 (June 2026).** On the phone itself, a live trip panel tracks the ride (distance, moving time, average/max speed, elevation gain).
+**What it does today:** open app → search a destination (or pick a favorite, or import a GPX) → preview alternative routes → start nav → put the phone in your pocket → ride. The dash shows the moving map, the route polyline, the next-maneuver glyph, distance/ETA, a whole-route progress overview, plus live phone status, a mirrored incoming-call card, a weather pill, a posted speed-limit sign, speed-camera marks, and an average-speed section panel. Native turn-by-turn (TLV maneuver stream + burned-in glyph) is implemented and **validated on a Guerrilla 450 (June 2026).** On the phone itself, a live trip panel tracks the ride (distance, moving time, average/max speed, elevation gain).
 
 > Not to be confused with the smaller **Tripper Navigation Pod** on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650 — that one's a tiny arrow-only display with a different protocol. This project targets the *big*, map-capable Tripper Dash.
 
@@ -34,25 +34,26 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 - **Light / Dark / Auto map.** One OSM Carto basemap, two palettes; dark is a CPU recolour of the *same* tile (water stays blue, not orange), so both share one cache. Auto follows sunrise/sunset from your GPS fix.
 - **Saved routes from GPX.** Import a `.gpx`, preview it, prune/reorder points, then navigate it through the same engine — reroute, ETA, and dash glyphs all apply.
 - **Mirrors OEM ride cards.** An incoming-call card and live phone status (battery, charging, GPS, signal) are mirrored onto the dash, just like the factory app. The dash's joystick can also skip to the next/previous music track on the phone.
-- **Live-traffic reroute (opt-in).** When enabled, the app watches for a materially faster alternative and offers to reroute around traffic mid-ride.
-- **Ride-aware alerts.** A conservative, keyless weather pill (rain/ice/storms/gusts/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), a posted speed-limit sign in the corner (OSM `maxspeed`, map-matched to the road you're on, imperial-aware), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map.
-- **GPS trip computer.** A ride summary on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw). It shows back on the map after you arrive and accumulates across a multi-leg day, zeroing when the session ends (you disconnect, the bike powers off, or the app is killed). Phone-side only; it's never sent to the dash.
+- **Live-traffic reroute (opt-in).** When enabled, the app watches for a materially faster alternative (default: saves ≥ 5 min, adjustable) and automatically reroutes onto it mid-ride.
+- **Ride-aware alerts.** A conservative, keyless weather pill (rain/snow/ice/frost risk/storms/gusts/crosswind/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), a posted speed-limit sign in the corner (OSM `maxspeed`, map-matched to the road you're on, imperial-aware), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map. Inside an OSM average-speed section (`enforcement=average_speed`) a panel next to the sign shows your GPS-estimated section average and the distance left.
+- **GPS trip computer.** A ride summary on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw). It shows back on the map after you arrive and accumulates across a multi-leg day, zeroing when the session ends (you disconnect or the bike powers off). The last ride's summary survives the app being killed, and a recorded ride can be saved to Saved routes and exported as GPX. Phone-side only; it's never sent to the dash.
+- **Phone-side extras.** A Lock Screen / Dynamic Island Live Activity mirrors the next turn and ETA; *Share → TripperDash++* from Google Maps or Apple Maps plans a route; a demo mode simulates the dash on-screen without the bike.
 - **No keys, no SDK.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies. A free Apple Developer account builds and runs everything except the in-app Wi-Fi auto-join, which needs the paid program's Hotspot Configuration entitlement (join the dash AP manually instead).
 
 Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full glyph catalog.
 
 ## Tech stack
 
-- **Swift 6 / SwiftUI**, **iOS 18+**, **Xcode 26**
+- **Swift 6 / SwiftUI**, **iOS 18.6+**, **Xcode 26**
 - **OSM Carto raster basemap** for the map (keyless; no SDK, no API key), with a **Light / Dark / Auto** appearance setting — Light is the raw OSM raster; Dark is the *same* tile recoloured at composite time (CPU invert + 180° hue-rotate, so water stays blue not orange); Auto follows sunrise/sunset from GPS — plus **Apple MapKit** for routing and place search (`MKDirections`, `MKLocalSearch`)
-- Apple frameworks: `Network`, `VideoToolbox`, `Security` (RSA handshake), `CoreLocation`, `MapKit`, `Accelerate`/vImage (dark-map recolour), `AVFoundation` (offline `AVSpeechSynthesizer` voice nav), `CallKit` (incoming-call mirror), `UIKit`
-- Keyless ride-data: Open-Meteo (weather pill) + OpenStreetMap Overpass (speed cameras) — no account, fetched over cellular
+- Apple frameworks: `Network`, `VideoToolbox`, `Security` (RSA handshake), `CoreLocation`, `MapKit`, `Accelerate`/vImage (dark-map recolour), `AVFoundation` (offline `AVSpeechSynthesizer` voice nav), `CallKit` (incoming-call mirror), `MediaPlayer` (dash-button track skip), `NetworkExtension` (Wi-Fi auto-join), `ActivityKit`/`WidgetKit` (Live Activity), `UIKit`
+- Keyless ride-data: Open-Meteo (weather pill) + OpenStreetMap Overpass (speed cameras, average-speed sections, posted speed limits) — no account, fetched over cellular
 - **Zero** third-party SPM dependencies
 - Python 3.12+ for the `fake_dash` test harness (decode RTP, simulate the dash on a laptop)
 
 ## Architecture (one paragraph)
 
-The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for OSM map tiles and MapKit routing). During foreground the app pre-renders the OSM tiles it will need along the route and PNG-caches them in memory; in the background it does CPU-only CGContext composition (crop the tile around the current GPS fix, rotate heading-up, draw the route polyline, draw the maneuver glyph and rider chevron, plus the weather pill, posted speed-limit sign, and speed-camera marks) into a 526×300 pixel buffer at 6 fps, encodes it via VideoToolbox H.264 baseline @ ~450 kbps, packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + live phone status + incoming-call card + nav kicks + button events) runs over UDP: the phone **sends to :2000** and **binds locally to :2002** for the dash's replies, over a single BSD POSIX socket. Background execution is kept alive via `CoreLocation` Always updates, so the stream survives the lock screen with the phone in a tank bag or jacket pocket.
+The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for OSM map tiles and MapKit routing). During foreground the app pre-renders the OSM tiles it will need along the route and PNG-caches them in memory; in the background it does CPU-only CGContext composition (crop the tile around the current GPS fix, rotate heading-up, draw the route polyline, draw the maneuver glyph and rider chevron, plus the weather pill, posted speed-limit sign, average-speed section panel, and speed-camera marks) into a 526×300 pixel buffer at 6 fps, encodes it via VideoToolbox H.264 baseline @ ~1 Mbps (1024 kbps), packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + live phone status + incoming-call card + nav kicks + button events) runs over UDP: the phone **sends to :2000** and **binds locally to :2002** for the dash's replies, over a single BSD POSIX socket. Background execution is kept alive via `CoreLocation` Always updates, so the stream survives the lock screen with the phone in a tank bag or jacket pocket.
 
 ## Building
 
@@ -67,7 +68,7 @@ open TripperDashPP/TripperDashPP.xcodeproj
 
 A free Apple Developer account is enough to build and ride with it — the only paid-only capability is the in-app Wi-Fi auto-join (Hotspot Configuration entitlement); without it you join the dash's AP from iOS Settings by hand. You'll need to re-install every 7 days (Xcode → Run takes ~30 s).
 
-**No API keys, no service accounts, no SDK token plumbing.** OSM tiles are fetched anonymously and MapKit is built into iOS. Set the bike's SSID and IP in the in-app diagnostics screen (they're persisted) — the defaults match a stock dash AP.
+**No API keys, no service accounts, no SDK token plumbing.** OSM tiles are fetched anonymously and MapKit is built into iOS. Add your bike in Settings → Bikes by its Tripper Wi-Fi SSID (`RE_XXXX_XXXXXX`, shown on the dash's phone-pairing screen); the dash IP is fixed at `192.168.1.1`.
 
 ## Testing without the bike
 

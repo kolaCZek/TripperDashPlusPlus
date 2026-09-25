@@ -7,7 +7,7 @@
 //  had their OWN parser, and they disagreed: SpeedLimitService converted
 //  "mph" correctly while SpeedCameraService just took the leading digits,
 //  so a US/UK camera tagged `maxspeed=55 mph` rendered "55" on the dash
-//  instead of 88 km/h (bug #3). Both now call this one type.
+//  instead of 89 km/h (bug #3). Both now call this one type.
 //
 //  OSM `maxspeed` conventions this handles (see the OSM wiki "Key:maxspeed"):
 //    "50"            → 50      (bare number = km/h, the global default unit)
@@ -18,7 +18,7 @@
 //    "none"          → nil     (derestricted; not a numeric posting)
 //    "walk"          → nil     (walking pace; not a fixed number)
 //    "signals"       → nil     (variable speed; no fixed number)
-//    "CZ:urban"      → nil     (implied/zone limit — resolved elsewhere, #5)
+//    "CZ:urban"      → nil     (implied/zone limit — not resolved yet, #5)
 //    nil / ""        → nil
 //
 //  Deliberately geography-agnostic: it does NOT try to guess that a bare

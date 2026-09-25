@@ -119,6 +119,6 @@ struct RideStatsFormattingTests {
 
     @Test func elevationImperial() {
         #expect(F.elevation(100, imperial: true) == "328 ft")   // 100 * 3.28084
-        #expect(F.elevation(340, imperial: true) == "1115 ft")  // 340 * 3.28084 = 1115.5 → 1115 (round-half-even)
+        #expect(F.elevation(340, imperial: true) == "1115 ft")  // 340 * 3.28084 ≈ 1115.49 → 1115
     }
 }

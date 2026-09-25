@@ -22,8 +22,8 @@
 //   - `decimalSeparator` → app-wide decimal separator for every UI number.
 //     No wire effect (the bike formats its own numbers).
 //   - `clockFormat` → formats every time string in the app UI, AND the ETA
-//     string we build for the dash (24h → `14:33`, 12h → `2:33`, hour % 12,
-//     no AM/PM, no extra leading zero) so our output matches the OEM app.
+//     string we build for the dash (24h → `1433`, 12h → `0233`, hour % 12,
+//     no AM/PM, zero-padded HHMM) so our output matches the OEM app.
 //     The dash then renders it per its own clock setting (observed quirk:
 //     it shows ETA "humpácky" — 14:22 as `02:22`, bare hour, no AM/PM —
 //     that formatting is dash-side and buggy, nothing we can fix on the
@@ -166,8 +166,8 @@ final class DashNavSettings {
     /// reference). Defaults to ON. Disable to keep the dash quiet during
     /// calls — handy if a rider takes a lot of calls on the move and doesn't
     /// want the card stealing the nav bubble, or if a particular Tripper
-    /// firmware misrenders it. When off, `BikeLink.sendCallState` becomes a
-    /// no-op, so NOTHING call-related is ever put on the wire.
+    /// firmware misrenders it. When off, `BikeLink.sendCallState` drops
+    /// every state except `.none`, so only a clear reaches the wire.
     var callStateEnabled: Bool = true {
         didSet { persist() }
     }
@@ -185,14 +185,11 @@ final class DashNavSettings {
     /// Ride-alerts: plot SPEED CAMERAS (OSM `highway=speed_camera`, fetched
     /// via Overpass) as map markers along the route. Best-effort — OSM
     /// coverage is crowd-sourced and incomplete, so this is map enrichment,
-    /// NOT a guaranteed enforcement warning (the settings footer says so
-    /// too). Defaults ON. When OFF, no Overpass fetch happens and no
-    /// markers draw.
+    /// NOT a guaranteed enforcement warning. Defaults ON. When OFF, no
+    /// Overpass fetch happens and no markers draw.
     ///
-    /// NOTE (6/2026): a proximity CHIME for approaching cameras is
-    /// intentionally deferred until the app has voice/audio guidance — see
-    /// the `royal-enfield-tripper-dash` skill's open-items. For now this is
-    /// purely the visual map layer.
+    /// NOTE: the spoken proximity callout is gated separately by
+    /// `voiceSpeedCameraEnabled` (and needs this layer on).
     var speedCamerasEnabled: Bool = true {
         didSet { persist() }
     }
@@ -218,8 +215,7 @@ final class DashNavSettings {
     /// Also speak a chime/prompt when approaching a speed camera. Gated
     /// additionally on `speedCamerasEnabled` (no cameras loaded → nothing to
     /// announce) and on `voiceEnabled`. Defaults ON — a rider who turned
-    /// voice on generally wants the safety callout too. This is the
-    /// previously-deferred camera chime (see the note on `speedCamerasEnabled`).
+    /// voice on generally wants the safety callout too.
     var voiceSpeedCameraEnabled: Bool = true {
         didSet { persist() }
     }
@@ -336,7 +332,7 @@ final class DashNavSettings {
     /// request (6/2026):
     ///
     ///   - `< 50 m`      → nearest 1 m   (42 → 42)   final approach
-    ///   - `50 … <200 m` → nearest 25 m  (188 → 175, 73 → 75)
+    ///   - `50 … <200 m` → nearest 25 m  (188 → 200, 73 → 75)
     ///   - `≥ 200 m`     → nearest 100 m (437 → 400)
     ///
     /// Bucketing is done in METERS — the physical maneuver distance — and

@@ -14,7 +14,7 @@ struct Favorite: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String           // "Home", "Work", or custom
     /// SF Symbol name. Optional — when nil, UI picks one based on
-    /// the lowercased name (house → house.fill, work → briefcase.fill,
+    /// the lowercased name (home → house.fill, work → briefcase.fill,
     /// fuel → fuelpump.fill, etc.) and falls back to mappin.circle.fill.
     var iconSymbol: String?
     var latitude: Double

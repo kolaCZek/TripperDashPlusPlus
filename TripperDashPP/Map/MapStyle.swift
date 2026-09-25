@@ -146,7 +146,7 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
     /// independent precisely because it is a PRE-transform colour.
     var landFill: CGColor {
         // OSM Carto land / populated-area fill. The dark palette inverts
-        // this to ~#0D0A06 via the composite recolour.
+        // this to ~#120F09 via the composite recolour.
         return CGColor(red: 242.0/255, green: 239.0/255, blue: 233.0/255, alpha: 1.0)
     }
 
@@ -217,14 +217,14 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
         }
     }
 
-    /// Fill of the intermediate-waypoint dot drawn on the route line.
-    /// Same blue as the route; a contrasting casing ring is drawn around
-    /// it (`routeCasingColor`) so it reads as a distinct marker.
+    /// Fill of the intermediate-waypoint pin drawn on the route line.
+    /// Same blue as the route; a white outline is drawn around it
+    /// (`drawWaypointPin`) so it reads as a distinct marker.
     var waypointDotColor: CGColor { routeLineColor }
 
     /// Colour of the TRAVELLED breadcrumb — the stretch the rider has
-    /// already ridden — drawn UNDER the blue active route so covered road
-    /// reads as "done". A desaturated grey, distinct from the (bluer)
+    /// already ridden — drawn over the blue active route (under the blue
+    /// route-ahead) so covered road reads as "done". A desaturated grey, distinct from the (bluer)
     /// alternative-line grey and clearly recessive vs the blue ahead.
     /// Slightly lighter on Dark for legibility over the recolour.
     var traveledLineColor: CGColor {

@@ -3,7 +3,7 @@ K1G control-plane server — UDP/2000 listener that plays the *bike* side.
 
 Responsibilities:
   - Listen on UDP/2000 for incoming phone packets
-  - Track phone peers (by source IP) so we know where to send heartbeats
+  - Track phone peers (by source IP:port) so we know where to send heartbeats
     and joystick events
   - On `q3c.e` ("request auth") respond with our RSA pubkey
   - On `q3c.d` (RSA-encrypted session key) decrypt → recover SSID + AES key
@@ -220,8 +220,8 @@ class FakeDashServer:
         try:
             self._k1g_sock.sendto(framed, ("255.255.255.255", self.k1g_port))
         except OSError as exc:
-            # Broadcast may fail inside Docker bridge networks — log once and
-            # move on; unicast to known peers still works.
+            # Broadcast may fail inside Docker bridge networks — log at DEBUG
+            # and move on; unicast to known peers still works.
             log.debug("broadcast failed: %s", exc)
 
     def send_button(self, button: Button) -> int:

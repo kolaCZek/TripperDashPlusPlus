@@ -14,9 +14,9 @@
 //
 //  Why Open-Meteo (not WeatherKit):
 //    - WeatherKit needs a PAID Apple Developer membership + a signed
-//      JWT entitlement. TripperDash++ ships on a free Personal Team
-//      (see CLAUDE.md "Distribution") and uses NO paid-only entitlements,
-//      so WeatherKit is off the table.
+//      JWT entitlement. Apart from the Wi-Fi auto-join, TripperDash++ is
+//      built keyless so it still runs on a free Personal Team (see
+//      CLAUDE.md "Distribution"), so WeatherKit is off the table.
 //    - Open-Meteo is keyless, free for non-commercial use, returns WMO
 //      weather codes + wind gusts + visibility + precipitation in one
 //      GET, and supports MULTI-POINT queries (comma-separated lat/lon)
@@ -51,7 +51,7 @@ import OSLog
 /// nothing (no pill, no map clutter).
 struct WeatherAlert: Equatable, Sendable {
 
-    /// Three-step severity ladder. Drives the pill's accent colour and,
+    /// Two-step severity ladder. Drives the pill's accent colour and,
     /// when there are competing conditions, which one wins (`>` by
     /// `rawValue`).
     nonisolated enum Severity: Int, Comparable, Sendable {
@@ -239,8 +239,8 @@ final class WeatherAlertService {
         return current
     }
 
-    /// Clear any active alert (called when navigation stops / streaming
-    /// tears down so a stale pill doesn't linger into the next ride).
+    /// Clear any active alert and the poll throttle. Currently has no
+    /// callers; the pill is cleared via `setWeatherAlert(nil)` instead.
     func reset() {
         current = nil
         lastPollAt = nil
@@ -496,7 +496,7 @@ final class WeatherAlertService {
             return WeatherAlert(title: "Storm", severity: .warning, isAhead: isAhead, glyph: .storm)
         }
 
-        // 3. Heavy rain / violent showers, or any rain with strong gusts.
+        // 3. Heavy rain / violent showers.
         if [65, 82].contains(code) {
             return WeatherAlert(title: "Heavy rain", severity: .warning, isAhead: isAhead, glyph: .rain)
         }
@@ -513,7 +513,7 @@ final class WeatherAlertService {
             return WeatherAlert(title: "Crosswind", severity: .warning, isAhead: isAhead, glyph: .wind)
         }
 
-        // 5. Strong gusts — independent of precip. >65 km/h is a genuine
+        // 5. Strong gusts — independent of precip. ≥65 km/h is a genuine
         //    hazard for a motorcycle (lane-keeping, crosswinds on bridges).
         if s.gustsKmh >= 65 {
             return WeatherAlert(title: "Strong wind", severity: .warning, isAhead: isAhead, glyph: .wind)

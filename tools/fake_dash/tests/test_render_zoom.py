@@ -13,7 +13,7 @@ Rider feedback driving these (2026-06):
     tighter at low speed.
   - "zoom in as the turn approaches" → maneuverZoomBoost.
   - "puck too high, push it down so we see more ahead" → forwardBias 0.28.
-  - "make the chevron a bit bigger" → puckScale 1.35.
+  - "make the chevron a bit bigger" → puckScale 1.35 (since raised to 1.7).
 """
 
 from __future__ import annotations

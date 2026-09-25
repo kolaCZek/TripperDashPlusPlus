@@ -222,9 +222,9 @@ struct NavigationHUD: View {
 
     /// Final-destination ETA — distinct from `etaCard`'s "ETA" slot,
     /// which is scoped to the CURRENT LEG (next stop). Only shown for a
-    /// genuine multi-stop plan (`legs.count > 1`, same gate as
-    /// `stopProgressPill`); for a single-destination route the leg IS
-    /// the destination, so a second identical number would just be
+    /// genuine multi-stop plan (`showsStopPills`: `legs.count > 1` and not
+    /// a track, same gate as `stopProgressPill`); for a single-destination
+    /// route the leg IS the destination, so a second identical number would just be
     /// clutter. This is the one field the dash does NOT get a matching
     /// per-leg counterpart for — the bike only ever shows this
     /// whole-trip arrival, not the per-leg one (see `ActiveNavLoop.tick()`).

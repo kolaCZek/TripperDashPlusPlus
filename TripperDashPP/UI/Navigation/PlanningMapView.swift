@@ -15,8 +15,8 @@
 //   - tap a waypoint pin     -> onTapWaypoint(id),
 //   - long-press empty map   -> onAddWaypoint(coord).
 //
-//  Overlay sync mirrors RoutePreviewMap: MapKit caches renderers per
-//  overlay, so selection changes remove + re-add overlays (selected
+//  Overlay sync (as in the since-removed RoutePreviewMap): MapKit caches
+//  renderers per overlay, so every update removes + re-adds overlays (selected
 //  last, so it draws on top). Teardown is hardened through the shared
 //  MapViewPark (see InteractiveMapView) to avoid the MTLDebugDevice
 //  drain assertion on view dismantle.

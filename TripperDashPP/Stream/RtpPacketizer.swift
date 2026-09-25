@@ -30,7 +30,8 @@ final class RtpPacketizer {
     /// match better-dash + fake_dash on PT 96.
     static let payloadType: UInt8 = 96
 
-    /// Roughly safe MTU after IP+UDP+RTP overhead on Wi-Fi. Tripper has
+    /// Max UDP payload per datagram, 12-byte RTP header included — kept
+    /// safely under the Wi-Fi MTU. Tripper has
     /// a tiny jitter buffer; smaller packets reduce reordering risk.
     let maxPayloadSize: Int
 

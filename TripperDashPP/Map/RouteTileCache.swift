@@ -29,7 +29,7 @@
 //    * Anchor stride: ~700 m along the polyline.
 //    * Per-anchor composite: 5×5 OSM tiles (each 256×256 native) →
 //      1280×1280 px bitmap centered on the anchor. Span at z=15 is
-//      ~2.0 km × 2.0 km at 50°N — comfortably wider than the dash
+//      ~3.9 km × 3.9 km at 50°N — comfortably wider than the dash
 //      frame at the widest (highway) zoom, with symmetric margin on
 //      every side so the frame is always fully covered.
 //    * Lateral buffer: ±1500 m (left + right wings), unchanged.
@@ -86,7 +86,7 @@ struct RouteTile: Sendable {
     /// Pixels per degree of latitude at `center`. Latitude-dependent
     /// (Mercator y-stretch) — see `WebMercator.pixelsPerDegreeLatitude`.
     let pxPerDegLat: Double
-    /// OSM zoom level this composite was baked at (base 15, coarse 12,
+    /// OSM zoom level this composite was baked at (base 15, coarse 13,
     /// fine 16). The renderer scales `currentZoom` by
     /// `2^(baseZoom - osmZoom)` so a coarse tile (fewer px per metre)
     /// isn't drawn tiny and a fine tile isn't drawn huge — the on-screen
@@ -101,8 +101,8 @@ final class RouteTileCache {
     // MARK: - Tunables
 
     /// Distance between successive composite anchors along the
-    /// polyline. Tile composite span is ~1.2 km, so 700 m gives
-    /// ~40 % overlap — enough that any rotation up to 360° still
+    /// polyline. Tile composite span is ~3.9 km, so 700 m gives
+    /// ~82 % overlap — enough that any rotation up to 360° still
     /// leaves the user position well inside a single composite.
     static let stride: CLLocationDistance = 700
 
@@ -122,7 +122,7 @@ final class RouteTileCache {
     static let snapBackwardWindow: CLLocationDistance = 1_500
 
     /// How many OSM tiles per side of each composite. 5 × 256 = 1280 px,
-    /// covers ~2.0 km at z=15 (latitude-dependent).
+    /// covers ~3.9 km at z=15, 50°N (latitude-dependent).
     ///
     /// MUST BE ODD. The block is centred on the anchor's tile via
     /// `floor(fx) - gridSide/2 … floor(fx) + gridSide/2`. With an EVEN
@@ -149,9 +149,9 @@ final class RouteTileCache {
     /// though the value comes from `WebMercator.defaultZoom`.
     nonisolated static let zoom: Int = WebMercator.defaultZoom
 
-    /// Composite geographic extent — informational. Real geometry
-    /// comes from `pxPerDeg`. ~1.2 m/px after factoring in the
-    /// 4× supersample at the renderer's 526×300 output resolution.
+    /// Composite geographic extent — informational only (feeds
+    /// `RouteTile.region`). Real geometry comes from `pxPerDeg`. MapKit-era
+    /// value; an OSM composite actually spans ~3.9 km at z=15.
     static let tileSpanMeters: CLLocationDistance = 1200
 
     /// Max parallel composites being assembled. Each composite waits
@@ -400,7 +400,7 @@ final class RouteTileCache {
     private(set) var positionFallbackTile: RouteTile?
 
     /// Decoded image for `positionFallbackTile`, memoised so the
-    /// off-corridor render path (which runs at ~30 fps while it's active)
+    /// off-corridor render path (which runs at 6 fps while it's active)
     /// doesn't re-decode a 300-500 KB PNG every frame. Invalidated (set
     /// to nil) whenever a fresh position tile is installed — the standalone
     /// slot can't use the index-keyed `imageCache` (it has no array
@@ -440,7 +440,7 @@ final class RouteTileCache {
     /// can press Go and ride. The coarse/fine sibling layers only need to
     /// cover the immediate surroundings for their zoom band, so they use
     /// a much shorter window to keep tile fetches + RAM down (each coarse
-    /// z=12 tile already covers ~8× the ground of a z=15 tile, and the
+    /// z=13 tile already covers ~4× the span of a z=15 tile, and the
     /// fine z=16 layer is only ever shown when zoomed right in on the
     /// rider). Defaults to the base window.
     let bakeAheadMeters: CLLocationDistance
@@ -1129,7 +1129,7 @@ final class RouteTileCache {
     ///      floor(fx) + 2` at gridSide=5 — and the painted region
     ///      reaches the same distance on every side of the centre.
     ///   3. Fetch every tile (disk cache first → HTTP fallback via
-    ///      OSMTileFetcher). Missing tiles become transparent — better
+    ///      OSMTileFetcher). Missing tiles show the land fill — better
     ///      than a black hole over network drop.
     ///   4. Paint into a tilePixels × tilePixels CGContext at the
     ///      offset that puts `center` at the bitmap midpoint.
@@ -1201,7 +1201,7 @@ final class RouteTileCache {
                         }
                         // HTTP fallback. On error (network, 429) we
                         // return nil; the composite still draws with
-                        // the missing tile area transparent — degraded
+                        // the missing tile area land-filled — degraded
                         // UX is better than a black screen.
                         do {
                             let data = try await OSMTileFetcher.shared.fetch(style: style, z: z, x: absX, y: absY)
@@ -1222,7 +1222,7 @@ final class RouteTileCache {
         }
 
         // Bail if we didn't get a single tile — composite would be
-        // entirely transparent, useless to the renderer.
+        // nothing but land fill, useless to the renderer.
         guard tilesData.contains(where: { $0.data != nil }) else {
             return nil
         }
@@ -1310,8 +1310,7 @@ final class RouteTileCache {
 
         guard let outImage = ctx.makeImage() else { return nil }
 
-        // PNG encode (preserves transparency for missing-tile fallbacks;
-        // OSM Carto's palette compresses well — typical composite is
+        // PNG encode (lossless; OSM Carto's palette compresses well — typical composite is
         // 200-500 KB).
         let uiImage = UIImage(cgImage: outImage, scale: 1.0, orientation: .up)
         guard let png = uiImage.pngData() else { return nil }

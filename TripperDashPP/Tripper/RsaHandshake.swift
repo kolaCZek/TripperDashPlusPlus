@@ -13,7 +13,7 @@
 //
 //  The AES session key is generated locally — `SecRandomCopyBytes` —
 //  and kept in `HandshakeOutcome.aesKey` for future encrypted-payload
-//  use (Phase 4+).
+//  use (nothing consumes it yet).
 //
 //  References:
 //   - tools/fake_dash/fake_dash/rsa_handshake.py (decrypt_session_key

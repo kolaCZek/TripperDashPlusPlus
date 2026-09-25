@@ -19,7 +19,8 @@
 //  Strategy: a regex that hunts for arabic digits followed by an
 //  optional ordinal suffix or period, plus a word table for spelled-out
 //  ordinals up to 10 in CZ/EN/SK/DE/PL. Returns `nil` if no number is
-//  parseable (caller falls back to a generic roundabout glyph).
+//  parseable (caller then tries the preceding step and
+//  `inferExitFromDirection`, finally a generic exit-0 glyph).
 //
 
 import Foundation
@@ -115,8 +116,8 @@ enum RoundaboutInstructionParser {
     }()
 
     /// Extract the exit number from an instructions string. Returns
-    /// `nil` if no recognisable ordinal is present — caller should fall
-    /// back to a generic roundabout glyph (exit 0).
+    /// `nil` if no recognisable ordinal is present — caller then tries the
+    /// preceding step and `inferExitFromDirection` before exit 0.
     ///
     /// Strategy (order matters):
     ///   1. Digit anchored to the exit noun — covers ~every real Apple

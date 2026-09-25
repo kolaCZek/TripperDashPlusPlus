@@ -24,8 +24,9 @@ final class RoutingService {
     /// `origin == nil` uses .forCurrentLocation() (CoreLocation must
     /// already be authorised + a fix should be available).
     ///
-    /// Retained as the single-leg convenience used by reroute and the
-    /// legacy single-destination flow. Internally a one-leg call.
+    /// Retained as the single-leg convenience used by AppStatus's navigator
+    /// hooks (off-route reroute, periodic ETA refresh, live-traffic check).
+    /// Internally a one-leg call.
     func calculate(from origin: CLLocationCoordinate2D?,
                    to destination: Destination,
                    preferences: RoutePreferences) async throws -> [RouteOption] {

@@ -3,6 +3,8 @@
 //  TripperDashPP
 //
 //  Phase 5 — replacement for SwiftUI `Map(position:)` in MapPickerView.
+//  No longer mounted anywhere: MapPickerView switched to the live
+//  InteractiveMapView in Phase 7a.
 //
 //  Why this exists: the SwiftUI `Map` view wraps MKMapView with its own
 //  GPU/Metal lifecycle that we don't control. When the user navigates

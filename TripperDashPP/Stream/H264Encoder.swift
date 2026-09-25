@@ -73,7 +73,7 @@ final class H264Encoder {
     /// waiting for the regular keyframe cadence.
     private var pendingForceKeyframe = false
     /// Throttle for noisy `VTCompressionSessionEncodeFrame` errors —
-    /// when iOS suspends the app the encoder fails ~12 fps until we
+    /// when iOS suspends the app the encoder fails at the frame rate until we
     /// rebuild the session, and we don't want to spam the log file.
     private var consecutiveEncodeErrors = 0
 

@@ -31,11 +31,11 @@ enum WebMercator {
     /// Default zoom level for the TripperDash renderer.
     ///
     /// Picked empirically:
-    ///   - z=15 → 1 tile ≈ 1.2 km × 0.8 km at 50°N → similar coverage
-    ///     to the old MKMapSnapshotter `tileSpanMeters = 1200` setting
-    ///   - z=16 → ~600 m / tile, very zoomed in (good for city streets
+    ///   - z=15 → 1 tile ≈ 0.8 km × 0.8 km at 50°N (the old
+    ///     MKMapSnapshotter setting was `tileSpanMeters = 1200`)
+    ///   - z=16 → ~400 m / tile, very zoomed in (good for city streets
     ///     but loses context on highways)
-    ///   - z=14 → ~2.4 km / tile, too zoomed out for turn-by-turn
+    ///   - z=14 → ~1.6 km / tile, too zoomed out for turn-by-turn
     nonisolated static let defaultZoom: Int = 15
 
     /// Convert a geographic coordinate to a *fractional* tile address
@@ -44,7 +44,7 @@ enum WebMercator {
     ///
     /// Returning fractional tile coords (not just integers) is what
     /// lets the stitcher pixel-align an arbitrary center inside a
-    /// 4×4 grid — without it we'd snap to tile corners and the user's
+    /// 5×5 grid — without it we'd snap to tile corners and the user's
     /// position would jitter by ~150 m every time it crossed a tile
     /// boundary.
     static func tile(for coord: CLLocationCoordinate2D, zoom: Int) -> (x: Double, y: Double) {
@@ -88,9 +88,8 @@ enum WebMercator {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    /// Meters per pixel at the given latitude and zoom. Used by the
-    /// renderer to draw the polyline + position chevron at the right
-    /// scale on a stitched tile bitmap.
+    /// Meters per pixel at the given latitude and zoom. Used by
+    /// `tileBox`.
     ///
     /// Formula: at the equator, one tile = 40075017 m / 2^z, and one
     /// tile = `tilePixels` px → mpp = circumference / (tilePixels * 2^z).
@@ -99,7 +98,7 @@ enum WebMercator {
         let earthCircumference = 40_075_016.686
         let n = pow(2.0, Double(zoom))
         // Same NaN-hardening as `tile(for:zoom:)`: `cos(NaN)` is NaN, which
-        // would flow into `tileRange`'s `Int(floor(...))` and trap. Callers
+        // would flow into `tileBox`'s `Int(floor(...))` and trap. Callers
         // divide by this value, so it must also never be zero — clamp short
         // of the poles where cos → 0.
         let safeLat = latitude.isFinite ? latitude : 0
@@ -149,9 +148,9 @@ enum WebMercator {
 
     /// Build the integer tile-index range that fully contains the
     /// `radiusMeters` neighbourhood of `center`. Returned as
-    /// (minX, minY, maxX, maxY), inclusive on both ends. Used by
-    /// the route-tile-cache to know which 16 tiles (typically 4×4)
-    /// to fetch around an anchor.
+    /// (minX, minY, maxX, maxY), inclusive on both ends. Currently
+    /// unused — `RouteTileCache.composite` builds its gridSide × gridSide
+    /// block directly.
     static func tileBox(
         around center: CLLocationCoordinate2D,
         radiusMeters: Double,

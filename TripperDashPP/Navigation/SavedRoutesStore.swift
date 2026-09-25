@@ -9,8 +9,8 @@
 //  throwing. UI observes it via @Environment(SavedRoutesStore.self).
 //
 //  Why a separate store (not folded into NavSettings): saved routes are
-//  a distinct, potentially large payload (each route is up to
-//  `RoutePoint.navigableCap` points). Keeping them out of NavSettings
+//  a distinct, potentially large payload (a `.track` route keeps its
+//  full-precision trace — potentially thousands of points). Keeping them out of NavSettings
 //  means the hot favorites/prefs blob stays small and a corrupt route
 //  library can't take the rider's Home/Work pins down with it.
 //

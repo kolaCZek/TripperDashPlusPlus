@@ -152,8 +152,8 @@ def test_driving_side_is_in_pbxproj():
     """`DrivingSide.swift` is a NEW file. This project does not use Xcode-16
     synchronized groups, so a new source must be wired into project.pbxproj
     by hand or it silently won't compile — and then the roundabout-winding
-    fix that depends on it never ships. Guards that manual edit (mirrors
-    test_maneuver_log's pbxproj check)."""
+    fix that depends on it never ships. Guards that manual edit (same check
+    as test_dash_notice_is_in_pbxproj)."""
     pbx = (
         Path(__file__).resolve().parents[3]
         / "TripperDashPP" / "TripperDashPP.xcodeproj" / "project.pbxproj"

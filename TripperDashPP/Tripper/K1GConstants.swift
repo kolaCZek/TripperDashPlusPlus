@@ -78,7 +78,7 @@ nonisolated enum K1G {
         case auth   = 0x07   // bike → phone, auth replies (sub-types below)
         case session = 0x08  // phone → bike, auth + session payloads (q3c.e, q3c.d)
         case button = 0x09   // bike → phone, joystick / button events
-        case nav    = 0x0A   // Turn-by-turn payloads (Phase 6)
+        case nav    = 0x0A   // Unused; active-nav TLVs are sent under navInfo (0x05)
     }
 
     /// Sub-type bytes scoped to `SegType.auth` (bike → phone replies).
@@ -110,7 +110,7 @@ nonisolated enum K1G {
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
     static let handshakeStepTimeout: TimeInterval = 5.0
 
-    /// Total time we'll keep retrying the handshake before giving up.
+    /// Currently unused — no code reads this constant.
     static let handshakeOverallTimeout: TimeInterval = 10.0
 
     /// Delay between auto-reconnect attempts after an established link
@@ -163,8 +163,8 @@ nonisolated enum K1G {
     /// Waiting is strictly slower than forcing, and the cost of the budget
     /// expiring is that the rider must take the phone out and tap Connect —
     /// exactly what the no-dialog design is meant to avoid. Retrying for
-    /// longer is cheap by comparison: the loop is a 2s handshake attempt, not
-    /// a busy wait.
+    /// longer is cheap by comparison: the loop is one handshake attempt every
+    /// few seconds, not a busy wait.
     static let reconnectMaxDuration: TimeInterval = 1800.0
 
     /// How many times a FRESH connect (not an auto-reconnect) silently

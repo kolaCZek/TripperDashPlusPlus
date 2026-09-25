@@ -14,8 +14,9 @@
 //            BG — the snapshotter completion handler is silently
 //            suspended on the lock screen too. Confirmed by telemetry.
 //
-//  Phase 8d (THIS): pre-render every tile we'll need DURING foreground
-//            (when the GPU is awake), JPEG-compress them in memory, then
+//  Phase 8d (THIS): pre-render tiles ahead of the rider (OSM raster
+//            stitches via URLSession, BG-safe — see RouteTileCache),
+//            keep them PNG-encoded in memory, then
 //            in BG do CPU-only CGContext composition: crop a tile around
 //            the current fix, rotate to heading-up, draw the polyline,
 //            draw the user dot. CGContext is BG-safe.
@@ -112,14 +113,14 @@ final class MapViewSource: NSObject, FrameSource {
     private var fullRouteCoords: [CLLocationCoordinate2D] = []
 
     /// Intermediate waypoint coordinates (via-stops between origin and
-    /// final destination) rendered as blue dots on top of the route line.
+    /// final destination) rendered as upright blue pins on the route line.
     /// Origin and final destination are intentionally excluded — the puck
     /// marks the origin and the destination reads from the line's end.
     private var waypointDots: [CLLocationCoordinate2D] = []
 
     /// Thinned GPS breadcrumb of where the rider has ACTUALLY ridden, pushed
     /// in by the nav pump from `ActiveNavigator.traveledCoordinates`. Drawn
-    /// as a grey line UNDER the blue route so the covered stretch reads as
+    /// as a grey line over the full blue route (under `routeAheadCoords`) so the covered stretch reads as
     /// "done" while the road ahead stays blue. Empty on a fresh ride / when
     /// not navigating. On an out-and-back over the same road the blue route
     /// still occupies that segment, so painting grey first and blue second
@@ -135,7 +136,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// Alternative routes for the CURRENT leg, drawn thin/grey with an
     /// ETA-delta bubble ("+5 min" / "similar"). The rider physically
     /// turning onto one of these makes ActiveNavigator swap to it (see
-    /// `AlternativeRouteMonitor`). Empty when there are no alternatives or
+    /// `ActiveNavigator.maybeSwitchToAlternative`). Empty when there are no alternatives or
     /// the setting is off. NOT the same as `fullRouteCoords` (the active
     /// route) — these are the roads NOT currently being navigated.
     fileprivate var alternativeRoutes: [AlternativeRouteRender] = []
@@ -172,7 +173,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// the posted limit for the current road. Fed by `AppStatus` after a
     /// route install (same prefetch lifecycle as the cameras). Empty → no
     /// sign. The map-match runs in `handleFix`, not per frame, so the
-    /// geometry loop happens at ~1 Hz GPS cadence, not 30 fps.
+    /// geometry loop happens at ~1 Hz GPS cadence, not 6 fps.
     private var speedLimitWays: [SpeedLimitWay] = []
 
     /// Bare drivable-road geometry (tagged or not) for the shadow guard:
@@ -234,7 +235,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// Pre-rendered tile cache — built from the active route in FG.
     /// This is the BASE layer (OSM z=15). Two optional sibling layers
     /// give better quality at the extremes of the manual zoom range:
-    ///   - `coarseTileCache` (z=12): wide overview when zoomed way out,
+    ///   - `coarseTileCache` (z=13): wide overview when zoomed way out,
     ///     so the frame corners stay covered instead of going black.
     ///   - `fineTileCache` (z=16): sharp streets when zoomed way in,
     ///     instead of a blurry upscaled z=15 stitch.
@@ -266,7 +267,7 @@ final class MapViewSource: NSObject, FrameSource {
     private func selectLayer(forEffectiveZoom z: CGFloat) -> TileLayer {
         // Nominal band edges. Chosen so each layer FULLY covers the dash
         // frame across its whole band (verified in test_composite_coverage
-        // per layer): coarse z=12 covers the wide zoom-out AND overlaps up
+        // per layer): coarse z=13 covers the wide zoom-out AND overlaps up
         // into the base band (base z=15 only fully covers the frame from
         // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
         // fine z=16 (gridSide 7) fully covers the frame from ~1.07× in
@@ -331,8 +332,8 @@ final class MapViewSource: NSObject, FrameSource {
     /// km/h that's ~72 m between calls — fine granularity given the
     /// rolling lookahead is 5 km.
     private static let tileExtendThrottle: TimeInterval = 2.0
-    /// Route that needs a fresh tile bake but couldn't run yet (app
-    /// in BG/lock). Drained on `didBecomeActiveNotification`. Most
+    /// Route queued for a fresh tile bake. Coalesces reroutes that land
+    /// while a bake is in flight (see `scheduleTileCacheRebuild`). Most
     /// recent value wins — if a second reroute arrives before the
     /// first bakes, the older route is discarded.
     private var pendingRebakeRoute: MKRoute?
@@ -346,7 +347,7 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// The active route, remembered so a mid-ride style switch can re-bake
     /// the new palette around the rider without the caller re-supplying it.
-    /// Set by `setRoutePolyline`/`prerender` wiring; cleared on stop.
+    /// Set by `setCurrentRoute` / `performPendingRebake`; cleared on stop.
     private var currentRoute: MKRoute?
 
     /// A style re-bake that couldn't run yet (app backgrounded / locked).
@@ -354,7 +355,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// Most recent value wins.
     private var pendingStyleRebake: (route: MKRoute, style: MapStyle)?
     /// Speed-adaptive zoom factor applied to the rendered tile composite
-    /// and polyline. 1.0 = native scale (~0.85 m/px at 1024 px tile).
+    /// and polyline. 1.0 = native scale (~3 m/px at z=15, 50°N).
     /// Lerped each frame toward `targetZoom(forSpeed:)` so the view
     /// transitions smoothly between speed regimes (no flicker).
     private var currentZoom: CGFloat = 1.0
@@ -472,7 +473,7 @@ final class MapViewSource: NSObject, FrameSource {
     private let routeLineScreenPx: CGFloat = 7.0
 
     /// On-screen width (px) of the dark/white casing stroked UNDER the
-    /// route line, EACH SIDE. Total casing width = routeLineScreenPx +
+    /// route line, both sides combined. Total casing width = routeLineScreenPx +
     /// routeCasingScreenPx. Also divided by `currentZoom` at the draw site
     /// so it stays constant on screen. 4.0 → ~2 px of casing peeking out
     /// on each side of the blue line (rider feedback 2026-08: "obtáhnout
@@ -549,7 +550,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// instead of asking MapKit to draw anything.
     ///
     /// When `buildLayers` is true and a route is known, this also kicks
-    /// off (fire-and-forget) the coarse overview (z=12) and fine detail
+    /// off (fire-and-forget) the coarse overview (z=13) and fine detail
     /// (z=16) sibling layers around the rider's current position, so the
     /// map quality scales with the manual zoom. The base layer is usable
     /// immediately; the siblings appear a few seconds later once their
@@ -569,7 +570,7 @@ final class MapViewSource: NSObject, FrameSource {
         }
     }
 
-    /// Build the coarse (z=12) + fine (z=16) sibling quality layers for
+    /// Build the coarse (z=13) + fine (z=16) sibling quality layers for
     /// `route`, baked around `coord` (or the route start if nil). Runs
     /// each bake in its own Task and swaps the finished layer in
     /// atomically. The layers use a SHORT bake-ahead window (they only
@@ -732,7 +733,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// normal navigation. The cache's `ensurePositionFallback` is itself
     /// idempotent (no-op when a covering tile already exists) and coalesces
     /// concurrent bakes; this throttle just caps how often we re-evaluate
-    /// so a stuck-off-route rider at ~30 fps doesn't spin up the check
+    /// so a stuck-off-route rider at 6 fps doesn't spin up the check
     /// every frame. BG-safe (URLSession + CGContext), fire-and-forget.
     func ensurePositionFallbackTile(near coord: CLLocationCoordinate2D) {
         guard let cache = routeTileCache else { return }
@@ -926,7 +927,7 @@ extension MapViewSource {
     /// Policy (field-test 2026-06-21):
     ///   - `speed > 3 m/s` (~11 km/h) AND `course >= 0` → trust GPS course
     ///   - otherwise → fall back to the compass (last valid value)
-    ///   - lerp `lastHeading → targetHeading` in `tickRender()` so the
+    ///   - lerp `lastHeading → targetHeading` in `updateHeading()` so the
     ///     view doesn't snap when the source flips between course and
     ///     compass.
     ///
@@ -1056,7 +1057,7 @@ extension MapViewSource {
         if routeTileCache != nil {
             drawTileCacheFrame(into: ctx)
         } else {
-            // Pre-navigation / no cache — vector-only on dark slate.
+            // Pre-navigation / no cache — vector-only on the style's background.
             drawVectorOnlyFrame(into: ctx)
         }
 
@@ -1099,7 +1100,7 @@ extension MapViewSource {
         // now travels to the dash via the K1G "active-nav" bubble
         // (separate TLV channel), so drawing it on the video would
         // duplicate the same information on the dash screen. Keep
-        // `drawNavOverlay`/`drawText`/`formatDistance` as dead code
+        // `drawNavOverlay`/`formatDistance` as dead code
         // for now in case we want to reintroduce a video-side hint
         // (e.g. for non-K1G dashes or for the in-app preview).
         // drawNavOverlay(into: ctx)
@@ -1199,9 +1200,8 @@ extension MapViewSource {
             log.info("tile-pick #\(self.frameIndex, privacy: .public) fix=(\(fix.coordinate.latitude, privacy: .public),\(fix.coordinate.longitude, privacy: .public)) tile.center=(\(refTile.center.latitude, privacy: .public),\(refTile.center.longitude, privacy: .public)) dist=\(dMeters, format: .fixed(precision: 1), privacy: .public)m dN=\(dLat, format: .fixed(precision: 1), privacy: .public)m dE=\(dLon, format: .fixed(precision: 1), privacy: .public)m pxN=\(pxN, format: .fixed(precision: 1), privacy: .public) pxE=\(pxE, format: .fixed(precision: 1), privacy: .public) pxPerDegLat=\(refTile.pxPerDegLat, format: .fixed(precision: 1), privacy: .public) pxPerDegLon=\(refTile.pxPerDegLon, format: .fixed(precision: 1), privacy: .public) heading=\(self.lastHeading, format: .fixed(precision: 0), privacy: .public)°")
         }
         // NOTE: heading/zoom lerps are advanced once per tick in
-        // `tickOnMain` (so they keep progressing even on skipped frames).
-        // Do NOT re-run them here or a rendered frame would step the
-        // animation twice as fast as a skipped one.
+        // `tickOnMain`. Do NOT re-run them here or a rendered frame would
+        // step the animation twice.
 
         // Each baked tile is already a 5×5 OSM grid stitch — a
         // 1280×1280 px composite covering ~3.9 km on a side at z=15
@@ -1322,7 +1322,7 @@ extension MapViewSource {
         // Applied AFTER rotation so the origin sits at the puck.
         //
         // Layer compensation: `currentZoom` is calibrated for the BASE
-        // OSM level (z=15). A coarse (z=12) or fine (z=16) tile has a
+        // OSM level (z=15). A coarse (z=13) or fine (z=16) tile has a
         // different pixel-per-metre density, so drawing it at the raw
         // `currentZoom` would render it too small (coarse) or too large
         // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
@@ -1765,7 +1765,7 @@ extension MapViewSource {
     /// the short way around the compass circle (handles the 359°→1°
     /// wrap without the map spinning the long way).
     ///
-    /// At 6 fps, 15%/frame ≈ 95% completion in ~2.6 s — fast enough
+    /// At 6 fps, 15%/frame ≈ 95% completion in ~3 s — fast enough
     /// that the rider feels the map track the turn, slow enough that
     /// a single noisy fix doesn't yank the view.
     private func updateHeading() {
@@ -1781,7 +1781,7 @@ extension MapViewSource {
         lastHeading = next
     }
 
-    /// Vector-only fallback: dark background + polyline + dot.
+    /// Vector-only fallback: style background + polyline + puck.
     /// Used when the tile cache is unavailable or the user has gone
     /// off the cached corridor.
     private func drawVectorOnlyFrame(into ctx: CGContext) {
@@ -1809,7 +1809,7 @@ extension MapViewSource {
 
         ctx.saveGState()
         // Y-DOWN convention throughout — same coord system as
-        // drawTileCacheFrame (see big comment block there).
+        // drawProjectedTile (see big comment block there).
         let biasPx = frameSize.height * forwardBiasFraction
         ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
         ctx.rotate(by: -lastHeading * .pi / 180)
@@ -1933,7 +1933,7 @@ extension MapViewSource {
 
     /// Push the ENTIRE trip geometry + the intermediate via-stops so the
     /// dash shows the whole planned route (not just the leg up to the next
-    /// waypoint) with a blue dot at each via-stop. Pass `full` = the
+    /// waypoint) with a blue pin at each via-stop. Pass `full` = the
     /// concatenated coordinates of every leg's selected option, and
     /// `waypoints` = the intermediate stops only (exclude origin + final
     /// destination). Pass empty arrays to clear (single-destination /
@@ -2746,9 +2746,8 @@ extension MapViewSource {
             let sy = anchorY + ry
 
             // Cull off-frame markers. The margin must clear the enlarged
-            // disc (r=15) AND the speed pill that now extends to the RIGHT
-            // of it (~66 px), so a marker whose pill is still partly on
-            // screen isn't dropped early.
+            // disc (r=15); the extra horizontal slack is left over from the
+            // since-removed speed pill to its right.
             guard sx > -72, sx < w + 72,
                   sy > -28, sy < h + 28 else { continue }
 
@@ -2758,11 +2757,8 @@ extension MapViewSource {
 
     /// One upright camera marker centred at screen point `p` (Y-DOWN outer
     /// ctx). A disc in the camera's accent colour with a camera body cut
-    /// into it, plus the speed limit on a pill to its RIGHT when known.
-    /// Section/average-speed cameras get a violet accent to set them apart
-    /// from spot cameras (red). The speed number honours the user's
-    /// metric/imperial units toggle: OSM `maxspeed` is always km/h, so we
-    /// convert to mph for imperial riders and append the unit.
+    /// into it. Section/average-speed cameras get a violet accent to set
+    /// them apart from spot cameras (red).
     private func drawCameraMarker(into ctx: CGContext, at p: CGPoint, camera: SpeedCamera) {
         let accent: CGColor = camera.isSection
             ? CGColor(red: 0.55, green: 0.30, blue: 0.85, alpha: 1.0)   // violet — section
@@ -2803,9 +2799,8 @@ extension MapViewSource {
     }
 
     /// Convert an internal km/h limit to the number shown to the rider,
-    /// honouring the imperial units setting. Single helper so the camera
-    /// badge and the posted-limit sign can't disagree on the displayed
-    /// value (#4). Like a real road sign, the caller renders the bare
+    /// honouring the imperial units setting. Used by the posted-limit sign
+    /// (the camera marker no longer shows a number). Like a real road sign, the caller renders the bare
     /// number — the disc shape / context conveys the unit.
     fileprivate static func displayLimit(kmh: Int, imperial: Bool) -> Int {
         imperial ? Int((Double(kmh) / 1.609344).rounded()) : kmh
@@ -2829,9 +2824,8 @@ extension MapViewSource {
 
         // Value + (no) unit. A real road sign carries no unit text — the
         // disc shape IS the unit — so we show the bare number. Imperial
-        // riders see the mph-converted number (OSM maxspeed is km/h). Uses
-        // the same `displayLimit` helper as the camera badge so the two
-        // can never disagree (#4).
+        // riders see the mph-converted number (OSM maxspeed is km/h), via
+        // the shared `displayLimit` helper.
         let value = Self.displayLimit(kmh: kmh, imperial: speedLimitImperial)
         let label = "\(value)"
 
@@ -3026,8 +3020,8 @@ extension MapViewSource {
     /// weather / speed-limit pills.
     fileprivate static let progressBarRightInset: CGFloat = 90
 
-    /// Draw the ride-progress bar centred along the BOTTOM EDGE, spanning
-    /// 66% of the dash width. DONE portion (left) is grey; the REMAINING
+    /// Draw the ride-progress bar along the BOTTOM EDGE between the left/
+    /// right insets (centred 66% fallback). DONE portion (left) is grey; the REMAINING
     /// portion (right) is blue; a downward arrow marker sits above the
     /// current position. No traffic tint — we have no per-segment live
     /// traffic, so the bar makes no green/amber/red claim (a BYOK provider

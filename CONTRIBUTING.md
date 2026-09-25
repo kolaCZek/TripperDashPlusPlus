@@ -4,7 +4,7 @@ Thanks for your interest! This project is small but ambitious, and **any kind of
 
 ## Quick contribution paths
 
-### 🏍️ I have a non-Guerrilla Royal Enfield with a Tripper pod
+### 🏍️ I have a non-Guerrilla Royal Enfield with a Tripper Dash
 
 This is the **most valuable** contribution right now. Until we know which bikes use the same K1G protocol, we can't claim broad compatibility.
 
@@ -22,7 +22,8 @@ This is the **most valuable** contribution right now. Until we know which bikes 
 - Bike model + Tripper firmware
 - Steps to reproduce
 - Expected vs actual behavior
-- Logs (the maneuver/instruction log is in the app's Documents folder — pull it via the Files app or Xcode → Devices)
+- App version from Settings → About (`version (build) · commit`)
+- Logs, if you can — the app writes no log file; capture them with Console.app on a Mac (subsystem `eu.kolaczek.tripperdashpp`) or from Xcode's debug console
 
 ### 💡 I have a feature idea
 
@@ -34,14 +35,14 @@ Awesome. Please:
 1. **Open an issue first** before starting work on anything non-trivial — there might be design decisions worth discussing, or it might already be in progress.
 2. Fork, branch from `main`, do the work, open a PR.
 3. PR title format: imperative present, short and specific (e.g. `Add RSA session-key exchange`, `Fix initial-burst seg_count`).
-4. CI must pass — the `fake_dash` pytest suite + Docker image build, plus an `xcodebuild test` of the app and its Swift unit-test target on macOS, run on every push/PR. But remember: **fake_dash is a permissive plumbing harness, not a protocol authority.** Anything touching the K1G wire format must also be byte-verified against [better-dash](https://github.com/kolaCZek/better-dash).
+4. CI must pass — the `fake_dash` pytest suite + Docker image build (on PRs touching `tools/fake_dash/`), plus an `xcodebuild test` of the app and its Swift unit-test target on macOS (every push). But remember: **fake_dash is a permissive plumbing harness, not a protocol authority.** Anything touching the K1G wire format must also be byte-verified against [better-dash](https://github.com/kolaCZek/better-dash).
 5. New Swift code should follow Apple's [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/).
 
 ## Development setup
 
 See [README.md → Building](README.md#building). TL;DR:
 - macOS 15+, Xcode 26+
-- Free Apple ID is enough for sideload
+- Free Apple ID is enough for sideload (except the in-app Wi-Fi auto-join, which needs the paid Hotspot Configuration entitlement)
 - No API keys, no map SDK account — OSM tiles and MapKit need none
 - Real iPhone — the Simulator can't open Wi-Fi to the bike
 - Optional: Docker, to run the `fake_dash` harness (`make fake-dash-up`)
@@ -49,7 +50,7 @@ See [README.md → Building](README.md#building). TL;DR:
 ## Project conventions
 
 - **Code & file paths**: English.
-- **User-facing strings in the app**: localized via `.strings`. Default is English; Czech is the second locale.
+- **User-facing strings in the app**: English (no `.strings` catalog yet). Spoken voice prompts are localized in code (`VoicePhrase`).
 - **README, docs, PR/issue text**: English (so the global RE community can read it).
 - **Internal discussion** (Discord, my own notes): whatever language is natural — but the result that ends up in the repo is English.
 - **Commit messages**: imperative present (`Add K1G handshake`, not `Added` / `Adds`). Reference issue numbers when relevant.

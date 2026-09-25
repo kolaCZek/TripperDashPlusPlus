@@ -2,17 +2,18 @@
 Joystick button emulation — bike → phone.
 
 Real Trippers have a 4-way joystick (LEFT / RIGHT / DOWN / CLICK).
-Pressing a button sends a K1G segment of type=0x09 sub=0x00 with payload
-`00 01 XX` where XX is the button code (better-dash/dash_ui/bike_link.py
-lines 80-103).
+Pressing a button sends a K1G segment `09 00 0001 XX`: type=0x09,
+sub=0x00, TLV length 0x0001, one payload byte XX = the button code
+(better-dash/dash_ui/bike_link.py lines 80-103).
 
 This module exposes:
-  - `Button` enum mirroring the four codes
+  - `Button` enum with the context-dependent wire codes
   - `build_button_packet(button, seq)` producing the wire bytes ready
     for `sock.sendto`
-  - a tiny CLI entry point so `docker compose exec fake_dash python -m
-    fake_dash button --left` injects events into a running server's RX
-    socket via loopback (the server forwards to all known phone peers).
+
+The CLI (`python -m fake_dash button left`, see __main__.py) injects
+events via the server's control socket (control_socket.py); the server
+forwards them to all known phone peers.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ The Swift code in TripperDashPP/Tripper/K1GPacket.swift builds these
 TLVs from `Date` and `TimeInterval` values:
 
   - `05 08 0004 HHMM` — ETA, 4 ASCII bytes (`tlvEta`)
-  - `05 54 0001 <55|AA>` — ETA format flag (`tlvEtaFormat`)
+  - `05 54 0001 30` — ETA format flag, always 0x30 (`tlvEtaFormat`)
   - `05 0B 0006 DDHHMM` — remaining time, 6 ASCII bytes
   - `05 55 0001 20` — remaining-time unit byte (always 0x20)
 
@@ -86,9 +86,10 @@ def tlv_remaining_unit() -> Segment:
     ],
 )
 def test_tlv_eta_ascii_encoding(when: datetime, expected: bytes) -> None:
-    """Hours/minutes are zero-padded ASCII in 24-hour space, even when
-    the dash is rendering 12-hour format. The format flag (0x54) is
-    what tells the dash to convert for display."""
+    """Hours/minutes are zero-padded ASCII. The mirror covers Swift's
+    default 24-hour path (`is24Hour: true`); in 12-hour mode Swift puts
+    hour % 12 into this payload instead (not mirrored here). The format
+    flag (0x54) is pinned to 0x30 and does not drive conversion."""
     seg = tlv_eta(when)
     assert seg.type == 0x05
     assert seg.sub == 0x08

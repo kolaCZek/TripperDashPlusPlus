@@ -5,15 +5,15 @@ K1G is the protocol Royal Enfield uses between the Tripper TFT dash and
 the companion smartphone app over UDP/2000. Every K1G packet has the
 shape:
 
-    [outer_len: u16 BE] [seg_count: u16 BE] [pad: 4 bytes] [segments…]
+    [outer_len: u16 BE] [seg_count: u16 BE] [pad: 4 × 0x00]
+    [marker: 02 01 00 05] ["K1G " magic] [seq: u8] [segments…]
 
 Each segment is a TLV chunk:
 
     [type: u8] [sub: u8] [seg_len: u16 BE] [payload…]
 
-The 4-byte pad between seg_count and segments is constant (`0x02 0x01 0x00
-0x05`) followed by a 4-byte `K1G ` magic + 1-byte rolling sequence number,
-which lives at offset 8 in the framed packet. The phone (or this fake_dash)
+The 1-byte rolling sequence number right after the `K1G ` magic lives at
+offset 16 in the framed packet. The phone (or this fake_dash)
 patches that sequence byte just before each transmission so the dash can
 detect retransmits.
 
@@ -32,7 +32,7 @@ from typing import Iterable
 # bytes. Layout (after the leading 2-byte outer_len that we patch at send
 # time):
 #
-#   00 02      seg_count = always 2 in the templates we use
+#   00 0N      seg_count = segments + 1 (see build_envelope)
 #   00 00 00 00   pad
 #   02 01 00 05   IC header marker
 #   4B 31 47 20   ASCII "K1G "
@@ -196,7 +196,8 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
         [seq: u8]
         [segments…]
 
-    The leading outer_len is patched via `patch_seq` at the end.
+    The leading outer_len is patched in place once the body is assembled
+    (`patch_seq` re-patches it on every send).
 
     seg_count quirk: every Q3C_* template in better-dash hardcodes
     `00 02` for single-segment packets, and `active_nav_packet`

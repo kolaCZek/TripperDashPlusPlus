@@ -15,7 +15,8 @@ docker compose up --build
 
 The container exposes:
 - `udp://0.0.0.0:2000` — K1G control plane (RSA handshake, route card,
-  joystick events)
+  joystick events). The real dash replies to the phone's `:2002`; the
+  harness replies to whatever source port the packet came from.
 - `udp://0.0.0.0:5000` — RTP video sink (H.264 baseline, payload type
   96, FU-A reassembly)
 
@@ -31,8 +32,9 @@ docker compose exec fake_dash python -m fake_dash button left
 docker compose exec fake_dash python -m fake_dash button click
 ```
 
-Available buttons: `left`, `right`, `down`, `click` (matches the real
-joystick's four-way layout).
+Available buttons: `left`, `right`, `down`, `click` (map-screen stick
+codes), plus the context-dependent codes `next_track`, `prev_track`,
+`remove_waypoint`, `exit_nav` (see `fake_dash/buttons.py`).
 
 ## Inspect a captured stream
 
@@ -55,7 +57,7 @@ open captures/dash_capture_*.h264
 | `08 00`     | phone → bike | RSA-encrypted `ssid ‖ aes_key` (`q3c.d`) |
 | `07 01 01`  | bike → phone | auth OK |
 | `07 01 00`  | bike → phone | auth fail |
-| `09 00 0001 XX` | bike → phone | joystick (XX = 0x13/0x14/0x15/0x18) |
+| `09 00 0001 XX` | bike → phone | joystick (map screen XX = 0x13/0x14/0x15/0x18; now-playing 0x09/0x0A; in-menu 0x20/0x12) |
 | `06 …`      | phone → bike | route card / heartbeat |
 
 Reference implementation (the phone side): https://github.com/kolaCZek/better-dash
@@ -81,8 +83,10 @@ Reference implementation (the phone side): https://github.com/kolaCZek/better-da
 
 ## Status
 
-Plumbing test harness for the TripperDash++ project — runs in CI on every
-PR (pytest suite + Docker image build). See the parent repo's `README.md`
+Plumbing test harness for the TripperDash++ project — runs in CI on PRs
+and `main` pushes that touch `tools/fake_dash/` (pytest suite + Docker
+image build). The suite also holds Python mirrors of pure Swift logic and
+Swift-source drift guards. See the parent repo's `README.md`
 and `CLAUDE.md` for the broader context.
 
 > ⚠️ **This harness is intentionally permissive — it is not the protocol

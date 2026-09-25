@@ -17,8 +17,9 @@
 //
 //  Lifecycle is tied to streaming, not to having a route: when the
 //  rider isn't navigating but we're still streaming the map (e.g.
-//  free-roam preview), the loop sends a "no maneuver" heartbeat so
-//  the dash keeps its projection latch open.
+//  free ride), the loop sends only the route-card keep-alive (no
+//  active-nav packet); the RTP streamer's per-frame
+//  `sendProjectionFrame` keeps the dash's projection latch open.
 //
 //  All actor isolation: @MainActor. `ActiveNavigator` and `BikeLink`
 //  are both MainActor-isolated so async calls go through cleanly with
@@ -64,8 +65,8 @@ final class ActiveNavLoop {
     /// real dash firmware, which the video frame does NOT contain.
     private let demo: DemoDashModel?
 
-    /// Optional Live Activity sink. When present (real ride AND the user hasn't
-    /// disabled Live Activities), each tick pushes the same maneuver + distance
+    /// Optional Live Activity sink. AppStatus injects one for both real and demo
+    /// streaming (it no-ops when the user disabled Live Activities); each tick pushes the same maneuver + distance
     /// + ETA snapshot that feeds the dash bubble to the Lock Screen / Dynamic
     /// Island. The controller throttles internally, so the raw 1 Hz feed here is
     /// fine. Lifecycle (start/end) is owned by AppStatus, not this loop.
@@ -87,7 +88,8 @@ final class ActiveNavLoop {
 
     /// Speed cameras loaded for the current route, in the primitive form the
     /// announcer consumes. Pushed by AppStatus via `setSpeedCameras(_:)`
-    /// whenever the camera prefetch completes or the toggle flips. Held as a
+    /// when the loop is created (seeded from the last prefetch result),
+    /// whenever a camera prefetch completes, or when the toggle flips. Held as a
     /// plain value so the announcer stays CoreLocation-free and the tick is a
     /// cheap array read.
     private var speedCameraTargets: [SpeedCameraAnnouncer.Target] = []
@@ -146,11 +148,11 @@ final class ActiveNavLoop {
         // Demo mode: clear the on-screen native-bubble snapshot so the preview
         // stops showing a stale maneuver after the ride ends.
         demo?.bubble = nil
-        // Silence any tier prompt in flight and reset the "when to speak"
-        // state so the next ride starts clean. NOTE: this fires on EVERY
-        // teardown including final arrival — the arrival prompt is spoken
-        // from AppStatus.onArrived AFTER stopStreaming has already run, so
-        // it is not clipped by this stop (a fresh utterance re-arms audio).
+        // Reset the "when to speak" state so the next ride starts clean
+        // (the voice itself is silenced by AppStatus.stopStreaming). NOTE:
+        // final arrival does NOT come through here — AppStatus.onArrived
+        // keeps the stream (and this loop) running and speaks the arrival
+        // prompt; the loop then drops into its free-ride branch.
         promptScheduler.reset()
         spokeReroutingForEpisode = false
         cameraAnnouncer.reset()
@@ -166,8 +168,9 @@ final class ActiveNavLoop {
     }
 
     /// Update the set of speed cameras the announcer considers each tick.
-    /// Called by AppStatus when the camera prefetch completes, when the
-    /// route changes (reroute / leg advance), or when the toggle flips.
+    /// Called by AppStatus when the loop is created (seeded from the last
+    /// result), when a camera prefetch completes (incl. the extending,
+    /// merged fetch after a reroute / leg advance), or when the toggle flips.
     /// Passing an empty array (toggle off) silences camera callouts. A fresh
     /// camera set also re-arms the announcer so a camera that was already
     /// fired against the OLD list can warn again if it reappears — matches
@@ -341,7 +344,7 @@ final class ActiveNavLoop {
         // per-leg ETA + the final-ETA pill); the dash bubble has no room
         // for two numbers, so it only ever shows the whole-trip arrival.
         // (Martin, 6/2026.) `etaSec` itself is untouched and still feeds
-        // the bike ETA bubble below alongside the other leg-scoped fields.
+        // the multi-stop "next waypoint" label below.
         let finalEtaSec: TimeInterval = nav.finalDestinationEtaSeconds
         let etaDate: Date? = finalEtaSec > 0 ? Date(timeIntervalSinceNow: finalEtaSec) : nil
         let remainingSecs: TimeInterval? = finalEtaSec > 0 ? finalEtaSec : nil
@@ -359,11 +362,10 @@ final class ActiveNavLoop {
         //
         // `remainingWaypoints > 1` means at least one MORE leg follows the
         // one ending at `nav.destination` — i.e. `destination` is an
-        // INTERMEDIATE stop, not the final destination. On the last leg
-        // (remainingWaypoints == 1) or a single-destination route
-        // (remainingWaypoints == 0) this stays nil: showing "next
-        // waypoint" there would just repeat the final-ETA the dash's own
-        // ETA/remaining-time fields already render.
+        // INTERMEDIATE stop, not the final destination. On a
+        // single-destination route (remainingWaypoints == 0) this stays
+        // nil; on the last leg of a plan (remainingWaypoints == 1) it
+        // names the final destination (see the gate below).
         //
         // `nav.destination` / `etaSec` (== `nav.etaSeconds`) are already
         // scoped to the CURRENT LEG (see ActiveNavigator's F6 doc-comment
@@ -457,8 +459,8 @@ final class ActiveNavLoop {
         )
 
         // 2-live. Push the SAME snapshot to the Live Activity (Lock Screen +
-        //     Dynamic Island). No-op (nil sink) unless this is a real ride with
-        //     Live Activities enabled. The controller throttles internally, so
+        //     Dynamic Island). No-op inside the controller when the user has
+        //     Live Activities disabled. The controller throttles internally, so
         //     the raw 1 Hz feed is fine — it only forwards changes a rider would
         //     notice (glyph, distance bucket, ETA minute, ≥1% progress).
         liveActivity?.update(
@@ -549,8 +551,8 @@ final class ActiveNavLoop {
         // tick — a few cheap value writes, so flipping the display mode,
         // the over-limit tolerance, or km/h ⇄ mph mid-ride re-evaluates the
         // sign on the next frame without waiting for a route re-prefetch.
-        // `imperial` here also re-labels the speed-camera pills, which read
-        // the same `speedLimitImperial` flag (shared `displayLimit`).
+        // `imperial` here also re-labels the average-speed section panel,
+        // which reads the same `speedLimitImperial` flag.
         mapSource?.setSpeedLimitConfig(
             mode: settings.speedLimitDisplay.rawValue,
             toleranceKmh: settings.speedLimitOverToleranceKmh,
@@ -570,8 +572,7 @@ final class ActiveNavLoop {
     ///   - reroute "recalculating" → `.critical` (once per reroute episode)
     ///   - maneuver tier prompts   → `.maneuver`
     /// Arrival is spoken separately off `ActiveNavigator.onArrived` (wired in
-    /// AppStatus), not here, because by the time `isNavigating` flips false
-    /// this loop has already stopped.
+    /// AppStatus), not here — arrival kinds are skipped below.
     private func emitVoice(kind: ManeuverKind,
                            distNext: Double,
                            isRerouting: Bool,

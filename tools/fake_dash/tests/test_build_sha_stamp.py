@@ -1,8 +1,8 @@
 """
-Guard tests for the build-time git-SHA stamping shown in Settings → Build.
+Guard tests for the build-time git-SHA stamping shown in Settings → About.
 
 The Settings screen's "Version" row shows the short git commit SHA the binary
-was built from, e.g. `1.0 (46ab7a9)`. That value is produced by a build-phase
+was built from, e.g. `1.0.3 (6) · 46ab7a9`. That value is produced by a build-phase
 script (`tools/stamp-git-sha.sh`) which writes a `GitCommitSHA` key into the
 built Info.plist with PlistBuddy; `AppStatus.buildCommitSHA` reads it back at
 runtime and `StreamingView` renders it.

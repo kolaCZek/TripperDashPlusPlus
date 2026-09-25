@@ -132,9 +132,8 @@ struct SpeedCameraAnnouncerTests {
     // MARK: - Along-route (sharp-bend fix)
 
     // A hairpin route: north up lon 14.0000 to 50.004, then back south down
-    // a leg ~43 m east. A camera on the second leg sits nearly due south of
-    // a rider on the first leg (the old cone would REJECT it) yet is only a
-    // few hundred metres ahead along the road.
+    // a leg ~43 m east. A camera on the second leg is only a few hundred
+    // metres ahead along the road.
     private let hairpin: [(lat: Double, lon: Double)] = [
         (50.0000, 14.0000),
         (50.0040, 14.0000),
@@ -145,9 +144,9 @@ struct SpeedCameraAnnouncerTests {
         var a = SpeedCameraAnnouncer()
         // Rider heading NORTH near the start of leg 1.
         let rider = (lat: 50.0010, lon: 14.0000)
-        // Camera on leg 2 at 50.0035 — bearing from the rider is ~south, so
-        // the 75° cone would reject it. Along the road it's ~393 m ahead
-        // (inside the 400 m warn radius) → must fire.
+        // Camera on leg 2 at 50.0035 — ~280 m straight-line (bearing ~9°).
+        // Along the road it's ~393 m ahead (inside the 400 m warn radius)
+        // → must fire.
         let cam = Target(id: 100, latitude: 50.0035, longitude: 14.0006)
         let hit = a.onTickAlongRoute(
             riderLat: rider.lat, riderLon: rider.lon,

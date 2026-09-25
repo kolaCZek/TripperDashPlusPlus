@@ -12,8 +12,8 @@ peer (which is what the real bike does).
 
 Protocol (one command per connection, newline-terminated):
 
-    BUTTON <left|right|down|click>\n        → "OK n_peers\n"
-    BUTTON <name>\n                          → "ERR no peers\n"  (warn-only)
+    BUTTON <button name>\n                   → "OK n_peers\n"
+    BUTTON <name>\n                          → "ERR no peers …\n"  (warn-only)
     PING\n                                   → "PONG\n"
 
 The socket path defaults to /run/fake_dash.sock inside the container.
@@ -48,7 +48,7 @@ class ControlServer:
     commands to callbacks supplied by the running FakeDashServer.
 
     Designed to be stoppable from the outside via `stop()` — the accept
-    loop polls a stop Event and is bounded by SO_RCVTIMEO so shutdown is
+    loop polls a stop Event and is bounded by a 0.5 s socket timeout so shutdown is
     snappy without a separate wakeup pipe.
     """
 

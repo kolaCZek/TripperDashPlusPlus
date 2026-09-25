@@ -16,7 +16,7 @@ import MapKit
 /// snapshotter's completion handler), so this is a `@unchecked Sendable`
 /// reference type with its own lock — not a `@MainActor` actor.
 ///
-/// Strategy: bounded LIFO ring. New entries push out old ones; by the
+/// Strategy: bounded FIFO ring. New entries push out old ones; by the
 /// time an entry has been pushed out by `capacity` newer entries the
 /// GPU work is long-since complete.
 final class SnapshotterPark: @unchecked Sendable {

@@ -195,7 +195,7 @@ actor OSMTileFetcher {
         var lastError: Error?
         for attempt in 0...maxRetries {
             if attempt > 0 {
-                // Exponential backoff: 500 ms, 1 s, 2 s — bounded so
+                // Exponential backoff: 500 ms, 1 s — bounded so
                 // a stuck connection doesn't pause the whole bake.
                 let delay = UInt64(0.5 * pow(2.0, Double(attempt - 1)) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delay)

@@ -81,7 +81,7 @@ struct ColdAndCrosswindTests {
     }
 
     @Test func iceSpanStopsAtLowerSeverityFrost() {
-        // Frost 10 km, Ice 20 km, frost 30…50 km: the red Ice band must not
+        // Frost 10 km, Ice 20 km, frost 30…40 km: the red Ice band must not
         // stretch over the surrounding amber frost (same .ice glyph).
         let samples = [
             sample(temp: 8, dist: 0),

@@ -18,7 +18,7 @@
 //  Decoded 2026-06-27 from `com.royalenfield.reprime`
 //  (`REForeGroundService.d.run()`, lines 211-232) and byte-verified
 //  against the real-phone capture better-dash inlines as
-//  `tripper_app_like_nav.py:INITIAL_BURST_HEX[9]`:
+//  `tripper_app_like_nav.py:INITIAL_BURST_HEX[8]`:
 //
 //    0044 …  06 08 0001 FF   06 03 0001 55   06 04 0001 A2
 //            06 0F 0001 AA   06 01 0001 01   …
@@ -66,8 +66,8 @@ struct PhoneTelemetry: Sendable, Equatable {
     var signalPresent: Bool
 
     /// The pre-telemetry placeholder values the heartbeat shipped before
-    /// this feature existed (and still ships when the user turns device
-    /// telemetry OFF, or before monitoring has produced a first reading).
+    /// this feature existed (and still ships when no telemetry provider is
+    /// wired, e.g. in tests, or the `DeviceTelemetry` has been released).
     /// Chosen to look like "a sane phone client" to the dash so the link
     /// never drops just because we withheld real data — the OEM dash
     /// keys its keep-alive on the frame ARRIVING, not on its contents.
