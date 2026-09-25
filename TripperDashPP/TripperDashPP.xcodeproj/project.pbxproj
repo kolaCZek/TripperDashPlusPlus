@@ -1234,15 +1234,12 @@
 		A4C700000000000000170000 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ANALYZER_NONNULL = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash Widgets";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1268,15 +1265,12 @@
 		A4C700000000000000180000 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ANALYZER_NONNULL = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash Widgets";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

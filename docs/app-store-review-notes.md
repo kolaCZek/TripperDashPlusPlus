@@ -53,7 +53,9 @@ The app declares the `location` and `audio` background modes:
 In real use the app offers to join the motorcycle's Wi-Fi access point
 (NEHotspotConfiguration) so the rider doesn't fumble with Settings with gloves on.
 This needs no interaction in Demo Mode. The entitlement is
-`com.apple.developer.networking.HotspotConfiguration`.
+`com.apple.developer.networking.HotspotConfiguration`, plus
+`com.apple.developer.networking.wifi-info` so the app can read the current SSID
+(`NEHotspotNetwork.fetchCurrent`) to confirm it is on the motorcycle's network.
 
 ### Networking / keyless design
 

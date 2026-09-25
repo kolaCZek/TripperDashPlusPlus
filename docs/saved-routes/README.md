@@ -135,7 +135,7 @@ build on a Mac):
   span (center, padding, min-span clamp, order-independence).
 
 ```
-make fake-dash-test          # in the container
+make fake-dash-test          # on the host (pip install -e "tools/fake_dash[dev]")
 # or, locally:
 cd tools/fake_dash && python3 -m pytest tests/test_gpx_import.py -q
 ```
