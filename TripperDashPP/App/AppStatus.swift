@@ -928,7 +928,18 @@ final class AppStatus {
     /// Active-nav 1 Hz pump. Created on demand when streaming starts
     /// (we need a live `mapSource` and `bikeLink.connected` first). Held
     /// here so we can stop it from `stopStreaming()`.
-    @ObservationIgnored private var activeNavLoop: ActiveNavLoop?
+    @ObservationIgnored private var activeNavLoop: ActiveNavLoop? {
+        // The camera prefetch usually finishes (disk-cache hit) BEFORE
+        // `startStreaming` creates the loop, so seed a new loop with the
+        // last result instead of relying on the prefetch to find it.
+        didSet {
+            activeNavLoop?.setSpeedCameras(speedCameraData.cameras)
+            activeNavLoop?.setSpeedSections(speedCameraData.sections)
+        }
+    }
+    /// Last speed-camera prefetch result for the active route (`.empty`
+    /// when the toggle is off). Seeds `activeNavLoop` on creation.
+    @ObservationIgnored private var speedCameraData: SpeedCameraData = .empty
 
     /// Live Activity controller (Lock Screen + Dynamic Island ride card).
     /// Created on `startStreaming`, fed by `ActiveNavLoop`, ended on
@@ -1483,8 +1494,10 @@ final class AppStatus {
     func prefetchSpeedCameras(for route: MKRoute) {
         speedCameraPrefetchTask?.cancel()
         guard dashNavSettings.speedCamerasEnabled else {
+            speedCameraData = .empty
             mapViewSource.setSpeedCameras([])
             activeNavLoop?.setSpeedCameras([])
+            activeNavLoop?.setSpeedSections([])
             return
         }
         let coords = route.polyline.coordinateList()
@@ -1495,6 +1508,7 @@ final class AppStatus {
             guard !Task.isCancelled else { return }
             // Re-check the toggle after the network await.
             let effective = self.dashNavSettings.speedCamerasEnabled ? data : .empty
+            self.speedCameraData = effective
             self.mapViewSource.setSpeedCameras(effective.cameras)
             // Hand the same set to the active-nav loop so the voice announcer
             // can warn when the rider approaches one (feat/speed-camera-voice-alert),

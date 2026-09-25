@@ -138,9 +138,10 @@ actor SpeedCameraService {
         let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
         let key = box.cacheKey
 
-        if let cached = loadCache(key: key) {
-            log.info("Speed cameras: disk-cache hit \(key, privacy: .public) (\(cached.cameras.count, privacy: .public) + \(cached.sections.count, privacy: .public) sections)")
-            return cached
+        let cached = loadCache(key: key)
+        if let cached, cached.complete {
+            log.info("Speed cameras: disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public) + \(cached.data.sections.count, privacy: .public) sections)")
+            return cached.data
         }
 
         do {
@@ -150,7 +151,7 @@ actor SpeedCameraService {
             return data
         } catch {
             log.warning("Speed cameras fetch failed: \(String(describing: error), privacy: .public)")
-            return .empty
+            return cached?.data ?? .empty
         }
     }
 
@@ -170,9 +171,10 @@ actor SpeedCameraService {
         let box = Self.boundingBox(around: center, radiusMeters: radiusMeters)
         let key = box.cacheKey
 
+        // Free-ride draws cameras only, so a pre-sections cache is fine.
         if let cached = loadCache(key: key) {
-            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.cameras.count, privacy: .public))")
-            return cached.cameras
+            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public))")
+            return cached.data.cameras
         }
 
         do {
@@ -354,8 +356,9 @@ actor SpeedCameraService {
     private struct CacheEnvelope: Codable {
         let savedAt: Date
         let cameras: [Cam]
-        /// nil in caches written before sections existed → treated as a
-        /// miss so the region is re-fetched once with sections.
+        /// nil in caches written before sections existed → `complete: false`,
+        /// so the route path re-fetches once but can fall back to the old
+        /// cameras when offline.
         let sections: [Sec]?
         struct Cam: Codable {
             let id: Int64, lat: Double, lon: Double
@@ -372,11 +375,10 @@ actor SpeedCameraService {
         cacheDir.appendingPathComponent("\(key).json")
     }
 
-    private func loadCache(key: String) -> SpeedCameraData? {
+    private func loadCache(key: String) -> (data: SpeedCameraData, complete: Bool)? {
         let url = cacheURL(key: key)
         guard let data = try? Data(contentsOf: url),
-              let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data),
-              let sections = env.sections
+              let env = try? JSONDecoder().decode(CacheEnvelope.self, from: data)
         else { return nil }
         guard Date().timeIntervalSince(env.savedAt) < Self.cacheTTL else {
             try? FileManager.default.removeItem(at: url)
@@ -388,10 +390,11 @@ actor SpeedCameraService {
                         maxspeedKmh: $0.maxspeed,
                         isSection: $0.section)
         }
-        return SpeedCameraData(cameras: cameras, sections: sections.map {
+        let sections = (env.sections ?? []).map {
             SpeedSection(id: $0.id, fromLat: $0.fromLat, fromLon: $0.fromLon,
                          toLat: $0.toLat, toLon: $0.toLon, maxspeedKmh: $0.maxspeed)
-        })
+        }
+        return (SpeedCameraData(cameras: cameras, sections: sections), env.sections != nil)
     }
 
     private func saveCache(key: String, data: SpeedCameraData) {

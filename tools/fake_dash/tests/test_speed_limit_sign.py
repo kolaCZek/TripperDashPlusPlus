@@ -541,3 +541,44 @@ def test_service_shadow_plumbing():
     assert "struct RoadShape" in src
     assert "func split(" in src
     assert "func nearestRoadDistance(" in src
+
+
+def test_section_panel_geometry_fits_round_glass():
+    # Recompute the panel rect from the Swift constants and check it against
+    # the visible circle measured on a real dash photo (centre ~(263, 267),
+    # r ~265 px in 526x300 frame pixels) and the progress-bar chevron.
+    import math
+    src = mapsource_src()
+    w, h = map(int, re.search(r"sectionPanelSize = CGSize\(width: (\d+), height: (\d+)\)", src).groups())
+    gap = int(re.search(r"sectionPanelGap: CGFloat = (\d+)", src).group(1))
+    sign = int(re.search(r"speedLimitSignDiameter: CGFloat = (\d+)", src).group(1))
+    margin = int(re.search(r"speedLimitSignMargin: CGFloat = (\d+)", src).group(1))
+    x0 = 526 - margin - sign - gap - w
+    y0 = 300 - margin - sign - 2
+    corners = [(x0, y0), (x0 + w, y0), (x0, y0 + h), (x0 + w, y0 + h)]
+    assert all(math.hypot(x - 263, y - 267) < 265 - 30 for x, y in corners)
+    chevron_top = 300 - 12 - 6 + 3 - 9          # bar y + h/2 - arrowHalfH
+    assert y0 + h < chevron_top
+    assert x0 + w + gap <= 526 - margin - sign   # clear of the sign disc
+
+
+# --- Average-speed section wiring ------------------------------------------
+
+def test_new_nav_loop_is_seeded_with_last_camera_prefetch():
+    # The prefetch usually lands (disk-cache hit) before startStreaming
+    # creates the loop — the loop must be seeded on creation, not only
+    # from the prefetch completion.
+    from tests.swift_source import strip_comments
+    src = strip_comments(_src("App/AppStatus.swift"))
+    m = re.search(r"private var activeNavLoop: ActiveNavLoop\? \{\s*didSet \{(.*?)\}\s*\}", src, re.S)
+    assert m, "activeNavLoop lost its seeding didSet"
+    assert "activeNavLoop?.setSpeedSections(speedCameraData.sections)" in m.group(1)
+    assert "activeNavLoop?.setSpeedCameras(speedCameraData.cameras)" in m.group(1)
+    assert "self.speedCameraData = effective" in src
+
+
+def test_section_panel_follows_camera_toggle():
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(_src("Navigation/ActiveNavLoop.swift"),
+                                    "private func updateSpeedSection()"))
+    assert re.search(r"guard settings\.speedCamerasEnabled, !speedSections\.isEmpty,", body)

@@ -93,8 +93,7 @@ final class ActiveNavLoop {
     private var speedCameraTargets: [SpeedCameraAnnouncer.Target] = []
 
     /// Average-speed sections along the route + the tracker that turns them
-    /// into the dash section panel. NOT reset when a reroute swaps the list,
-    /// so a reroute mid-section keeps the running average.
+    /// into the dash section panel.
     private var speedSections: [SpeedSection] = []
     private var sectionTracker = SpeedSectionTracker()
 
@@ -667,7 +666,9 @@ final class ActiveNavLoop {
     /// (nil outside a section). Skipped during a reroute: the old route
     /// line is stale, so the last reading simply holds for those ticks.
     private func updateSpeedSection() {
-        guard let fix = location?.lastFix, let navigator else {
+        guard settings.speedCamerasEnabled, !speedSections.isEmpty,
+              let fix = location?.lastFix, let navigator else {
+            sectionTracker.reset()
             mapSource?.setSpeedSection(nil)
             return
         }

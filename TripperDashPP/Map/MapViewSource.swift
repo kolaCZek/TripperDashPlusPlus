@@ -2952,14 +2952,21 @@ extension MapViewSource {
         let avgText = r.averageKmh.map {
             "Ø \(Int((speedLimitImperial ? $0 / 1.609344 : $0).rounded()))"
         } ?? "Ø --"
-        // Metres to the nearest 10 (sections are 0.2–2.5 km, so "1 km"
-        // would hide most of the countdown); imperial reuses the pill format.
-        let remText = speedLimitImperial
-            ? Self.formatAheadDistance(meters: r.remainingMeters, imperial: true)
-            : "\(Int((r.remainingMeters / 10).rounded()) * 10) m"
+        // Fine-grained countdown — sections are 0.2–2.5 km, so the pill's
+        // "1 km" / 500 ft steps would hide most of it. Metres to the nearest
+        // 10; imperial feet to the nearest 50 below 0.2 mi, then 0.1 mi.
+        let remText: String
+        if speedLimitImperial {
+            let ft = r.remainingMeters * 3.280839895
+            remText = ft < 1056
+                ? "\(Int((ft / 50).rounded()) * 50) ft"
+                : String(format: "%.1f mi", r.remainingMeters / 1609.344)
+        } else {
+            remText = "\(Int((r.remainingMeters / 10).rounded()) * 10) m"
+        }
 
         let white = UIColor.white
-        let big: [NSAttributedString.Key: Any] = [
+        var big: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 22, weight: .bold),
             .foregroundColor: over ? UIColor(cgColor: red) : white,
         ]
@@ -2967,6 +2974,14 @@ extension MapViewSource {
             .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
             .foregroundColor: white.withAlphaComponent(0.85),
         ]
+        // Width-fit the top row ("Ø 130 km/h" is the widest) — same idea
+        // as the sign's number fit.
+        let rowW = (avgText as NSString).size(withAttributes: big).width + 4
+            + (unit as NSString).size(withAttributes: small).width
+        let maxRowW = size.width - 2 * padX
+        if rowW > maxRowW {
+            big[.font] = UIFont.systemFont(ofSize: 22 * maxRowW / rowW, weight: .bold)
+        }
         let rem: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: white,
