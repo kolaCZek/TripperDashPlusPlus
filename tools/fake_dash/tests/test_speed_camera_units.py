@@ -265,3 +265,23 @@ def test_section_end_cameras_are_not_announced():
     assert "excludingSectionEnds(\n            speedCameraTargets, ends: sectionTracker.endPoints)" in loop
     tick = loop[loop.index("if !isRerouting {"):]
     assert tick.index("updateSpeedSection()") < tick.index("emitCameraVoice()")
+
+
+def test_section_panel_hides_when_leaving_the_route():
+    """Leaving the route starts a recalculation → the average-speed section
+    ends and its dash panel hides. Keyed off a counter bumped in the
+    off-route reroute path (not `isRerouting`, which a fast reply can clear
+    between two 1 Hz ticks), and checked before the `!isRerouting` block so
+    the panel goes away as the recalculation starts, not after it."""
+    from tests.swift_source import decl_body, strip_comments
+    nav = strip_comments(_src("Navigation/ActiveNavigator.swift"))
+    loop = strip_comments(_src("Navigation/ActiveNavLoop.swift"))
+    assert "private(set) var offRouteReroutes" in nav
+    assert "offRouteReroutes += 1" in decl_body(nav, "private func requestReroute(")
+    assert "offRouteReroutes += 1" not in decl_body(nav, "private func installSwappedRoute(")
+    tick = decl_body(loop, "private func tick()")
+    check = tick.index("if nav.offRouteReroutes != seenOffRouteReroutes {")
+    body = tick[check:tick.index("}", check)]
+    assert "sectionTracker.reset()" in body
+    assert "mapSource?.setSpeedSection(nil)" in body
+    assert check < tick.index("if !isRerouting {")

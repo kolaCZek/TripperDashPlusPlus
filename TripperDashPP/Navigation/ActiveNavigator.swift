@@ -270,6 +270,12 @@ final class ActiveNavigator {
     /// Whether a reroute is currently in flight.
     private(set) var isRerouting: Bool = false
 
+    /// Bumped each time leaving the route starts a recalculation (not on a
+    /// live-traffic swap). A counter rather than `isRerouting`, which a
+    /// fast MKDirections reply can flip back before the 1 Hz nav loop
+    /// ever samples it.
+    private(set) var offRouteReroutes = 0
+
     /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.
     /// Read-only for consumers. `nil` until the first fix lands. Minimal
     /// surface: the navigator already digests the fix; we just retain its
@@ -1163,6 +1169,7 @@ final class ActiveNavigator {
 
     private func requestReroute(from coord: CLLocationCoordinate2D) async {
         guard let dest = destination, let cb = onRerouteRequested else { return }
+        offRouteReroutes += 1
         isRerouting = true
         defer { isRerouting = false }
         lastRerouteAt = .now

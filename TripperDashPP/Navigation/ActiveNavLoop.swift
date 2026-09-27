@@ -98,6 +98,8 @@ final class ActiveNavLoop {
     /// into the dash section panel.
     private var speedSections: [SpeedSection] = []
     private var sectionTracker = SpeedSectionTracker()
+    /// Last `ActiveNavigator.offRouteReroutes` seen by the tick.
+    private var seenOffRouteReroutes = 0
 
     private var task: Task<Void, Never>?
 
@@ -536,6 +538,16 @@ final class ActiveNavLoop {
         //     and unit-tested off-device.
         emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
                   arrivingStep: arrivingStep)
+
+        // Left the route → recalculating: end the average-speed section and
+        // hide its panel. The average is measured along the old route line,
+        // so it can't be trusted once the rider is off it. The new route
+        // only re-enters a section it rides again from the start.
+        if nav.offRouteReroutes != seenOffRouteReroutes {
+            seenOffRouteReroutes = nav.offRouteReroutes
+            sectionTracker.reset()
+            mapSource?.setSpeedSection(nil)
+        }
 
         // 2b-cam. Spoken speed-camera proximity warning
         //     (feat/speed-camera-voice-alert). The camera phrase existed but
