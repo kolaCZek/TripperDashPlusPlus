@@ -272,7 +272,7 @@ def test_section_panel_hides_on_every_route_recalculation():
     ends and the panel hides as an off-route recalculation STARTS (bump
     before the MKDirections await, so it holds even if the reroute fails)
     and on every mid-ride route swap (reroute result, live-traffic swap,
-    alternative auto-switch). Keyed off a counter, not `isRerouting`, which
+    alternative auto-switch, waypoint removed from the dash). Keyed off a counter, not `isRerouting`, which
     a fast reply can clear between two 1 Hz ticks; checked before the
     `!isRerouting` block so the panel goes as the recalculation starts."""
     from tests.swift_source import decl_body, strip_comments
@@ -282,7 +282,12 @@ def test_section_panel_hides_on_every_route_recalculation():
     bump = "routeRecalculations += 1"
     reroute = decl_body(nav, "private func requestReroute(")
     assert bump in reroute and reroute.index(bump) < reroute.index("await cb(")
-    assert bump in decl_body(nav, "private func installSwappedRoute(")
+    swap = decl_body(nav, "private func installSwappedRoute(")
+    assert bump in swap and swap.index(bump) < swap.index("await onActiveRouteChanged?(newRoute)")
+    skip = decl_body(nav, "func skipCurrentLeg(")
+    assert bump in skip and skip.index(bump) < skip.index("await advanceToNextLeg(")
+    # A planned leg advance between stops is NOT a recalculation.
+    assert bump not in decl_body(nav, "private func advanceToNextLeg(")
     alt = decl_body(nav, "private func maybeSwitchToAlternative(")
     assert bump in alt and alt.index(bump) < alt.index("await onActiveRouteChanged?(newRoute)")
     # Live-traffic swap goes through installSwappedRoute.
@@ -290,6 +295,7 @@ def test_section_panel_hides_on_every_route_recalculation():
     tick = decl_body(loop, "private func tick()")
     check = tick.index("if nav.routeRecalculations != seenRouteRecalculations {")
     body = tick[check:tick.index("}", check)]
+    assert "seenRouteRecalculations = nav.routeRecalculations" in body
     assert "sectionTracker.reset()" in body
     assert "mapSource?.setSpeedSection(nil)" in body
     assert check < tick.index("if !isRerouting {")

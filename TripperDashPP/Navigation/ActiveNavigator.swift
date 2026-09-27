@@ -272,7 +272,7 @@ final class ActiveNavigator {
 
     /// Bumped when an off-route recalculation starts and whenever the
     /// active route is swapped mid-ride (reroute result, live-traffic
-    /// swap, alternative auto-switch). The nav loop ends the average-speed
+    /// swap, alternative auto-switch, waypoint removed from the dash). The nav loop ends the average-speed
     /// section on every bump: its average is measured along the route
     /// line, so after a swap it can read nonsense. A counter rather than
     /// `isRerouting`, which a fast MKDirections reply can flip back
@@ -1283,6 +1283,9 @@ final class ActiveNavigator {
             return false
         }
         log.info("skipCurrentLeg: rider removed waypoint at leg \(self.currentLegIndex + 1) of \(plan.legs.count)")
+        // Mid-leg swap the rider triggers: the next leg can turn off the
+        // average-speed section, so end it like any other recalculation.
+        routeRecalculations += 1
         await advanceToNextLeg(in: plan)
         return true
     }
