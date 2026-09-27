@@ -31,7 +31,15 @@ import os
 /// wired), the default provider returns `PhoneTelemetry.placeholder` — the
 /// same "sane phone client" constants the loop shipped before live
 /// telemetry existed — so the dash keep-alive is never affected.
-struct HeartbeatLoop {
+///
+/// Runs OFF the main actor (`@concurrent`): the main actor also bakes map
+/// tiles and renders the RTP stream, and a heartbeat queued behind a long
+/// bake is exactly the gap the dash reads as "phone gone". Only the first
+/// tick awaits the provider (which hops to main); after that each tick sends
+/// the latest snapshot it has and refreshes it in the background, so a busy
+/// main actor makes the phone status a few seconds stale instead of
+/// stalling the keep-alive.
+nonisolated struct HeartbeatLoop: Sendable {
 
     let socket: DashSocket
     let seq: RollingSeq
@@ -47,20 +55,31 @@ struct HeartbeatLoop {
     var musicRatio0to1: Double = 0.3
     var alarmRatio0to1: Double = 0.3
 
+    /// Latest phone status, refreshed off the send path.
+    let latest = LatestTelemetry()
+
     private static let log = Logger(
         subsystem: "eu.kolaczek.tripperdashpp",
         category: "Heartbeat"
     )
 
     /// Run until cancelled. Suspends on cancellation cleanly.
-    func run() async {
+    @concurrent func run() async {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
         while !Task.isCancelled {
-            // Fresh phone status every tick. Cheap (a struct copy on the
-            // main actor); mirrors the OEM 1 Hz `REForeGroundService`
-            // timer which re-reads BatteryManager + cell info each fire.
-            let t = await telemetryProvider()
+            // Phone status: mirrors the OEM 1 Hz `REForeGroundService` timer
+            // which re-reads BatteryManager + cell info each fire. The
+            // provider hops to the main actor, so only the first tick waits
+            // for it; later ticks send the latest snapshot and refresh it in
+            // the background (at most one refresh in flight).
+            if tick == 0 {
+                latest.finish(await telemetryProvider())
+            } else if latest.beginRefresh() {
+                let box = latest, provider = telemetryProvider
+                Task { box.finish(await provider()) }
+            }
+            let t = latest.get()
 
             let hb = K1GPacket.makeHeartbeat0044(
                 seq: seq.consume(),
@@ -98,5 +117,29 @@ struct HeartbeatLoop {
             try? await Task.sleep(nanoseconds: UInt64(K1G.heartbeatInterval * 1_000_000_000))
         }
         Self.log.info("Heartbeat loop cancelled (sent \(tick) ticks)")
+    }
+}
+
+/// Latest `PhoneTelemetry` for the heartbeat, shared between the loop and
+/// its background refresh task. `refreshing` stops refreshes piling up
+/// while the main actor is busy.
+nonisolated final class LatestTelemetry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = PhoneTelemetry.placeholder
+    private var refreshing = false
+
+    func get() -> PhoneTelemetry { lock.withLock { value } }
+
+    /// True if the caller should start a refresh (none in flight).
+    func beginRefresh() -> Bool {
+        lock.withLock {
+            if refreshing { return false }
+            refreshing = true
+            return true
+        }
+    }
+
+    func finish(_ t: PhoneTelemetry) {
+        lock.withLock { value = t; refreshing = false }
     }
 }

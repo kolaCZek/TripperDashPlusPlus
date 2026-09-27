@@ -338,6 +338,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// start-of-ride window) — ~55 s of road at 130 km/h, far more than
     /// the rolling extender needs to top up the rest.
     static let rerouteBakeAheadMeters: CLLocationDistance = 2000
+
     /// Route queued for a fresh tile bake. Coalesces reroutes that land
     /// while a bake is in flight (see `scheduleTileCacheRebuild`). Most
     /// recent value wins — if a second reroute arrives before the
@@ -582,7 +583,8 @@ final class MapViewSource: NSObject, FrameSource {
     /// atomically. The layers use a SHORT bake-ahead window (they only
     /// need to cover the immediate surroundings for their zoom band), so
     /// the extra tile fetches are modest versus the base layer.
-    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?,
+                                    includeFine: Bool = true) {
         let style = currentStyle
         let coarse = RouteTileCache(
             style: style,
@@ -606,6 +608,7 @@ final class MapViewSource: NSObject, FrameSource {
             coarseTileCache = coarse
             log.info("Coarse overview layer installed: \(coarse.tiles.count, privacy: .public) tiles")
         }
+        guard includeFine else { return }
         Task { @MainActor in
             if let coord {
                 await fine.prerender(route: route, around: coord) { _ in }
@@ -778,6 +781,14 @@ final class MapViewSource: NSObject, FrameSource {
     /// `pendingRebakeRoute`, and the in-flight bake re-runs with the
     /// latest route when it finishes — only the newest corridor is kept.
     func scheduleTileCacheRebuild(for route: MKRoute) {
+        // Ride start fires the route-changed hook for the route the picker
+        // already installed (`setCurrentRoute`) and is prerendering 8 km
+        // for (`prerenderRouteTiles`). A second bake of the same route
+        // would only race it on the stream-start main actor.
+        guard route !== currentRoute else {
+            log.info("Tile re-bake skipped — route already installed")
+            return
+        }
         pendingRebakeRoute = route
         if pendingRebakeInFlight {
             // A bake is already running; it will pick up this newer route
@@ -806,9 +817,18 @@ final class MapViewSource: NSObject, FrameSource {
         // block is the heaviest bake of the ride, right when the phone is
         // also fetching the new route. The rolling `extend(near:)` tops the
         // rest up to `rollingLookaheadMeters`, 12 anchors per pass.
+        //
+        // Around the rider, not from the route start: an alternative
+        // auto-switch swaps in a route that starts back at the leg start,
+        // possibly km behind the rider (a reroute starts at the rider, so
+        // there it's the same window).
         let fresh = RouteTileCache(style: currentStyle,
                                    bakeAheadMeters: Self.rerouteBakeAheadMeters)
-        await fresh.prerender(route: route) { _ in }
+        if let coord = lastFix?.coordinate {
+            await fresh.prerender(route: route, around: coord) { _ in }
+        } else {
+            await fresh.prerender(route: route) { _ in }
+        }
         pendingRebakeInFlight = false
         // If a newer route was scheduled while we were baking, throw
         // this one away and recurse — fresh data wins.
@@ -818,7 +838,14 @@ final class MapViewSource: NSObject, FrameSource {
             return
         }
         pendingRebakeRoute = nil
-        setTileCache(fresh)
+        // Coarse sibling layer only (few, widely shared z=13 tiles). The
+        // fine z=16 layer is the heaviest bake (7×7 distinct tiles per
+        // composite) and is skipped on a mid-ride route change: zoomed all
+        // the way in, the renderer falls back to the base z=15 layer.
+        // ponytail: fine layer returns only on the next style switch / ride
+        // start; bake it lazily later if riders miss the extra sharpness.
+        setTileCache(fresh, buildLayers: false)
+        buildQualityLayers(route: route, around: lastFix?.coordinate, includeFine: false)
     }
 
     /// Wire up the `didBecomeActiveNotification` observer that drains a

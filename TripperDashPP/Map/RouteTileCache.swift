@@ -485,7 +485,7 @@ final class RouteTileCache {
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
         lastRiderRouteOffset = 0
-        log.info("Route has \(self.allAnchors.count, privacy: .public) total anchors (main + wings); fast-start window = \(Self.initialBakeAheadMeters, privacy: .public) m")
+        log.info("Route has \(self.allAnchors.count, privacy: .public) total anchors (main + wings); fast-start window = \(self.bakeAheadMeters, privacy: .public) m")
         progress(0)
 
         // Fast start: bake every anchor (main + wings) whose

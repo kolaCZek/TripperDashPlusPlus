@@ -316,3 +316,23 @@ def test_reroute_rebake_uses_short_fast_start_window():
     assert short <= full / 4
     assert short >= 130 / 3.6 * 30
     assert short < rolling
+
+
+def test_reroute_rebake_bakes_around_rider_and_skips_fine_layer():
+    """Mid-ride route change: bake around the rider (an alternative
+    auto-switch starts back at the leg start) and only the coarse sibling
+    layer — the fine z=16 layer is the heaviest bake."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
+    body = decl_body(src, "private func performPendingRebake(")
+    assert "fresh.prerender(route: route, around: coord)" in body
+    assert "setTileCache(fresh, buildLayers: false)" in body
+    assert "includeFine: false" in body
+    layers = decl_body(src, "private func buildQualityLayers(")
+    assert "guard includeFine else { return }" in layers
+    # Ride start already bakes 8 km for the route the picker installed;
+    # the route-changed hook for that same route must not bake it again.
+    sched = decl_body(src, "func scheduleTileCacheRebuild(")
+    assert "guard route !== currentRoute" in sched

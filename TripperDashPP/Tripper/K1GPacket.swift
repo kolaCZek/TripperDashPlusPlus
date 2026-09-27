@@ -220,7 +220,7 @@ final class RxCountBox: @unchecked Sendable {
 
 /// Thread-safe monotonic 0..255 counter (wraps on overflow). Mirrors
 /// fake_dash/protocol.py:RollingSeq.
-final class RollingSeq: @unchecked Sendable {
+nonisolated final class RollingSeq: @unchecked Sendable {
     private let lock = NSLock()
     private var value: UInt8
 
@@ -983,7 +983,7 @@ extension K1GPacket {
 
     /// Music volume bucket TLV (mute + 10 levels). Maps a 0..1 ratio to
     /// the same `054C 0001 1X` byte the Android `REForeGroundService` picks.
-    static func musicVolumeTLV(ratio0to1: Double) -> [UInt8] {
+    nonisolated static func musicVolumeTLV(ratio0to1: Double) -> [UInt8] {
         if ratio0to1 <= 0.0 {
             return [0x05, 0x4C, 0x00, 0x01, 0x10] // mute baseline (Q3C_N1)
         }
@@ -992,7 +992,7 @@ extension K1GPacket {
     }
 
     /// Alarm volume bucket TLV (mute + 10 levels). `051B 0001 1X`.
-    static func alarmVolumeTLV(ratio0to1: Double) -> [UInt8] {
+    nonisolated static func alarmVolumeTLV(ratio0to1: Double) -> [UInt8] {
         if ratio0to1 <= 0.0 {
             return [0x05, 0x1B, 0x00, 0x01, 0x10] // mute baseline (Q3C_Y1)
         }
@@ -1006,7 +1006,7 @@ extension K1GPacket {
     ///
     /// Note: `seg_count = 0x000A` (= 10) is hardcoded — the Android code
     /// emits the same constant regardless of how many TLVs it appends.
-    static func makeHeartbeat0044(
+    nonisolated static func makeHeartbeat0044(
         seq: UInt8,
         fixedTempC: Int = 20,
         cellSignal0to255: Int = 160,
@@ -1071,7 +1071,7 @@ extension K1GPacket {
     /// `REForeGroundService.e.run()` 0030 metadata (1 Hz). Phone → bike,
     /// trimmed status update sent alongside the 0044 heartbeat: cell
     /// signal, volumes, nav distance. `seg_count = 0x0006` hardcoded.
-    static func makeMetadata0030(
+    nonisolated static func makeMetadata0030(
         seq: UInt8,
         cellSignal0to255: Int = 160,
         musicRatio0to1: Double = 0.3,
