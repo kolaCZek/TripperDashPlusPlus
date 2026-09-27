@@ -293,3 +293,26 @@ def test_tile_bake_is_NEVER_held_back_by_app_state():
         src.schedule_tile_cache_rebuild(7)
         assert src.bakes_executed == [7], f"failed in state={state}"
         assert src.current_tile_cache_route_id == 7, f"failed in state={state}"
+
+
+def test_reroute_rebake_uses_short_fast_start_window():
+    """A mid-ride reroute re-bake must NOT bake the full 8 km start-of-ride
+    window in one block — it shares the main actor with the dash heartbeat
+    and the RTP stream. It bakes a short window and leaves the rest to the
+    rolling `extend(near:)` (capped per pass)."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
+    cache = strip_comments((app / "Map/RouteTileCache.swift").read_text(encoding="utf-8"))
+    body = decl_body(src, "private func performPendingRebake(")
+    assert "bakeAheadMeters: Self.rerouteBakeAheadMeters" in body
+    assert "RouteTileCache(style: currentStyle)\n" not in body
+    short = float(src.split("static let rerouteBakeAheadMeters: CLLocationDistance = ")[1].split()[0])
+    full = float(cache.split("static let initialBakeAheadMeters: CLLocationDistance = ")[1].split()[0])
+    rolling = float(cache.split("static let rollingLookaheadMeters: CLLocationDistance = ")[1].split()[0])
+    # Short enough to be a real relief, long enough to cover the rider
+    # until the rolling extender (2 s throttle) catches up at 130 km/h.
+    assert short <= full / 4
+    assert short >= 130 / 3.6 * 30
+    assert short < rolling

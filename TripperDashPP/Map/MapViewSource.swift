@@ -332,6 +332,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// km/h that's ~72 m between calls — fine granularity given the
     /// rolling lookahead is 5 km.
     private static let tileExtendThrottle: TimeInterval = 2.0
+
+    /// Fast-start window of a reroute re-bake (`performPendingRebake`).
+    /// 2 km ≈ 3 main anchors + wings (9 composites vs ~36 for the 8 km
+    /// start-of-ride window) — ~55 s of road at 130 km/h, far more than
+    /// the rolling extender needs to top up the rest.
+    static let rerouteBakeAheadMeters: CLLocationDistance = 2000
     /// Route queued for a fresh tile bake. Coalesces reroutes that land
     /// while a bake is in flight (see `scheduleTileCacheRebuild`). Most
     /// recent value wins — if a second reroute arrives before the
@@ -794,7 +800,14 @@ final class MapViewSource: NSObject, FrameSource {
         let bakingFor = ObjectIdentifier(route)
         pendingRebakeInFlight = true
         currentRoute = route
-        let fresh = RouteTileCache(style: currentStyle)
+        // Short fast-start window: a reroute happens mid-ride, while the
+        // same main actor has to keep the dash heartbeat and the RTP stream
+        // going. The full 8 km start-of-ride window (~36 composites) in one
+        // block is the heaviest bake of the ride, right when the phone is
+        // also fetching the new route. The rolling `extend(near:)` tops the
+        // rest up to `rollingLookaheadMeters`, 12 anchors per pass.
+        let fresh = RouteTileCache(style: currentStyle,
+                                   bakeAheadMeters: Self.rerouteBakeAheadMeters)
         await fresh.prerender(route: route) { _ in }
         pendingRebakeInFlight = false
         // If a newer route was scheduled while we were baking, throw
