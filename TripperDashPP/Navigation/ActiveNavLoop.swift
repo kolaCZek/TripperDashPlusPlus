@@ -98,8 +98,8 @@ final class ActiveNavLoop {
     /// into the dash section panel.
     private var speedSections: [SpeedSection] = []
     private var sectionTracker = SpeedSectionTracker()
-    /// Last `ActiveNavigator.offRouteReroutes` seen by the tick.
-    private var seenOffRouteReroutes = 0
+    /// Last `ActiveNavigator.routeRecalculations` seen by the tick.
+    private var seenRouteRecalculations = 0
 
     private var task: Task<Void, Never>?
 
@@ -539,12 +539,12 @@ final class ActiveNavLoop {
         emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
                   arrivingStep: arrivingStep)
 
-        // Left the route → recalculating: end the average-speed section and
-        // hide its panel. The average is measured along the old route line,
-        // so it can't be trusted once the rider is off it. The new route
-        // only re-enters a section it rides again from the start.
-        if nav.offRouteReroutes != seenOffRouteReroutes {
-            seenOffRouteReroutes = nav.offRouteReroutes
+        // Route recalculated or swapped → end the average-speed section and
+        // hide its panel. The average is measured along the route line, so
+        // after a swap it can read nonsense; no panel beats a wrong one.
+        // The new route only re-enters a section it rides from the start.
+        if nav.routeRecalculations != seenRouteRecalculations {
+            seenRouteRecalculations = nav.routeRecalculations
             sectionTracker.reset()
             mapSource?.setSpeedSection(nil)
         }

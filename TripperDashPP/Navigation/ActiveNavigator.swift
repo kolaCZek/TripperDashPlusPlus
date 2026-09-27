@@ -270,11 +270,14 @@ final class ActiveNavigator {
     /// Whether a reroute is currently in flight.
     private(set) var isRerouting: Bool = false
 
-    /// Bumped each time leaving the route starts a recalculation (not on a
-    /// live-traffic swap). A counter rather than `isRerouting`, which a
-    /// fast MKDirections reply can flip back before the 1 Hz nav loop
-    /// ever samples it.
-    private(set) var offRouteReroutes = 0
+    /// Bumped when an off-route recalculation starts and whenever the
+    /// active route is swapped mid-ride (reroute result, live-traffic
+    /// swap, alternative auto-switch). The nav loop ends the average-speed
+    /// section on every bump: its average is measured along the route
+    /// line, so after a swap it can read nonsense. A counter rather than
+    /// `isRerouting`, which a fast MKDirections reply can flip back
+    /// before the 1 Hz nav loop ever samples it.
+    private(set) var routeRecalculations = 0
 
     /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.
     /// Read-only for consumers. `nil` until the first fix lands. Minimal
@@ -826,6 +829,7 @@ final class ActiveNavigator {
         // seed() also calls refreshAlternatives(), so the OLD active route
         // becomes one of the new alternatives automatically.
         guard let dest else { return false }
+        routeRecalculations += 1
         seed(route: newRoute, destination: dest)
         await onActiveRouteChanged?(newRoute)
         return true
@@ -1169,7 +1173,7 @@ final class ActiveNavigator {
 
     private func requestReroute(from coord: CLLocationCoordinate2D) async {
         guard let dest = destination, let cb = onRerouteRequested else { return }
-        offRouteReroutes += 1
+        routeRecalculations += 1
         isRerouting = true
         defer { isRerouting = false }
         lastRerouteAt = .now
@@ -1194,6 +1198,7 @@ final class ActiveNavigator {
     /// travelled breadcrumb is deliberately untouched — a swap replaces
     /// the road AHEAD, never the ground already covered.
     private func installSwappedRoute(_ newRoute: MKRoute) async {
+        routeRecalculations += 1
         self.activeRoute = newRoute
         self.lastSegmentIndex = 0
         self.offRouteSince = nil

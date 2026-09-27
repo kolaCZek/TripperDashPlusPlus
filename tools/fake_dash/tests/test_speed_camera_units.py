@@ -267,20 +267,28 @@ def test_section_end_cameras_are_not_announced():
     assert tick.index("updateSpeedSection()") < tick.index("emitCameraVoice()")
 
 
-def test_section_panel_hides_when_leaving_the_route():
-    """Leaving the route starts a recalculation → the average-speed section
-    ends and its dash panel hides. Keyed off a counter bumped in the
-    off-route reroute path (not `isRerouting`, which a fast reply can clear
-    between two 1 Hz ticks), and checked before the `!isRerouting` block so
-    the panel goes away as the recalculation starts, not after it."""
+def test_section_panel_hides_on_every_route_recalculation():
+    """Rider's call: no average-speed panel beats a wrong one. The section
+    ends and the panel hides as an off-route recalculation STARTS (bump
+    before the MKDirections await, so it holds even if the reroute fails)
+    and on every mid-ride route swap (reroute result, live-traffic swap,
+    alternative auto-switch). Keyed off a counter, not `isRerouting`, which
+    a fast reply can clear between two 1 Hz ticks; checked before the
+    `!isRerouting` block so the panel goes as the recalculation starts."""
     from tests.swift_source import decl_body, strip_comments
     nav = strip_comments(_src("Navigation/ActiveNavigator.swift"))
     loop = strip_comments(_src("Navigation/ActiveNavLoop.swift"))
-    assert "private(set) var offRouteReroutes" in nav
-    assert "offRouteReroutes += 1" in decl_body(nav, "private func requestReroute(")
-    assert "offRouteReroutes += 1" not in decl_body(nav, "private func installSwappedRoute(")
+    assert "private(set) var routeRecalculations" in nav
+    bump = "routeRecalculations += 1"
+    reroute = decl_body(nav, "private func requestReroute(")
+    assert bump in reroute and reroute.index(bump) < reroute.index("await cb(")
+    assert bump in decl_body(nav, "private func installSwappedRoute(")
+    alt = decl_body(nav, "private func maybeSwitchToAlternative(")
+    assert bump in alt and alt.index(bump) < alt.index("await onActiveRouteChanged?(newRoute)")
+    # Live-traffic swap goes through installSwappedRoute.
+    assert "installSwappedRoute(" in decl_body(nav, "private func checkLiveTrafficReroute(")
     tick = decl_body(loop, "private func tick()")
-    check = tick.index("if nav.offRouteReroutes != seenOffRouteReroutes {")
+    check = tick.index("if nav.routeRecalculations != seenRouteRecalculations {")
     body = tick[check:tick.index("}", check)]
     assert "sectionTracker.reset()" in body
     assert "mapSource?.setSpeedSection(nil)" in body
