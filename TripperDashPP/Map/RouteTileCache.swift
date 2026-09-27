@@ -533,7 +533,7 @@ final class RouteTileCache {
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
         let frontEdge = snapped + bakeAheadMeters
-        log.info("Style re-bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
+        log.info("Around-rider bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
 
         let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
         await bakeAnchors(at: initialIndices, progress: progress)

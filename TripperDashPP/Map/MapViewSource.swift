@@ -334,9 +334,10 @@ final class MapViewSource: NSObject, FrameSource {
     private static let tileExtendThrottle: TimeInterval = 2.0
 
     /// Fast-start window of a reroute re-bake (`performPendingRebake`).
-    /// 2 km ≈ 3 main anchors + wings (9 composites vs ~36 for the 8 km
-    /// start-of-ride window) — ~55 s of road at 130 km/h, far more than
-    /// the rolling extender needs to top up the rest.
+    /// 2 km ahead + the 500 m trail ≈ 4 main anchors + wings (~12
+    /// composites vs ~36 for the 8 km start-of-ride window) — ~55 s of
+    /// road at 130 km/h, far more than the rolling extender needs to top
+    /// up the rest.
     static let rerouteBakeAheadMeters: CLLocationDistance = 2000
 
     /// Route queued for a fresh tile bake. Coalesces reroutes that land
@@ -785,7 +786,10 @@ final class MapViewSource: NSObject, FrameSource {
         // already installed (`setCurrentRoute`) and is prerendering 8 km
         // for (`prerenderRouteTiles`). A second bake of the same route
         // would only race it on the stream-start main actor.
-        guard route !== currentRoute else {
+        // Only when idle: mid-bake `currentRoute` is the route being baked,
+        // not the newest request, so an X → Y → X flip-flop between
+        // alternatives must go through the coalescing path (newest wins).
+        guard pendingRebakeInFlight || route !== currentRoute else {
             log.info("Tile re-bake skipped — route already installed")
             return
         }

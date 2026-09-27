@@ -61,6 +61,7 @@ class FakeMapViewSource:
     current_tile_cache_route_id: Optional[int] = None  # set_tile_cache
     pending_rebake_route_id: Optional[int] = None
     pending_rebake_in_flight: bool = False
+    current_route_id: Optional[int] = None             # currentRoute
     bakes_executed: list[int] = field(default_factory=list)
 
     def set_route_polyline(self, route_id: int) -> None:
@@ -74,6 +75,10 @@ class FakeMapViewSource:
         # Record the requested route, then bake immediately — unless a
         # bake is already running, in which case the in-flight bake will
         # pick up this newer route when it finishes (coalescing).
+        # Idle + same route the picker already installed (ride start) →
+        # skip; mid-bake everything coalesces (newest wins).
+        if not self.pending_rebake_in_flight and route_id == self.current_route_id:
+            return
         self.pending_rebake_route_id = route_id
         if self.pending_rebake_in_flight:
             return
@@ -87,6 +92,7 @@ class FakeMapViewSource:
         if route_id is None:
             return
         self.pending_rebake_in_flight = True
+        self.current_route_id = route_id
         baking_for = route_id
         # ... bake happens here (modelled as instantaneous) ...
         self.bakes_executed.append(baking_for)
@@ -249,6 +255,51 @@ def test_second_reroute_after_bake_finished_bakes_again():
     assert src.current_tile_cache_route_id == 3
 
 
+def test_ride_start_route_already_installed_is_not_rebaked():
+    """Ride start: the picker installs the route (`setCurrentRoute`) and
+    prerenders 8 km; the route-changed hook for that same route must not
+    start a second bake."""
+    src = FakeMapViewSource()
+    src.current_route_id = 1
+    src.schedule_tile_cache_rebuild(1)
+    assert src.bakes_executed == []
+    src.schedule_tile_cache_rebuild(2)   # a genuine reroute still bakes
+    assert src.bakes_executed == [2]
+
+
+def test_alternative_flip_flop_during_bake_ends_on_newest_route():
+    """X → Y → X while X is still baking. Mid-bake `currentRoute` is X,
+    so an idle-only skip would drop the second X and install Y's tiles
+    while the navigator rides X."""
+    src = FakeMapViewSource()
+    original = src._perform_pending_rebake
+    calls = {"n": 0}
+
+    def patched():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            baking_for = src.pending_rebake_route_id
+            src.pending_rebake_in_flight = True
+            src.current_route_id = baking_for
+            src.bakes_executed.append(baking_for)
+            src.schedule_tile_cache_rebuild(20)   # Y
+            src.schedule_tile_cache_rebuild(10)   # back to X (same object)
+            src.pending_rebake_in_flight = False
+            if src.pending_rebake_route_id != baking_for:
+                original()
+                return
+            src.pending_rebake_route_id = None
+            src.set_tile_cache(baking_for)
+            return
+        original()
+
+    src._perform_pending_rebake = patched  # type: ignore[method-assign]
+    src.schedule_tile_cache_rebuild(10)       # X
+    assert src.current_tile_cache_route_id == 10
+    assert src.current_route_id == 10
+    assert src.pending_rebake_route_id is None
+
+
 # --- Edge cases -------------------------------------------------------------
 
 
@@ -335,4 +386,4 @@ def test_reroute_rebake_bakes_around_rider_and_skips_fine_layer():
     # Ride start already bakes 8 km for the route the picker installed;
     # the route-changed hook for that same route must not bake it again.
     sched = decl_body(src, "func scheduleTileCacheRebuild(")
-    assert "guard route !== currentRoute" in sched
+    assert "guard pendingRebakeInFlight || route !== currentRoute" in sched
