@@ -48,7 +48,6 @@ final class MapViewSource: NSObject, FrameSource {
 
     // MARK: - State
 
-    private let mapView = MKMapView()
     private weak var locationService: LocationService?
     private weak var activeNavigator: ActiveNavigator?
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "MapViewSource")
@@ -100,7 +99,6 @@ final class MapViewSource: NSObject, FrameSource {
     private var streamStartMediaTime: CFTimeInterval = 0
 
     private var pixelBufferPool: CVPixelBufferPool?
-    private var routePolyline: MKPolyline?
     private var routePolylineCoords: [CLLocationCoordinate2D] = []
 
     /// The ENTIRE multi-stop route geometry (every leg's selected option,
@@ -510,7 +508,6 @@ final class MapViewSource: NSObject, FrameSource {
         self.locationService = locationService
         self.activeNavigator = activeNavigator
         super.init()
-        configureMapView()
         installAppStateObserver()
     }
 
@@ -518,25 +515,6 @@ final class MapViewSource: NSObject, FrameSource {
         if let obs = appStateObserver {
             NotificationCenter.default.removeObserver(obs)
         }
-    }
-
-    var hostView: MKMapView { mapView }
-
-    private func configureMapView() {
-        mapView.frame = CGRect(origin: .zero, size: frameSize)
-        mapView.bounds = CGRect(origin: .zero, size: frameSize)
-        mapView.showsCompass = false
-        mapView.showsScale = false
-        mapView.showsTraffic = false
-        mapView.showsBuildings = true
-        mapView.showsUserLocation = true
-        mapView.userTrackingMode = .followWithHeading
-        mapView.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .default)
-        mapView.delegate = self
-        mapView.isPitchEnabled = false
-        mapView.isRotateEnabled = false
-        mapView.isScrollEnabled = false
-        mapView.isZoomEnabled = false
     }
 
     // MARK: - FrameSource
@@ -882,12 +860,13 @@ final class MapViewSource: NSObject, FrameSource {
         let bakingFor = ObjectIdentifier(route)
         pendingRebakeInFlight = true
         currentRoute = route
-        // Short fast-start window: a reroute happens mid-ride, while the
-        // same main actor has to keep the dash heartbeat and the RTP stream
-        // going. The full 8 km start-of-ride window (~36 composites) in one
-        // block is the heaviest bake of the ride, right when the phone is
-        // also fetching the new route. The rolling `extend(near:)` tops the
-        // rest up to `rollingLookaheadMeters`, 12 anchors per pass.
+        // Short fast-start window: a reroute happens mid-ride. The full
+        // 8 km start-of-ride window (~36 composites) is the heaviest bake of
+        // the ride, right when the phone is also fetching the new route over
+        // the same cellular link; the stitch runs off the main actor now,
+        // but the tiles under the rider should land first. The rolling
+        // `extend(near:)` tops the rest up to `rollingLookaheadMeters`, 12
+        // anchors per pass.
         //
         // Around the rider, not from the route start: an alternative
         // auto-switch swaps in a route that starts back at the leg start,
@@ -1024,12 +1003,6 @@ extension MapViewSource {
         // whole failure chain at the cost of a marker that steps at GPS rate.
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
-        let region = MKCoordinateRegion(
-            center: fix.coordinate,
-            latitudinalMeters: 400,
-            longitudinalMeters: 400
-        )
-        mapView.setRegion(region, animated: false)
     }
 
     private func handleHeading(_ heading: Heading) {
@@ -1170,9 +1143,7 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
-        // Unified FG + BG path. After the PiP/thumb removal, the
-        // MKMapView is no longer in a window so layer.render produces
-        // black. Instead we always composite from the pre-rendered
+        // Unified FG + BG path: always composite from the pre-rendered
         // tile cache (built when navigation starts) — works FG and BG
         // since it's pure CGContext, no MapKit live render.
         if routeTileCache != nil {
@@ -2047,12 +2018,7 @@ extension MapViewSource {
 
 extension MapViewSource {
     func setRoutePolyline(_ polyline: MKPolyline?) {
-        if let existing = routePolyline {
-            mapView.removeOverlay(existing)
-        }
-        routePolyline = polyline
         if let polyline {
-            mapView.addOverlay(polyline, level: .aboveRoads)
             // Cache coords for the BG composite path.
             let n = polyline.pointCount
             let pts = polyline.points()
@@ -3340,52 +3306,5 @@ extension MapViewSource {
         ctx.fillPath()
 
         ctx.restoreGState()
-    }
-}
-
-// MARK: - MKMapViewDelegate
-
-extension MapViewSource: MKMapViewDelegate {
-    nonisolated func mapView(_: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-        if let polyline = overlay as? MKPolyline {
-            let r = MKPolylineRenderer(polyline: polyline)
-            r.strokeColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            r.lineWidth = 6
-            r.lineCap = .round
-            r.lineJoin = .round
-            return r
-        }
-        return MKOverlayRenderer(overlay: overlay)
-    }
-}
-
-// MARK: - SwiftUI host
-
-import SwiftUI
-
-struct MapViewHost: UIViewRepresentable {
-    let source: MapViewSource
-
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
-        container.clipsToBounds = true
-        container.backgroundColor = .black
-        container.addSubview(source.hostView)
-        return container
-    }
-
-    func updateUIView(_ container: UIView, context: Context) {
-        let mapView = source.hostView
-        let native = source.frameSize
-        let bounds = container.bounds
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        guard mapView.superview === container else { return }
-
-        mapView.transform = .identity
-        mapView.translatesAutoresizingMaskIntoConstraints = true
-        mapView.frame = CGRect(origin: .zero, size: native)
-        let scale = min(bounds.width / native.width, bounds.height / native.height)
-        mapView.transform = CGAffineTransform(scaleX: scale, y: scale)
-        mapView.center = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 }

@@ -52,7 +52,6 @@ def test_composite_callees_are_nonisolated():
     assert "nonisolated enum WebMercator {" in _src("Map/WebMercator.swift")
     cache = _src("Map/RouteTileCache.swift")
     assert "nonisolated struct RouteTile: Sendable {" in cache
-    assert "nonisolated static let tileSpanMeters" in cache
     assert "nonisolated static let parallelism = 3" in cache
 
 

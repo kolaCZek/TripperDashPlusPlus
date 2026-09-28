@@ -379,7 +379,8 @@ final class AppStatus {
         }
     }
 
-    /// Strong reference to the live MKMapView source. Created lazily
+    /// Strong reference to the dash frame source (tile cache + CGContext
+    /// renderer). Created lazily
     /// on first access. Lives for the duration of the app session so
     /// the FG-baked tile cache persists across start/stop streaming
     /// cycles.

@@ -19,10 +19,13 @@
 //  (https://operations.osmfoundation.org/policies/tiles/):
 //    - Identifiable User-Agent containing app name + contact: ✅
 //      "TripperDashPP/1.0 (https://github.com/kolaCZek/TripperDashPlusPlus)"
-//    - HTTP caching headers respected (we hold tiles for up to
-//      `TileDiskCache.maxAgeDays`, well within OSM's 7-day minimum)
-//    - Hard rate limit: max `maxConcurrent` requests in flight,
-//      exponential backoff on 429/5xx, no infinite retries
+//    - Local caching: every fetched tile is persisted by TileDiskCache
+//      and served from there for up to `TileDiskCache.maxAgeDays` (30)
+//      regardless of the response's HTTP caching headers — we don't
+//      read Expires / Cache-Control, and we don't revalidate (no 304)
+//    - Hard rate limit: max `maxConcurrent` requests in flight;
+//      5xx / network errors retry `maxRetries` times with backoff,
+//      429 fails that tile immediately (no retry)
 //    - Disk-cache first → in practice only the FIRST trip into a
 //      neighbourhood hits the network
 //
@@ -78,21 +81,23 @@ actor OSMTileFetcher {
     /// On 429 (rate-limit) we don't retry — that's a "back off" signal.
     private let maxRetries: Int = 2
 
-    /// Dedicated URLSession with an aggressive in-RAM cache that
-    /// sits in front of TileDiskCache. The OS-level cache catches
-    /// the case where the same tile is requested twice within the
-    /// same prerender pass (e.g. overlapping anchors).
+    /// Dedicated URLSession with a small in-RAM URLCache. It covers the
+    /// short window where a tile was just fetched but TileDiskCache
+    /// hasn't finished writing it yet, so a second request for the same
+    /// tile (overlapping anchors) can still be served without a new
+    /// download.
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = perRequestTimeout
         config.timeoutIntervalForResource = perRequestTimeout * 2
-        // 20 MB RAM, 100 MB disk — disk slot is mostly redundant with
-        // TileDiskCache but URLSession's HTTP-semantic cache is free
-        // and handles 304 Not Modified for us.
+        // 4 MB RAM, no disk: TileDiskCache already persists every tile,
+        // so an HTTP disk cache would only store each tile a second time.
+        // (It never got to revalidate either — a tile on disk is read
+        // from TileDiskCache and never re-requested.)
         config.urlCache = URLCache(
-            memoryCapacity: 20 * 1024 * 1024,
-            diskCapacity: 100 * 1024 * 1024,
-            diskPath: "osm-tile-http-cache"
+            memoryCapacity: 4 * 1024 * 1024,
+            diskCapacity: 0,
+            directory: nil
         )
         config.httpAdditionalHeaders = [
             "User-Agent": userAgent,

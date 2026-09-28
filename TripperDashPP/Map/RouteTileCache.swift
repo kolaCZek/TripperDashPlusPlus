@@ -32,7 +32,8 @@
 //      ~3.9 km × 3.9 km at 50°N — comfortably wider than the dash
 //      frame at the widest (highway) zoom, with symmetric margin on
 //      every side so the frame is always fully covered.
-//    * Lateral buffer: ±1500 m (left + right wings), unchanged.
+//    * Lateral buffer: ±1500 m (left + right wings) on the base layer
+//      only; the coarse / fine layers bake the main row alone.
 //
 //  Pre-fetch budget:
 //
@@ -41,9 +42,11 @@
 //      anchors and the disk cache → in practice ~300-500 unique tiles
 //      for a brand-new region, ~0 for a re-bake of familiar territory.
 //    * Wall-clock: ~5-15 s on 4G cold, ~1-2 s warm-cache.
-//    * Memory: 150 × 1280² × 4 B ≈ 940 MB raw — same NSCache(8) trick
-//      as before keeps working set under 55 MB; full bitmaps live as
-//      PNG bytes in `RouteTile.jpeg` (misnomer kept for compat).
+//    * Memory: decoded bitmaps are held only in an NSCache(8); baked
+//      composites live as PNG bytes in `RouteTile.jpeg` (misnomer kept
+//      for compat), and `bakeAnchors` drops those more than
+//      `evictBehindMeters` behind the rider, so the cache doesn't grow
+//      with ride length.
 //
 
 import CoreGraphics
@@ -55,7 +58,7 @@ import MapKit
 import OSLog
 import UIKit
 
-/// One pre-rendered map tile + the lat/lon region it covers.
+/// One pre-rendered map tile composite + the geometry to place it.
 ///
 /// The field name `jpeg` is a historical artifact — the bytes are
 /// now PNG-encoded (OSM tiles are PNG natively, and re-encoding to
@@ -69,9 +72,6 @@ import UIKit
 nonisolated struct RouteTile: Sendable {
     /// Center coordinate of the tile composite.
     let center: CLLocationCoordinate2D
-    /// Geographic extent the tile covers (informational only —
-    /// runtime hit-testing uses pxPerDeg + centerPixel).
-    let region: MKCoordinateRegion
     /// Image bytes (PNG). Decoded lazily — see `RouteTileCache.image`.
     let jpeg: Data
     /// Pixel dimensions of the decoded image. Always
@@ -234,11 +234,6 @@ final class RouteTileCache {
     /// though the value comes from `WebMercator.defaultZoom`.
     nonisolated static let zoom: Int = WebMercator.defaultZoom
 
-    /// Composite geographic extent — informational only (feeds
-    /// `RouteTile.region`). Real geometry comes from `pxPerDeg`. MapKit-era
-    /// value; an OSM composite actually spans ~3.9 km at z=15.
-    nonisolated static let tileSpanMeters: CLLocationDistance = 1200
-
     /// Max parallel composites being assembled. Each composite waits
     /// on up to 25 OSM tile fetches; capping the OUTER loop at 3
     /// composites in flight gives the fetcher's 4-way HTTP gate
@@ -251,14 +246,15 @@ final class RouteTileCache {
     ///
     /// Chosen from the 2026-09-02 ride: steady-state windows baked 6-11
     /// anchors, so 12 leaves normal riding completely unchanged, while the
-    /// post-hard-snap bursts of 84-99 anchors get split across several passes
-    /// instead of occupying the main actor in one block. Those bursts are
-    /// where the 1.7-2.5 s main-actor hops and 0 fps RTP windows happened.
+    /// post-hard-snap bursts of 84-99 anchors get split across several passes.
+    /// Those bursts are where the 1.7-2.5 s main-actor hops and 0 fps RTP
+    /// windows happened — back when the stitch ran on the main actor; it
+    /// runs off it now (`composite`), and the cap keeps the tiles nearest
+    /// the rider first in the fetch queue.
     ///
     /// Note this is per CACHE, and `MapViewSource.extendTileCache` extends
-    /// three of them (base + coarse + fine, the z=13/15/16 seen in the logs),
-    /// so one throttled pass can still bake up to ~36 anchors — with a yield
-    /// between each tile and between layers, rather than as one block.
+    /// every installed layer (base, fine, and coarse once a zoom-out has
+    /// baked it), so one throttled pass can queue up to ~36 anchors.
     ///
     /// It is a per-PASS cap, not a rate limit: `extend()` is called
     /// continuously while navigating, so the remaining anchors are picked
@@ -294,15 +290,6 @@ final class RouteTileCache {
     /// value within that window is not critical — what matters is that the
     /// check exists and runs against the raw fix on every frame.
     static let maxTileCentreDistance: CLLocationDistance = 1800
-
-    /// Hard cap on total composites per route. Anchors are still
-    /// computed beyond this number, but bake batches will only ever
-    /// process up to this many distinct indices — used as a sanity
-    /// brake for routes that produce truly absurd anchor counts
-    /// (10000+ km loops). For the rolling-window architecture this
-    /// is rarely hit in practice; `prerender`'s fast-start window
-    /// stays well under the cap on every reasonable route.
-    static let maxTilesPerRoute: Int = 300
 
     // MARK: - Rolling-window tunables
 
@@ -413,6 +400,9 @@ final class RouteTileCache {
     //        start: ~8 km of main anchors with their wing tiles.
     //        Typical: 12 main + 24 wing = ~36 composites = ~3-5 s
     //        on 4G, well under the rider's tolerance for "tap → go".
+    //        (Mid-ride re-bakes — reroute, palette switch — use a 2 km
+    //        window around the rider instead, see
+    //        `MapViewSource.rerouteBakeAheadMeters`.)
     //     3. Expose `extend(near:)`. The navigator hooks this into
     //        every GPS fix (throttled in the caller — we don't enforce
     //        that here). It bakes any not-yet-baked anchors that fall
@@ -705,8 +695,10 @@ final class RouteTileCache {
 
         // Cap how much a single extend() may queue.
         //
-        // Baking runs on the main actor (see `bakeAnchors`), so a large
-        // batch is a long main-thread occupation. Normally extend() finds a
+        // When this cap was added the stitch still ran on the main actor,
+        // so a large batch was a long main-thread occupation (it now runs
+        // off the main actor, see `composite`; the cap still keeps the
+        // nearest tiles first in the fetch queue). Normally extend() finds a
         // handful of new anchors as the rider rolls forward, but after a
         // hard-snap — the motion interpolator jumping the displayed position
         // km back onto the GPS fix — the rider's route offset moves by a
@@ -821,7 +813,7 @@ final class RouteTileCache {
         // SIDE EFFECT: this reorders `tiles`, so any cached
         // `lastTileHintIndex` over in `MapViewSource` is stale after
         // a batch finishes. `nearestTile(hintIndex:)` falls back to
-        // a full scan when the hint doesn't land within tileSpan/2,
+        // a full scan when the hint window has no tile close enough,
         // so correctness is preserved — the cost is one extra full
         // scan per batch, well under one frame.
         //
@@ -931,8 +923,12 @@ final class RouteTileCache {
     /// That split is the tell — the two consume different position logic:
     ///
     ///   * the glyph goes through `PolylineMath.nearestSegment(from:)`,
-    ///     which carries a forward cursor (`lastSegmentIndex`) and so is
-    ///     monotonic — it cannot latch onto a distant part of the route;
+    ///     which carries a forward cursor (`lastSegmentIndex`) and so never
+    ///     moves backwards. It is NOT bounded ahead, though: it takes the
+    ///     nearest segment anywhere from the cursor to the route end, so
+    ///     where the route passes near itself GPS noise can still make it
+    ///     jump forward, and it can never come back (review item C3, not
+    ///     fixed) — but it did not jump in the field report above;
     ///   * this function scanned EVERY anchor on the whole route, took the
     ///     global argmin and accepted anything within 3 km, with no
     ///     reference at all to where the rider was a moment ago.
@@ -988,7 +984,8 @@ final class RouteTileCache {
     /// **Hint validity**: `hintIndex` comes from the caller's *previous*
     /// call and may index a DIFFERENT cache instance. `MapViewSource`
     /// keeps one hint but renders from three sibling layers (base
-    /// bakeAhead 8 km, coarse 3 km, fine 2 km) whose `tiles` arrays have
+    /// bakeAhead 8 km — 2 km after a mid-ride re-bake — coarse 3 km at
+    /// 1400 m spacing, fine 2 km; only base has wing rows) whose `tiles` arrays have
     /// very different lengths, and a batch bake reorders `tiles` under a
     /// live hint too. A hint past the end of THIS array must therefore be
     /// discarded rather than clamped: clamping `lo` to a nonsensical
@@ -1245,26 +1242,6 @@ final class RouteTileCache {
                 latitude:  anchors[i].latitude  + dLat,
                 longitude: anchors[i].longitude + dLon
             ))
-        }
-        return out
-    }
-
-    /// Keep `keepCount` items evenly distributed.
-    ///
-    /// Currently unused after the rolling-window refactor (the old
-    /// `prerender` decimated wings when total anchors > maxTilesPerRoute).
-    /// Left in place because the unit test in
-    /// `tests/test_lateral_buffer.py` still cross-checks the Swift
-    /// behaviour against a Python port — and because a future
-    /// eviction policy might want it.
-    private static func decimate<T>(_ array: [T], keepCount: Int) -> [T] {
-        guard keepCount > 0 else { return [] }
-        guard array.count > keepCount else { return array }
-        var out: [T] = []
-        out.reserveCapacity(keepCount)
-        for i in 0..<keepCount {
-            let idx = (i * (array.count - 1)) / max(1, keepCount - 1)
-            out.append(array[idx])
         }
         return out
     }
@@ -1530,22 +1507,8 @@ final class RouteTileCache {
         guard CGImageDestinationFinalize(dest) else { return nil }
         let png = pngBuffer as Data
 
-        // Plain C-struct inits rather than MapKit's
-        // `init(center:latitudinalMeters:longitudinalMeters:)`, which is not
-        // guaranteed nonisolated. ponytail: flat-earth span, a hair off
-        // MapKit's; fine because nothing reads `RouteTile.region` (see its doc).
-        let metersPerDegLat = 111_320.0
-        let metersPerDegLon = max(1, metersPerDegLat * cos(center.latitude * .pi / 180))
-        let region = MKCoordinateRegion(
-            center: center,
-            span: MKCoordinateSpan(
-                latitudeDelta: Self.tileSpanMeters / metersPerDegLat,
-                longitudeDelta: Self.tileSpanMeters / metersPerDegLon
-            )
-        )
         return RouteTile(
             center: center,
-            region: region,
             jpeg: png,
             pixelSize: CGSize(width: bitmapSize, height: bitmapSize),
             // Pixel-exact: we stitched the composite so that `center`

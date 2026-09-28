@@ -1348,9 +1348,13 @@ struct MapPickerView: View {
             // Attach the route polyline + full trip context and kick off the
             // tile prerender, but DO NOT await the prerender here. The dash
             // link must not be held hostage to OSM tile downloads: in a spot
-            // with no connectivity (e.g. an underground car park) the tile
-            // fetch can stall indefinitely (`waitsForConnectivity`), and if
-            // `startStreaming()` sits behind that await the dash never gets
+            // with no connectivity (e.g. an underground car park) each tile
+            // fetch waits for a network (`waitsForConnectivity`) up to its
+            // 16 s resource timeout, and is retried twice — ~50 s per tile,
+            // 4 tiles at a time, so a whole prerender can take many minutes.
+            // (Routing requests are capped separately: a reroute gives up
+            // after `ActiveNavigator.routeRequestTimeout`, 12 s, and retries
+            // 10 s later.) If `startStreaming()` sat behind that, the dash never gets
             // its projection-on + RTP stream and times out on its side
             // ("timeout" on the bike — field report 2026-08). So: install
             // geometry synchronously, start streaming immediately (the

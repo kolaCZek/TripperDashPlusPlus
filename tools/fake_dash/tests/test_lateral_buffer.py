@@ -1,5 +1,5 @@
 """
-Port of `RouteTileCache.lateralAnchors` / `decimate` to Python so we can
+Port of `RouteTileCache.lateralAnchors` to Python so we can
 verify the geometry without needing a Swift compiler or a device. The
 Swift implementation is kept in sync with this reference — any drift
 should be caught by the assertions below.
@@ -57,18 +57,6 @@ def lateral_anchors(
         d_lon = nx / m_per_deg_lon
         d_lat = ny / m_per_deg_lat
         out.append((anchors[i][0] + d_lat, anchors[i][1] + d_lon))
-    return out
-
-
-def decimate(arr: list, keep: int) -> list:
-    if keep <= 0:
-        return []
-    if len(arr) <= keep:
-        return arr
-    out = []
-    for i in range(keep):
-        idx = (i * (len(arr) - 1)) // max(1, keep - 1)
-        out.append(arr[idx])
     return out
 
 
@@ -159,29 +147,6 @@ def test_duplicate_consecutive_anchors_handled():
     # First and middle should resolve via tangent from broader window.
     # We don't pin exact values, just confirm we got 3 outputs and no crash.
     assert len(out) == 3
-
-
-def test_decimate_keeps_count_and_endpoints():
-    arr = list(range(20))
-    kept = decimate(arr, keep=5)
-    assert len(kept) == 5
-    assert kept[0] == 0           # first
-    assert kept[-1] == 19         # last preserved
-
-
-def test_decimate_zero_keep():
-    assert decimate(list(range(10)), keep=0) == []
-
-
-def test_decimate_shorter_than_target_returns_all():
-    assert decimate([1, 2, 3], keep=10) == [1, 2, 3]
-
-
-def test_decimate_uniform_spacing():
-    """Pick 5 from 100 → indices ~ 0, 25, 50, 75, 99."""
-    arr = list(range(100))
-    kept = decimate(arr, keep=5)
-    assert kept == [0, 24, 49, 74, 99]
 
 
 def test_lateral_anchors_count_matches_input(north_polyline):
