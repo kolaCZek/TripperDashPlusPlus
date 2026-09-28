@@ -104,6 +104,13 @@ class FakeMapViewSource:
         self.pending_rebake_route_id = None
         self.set_tile_cache(baking_for)
 
+    def picker_prerender_install(self, route_id: int) -> None:
+        """Mirror of `MapPickerView.prerenderRouteTiles` finishing its 8 km
+        ride-start bake: install only if the route is still current."""
+        if route_id != self.current_route_id:
+            return
+        self.set_tile_cache(route_id)
+
     def did_become_active(self) -> None:
         """Mirror of UIApplication.didBecomeActiveNotification handler.
 
@@ -267,6 +274,17 @@ def test_ride_start_route_already_installed_is_not_rebaked():
     assert src.bakes_executed == [2]
 
 
+def test_ride_start_prerender_finishing_after_reroute_keeps_new_route():
+    """Reroute Y lands during the picker's 8 km prerender of X. Y's short
+    bake installs first; X's prerender must not put X's tiles back."""
+    src = FakeMapViewSource()
+    src.current_route_id = 1                # picker installed X
+    src.schedule_tile_cache_rebuild(2)      # reroute Y bakes + installs
+    assert src.current_tile_cache_route_id == 2
+    src.picker_prerender_install(1)         # X's 8 km bake finishes late
+    assert src.current_tile_cache_route_id == 2
+
+
 def test_alternative_flip_flop_during_bake_ends_on_newest_route():
     """X → Y → X while X is still baking. Mid-bake `currentRoute` is X,
     so an idle-only skip would drop the second X and install Y's tiles
@@ -387,3 +405,27 @@ def test_reroute_rebake_bakes_around_rider_and_skips_fine_layer():
     # the route-changed hook for that same route must not bake it again.
     sched = decl_body(src, "func scheduleTileCacheRebuild(")
     assert "guard pendingRebakeInFlight || route !== currentRoute" in sched
+
+
+def test_late_bakes_never_install_a_stale_route_or_palette():
+    """Swift side of the ordering guards: the ride-start prerender installs
+    only while its route is current; a reroute bake that outlived a
+    palette switch re-bakes instead of installing; a style re-bake that
+    outlived a reroute drops its result."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    picker = strip_comments((app / "UI/MapPickerView.swift").read_text(encoding="utf-8"))
+    src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
+    pre = decl_body(picker, "private func prerenderRouteTiles(")
+    guard = "guard status.mapViewSource.isCurrentRoute(route) else { return }"
+    assert pre.count(guard) == 2
+    assert pre.index(guard) < pre.index("setTileCache(cache, buildLayers: false)")
+    assert pre.rindex(guard) < pre.index("setTileCache(cache, buildLayers: true)")
+    assert "currentRoute === route" in decl_body(src, "func isCurrentRoute(")
+    rebake = decl_body(src, "private func performPendingRebake(")
+    restyle = rebake.index("if fresh.style != currentStyle {")
+    assert restyle < rebake.index("setTileCache(fresh, buildLayers: false)")
+    assert "await performPendingRebake()" in rebake[restyle:restyle + 200]
+    style = decl_body(src, "private func performStyleRebake(")
+    assert "guard style == currentStyle, currentRoute === route else { return }" in style

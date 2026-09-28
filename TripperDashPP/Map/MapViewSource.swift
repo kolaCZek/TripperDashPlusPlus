@@ -630,6 +630,13 @@ final class MapViewSource: NSObject, FrameSource {
         currentRoute = route
     }
 
+    /// Whether `route` is still the route the renderer bakes for. The
+    /// picker's ride-start prerender checks this before installing, so a
+    /// reroute that landed mid-prerender keeps its own tiles.
+    func isCurrentRoute(_ route: MKRoute) -> Bool {
+        currentRoute === route
+    }
+
     /// Switch the map palette (manual Light/Dark toggle, or Auto at
     /// dusk/dawn). Builds a FRESH style-bound `RouteTileCache`, bakes the
     /// fast-start window around the rider's current position, then swaps
@@ -665,8 +672,10 @@ final class MapViewSource: NSObject, FrameSource {
         guard style == currentStyle else { return }
         let fresh = RouteTileCache(style: style)
         await fresh.prerender(route: route, around: coord) { _ in }
-        // Re-check: a newer style switch may have landed during the bake.
-        guard style == currentStyle else { return }
+        // Re-check: a newer style switch may have landed during the bake,
+        // or a reroute that now owns the renderer (its own bake already
+        // uses `currentStyle`).
+        guard style == currentStyle, currentRoute === route else { return }
         routeTileCache = fresh   // atomic swap; old cache was visible until now
         // Drop the old-palette sibling layers and rebuild them in the new
         // style around the rider, so coarse/fine quality layers don't show
@@ -835,7 +844,15 @@ final class MapViewSource: NSObject, FrameSource {
         }
         pendingRebakeInFlight = false
         // If a newer route was scheduled while we were baking, throw
-        // this one away and recurse — fresh data wins.
+        // this one away and recurse — fresh data wins. Same for a palette
+        // switch mid-bake: installing `fresh` would put the old palette
+        // back over the style re-bake (`pendingRebakeRoute` is still this
+        // route, so the recursion re-bakes it in `currentStyle`).
+        if fresh.style != currentStyle {
+            log.info("Map style changed during reroute bake — re-baking in the new palette")
+            await performPendingRebake()
+            return
+        }
         if let latest = pendingRebakeRoute, ObjectIdentifier(latest) != bakingFor {
             log.info("Newer reroute landed during bake — re-baking with latest")
             await performPendingRebake()

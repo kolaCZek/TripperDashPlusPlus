@@ -1094,6 +1094,11 @@ struct MapPickerView: View {
     /// tile while no longer contending with the handshake for the main
     /// actor.
     private func prerenderRouteTiles(_ route: MKRoute) async {
+        // A reroute / alternative switch can land before or during this
+        // 8 km bake; its own (shorter, later-started) bake then owns the
+        // renderer, and installing this cache would put the OLD route's
+        // tiles back under the rider.
+        guard status.mapViewSource.isCurrentRoute(route) else { return }
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         status.mapViewSource.setTileCache(cache, buildLayers: false)
         prerenderProgress = 0
@@ -1105,8 +1110,9 @@ struct MapPickerView: View {
         // object (no visual change), but this time kicks off the
         // coarse/fine sibling layers — safe now that the handshake/
         // stream-start race is long over.
-        status.mapViewSource.setTileCache(cache, buildLayers: true)
         prerenderActive = false
+        guard status.mapViewSource.isCurrentRoute(route) else { return }
+        status.mapViewSource.setTileCache(cache, buildLayers: true)
     }
 
     /// Concatenate every leg's selected-option polyline into one full-trip
