@@ -26,21 +26,32 @@ final class RoutingService {
     ///
     /// Retained as the single-leg convenience used by AppStatus's navigator
     /// hooks (off-route reroute, periodic ETA refresh, live-traffic check).
-    /// Internally a one-leg call.
+    /// Internally a one-leg call. `alternates` / `timeout` as in
+    /// `calculateLeg`.
     func calculate(from origin: CLLocationCoordinate2D?,
                    to destination: Destination,
-                   preferences: RoutePreferences) async throws -> [RouteOption] {
+                   preferences: RoutePreferences,
+                   alternates: Bool = true,
+                   timeout: TimeInterval? = nil) async throws -> [RouteOption] {
         let fromWp = origin.map { Waypoint(name: "Origin", coordinate: $0) }
         let toWp = Waypoint.from(destination: destination)
-        return try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+        return try await calculateLeg(from: fromWp, to: toWp, preferences: preferences,
+                                      alternates: alternates, timeout: timeout)
     }
 
     /// Compute ≤3 alternatives for a single leg `from → to`. A nil
     /// `from`, or a `from` flagged `isCurrentLocation`, resolves to
     /// `.forCurrentLocation()` (used for the origin leg).
+    ///
+    /// `alternates: false` asks Apple for the best route only (for callers
+    /// that only read `.first`). `timeout` caps the wait for MKDirections,
+    /// which has none of its own: past it the request is cancelled and
+    /// `RoutingError.timedOut` is thrown.
     func calculateLeg(from: Waypoint?,
                       to: Waypoint,
-                      preferences: RoutePreferences) async throws -> [RouteOption] {
+                      preferences: RoutePreferences,
+                      alternates: Bool = true,
+                      timeout: TimeInterval? = nil) async throws -> [RouteOption] {
         let req = MKDirections.Request()
         if let from, !from.isCurrentLocation {
             req.source = MKMapItem(placemark: MKPlacemark(coordinate: from.coordinate))
@@ -49,12 +60,18 @@ final class RoutingService {
         }
         req.destination = MKMapItem(placemark: MKPlacemark(coordinate: to.coordinate))
         req.transportType = .automobile
-        req.requestsAlternateRoutes = true
+        req.requestsAlternateRoutes = alternates
         req.highwayPreference = preferences.avoidHighways ? .avoid : .any
         req.tollPreference = preferences.avoidTolls ? .avoid : .any
 
         log.info("Calculating leg to \(to.name, privacy: .public) (avoid highways=\(preferences.avoidHighways), tolls=\(preferences.avoidTolls))")
-        let response = try await MKDirections(request: req).calculate()
+        let directions = MKDirections(request: req)
+        let response: MKDirections.Response
+        if let timeout {
+            response = try await Self.calculate(directions, timeout: timeout)
+        } else {
+            response = try await directions.calculate()
+        }
 
         // MKDirections treats `.avoid` as a SOFT preference — it will
         // still hand back highway/toll routes when it thinks they're
@@ -90,6 +107,46 @@ final class RoutingService {
                         violatesHighwayFilter: preferences.avoidHighways && route.hasHighways,
                         violatesTollFilter: preferences.avoidTolls && route.hasTolls)
         }
+    }
+
+    /// `directions.calculate()` raced against `timeout`: whichever lands
+    /// first resumes the caller; on timeout the request is cancelled. Not a
+    /// task-group race — the async `calculate()` ignores task cancellation,
+    /// so a group would still wait for MapKit's reply.
+    /// ponytail: a late MapKit reply after the timeout is simply dropped.
+    ///
+    /// MapKit runs the completion handler on the main thread (documented
+    /// for `calculate(completionHandler:)`), so it handles the reply in
+    /// place instead of hopping through a Task — no extra main-actor hop,
+    /// and the non-Sendable response never crosses isolation. Off main it
+    /// falls back to the old Task hop instead of trapping. The reply
+    /// cancels the timer (`finish`), so no sleeping Task outlives a request.
+    private static func calculate(_ directions: MKDirections,
+                                  timeout: TimeInterval) async throws -> MKDirections.Response {
+        let race = DirectionsRace()
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            race.waiter = cont
+            race.timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                guard !Task.isCancelled, race.waiter != nil else { return }
+                race.timedOut = true
+                directions.cancel()
+                race.finish()
+            }
+            directions.calculate { response, error in
+                guard Thread.isMainThread else {
+                    // Not expected (documented main); hop rather than
+                    // trap mid-ride if a future iOS ever changes it.
+                    Task { @MainActor in race.deliver(response, error) }
+                    return
+                }
+                MainActor.assumeIsolated { race.deliver(response, error) }
+            }
+        }
+        if race.timedOut { throw RoutingError.timedOut(seconds: timeout) }
+        if let response = race.response { return response }
+        if let error = race.error { throw error }
+        throw RoutingError.timedOut(seconds: timeout)
     }
 
     /// Recompute only the legs flagged in `dirtyLegIndices`, mutating
@@ -156,15 +213,41 @@ final class RoutingService {
     }
 }
 
-/// Errors surfaced by multi-leg recomputation.
+/// Result slot for `RoutingService.calculate(_:timeout:)`: the first of
+/// MapKit's reply or the timeout resumes `waiter`; the other is a no-op.
+private final class DirectionsRace {
+    var response: MKDirections.Response?
+    var error: Error?
+    var timedOut = false
+    var waiter: CheckedContinuation<Void, Never>?
+    var timeoutTask: Task<Void, Never>?
+
+    func deliver(_ response: MKDirections.Response?, _ error: Error?) {
+        self.response = response
+        self.error = error
+        finish()
+    }
+
+    func finish() {
+        waiter?.resume()
+        waiter = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+    }
+}
+
+/// Errors surfaced by multi-leg recomputation and bounded route requests.
 enum RoutingError: LocalizedError {
     case legComputationFailed(legIndices: [Int])
+    case timedOut(seconds: TimeInterval)
 
     var errorDescription: String? {
         switch self {
         case .legComputationFailed(let idx):
             let list = idx.map { "\($0 + 1)" }.joined(separator: ", ")
             return "Couldn't calculate route segment(s) \(list). Check your connection and try again."
+        case .timedOut(let seconds):
+            return "No route from Apple within \(Int(seconds)) s. Check your connection and try again."
         }
     }
 }

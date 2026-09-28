@@ -32,7 +32,8 @@
 //      ~3.9 km × 3.9 km at 50°N — comfortably wider than the dash
 //      frame at the widest (highway) zoom, with symmetric margin on
 //      every side so the frame is always fully covered.
-//    * Lateral buffer: ±1500 m (left + right wings), unchanged.
+//    * Lateral buffer: ±1500 m (left + right wings) on the base layer
+//      only; the coarse / fine layers bake the main row alone.
 //
 //  Pre-fetch budget:
 //
@@ -41,20 +42,24 @@
 //      anchors and the disk cache → in practice ~300-500 unique tiles
 //      for a brand-new region, ~0 for a re-bake of familiar territory.
 //    * Wall-clock: ~5-15 s on 4G cold, ~1-2 s warm-cache.
-//    * Memory: 150 × 1280² × 4 B ≈ 940 MB raw — same NSCache(8) trick
-//      as before keeps working set under 55 MB; full bitmaps live as
-//      PNG bytes in `RouteTile.jpeg` (misnomer kept for compat).
+//    * Memory: decoded composites are held only in an NSCache(8), decoded
+//      256² source tiles in `DecodedTileCache` (64); baked
+//      composites live as PNG bytes in `RouteTile.jpeg` (misnomer kept
+//      for compat), and `bakeAnchors` drops those more than
+//      `evictBehindMeters` behind the rider, so the cache doesn't grow
+//      with ride length.
 //
 
 import CoreGraphics
 import CoreLocation
+import CoreText
 import Foundation
 import ImageIO
 import MapKit
 import OSLog
 import UIKit
 
-/// One pre-rendered map tile + the lat/lon region it covers.
+/// One pre-rendered map tile composite + the geometry to place it.
 ///
 /// The field name `jpeg` is a historical artifact — the bytes are
 /// now PNG-encoded (OSM tiles are PNG natively, and re-encoding to
@@ -62,12 +67,12 @@ import UIKit
 /// memory savings on a 256-colour-palette PNG). Renamed inside
 /// `MapViewSource` would ripple too far; the name is internal and
 /// the contents are still self-describing image data.
-struct RouteTile: Sendable {
+///
+/// `nonisolated`: built off the main actor by `RouteTileCache.composite`
+/// and handed back to it; a plain immutable value.
+nonisolated struct RouteTile: Sendable {
     /// Center coordinate of the tile composite.
     let center: CLLocationCoordinate2D
-    /// Geographic extent the tile covers (informational only —
-    /// runtime hit-testing uses pxPerDeg + centerPixel).
-    let region: MKCoordinateRegion
     /// Image bytes (PNG). Decoded lazily — see `RouteTileCache.image`.
     let jpeg: Data
     /// Pixel dimensions of the decoded image. Always
@@ -94,6 +99,84 @@ struct RouteTile: Sendable {
     let osmZoom: Int
 }
 
+/// Decoded 256² source tiles shared by every composite build, so the
+/// overlapping composites of one corridor (each z=15 tile sits in ~8 of
+/// them) decode it once instead of once per composite. Keyed by (z, x, y)
+/// only: raw tiles are palette-independent — the dark recolour runs on the
+/// whole stitched bitmap afterwards (`composite` → `stitch`), and both
+/// palettes share one disk namespace (`MapStyle.tileCacheNamespace`).
+/// NSCache is thread-safe; the composites that use it run off the main
+/// actor, several at a time.
+nonisolated final class DecodedTileCache: @unchecked Sendable {
+    static let shared = DecodedTileCache()
+
+    /// ~64 tiles × 256 KB ≈ 16 MB.
+    static let maxTiles = 64
+
+    private let cache = NSCache<NSString, CGImage>()
+
+    init() {
+        cache.countLimit = Self.maxTiles
+        cache.totalCostLimit = Self.maxTiles * WebMercator.tilePixels * WebMercator.tilePixels * 4
+    }
+
+    func image(z: Int, x: Int, y: Int) -> CGImage? {
+        cache.object(forKey: Self.key(z: z, x: x, y: y))
+    }
+
+    func insert(_ image: CGImage, z: Int, x: Int, y: Int) {
+        cache.setObject(image, forKey: Self.key(z: z, x: x, y: y), cost: image.bytesPerRow * image.height)
+    }
+
+    /// Decode PNG bytes now (not lazily at draw time), so the cached
+    /// CGImage holds the pixels and a hit really skips the decode.
+    static func decode(_ data: Data) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        return CGImageSourceCreateImageAtIndex(src, 0, options)
+    }
+
+    private static func key(z: Int, x: Int, y: Int) -> NSString {
+        "\(z)/\(x)/\(y)" as NSString
+    }
+}
+
+/// Process-wide cap on composites being stitched at once (the CPU part:
+/// CGContext, recolour, PNG encode — each holds a 6.5-12.8 MB bitmap).
+/// While stitching ran on the main actor only one could run at a time,
+/// whatever the number of caches baking; off the main actor the base, a
+/// reroute bake, the fine layer and the rescue tile could otherwise all
+/// stitch together. Tile fetches are not gated — waiting on the network
+/// must not hold a slot.
+actor CompositeGate {
+    nonisolated static let shared = CompositeGate(limit: RouteTileCache.parallelism)
+
+    private let limit: Int
+    private var running = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func acquire() async {
+        if running < limit {
+            running += 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Hands the slot straight to the oldest waiter, if any.
+    func release() {
+        if waiters.isEmpty {
+            running -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 /// Container + builder for `RouteTile`s along an `MKRoute`.
 @MainActor
 final class RouteTileCache {
@@ -104,7 +187,10 @@ final class RouteTileCache {
     /// polyline. Tile composite span is ~3.9 km, so 700 m gives
     /// ~82 % overlap — enough that any rotation up to 360° still
     /// leaves the user position well inside a single composite.
-    static let stride: CLLocationDistance = 700
+    /// Default for the base layer; a sibling layer may override it per
+    /// instance (`anchorStride`). `nonisolated` so it can be an init
+    /// default argument, like `gridSide` / `zoom`.
+    nonisolated static let stride: CLLocationDistance = 700
 
     /// How far AHEAD of `lastRiderRouteOffset` `snapToMainAnchor` will
     /// look for a matching anchor. Generous: it must survive a burst of
@@ -149,30 +235,27 @@ final class RouteTileCache {
     /// though the value comes from `WebMercator.defaultZoom`.
     nonisolated static let zoom: Int = WebMercator.defaultZoom
 
-    /// Composite geographic extent — informational only (feeds
-    /// `RouteTile.region`). Real geometry comes from `pxPerDeg`. MapKit-era
-    /// value; an OSM composite actually spans ~3.9 km at z=15.
-    static let tileSpanMeters: CLLocationDistance = 1200
-
     /// Max parallel composites being assembled. Each composite waits
     /// on up to 25 OSM tile fetches; capping the OUTER loop at 3
     /// composites in flight gives the fetcher's 4-way HTTP gate
     /// some breathing room and prevents progress from going
-    /// "0% … 0% … 0% … 100%" in chunks.
-    static let parallelism = 3
+    /// "0% … 0% … 0% … 100%" in chunks. Also the process-wide stitch cap
+    /// (`CompositeGate`).
+    nonisolated static let parallelism = 3
 
     /// Most anchors a single `extend()` will queue for baking.
     ///
     /// Chosen from the 2026-09-02 ride: steady-state windows baked 6-11
     /// anchors, so 12 leaves normal riding completely unchanged, while the
-    /// post-hard-snap bursts of 84-99 anchors get split across several passes
-    /// instead of occupying the main actor in one block. Those bursts are
-    /// where the 1.7-2.5 s main-actor hops and 0 fps RTP windows happened.
+    /// post-hard-snap bursts of 84-99 anchors get split across several passes.
+    /// Those bursts are where the 1.7-2.5 s main-actor hops and 0 fps RTP
+    /// windows happened — back when the stitch ran on the main actor; it
+    /// runs off it now (`composite`), and the cap keeps the tiles nearest
+    /// the rider first in the fetch queue.
     ///
     /// Note this is per CACHE, and `MapViewSource.extendTileCache` extends
-    /// three of them (base + coarse + fine, the z=13/15/16 seen in the logs),
-    /// so one throttled pass can still bake up to ~36 anchors — with a yield
-    /// between each tile and between layers, rather than as one block.
+    /// every installed layer (base, fine, and coarse once a zoom-out has
+    /// baked it), so one throttled pass can queue up to ~36 anchors.
     ///
     /// It is a per-PASS cap, not a rate limit: `extend()` is called
     /// continuously while navigating, so the remaining anchors are picked
@@ -209,15 +292,6 @@ final class RouteTileCache {
     /// check exists and runs against the raw fix on every frame.
     static let maxTileCentreDistance: CLLocationDistance = 1800
 
-    /// Hard cap on total composites per route. Anchors are still
-    /// computed beyond this number, but bake batches will only ever
-    /// process up to this many distinct indices — used as a sanity
-    /// brake for routes that produce truly absurd anchor counts
-    /// (10000+ km loops). For the rolling-window architecture this
-    /// is rarely hit in practice; `prerender`'s fast-start window
-    /// stays well under the cap on every reasonable route.
-    static let maxTilesPerRoute: Int = 300
-
     // MARK: - Rolling-window tunables
 
     /// How far ahead of the route start the initial `prerender` call
@@ -238,9 +312,23 @@ final class RouteTileCache {
     /// margin so a temporary stop or u-turn doesn't immediately
     /// drop the trailing tile, which would look bad to the rider
     /// (renderer would fall back to dark territory directly behind
-    /// them). We don't actively evict — this just protects against
-    /// a future eviction policy.
+    /// them). Must stay below `evictBehindMeters`, or `extend` would
+    /// re-bake what `bakeAnchors` just evicted.
     static let rollingTrailMeters: CLLocationDistance = 500
+
+    /// How far BEHIND the rider (by route offset) a baked composite is
+    /// kept; `bakeAnchors` evicts anything further back. At least
+    /// `snapForwardWindow` (5 km) + `maxTileCentreDistance` (1.8 km): where
+    /// a route passes near itself the snap can falsely jump up to 5 km
+    /// ahead of the real rider (review C3, not fixed), and the tiles around
+    /// the real position must survive that (review L2). That also covers
+    /// `snapBackwardWindow` (1.5 km). Costs 5 km more of composites held
+    /// than the old 2 km window: ~21 base (main row every 700 m + a wing on
+    /// each side) and ~7 fine, ~20 MB of PNG at the sizes measured on a
+    /// Prague ride (~0.65 MB base, ~0.9 MB fine composite). A forward ride
+    /// then holds ~12 km (7 behind + 5 ahead): ~33 MB base + ~15 MB fine,
+    /// plus coarse once zoomed out.
+    static let evictBehindMeters: CLLocationDistance = 7_000
 
     // MARK: - Position-fallback tunables
 
@@ -255,8 +343,8 @@ final class RouteTileCache {
     /// The re-bake is triggered earlier, at `positionFallbackRefreshRadius`,
     /// so a replacement is already on its way before this one expires.
     ///
-    /// This is deliberately SMALLER than `nearestTile`'s 2.5 km miss
-    /// guardrail. The two don't overlap in purpose: `nearestTile` decides
+    /// This is deliberately SMALLER than `nearestTile`'s miss guardrail
+    /// (`maxTileCentreDistance`, 1.8 km). The two don't overlap in purpose: `nearestTile` decides
     /// "am I still on the baked ROUTE corridor?", this decides "does my
     /// one-off rescue tile still cover me?". A rider 1 km off-route misses
     /// the corridor (→ fallback path) yet stays inside a fresh position
@@ -319,6 +407,9 @@ final class RouteTileCache {
     //        start: ~8 km of main anchors with their wing tiles.
     //        Typical: 12 main + 24 wing = ~36 composites = ~3-5 s
     //        on 4G, well under the rider's tolerance for "tap → go".
+    //        (Mid-ride re-bakes — reroute, palette switch — use a 2 km
+    //        window around the rider instead, see
+    //        `MapViewSource.rerouteBakeAheadMeters`.)
     //     3. Expose `extend(near:)`. The navigator hooks this into
     //        every GPS fix (throttled in the caller — we don't enforce
     //        that here). It bakes any not-yet-baked anchors that fall
@@ -358,6 +449,11 @@ final class RouteTileCache {
     /// `nearestTile(to:hintIndex:)` to prefer main-row tiles even when
     /// a wing tile is geometrically closer.
     private(set) var tileRowKind: [Int] = []
+    /// Parallel-indexed `allAnchors` index of each entry of `tiles[]`.
+    /// Stable for the life of the route (a baked anchor never changes),
+    /// unlike the position in `tiles[]`, which every batch reshuffles —
+    /// so it is the `imageCache` key.
+    private var tileAnchorIndex: [Int] = []
 
     /// All anchors for the current route. `allAnchors[i]` is unbaked
     /// unless `bakedIndices.contains(i)`. Used as the source of truth
@@ -391,8 +487,8 @@ final class RouteTileCache {
     // Kept deliberately OUT of `tiles[]` / `bakedTileByIndex` because it
     // has no `routeOffsetMeters` — it isn't on the polyline. Splicing it
     // into the route-ordered arrays would break the `nearestTile`
-    // hint-index locality invariant and the index-keyed `imageCache`
-    // (see the reorder note in `bakeAnchors`). One standalone slot avoids
+    // hint-index locality invariant and the anchor-index-keyed `imageCache`
+    // (see `tileAnchorIndex`). One standalone slot avoids
     // all of that.
 
     /// The current position-fallback tile, or nil if none is baked yet
@@ -421,7 +517,7 @@ final class RouteTileCache {
     ///   * `composite()` fetches + disk-caches tiles for exactly this
     ///     style, so a mixed-style instance could stitch a half-light /
     ///     half-dark composite;
-    ///   * `imageCache` and `tiles[]` are keyed by array index, so a
+    ///   * `imageCache` is keyed by anchor index, not by style, so a
     ///     style swap inside one instance would serve wrong-palette
     ///     bitmaps (same failure shape as the reorder bug in Pitfall #2).
     let style: MapStyle
@@ -445,6 +541,20 @@ final class RouteTileCache {
     /// rider). Defaults to the base window.
     let bakeAheadMeters: CLLocationDistance
 
+    /// Main-row anchor spacing for THIS layer. Base keeps `Self.stride`
+    /// (700 m — widening it shows black corners at 0.77-0.8×). The coarse
+    /// z=13 layer uses 1400 m: its 7×7 composite spans ~22 km, and the
+    /// multi-heading harness (test_composite_coverage) shows 0 black
+    /// frames at 1400 m but some at 2100 m.
+    let anchorStride: CLLocationDistance
+
+    /// Whether THIS layer bakes the ±`lateralOffset` wing rows. Only base
+    /// needs them: they are what covers a rider 1.5-2 km off the route.
+    /// Coarse and fine are drawn only near the route, and when a
+    /// main-only layer has no covering tile `nearestTile` returns nil so
+    /// the renderer falls back to base (which has the wings).
+    let bakesLateralRows: Bool
+
     /// Composite bitmap side in px, DERIVED from this layer's gridSide so
     /// the two can never drift apart (Pitfall 11).
     var tilePixels: Int { gridSide * WebMercator.tilePixels }
@@ -453,13 +563,17 @@ final class RouteTileCache {
         style: MapStyle,
         zoom: Int = RouteTileCache.zoom,
         gridSide: Int = RouteTileCache.gridSide,
-        bakeAheadMeters: CLLocationDistance = RouteTileCache.initialBakeAheadMeters
+        bakeAheadMeters: CLLocationDistance = RouteTileCache.initialBakeAheadMeters,
+        anchorStride: CLLocationDistance = RouteTileCache.stride,
+        bakesLateralRows: Bool = true
     ) {
         precondition(gridSide % 2 == 1, "gridSide must be ODD (Pitfall 11); got \(gridSide)")
         self.style = style
         self.zoom = zoom
         self.gridSide = gridSide
         self.bakeAheadMeters = bakeAheadMeters
+        self.anchorStride = anchorStride
+        self.bakesLateralRows = bakesLateralRows
         imageCache.countLimit = 8
     }
 
@@ -481,11 +595,14 @@ final class RouteTileCache {
         // Reset all rolling state for the new route.
         tiles.removeAll(keepingCapacity: true)
         tileRowKind.removeAll(keepingCapacity: true)
+        tileAnchorIndex.removeAll(keepingCapacity: true)
+        // Memo keys are indices into the OLD anchor list.
+        imageCache.removeAllObjects()
         bakedTileByIndex.removeAll(keepingCapacity: true)
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
         lastRiderRouteOffset = 0
-        log.info("Route has \(self.allAnchors.count, privacy: .public) total anchors (main + wings); fast-start window = \(Self.initialBakeAheadMeters, privacy: .public) m")
+        log.info("Route has \(self.allAnchors.count, privacy: .public) total anchors (main + wings); fast-start window = \(self.bakeAheadMeters, privacy: .public) m")
         progress(0)
 
         // Fast start: bake every anchor (main + wings) whose
@@ -515,6 +632,9 @@ final class RouteTileCache {
         // Reset all rolling state for the new route + style.
         tiles.removeAll(keepingCapacity: true)
         tileRowKind.removeAll(keepingCapacity: true)
+        tileAnchorIndex.removeAll(keepingCapacity: true)
+        // Memo keys are indices into the OLD anchor list.
+        imageCache.removeAllObjects()
         bakedTileByIndex.removeAll(keepingCapacity: true)
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
@@ -533,7 +653,7 @@ final class RouteTileCache {
         lastRiderRouteOffset = snapped
         let backEdge = max(0, snapped - Self.rollingTrailMeters)
         let frontEdge = snapped + bakeAheadMeters
-        log.info("Style re-bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
+        log.info("Around-rider bake: \(self.style.tileCacheNamespace, privacy: .public), rider @ \(Int(snapped), privacy: .public) m, window \(Int(backEdge), privacy: .public)…\(Int(frontEdge), privacy: .public) m")
 
         let initialIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
         await bakeAnchors(at: initialIndices, progress: progress)
@@ -570,8 +690,8 @@ final class RouteTileCache {
 
         let frontEdge = snappedOffset + lookaheadMeters
         // Also keep a small backwards margin so a rider who briefly
-        // stops or reverses doesn't see the trailing tiles get pruned
-        // (we don't prune at all yet, but the principle stays valid).
+        // stops or reverses keeps the tiles just behind them (eviction in
+        // `bakeAnchors` only starts at `evictBehindMeters`).
         let backEdge = max(0, snappedOffset - Self.rollingTrailMeters)
 
         let candidateIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
@@ -582,8 +702,10 @@ final class RouteTileCache {
 
         // Cap how much a single extend() may queue.
         //
-        // Baking runs on the main actor (see `bakeAnchors`), so a large
-        // batch is a long main-thread occupation. Normally extend() finds a
+        // When this cap was added the stitch still ran on the main actor,
+        // so a large batch was a long main-thread occupation (it now runs
+        // off the main actor, see `composite`; the cap still keeps the
+        // nearest tiles first in the fetch queue). Normally extend() finds a
         // handful of new anchors as the rider rolls forward, but after a
         // hard-snap — the motion interpolator jumping the displayed position
         // km back onto the GPS fix — the rider's route offset moves by a
@@ -638,6 +760,8 @@ final class RouteTileCache {
         for i in indices { inFlight.insert(i) }
         let total = indices.count
         var completed = 0
+        // Sendable snapshots for the off-main children (no `self` in them).
+        let z = zoom, g = gridSide, style = self.style
 
         await withTaskGroup(of: (Int, RouteTile?).self) { group in
             var nextSlot = 0
@@ -646,9 +770,8 @@ final class RouteTileCache {
                 let i = indices[nextSlot]
                 nextSlot += 1
                 let center = allAnchors[i].coord
-                let style = self.style
-                group.addTask { @MainActor in
-                    let tile = await self.composite(center: center, style: style)
+                group.addTask {
+                    let tile = await RouteTileCache.composite(center: center, zoom: z, gridSide: g, style: style)
                     return (i, tile)
                 }
             }
@@ -663,26 +786,20 @@ final class RouteTileCache {
                     let i = indices[nextSlot]
                     nextSlot += 1
                     let center = allAnchors[i].coord
-                    let style = self.style
                     // Yield before queueing the next composite so the main
                     // actor can service anything waiting behind us.
                     //
-                    // `composite` is @MainActor and does real CPU work
-                    // (CGContext setup, ~49 PNG decodes and blits, the dark
-                    // palette's vImage colour matrix). Back-to-back tiles
-                    // therefore hold the main actor for as long as the batch
-                    // takes, which starves the RTP metrics timer and the
-                    // CoreLocation delivery hop — visible on the 2026-09-02
-                    // ride as hops of 1.7-2.5 s and RTP dropping to 0 fps
-                    // during heavy bake windows.
-                    //
-                    // A yield does not make baking cheaper or move it off the
-                    // main actor; it just stops one batch monopolising it, so
-                    // the stream keeps flowing while tiles are produced
-                    // slightly slower.
+                    // The stitch itself now runs off the main actor (see the
+                    // static `composite`), but installing each result and
+                    // queueing the next still hop here; back-to-back hops
+                    // were what starved the RTP metrics timer and the
+                    // CoreLocation delivery hop on the 2026-09-02 ride
+                    // (hops of 1.7-2.5 s, RTP at 0 fps during heavy bake
+                    // windows, back when the stitch ran on main). Kept as
+                    // cheap insurance.
                     await Task.yield()
-                    group.addTask { @MainActor in
-                        let tile = await self.composite(center: center, style: style)
+                    group.addTask {
+                        let tile = await RouteTileCache.composite(center: center, zoom: z, gridSide: g, style: style)
                         return (i, tile)
                     }
                 }
@@ -703,9 +820,24 @@ final class RouteTileCache {
         // SIDE EFFECT: this reorders `tiles`, so any cached
         // `lastTileHintIndex` over in `MapViewSource` is stale after
         // a batch finishes. `nearestTile(hintIndex:)` falls back to
-        // a full scan when the hint doesn't land within tileSpan/2,
+        // a full scan when the hint window has no tile close enough,
         // so correctness is preserved — the cost is one extra full
         // scan per batch, well under one frame.
+        //
+        // Evict first: composites more than `evictBehindMeters` behind the
+        // rider (by route offset) are never drawn again on a forward ride,
+        // and on a long ride they were the whole of the cache's growth
+        // (each is a ~0.65-0.9 MB PNG). `tiles` / `tileRowKind` /
+        // `tileAnchorIndex` are rebuilt from `bakedTileByIndex` just below,
+        // so dropping the key here keeps all four consistent. Its decoded
+        // image goes too; an evicted anchor that comes back into the
+        // `extend` window (a U-turn) is simply baked again.
+        let evictBefore = lastRiderRouteOffset - Self.evictBehindMeters
+        let evicted = bakedTileByIndex.keys.filter { allAnchors[$0].routeOffsetMeters < evictBefore }
+        for idx in evicted {
+            bakedTileByIndex.removeValue(forKey: idx)
+            imageCache.removeObject(forKey: NSNumber(value: idx))
+        }
         let sortedIdxs = bakedTileByIndex.keys.sorted { a, b in
             let aa = allAnchors[a]
             let bb = allAnchors[b]
@@ -716,14 +848,14 @@ final class RouteTileCache {
         }
         tiles = sortedIdxs.map { bakedTileByIndex[$0]! }
         tileRowKind = sortedIdxs.map { allAnchors[$0].lateralRow }
-        // Reorder invalidates the (idx → UIImage) memo. Without this
-        // the renderer's `image(for:atIndex:)` would return a *stale*
-        // image for a freshly-shuffled index — i.e. the picture for
-        // some other anchor entirely — which paints the right pixels
-        // at the wrong geographic position. Visible symptom: composite
-        // looks like a different place than where the rider is.
-        imageCache.removeAllObjects()
-        log.info("Baked batch: \(completed, privacy: .public) anchors, total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public)")
+        // The decoded-image memo is keyed by anchor index, not by position
+        // in `tiles`, so this reorder leaves it valid — no purge, no
+        // re-decode of the composite under the rider after every batch.
+        // (A position key would hand back the picture of some other anchor
+        // after the shuffle: right pixels, wrong place.)
+        tileAnchorIndex = sortedIdxs
+        let compositeBytes = tiles.reduce(0) { $0 + $1.jpeg.count }
+        log.info("Baked batch: \(completed, privacy: .public) anchors, evicted \(evicted.count, privacy: .public), total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public), \(compositeBytes / 1024, privacy: .public) KB")
     }
 
     /// Build the full anchor list for `route` — every main anchor
@@ -731,7 +863,7 @@ final class RouteTileCache {
     /// baking anything. Pure arithmetic, runs in microseconds.
     private func computeAllAnchors(for route: MKRoute) -> [Anchor] {
         guard route.polyline.pointCount > 0 else { return [] }
-        let mainCoords = anchorsAlongPolyline(route.polyline, stride: Self.stride)
+        let mainCoords = anchorsAlongPolyline(route.polyline, stride: anchorStride)
         // Tag each main anchor with its routeOffset (distance along
         // the polyline from start). We need this to define the
         // rolling window — Euclidean distance to the rider doesn't
@@ -747,9 +879,12 @@ final class RouteTileCache {
             mainOffsets.append(acc)
             prev = c
         }
-        // Build wing rows with the same offsets as their main counterparts.
-        let leftCoords = lateralAnchors(mainCoords, offsetMeters: -Self.lateralOffset)
-        let rightCoords = lateralAnchors(mainCoords, offsetMeters: +Self.lateralOffset)
+        // Build wing rows with the same offsets as their main counterparts
+        // (base layer only — see `bakesLateralRows`).
+        let leftCoords = bakesLateralRows
+            ? lateralAnchors(mainCoords, offsetMeters: -Self.lateralOffset) : []
+        let rightCoords = bakesLateralRows
+            ? lateralAnchors(mainCoords, offsetMeters: +Self.lateralOffset) : []
         var out: [Anchor] = []
         out.reserveCapacity(mainCoords.count * 3)
         for (i, c) in mainCoords.enumerated() {
@@ -795,8 +930,12 @@ final class RouteTileCache {
     /// That split is the tell — the two consume different position logic:
     ///
     ///   * the glyph goes through `PolylineMath.nearestSegment(from:)`,
-    ///     which carries a forward cursor (`lastSegmentIndex`) and so is
-    ///     monotonic — it cannot latch onto a distant part of the route;
+    ///     which carries a forward cursor (`lastSegmentIndex`) and so never
+    ///     moves backwards. It is NOT bounded ahead, though: it takes the
+    ///     nearest segment anywhere from the cursor to the route end, so
+    ///     where the route passes near itself GPS noise can still make it
+    ///     jump forward, and it can never come back (review item C3, not
+    ///     fixed) — but it did not jump in the field report above;
     ///   * this function scanned EVERY anchor on the whole route, took the
     ///     global argmin and accepted anything within 3 km, with no
     ///     reference at all to where the rider was a moment ago.
@@ -852,7 +991,8 @@ final class RouteTileCache {
     /// **Hint validity**: `hintIndex` comes from the caller's *previous*
     /// call and may index a DIFFERENT cache instance. `MapViewSource`
     /// keeps one hint but renders from three sibling layers (base
-    /// bakeAhead 8 km, coarse 3 km, fine 2 km) whose `tiles` arrays have
+    /// bakeAhead 8 km — 2 km after a mid-ride re-bake — coarse 3 km at
+    /// 1400 m spacing, fine 2 km; only base has wing rows) whose `tiles` arrays have
     /// very different lengths, and a batch bake reorders `tiles` under a
     /// live hint too. A hint past the end of THIS array must therefore be
     /// discarded rather than clamped: clamping `lo` to a nonsensical
@@ -883,9 +1023,10 @@ final class RouteTileCache {
                     bestMain = i
                 }
             }
-            // If a main-row tile is "close enough" (within stride),
-            // prefer it over any wing tile in the window.
-            if bestMain >= 0 && bestMainDist < 700 {
+            // If a main-row tile is "close enough" (within this layer's
+            // stride — an on-route rider is at most half a stride from a
+            // main anchor), prefer it over any wing tile in the window.
+            if bestMain >= 0 && bestMainDist < anchorStride {
                 return (tiles[bestMain], bestMain)
             }
             // Otherwise fall back to ANY tile (main or wing) within window.
@@ -921,7 +1062,20 @@ final class RouteTileCache {
         if bestMainIdx >= 0 && bestMainDist < 1500 {
             return (tiles[bestMainIdx], bestMainIdx)
         }
-        // Final fallback: any tile within the wider 2.5 km guardrail.
+        // A layer without wing rows (coarse / fine) has nothing near a
+        // rider this far off the route — where the old wings would have
+        // won. Miss, so the renderer retries the base layer, whose wings
+        // cover it. (A fine main tile >1.5 km away would not even have the
+        // rider on its ~2.7 km bitmap.)
+        // ponytail: coarse's 22 km composite would still cover 1.5-1.8 km
+        // off-route, but this hands it to base, which blacks the frame
+        // edges below ~0.77×. Only matters when manually zoomed out while
+        // off the route; give coarse its own limit if riders notice.
+        guard bakesLateralRows else { return nil }
+        // Final fallback: any tile within the draw-time limit. Same number
+        // the renderer enforces (`drawTileCacheFrame`): a looser limit here
+        // only hands it tiles it rejects — an error log and a full rescan
+        // every frame between the two limits.
         var bestIdx = 0
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
         for (i, t) in tiles.enumerated() {
@@ -931,7 +1085,7 @@ final class RouteTileCache {
                 bestIdx = i
             }
         }
-        guard bestDist < 2500 else { return nil }
+        guard bestDist <= Self.maxTileCentreDistance else { return nil }
         return (tiles[bestIdx], bestIdx)
     }
 
@@ -1002,8 +1156,11 @@ final class RouteTileCache {
     }
 
     /// Decoded UIImage for `tile`. Cached; safe to call every frame.
+    /// `idx` is the position in `tiles` that `nearestTile` just returned;
+    /// the memo is keyed by the stable anchor index behind it.
     func image(for tile: RouteTile, atIndex idx: Int) -> UIImage? {
-        let key = NSNumber(value: idx)
+        guard tileAnchorIndex.indices.contains(idx) else { return UIImage(data: tile.jpeg) }
+        let key = NSNumber(value: tileAnchorIndex[idx])
         if let cached = imageCache.object(forKey: key) {
             return cached
         }
@@ -1096,27 +1253,14 @@ final class RouteTileCache {
         return out
     }
 
-    /// Keep `keepCount` items evenly distributed.
-    ///
-    /// Currently unused after the rolling-window refactor (the old
-    /// `prerender` decimated wings when total anchors > maxTilesPerRoute).
-    /// Left in place because the unit test in
-    /// `tests/test_lateral_buffer.py` still cross-checks the Swift
-    /// behaviour against a Python port — and because a future
-    /// eviction policy might want it.
-    private static func decimate<T>(_ array: [T], keepCount: Int) -> [T] {
-        guard keepCount > 0 else { return [] }
-        guard array.count > keepCount else { return array }
-        var out: [T] = []
-        out.reserveCapacity(keepCount)
-        for i in 0..<keepCount {
-            let idx = (i * (array.count - 1)) / max(1, keepCount - 1)
-            out.append(array[idx])
-        }
-        return out
-    }
-
     // MARK: - Composite rendering
+
+    /// Fetch + stitch an OSM tile composite centered on `center`, at THIS
+    /// layer's zoom and grid side. Thin main-actor wrapper: the work runs
+    /// off the main actor in the static `composite` below.
+    private func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
+        await Self.composite(center: center, zoom: zoom, gridSide: gridSide, style: style)
+    }
 
     /// Fetch + stitch an OSM tile composite centered on `center`.
     ///
@@ -1138,12 +1282,22 @@ final class RouteTileCache {
     /// Geometry is fully deterministic — no probe, no measure. The
     /// renderer in `MapViewSource` reads `pxPerDeg` and `centerPixel`
     /// from the returned tile and gets pixel-exact results.
-    private func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
-        let z = zoom
-        let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
-        let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
-        let bitmapSize = tilePixels
-
+    ///
+    /// Runs OFF the main actor (`@concurrent`): the stitch (CGContext
+    /// setup, ~25-49 PNG decodes and blits, the dark palette's vImage
+    /// colour matrix, the PNG encode) used to hold the main actor for the
+    /// whole bake, starving the RTP stream and the CoreLocation hop. Takes
+    /// only Sendable values and touches no cache state — the caller
+    /// (`bakeAnchors` / `ensurePositionFallback`, on the main actor)
+    /// installs the returned tile. Everything it calls is nonisolated too:
+    /// `WebMercator`, `MapStyle`, `TileColorTransform`, `DecodedTileCache`,
+    /// `drawAttribution`, and the `TileDiskCache` / `OSMTileFetcher` actors.
+    @concurrent nonisolated private static func composite(
+        center: CLLocationCoordinate2D,
+        zoom z: Int,
+        gridSide: Int,
+        style: MapStyle
+    ) async -> RouteTile? {
         // Fractional tile coords for the center. `WebMercator.tile` is
         // NaN-hardened: a non-finite coordinate used to trap in the
         // `Int(floor(fx))` below, which is a hard process kill.
@@ -1155,20 +1309,6 @@ final class RouteTileCache {
         let half = gridSide / 2
         let tlx = Int(floor(fx)) - half
         let tly = Int(floor(fy)) - half
-
-        // Pixel offset of the requested center inside the assembled
-        // bitmap, if we drew tile (tlx, tly) at (0, 0):
-        //   centerPxInBlock_x = (fx - tlx) * 256
-        //   centerPxInBlock_y = (fy - tly) * 256
-        // We want the center to land at the bitmap midpoint
-        // (bitmapSize/2, bitmapSize/2), so the paint offset is:
-        //   paintOffsetX = bitmapSize/2 - centerPxInBlock_x
-        // Same for Y. Tiles drawn at (paintOffsetX + tx*256, paintOffsetY + ty*256)
-        // for tx, ty in 0..<gridSide.
-        let centerPxInBlockX = (fx - Double(tlx)) * Double(WebMercator.tilePixels)
-        let centerPxInBlockY = (fy - Double(tly)) * Double(WebMercator.tilePixels)
-        let paintOffsetX = Double(bitmapSize) / 2.0 - centerPxInBlockX
-        let paintOffsetY = Double(bitmapSize) / 2.0 - centerPxInBlockY
 
         // Fetch all gridSide² (25 at gridSide=5) tiles in parallel. Each call
         // hits TileDiskCache first then OSMTileFetcher; misses are
@@ -1184,9 +1324,8 @@ final class RouteTileCache {
         // (candidates: `zoom` changing between bakes so the (z,x,y) key
         // never matches, or eviction running between rides). Counted
         // AFTER collection (below), not mutated from inside the
-        // concurrent `addTask` closures — those aren't MainActor-isolated
-        // here, so a shared var would be a data race under strict
-        // concurrency.
+        // concurrent `addTask` closures — a shared var would be a data
+        // race under strict concurrency.
         let tilesData: [(tx: Int, ty: Int, data: Data?, wasCacheHit: Bool)] = await withTaskGroup(
             of: (Int, Int, Data?, Bool).self
         ) { group in
@@ -1227,6 +1366,52 @@ final class RouteTileCache {
             return nil
         }
 
+        // Only the CPU part is gated (see `CompositeGate`); the fetches
+        // above never hold a slot. `stitch` is synchronous and cannot
+        // throw, so the slot is always released.
+        await CompositeGate.shared.acquire()
+        let tile = stitch(
+            center: center, zoom: z, gridSide: gridSide, style: style,
+            tlx: tlx, tly: tly, fx: fx, fy: fy,
+            tiles: tilesData.map { (tx: $0.tx, ty: $0.ty, data: $0.data) }
+        )
+        await CompositeGate.shared.release()
+        return tile
+    }
+
+    /// CPU half of `composite`: paint the fetched tiles into one bitmap,
+    /// recolour, stamp attribution, PNG-encode. Synchronous; its only
+    /// shared state is the thread-safe `DecodedTileCache`.
+    nonisolated private static func stitch(
+        center: CLLocationCoordinate2D,
+        zoom z: Int,
+        gridSide: Int,
+        style: MapStyle,
+        tlx: Int,
+        tly: Int,
+        fx: Double,
+        fy: Double,
+        tiles tilesData: [(tx: Int, ty: Int, data: Data?)]
+    ) -> RouteTile? {
+        let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
+        let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
+        // Same derivation as the instance `tilePixels` (Pitfall 11).
+        let bitmapSize = gridSide * WebMercator.tilePixels
+
+        // Pixel offset of the requested center inside the assembled
+        // bitmap, if we drew tile (tlx, tly) at (0, 0):
+        //   centerPxInBlock_x = (fx - tlx) * 256
+        //   centerPxInBlock_y = (fy - tly) * 256
+        // We want the center to land at the bitmap midpoint
+        // (bitmapSize/2, bitmapSize/2), so the paint offset is:
+        //   paintOffsetX = bitmapSize/2 - centerPxInBlock_x
+        // Same for Y. Tiles drawn at (paintOffsetX + tx*256, paintOffsetY + ty*256)
+        // for tx, ty in 0..<gridSide.
+        let centerPxInBlockX = (fx - Double(tlx)) * Double(WebMercator.tilePixels)
+        let centerPxInBlockY = (fy - Double(tly)) * Double(WebMercator.tilePixels)
+        let paintOffsetX = Double(bitmapSize) / 2.0 - centerPxInBlockX
+        let paintOffsetY = Double(bitmapSize) / 2.0 - centerPxInBlockY
+
         // Assemble into one bitmap. Background light grey (matches
         // OSM Carto land color, so missing tiles blend in instead
         // of glaring as black holes).
@@ -1259,10 +1444,18 @@ final class RouteTileCache {
         ctx.scaleBy(x: 1, y: -1)
 
         for entry in tilesData {
-            guard let data = entry.data,
-                  let imgSrc = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cgImg = CGImageSourceCreateImageAtIndex(imgSrc, 0, nil) else {
-                continue
+            guard let data = entry.data else { continue }
+            // Decoded-tile cache first: neighbouring composites share
+            // most of their source tiles, so most lookups are hits.
+            let absX = tlx + entry.tx
+            let absY = tly + entry.ty
+            let cgImg: CGImage
+            if let hit = DecodedTileCache.shared.image(z: z, x: absX, y: absY) {
+                cgImg = hit
+            } else {
+                guard let decoded = DecodedTileCache.decode(data) else { continue }
+                DecodedTileCache.shared.insert(decoded, z: z, x: absX, y: absY)
+                cgImg = decoded
             }
             let x = paintOffsetX + Double(entry.tx * WebMercator.tilePixels)
             let y = paintOffsetY + Double(entry.ty * WebMercator.tilePixels)
@@ -1311,18 +1504,18 @@ final class RouteTileCache {
         guard let outImage = ctx.makeImage() else { return nil }
 
         // PNG encode (lossless; OSM Carto's palette compresses well — typical composite is
-        // 200-500 KB).
-        let uiImage = UIImage(cgImage: outImage, scale: 1.0, orientation: .up)
-        guard let png = uiImage.pngData() else { return nil }
+        // 200-500 KB). ImageIO rather than `UIImage.pngData()`: no UIKit
+        // off the main actor.
+        let pngBuffer = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(pngBuffer as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(dest, outImage, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        let png = pngBuffer as Data
 
-        let region = MKCoordinateRegion(
-            center: center,
-            latitudinalMeters: Self.tileSpanMeters,
-            longitudinalMeters: Self.tileSpanMeters
-        )
         return RouteTile(
             center: center,
-            region: region,
             jpeg: png,
             pixelSize: CGSize(width: bitmapSize, height: bitmapSize),
             // Pixel-exact: we stitched the composite so that `center`
@@ -1346,12 +1539,17 @@ final class RouteTileCache {
     /// sees attribution somewhere on screen, just not always in the
     /// same corner. That's fine per OSM policy as long as it IS
     /// visible.
-    private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat, style: MapStyle) {
+    ///
+    /// Pure CoreText + CoreGraphics (no UIFont / UIColor): it runs off the
+    /// main actor inside `stitch`.
+    nonisolated private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat, style: MapStyle) {
         let text = style.attribution
-        let font = UIFont.systemFont(ofSize: 11, weight: .regular)
+        // `.system` = the same San Francisco face `UIFont.systemFont` gave.
+        let font = CTFontCreateUIFontForLanguage(.system, 11, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 11, nil)
         let textAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor(cgColor: style.attributionInk)
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): style.attributionInk
         ]
         let attr = NSAttributedString(string: text, attributes: textAttrs)
         let line = CTLineCreateWithAttributedString(attr)

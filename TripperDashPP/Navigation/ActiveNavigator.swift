@@ -462,6 +462,14 @@ final class ActiveNavigator {
     private let offRouteDistanceThreshold: CLLocationDistance = 60   // m
     private let offRouteDurationThreshold: TimeInterval = 5          // s
     private let rerouteCooldown: TimeInterval = 30                   // s
+    /// Wait before the next attempt after a FAILED reroute (timeout, no
+    /// signal). Shorter than `rerouteCooldown`, which is for pacing
+    /// successful swaps: after a failure the rider is still off-route with
+    /// the dash on "recalculating".
+    private let rerouteRetryAfterFailure: TimeInterval = 10         // s
+    /// Hard cap on one MKDirections request from the navigator hooks
+    /// (wired in `AppStatus.wireNavigation`).
+    static let routeRequestTimeout: TimeInterval = 12              // s
 
     // MARK: - Alternative-route auto-switch (F3, 2026-08)
 
@@ -1184,7 +1192,11 @@ final class ActiveNavigator {
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
         } else {
-            log.warning("Reroute failed — keeping existing route, will retry after cooldown")
+            // Back-date the cooldown clock so the next attempt comes
+            // `rerouteRetryAfterFailure` from NOW, not `rerouteCooldown` from
+            // when this one started. A success keeps the full cooldown.
+            lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
+            log.warning("Reroute failed — keeping existing route, will retry in \(Int(self.rerouteRetryAfterFailure)) s")
         }
     }
 
@@ -1324,7 +1336,8 @@ final class ActiveNavigator {
     /// off-route), we just want Apple's latest traffic-aware
     /// time-to-arrival. Reuses `onRerouteRequested` rather than adding a
     /// second hook — see that property's doc-comment for why the shared
-    /// signature is a good fit.
+    /// signature is a good fit — or, with live-traffic reroute on, the
+    /// alternate-set request that the traffic check needs anyway.
     ///
     /// No-ops quietly (leaves the existing countdown running
     /// undisturbed) if we don't have a GPS fix yet, aren't navigating,
@@ -1335,60 +1348,69 @@ final class ActiveNavigator {
     /// (triggered separately by going off-route) would correct things
     /// sooner anyway if the rider's actual position has drifted from plan.
     private func refreshEtaFromApple() async {
+        // Not while a reroute is in flight: it is already asking Apple over
+        // the same (often weak) link, and its result resets the ETA anyway.
         guard isNavigating,
+              !isRerouting,
               let coord = currentCoordinate,
-              let dest = destination,
-              let cb = onRerouteRequested
+              let dest = destination
         else { return }
-        if let route = await cb(coord, dest) {
+        // Live-traffic reroute rides on the SAME periodic cadence and the
+        // SAME MKDirections call: with the opt-in setting on, one request
+        // for the alternate set serves both — `.first` (Apple's best) is
+        // the ETA, all of them feed the traffic decision. Off, the ETA
+        // uses the cheaper best-route-only hook.
+        if trafficRerouteEnabled, let traffic = onTrafficRoutesRequested {
+            // Taken before the ETA below is overwritten by `.first`, which
+            // may itself be the faster alternative.
+            let remainingEta = etaSeconds
+            let candidates = await traffic(coord, dest)
+            if let best = candidates.first {
+                self.legArrivalDate = Date(timeIntervalSinceNow: best.expectedTravelTime)
+            }
+            await checkLiveTrafficReroute(candidates: candidates, remainingEta: remainingEta)
+        } else if let cb = onRerouteRequested,
+                  let route = await cb(coord, dest) {
             self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
-        }
-        // Live-traffic reroute rides on the SAME periodic cadence as the
-        // ETA re-fetch (both want Apple's latest traffic-aware times from
-        // the rider's current position), but is a separate MKDirections
-        // call because it needs the full ALTERNATE set, not just the best
-        // single route. Gated on the opt-in setting so it costs nothing
-        // when off.
-        if trafficRerouteEnabled {
-            await checkLiveTrafficReroute(from: coord, to: dest)
         }
     }
 
     // MARK: - Live-traffic reroute (feat/live-traffic-reroute)
 
-    /// Periodic live-traffic reroute check. Fetches Apple's current
-    /// traffic-aware alternatives from the rider's live position and,
-    /// against a baseline of the active route's own `expectedTravelTime`,
-    /// picks the fastest candidate that is a genuinely different road; if
-    /// it saves at least `trafficRerouteSavingSeconds`, swaps navigation
-    /// onto it. Silent (Martin 8/2026 chose automatic swap, like the
-    /// off-route reroute).
+    /// Periodic live-traffic reroute check, fed Apple's current
+    /// traffic-aware alternatives from the rider's live position (fetched
+    /// by `refreshEtaFromApple`). Against the REMAINING time on the road
+    /// the rider is on, picks the fastest candidate that is a genuinely
+    /// different road ahead; if it saves at least
+    /// `trafficRerouteSavingSeconds`, swaps navigation onto it. Silent
+    /// (Martin 8/2026 chose automatic swap, like the off-route reroute).
     ///
     /// Conservative by design: no distinct + faster-by-threshold
     /// candidate → no reroute (see `trafficRerouteDecision`). Respects the same
     /// `rerouteCooldown` and `isRerouting` guards as the off-route path,
     /// so the two reroute sources can't fire on top of each other.
-    private func checkLiveTrafficReroute(from coord: CLLocationCoordinate2D,
-                                         to dest: Destination) async {
+    private func checkLiveTrafficReroute(candidates: [MKRoute],
+                                         remainingEta: TimeInterval) async {
         guard !isRerouting,
               Date.now.timeIntervalSince(lastRerouteAt) >= rerouteCooldown,
-              let cb = onTrafficRoutesRequested,
-              let current = activeRoute else { return }
+              !candidates.isEmpty,
+              !activeRouteCoordsCache.isEmpty else { return }
 
-        let candidates = await cb(coord, dest)
-        guard !candidates.isEmpty else { return }
-
-        // Baseline = the active route's `expectedTravelTime` as returned
-        // when that route was installed (not re-timed here). Candidates
-        // that merely re-time the same road are filtered out by
-        // `routesAreDistinct` inside the decision core.
-        let currentTime = current.expectedTravelTime
+        // Compare like with like: candidates are timed from the rider's
+        // position, so both the baseline and the distinctness check use the
+        // current leg AHEAD of the rider, never the whole installed route.
+        // (Whole-route time + whole-route geometry made a re-timed copy of
+        // the same road look like a distinct, far faster route once the
+        // rider was past 20 % of it.) Current leg only — the candidates
+        // end at this leg's destination.
+        let start = min(max(0, lastSegmentIndex), activeRouteCoordsCache.count - 1)
+        let aheadCoords = Array(activeRouteCoordsCache[start...])
         guard let decision = Self.trafficRerouteDecision(
-            currentBaselineTime: currentTime,
+            fallbackRemainingTime: remainingEta,
             candidates: candidates.map {
                 ($0, $0.expectedTravelTime, $0.polyline.coordinateList())
             },
-            currentCoords: current.polyline.coordinateList(),
+            aheadCoords: aheadCoords,
             savingThreshold: trafficRerouteSavingSeconds
         ) else { return }
 
@@ -1403,46 +1425,61 @@ final class ActiveNavigator {
     /// Pure decision core for the live-traffic reroute — no MapKit calls,
     /// no actor state, fully deterministic so it can be unit-tested and
     /// mirrored in Python (`tools/fake_dash/tests`). Given the current
-    /// route's baseline time and a set of candidate (route, time,
-    /// coords) tuples, decide whether to swap and to which candidate.
+    /// route AHEAD of the rider and a set of candidate (route, time,
+    /// coords) tuples — all timed from the rider's live position — decide
+    /// whether to swap and to which candidate.
+    ///
+    /// Baseline = the REMAINING time on the current road: the time Apple
+    /// just gave a candidate that is the same road ahead (non-distinct;
+    /// the fastest if several), else `fallbackRemainingTime` (the live
+    /// countdown). Never the installed route's whole-trip time — that
+    /// includes the part already ridden, so any re-timed candidate would
+    /// look like a big saving.
     ///
     /// Returns `nil` (DON'T reroute) when:
-    ///   - no candidate is geometrically DISTINCT from the current route
+    ///   - no candidate is geometrically DISTINCT from the road ahead
     ///     (all just re-timings of the same road → nothing to switch to);
     ///   - the fastest DISTINCT candidate doesn't beat the baseline by at
     ///     least `savingThreshold`;
     ///   - the baseline itself is non-finite / non-positive (bad input).
     ///
     /// "Distinct" = the candidate's mid-route geometry diverges from the
-    /// current route by more than `distinctThresholdMeters` at some
+    /// road ahead by more than `distinctThresholdMeters` at some
     /// sampled point — a real different road, not GPS/decimation jitter on
     /// the same one. This is what stops the check from "rerouting" onto an
     /// identical road that Apple merely re-timed 6 minutes faster because
     /// traffic eased (which would needlessly re-bake tiles + flash the
     /// dash for no actual path change).
     static func trafficRerouteDecision(
-        currentBaselineTime: TimeInterval,
+        fallbackRemainingTime: TimeInterval,
         candidates: [(route: MKRoute, time: TimeInterval, coords: [CLLocationCoordinate2D])],
-        currentCoords: [CLLocationCoordinate2D],
+        aheadCoords: [CLLocationCoordinate2D],
         savingThreshold: TimeInterval,
         distinctThresholdMeters: CLLocationDistance = 120
     ) -> (bestIndex: Int, savingSeconds: TimeInterval)? {
-        guard currentBaselineTime.isFinite, currentBaselineTime > 0 else { return nil }
-
-        var bestIdx: Int? = nil
-        var bestTime = currentBaselineTime - savingThreshold  // must beat this
+        var sameRoadTime: TimeInterval? = nil
+        var distinct: [Int] = []
         for (i, cand) in candidates.enumerated() {
             guard cand.time.isFinite, cand.time > 0 else { continue }
-            // Only consider candidates that are a genuinely different road.
-            guard routesAreDistinct(currentCoords, cand.coords,
-                                    thresholdMeters: distinctThresholdMeters) else { continue }
-            if cand.time < bestTime {
-                bestTime = cand.time
-                bestIdx = i
+            if routesAreDistinct(aheadCoords, cand.coords,
+                                 thresholdMeters: distinctThresholdMeters) {
+                distinct.append(i)
+            } else {
+                sameRoadTime = min(sameRoadTime ?? cand.time, cand.time)
             }
         }
+        let baseline = sameRoadTime ?? fallbackRemainingTime
+        guard baseline.isFinite, baseline > 0 else { return nil }
+
+        var bestIdx: Int? = nil
+        var bestTime = baseline - savingThreshold  // must beat this
+        // Only candidates that are a genuinely different road.
+        for i in distinct where candidates[i].time < bestTime {
+            bestTime = candidates[i].time
+            bestIdx = i
+        }
         guard let idx = bestIdx else { return nil }
-        return (idx, currentBaselineTime - candidates[idx].time)
+        return (idx, baseline - candidates[idx].time)
     }
 
     /// True if two coordinate paths represent DIFFERENT roads — i.e. at
