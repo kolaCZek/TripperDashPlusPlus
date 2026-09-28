@@ -317,12 +317,16 @@ final class RouteTileCache {
     static let rollingTrailMeters: CLLocationDistance = 500
 
     /// How far BEHIND the rider (by route offset) a baked composite is
-    /// kept; `bakeAnchors` evicts anything further back. Larger than
-    /// `snapBackwardWindow` (1.5 km, the furthest back the snap can put
-    /// the rider) and `maxTileCentreDistance` (1.8 km, the furthest a
-    /// drawn tile can be), so nothing the renderer can still pick is
-    /// dropped on a forward ride.
-    static let evictBehindMeters: CLLocationDistance = 2000
+    /// kept; `bakeAnchors` evicts anything further back. At least
+    /// `snapForwardWindow` (5 km) + `maxTileCentreDistance` (1.8 km): where
+    /// a route passes near itself the snap can falsely jump up to 5 km
+    /// ahead of the real rider (review C3, not fixed), and the tiles around
+    /// the real position must survive that (review L2). That also covers
+    /// `snapBackwardWindow` (1.5 km). Costs 5 km more of composites held
+    /// than the old 2 km window: ~25 more across the base (main row every
+    /// 700 m + side rows every 1500 m), fine and coarse layers, ~5-12 MB of
+    /// PNG at 0.2-0.5 MB each.
+    static let evictBehindMeters: CLLocationDistance = 7_000
 
     // MARK: - Position-fallback tunables
 

@@ -73,9 +73,9 @@ def distance_point_to_segment(p, a, b) -> float:
     equirectangular projection with p at the origin, clamp t to [0,1]."""
     m_per_deg_lat = 111_320.0
     m_per_deg_lon = 111_320.0 * math.cos(math.radians(p[0]))
-    ax = (a[1] - p[1]) * m_per_deg_lon
+    ax = math.remainder(a[1] - p[1], 360) * m_per_deg_lon
     ay = (a[0] - p[0]) * m_per_deg_lat
-    bx = (b[1] - p[1]) * m_per_deg_lon
+    bx = math.remainder(b[1] - p[1], 360) * m_per_deg_lon
     by = (b[0] - p[0]) * m_per_deg_lat
     dx, dy = bx - ax, by - ay
     seg_len_sq = dx * dx + dy * dy

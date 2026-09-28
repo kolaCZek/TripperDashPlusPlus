@@ -63,12 +63,28 @@ class FakeMapViewSource:
     pending_rebake_in_flight: bool = False
     current_route_id: Optional[int] = None             # currentRoute
     bakes_executed: list[int] = field(default_factory=list)
+    style: str = "light"                                # currentStyle
+    installed_style: Optional[str] = None
+    # Set by a test to run a callback in the middle of the next bake (the
+    # bake is async on the main actor: stop / style / reroute can land).
+    during_bake: list = field(default_factory=list)
+
+    def set_current_route(self, route_id: Optional[int]) -> None:
+        # Mirror of Swift `setCurrentRoute`: also drops a queued rebake.
+        self.current_route_id = route_id
+        self.pending_rebake_route_id = None
+
+    def set_style(self, style: str) -> None:
+        # `setMapStyle` with a reroute bake in flight only records the
+        # palette; the reroute bake re-styles itself.
+        self.style = style
 
     def set_route_polyline(self, route_id: int) -> None:
         self.current_polyline_id = route_id
 
-    def set_tile_cache(self, route_id: Optional[int]) -> None:
+    def set_tile_cache(self, route_id: Optional[int], style: Optional[str] = None) -> None:
         self.current_tile_cache_route_id = route_id
+        self.installed_style = style
 
     def schedule_tile_cache_rebuild(self, route_id: int) -> None:
         # Mirror of Swift `scheduleTileCacheRebuild`: NO app-state gate.
@@ -94,15 +110,30 @@ class FakeMapViewSource:
         self.pending_rebake_in_flight = True
         self.current_route_id = route_id
         baking_for = route_id
-        # ... bake happens here (modelled as instantaneous) ...
+        baked_style = self.style
+        # ... bake happens here; whatever lands meanwhile runs now ...
+        while self.during_bake:
+            self.during_bake.pop(0)()
         self.bakes_executed.append(baking_for)
         self.pending_rebake_in_flight = False
+        # Navigation ended / new ride: checked before any re-bake, which
+        # would set `current_route_id` again (review M1). A queued route that
+        # is the new ride's own start route is the picker's to bake.
+        if self.current_route_id != baking_for:
+            if self.pending_rebake_route_id == self.current_route_id:
+                self.pending_rebake_route_id = None
+            if self.pending_rebake_route_id is not None:
+                self._perform_pending_rebake()
+            return
+        if baked_style != self.style:
+            self._perform_pending_rebake()
+            return
         # Mid-bake new reroute? Recurse with the latest.
         if self.pending_rebake_route_id != baking_for:
             self._perform_pending_rebake()
             return
         self.pending_rebake_route_id = None
-        self.set_tile_cache(baking_for)
+        self.set_tile_cache(baking_for, baked_style)
 
     def picker_prerender_install(self, route_id: int) -> None:
         """Mirror of `MapPickerView.prerenderRouteTiles` finishing its 8 km
@@ -428,10 +459,20 @@ def test_late_bakes_never_install_a_stale_route_or_palette():
     assert "currentRoute === route" in decl_body(src, "func isCurrentRoute(")
     rebake = decl_body(src, "private func performPendingRebake(")
     restyle = rebake.index("if fresh.style != currentStyle {")
-    stale = rebake.index("guard currentRoute === route else { return }")
+    newer = rebake.index("if let latest = pendingRebakeRoute, ObjectIdentifier(latest) != bakingFor {")
+    stale = rebake.index("guard currentRoute === route else {")
     install = rebake.index("setTileCache(fresh, buildLayers: false)")
-    assert rebake.rindex("await fresh.prerender(") < restyle < stale < install
+    # Review M1: the "still navigating this route" check comes BEFORE both
+    # re-bake branches (they set `currentRoute` again).
+    assert rebake.rindex("await fresh.prerender(") < stale < restyle < newer < install
     assert "await performPendingRebake()" in rebake[restyle:restyle + 200]
+    stale_branch = rebake[stale:restyle]
+    assert "if pendingRebakeRoute === currentRoute { pendingRebakeRoute = nil }" in stale_branch
+    assert "if pendingRebakeRoute != nil { await performPendingRebake() }" in stale_branch
+    assert "return" in stale_branch
+    # Stop / free ride / ride start all clear the queued rebake.
+    set_route = decl_body(src, "func setCurrentRoute(")
+    assert "currentRoute = route" in set_route and "pendingRebakeRoute = nil" in set_route
     style = decl_body(src, "private func performStyleRebake(")
     assert "guard style == currentStyle, currentRoute === route else { return }" in style
     # No parallel style bake while a reroute bake runs (it re-styles itself).
@@ -491,3 +532,92 @@ def test_style_rebake_uses_short_window_and_keeps_fine():
     assert "fresh.prerender(route: route, around: coord)" in style
     guard = style.index("guard style == currentStyle, currentRoute === route else { return }")
     assert guard < style.index("buildFineLayer(route: route, around: coord)")
+
+
+# --- Late bakes after End / new ride (review M1) ---------------------------
+
+
+def _navigating_with_reroute_in_flight():
+    src = FakeMapViewSource(app_state=AppState.BACKGROUND)
+    src.set_current_route(1)
+    src.set_tile_cache(1, "light")
+    return src
+
+
+def test_end_then_palette_switch_mid_bake_does_not_resurrect_the_route():
+    """Review M1: End mid-reroute-bake, then Auto flips to Dark at dusk.
+    The old order re-baked for the palette first, which set
+    `currentRoute` back to the ended route and installed its tiles."""
+    src = _navigating_with_reroute_in_flight()
+
+    def end_ride_then_dusk():
+        src.set_current_route(None)      # stopNavigation / free ride
+        src.set_tile_cache(None)
+        src.set_style("dark")
+
+    src.during_bake.append(end_ride_then_dusk)
+    src.schedule_tile_cache_rebuild(2)
+    assert src.current_route_id is None
+    assert src.current_tile_cache_route_id is None
+    assert src.bakes_executed == [2]
+    assert src.pending_rebake_route_id is None
+    src.did_become_active()              # the drain has nothing to revive
+    assert src.current_route_id is None and src.bakes_executed == [2]
+
+
+def test_end_then_queued_reroute_mid_bake_is_dropped():
+    """A reroute queued mid-bake, then End: `setCurrentRoute(nil)` drops the
+    queued route too, so neither the recursion nor the didBecomeActive
+    drain bakes a ride that ended."""
+    src = _navigating_with_reroute_in_flight()
+
+    def reroute_then_end():
+        src.schedule_tile_cache_rebuild(3)   # coalesces (bake in flight)
+        src.set_current_route(None)
+        src.set_tile_cache(None)
+
+    src.during_bake.append(reroute_then_end)
+    src.schedule_tile_cache_rebuild(2)
+    assert src.current_route_id is None
+    assert src.current_tile_cache_route_id is None
+    assert src.bakes_executed == [2]
+    src.did_become_active()
+    assert src.bakes_executed == [2]
+
+
+def test_new_ride_mid_bake_keeps_the_new_ride_and_its_reroute():
+    """End + start a new ride while a reroute bake of the old one runs. The
+    old bake installs nothing; the new ride's start route is the picker's
+    prerender (not re-baked here); a reroute of the new ride, queued during
+    the old bake, still gets baked for the new ride."""
+    src = _navigating_with_reroute_in_flight()
+
+    def new_ride_with_reroute():
+        src.set_current_route(10)            # picker installRouteGeometrySync
+        src.schedule_tile_cache_rebuild(11)  # new ride reroutes, coalesces
+
+    src.during_bake.append(new_ride_with_reroute)
+    src.schedule_tile_cache_rebuild(2)
+    assert src.bakes_executed == [2, 11]
+    assert src.current_route_id == 11
+    assert src.current_tile_cache_route_id == 11
+
+    src2 = _navigating_with_reroute_in_flight()
+
+    def new_ride_only():
+        src2.set_current_route(10)
+        src2.schedule_tile_cache_rebuild(10)  # route-changed hook, same route
+
+    src2.during_bake.append(new_ride_only)
+    src2.schedule_tile_cache_rebuild(2)
+    assert src2.bakes_executed == [2]        # picker's prerender bakes 10
+    assert src2.current_route_id == 10
+    assert src2.current_tile_cache_route_id == 1  # untouched by the stale bake
+
+
+def test_palette_switch_mid_bake_still_rebakes_while_navigating():
+    src = _navigating_with_reroute_in_flight()
+    src.during_bake.append(lambda: src.set_style("dark"))
+    src.schedule_tile_cache_rebuild(2)
+    assert src.bakes_executed == [2, 2]
+    assert (src.current_tile_cache_route_id, src.installed_style) == (2, "dark")

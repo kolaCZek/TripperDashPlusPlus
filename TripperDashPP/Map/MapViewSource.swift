@@ -648,8 +648,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// the new palette around the rider. Called by the picker right after
     /// it builds the initial tile cache for `route`, and by the reroute
     /// path. Pass nil when navigation stops.
+    /// Also drops any reroute bake queued for the previous route: stop, free
+    /// ride and ride start all come through here, and a queued route of a
+    /// ride that ended must never be baked (it would reinstall that ride).
     func setCurrentRoute(_ route: MKRoute?) {
         currentRoute = route
+        pendingRebakeRoute = nil
     }
 
     /// Whether `route` is still the route the renderer bakes for. The
@@ -880,6 +884,20 @@ final class MapViewSource: NSObject, FrameSource {
             await fresh.prerender(route: route) { _ in }
         }
         pendingRebakeInFlight = false
+        // Navigation ended (arrival → free ride, stop) or a new ride took
+        // over while we were baking: this corridor is no longer wanted.
+        // Checked BEFORE the re-bake branches below — they set
+        // `currentRoute` again, so running them first would bring a stopped
+        // route back (review M1: End mid-bake + a dusk palette switch).
+        // `setCurrentRoute` already dropped what was queued for the old
+        // ride; anything queued since is for the new ride. Its own start
+        // route is baked by the picker's prerender (same rule as the idle
+        // guard in `scheduleTileCacheRebuild`); only a reroute of it is ours.
+        guard currentRoute === route else {
+            if pendingRebakeRoute === currentRoute { pendingRebakeRoute = nil }
+            if pendingRebakeRoute != nil { await performPendingRebake() }
+            return
+        }
         // If a newer route was scheduled while we were baking, throw
         // this one away and recurse — fresh data wins. Same for a palette
         // switch mid-bake: installing `fresh` would put the old palette
@@ -896,9 +914,6 @@ final class MapViewSource: NSObject, FrameSource {
             return
         }
         pendingRebakeRoute = nil
-        // Navigation ended (arrival → free ride, stop) or a new ride took
-        // over while we were baking: this corridor is no longer wanted.
-        guard currentRoute === route else { return }
         // No sibling layers on a mid-ride route change. The fine z=16 layer
         // is the heaviest bake (7×7 distinct tiles per composite): zoomed
         // all the way in, the renderer falls back to the base z=15 layer.

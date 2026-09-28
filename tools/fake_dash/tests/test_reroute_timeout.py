@@ -91,6 +91,24 @@ def test_swift_route_request_is_raced_against_a_timeout():
     assert "throw RoutingError.timedOut(seconds: timeout)" in race
 
 
+def test_swift_route_race_cancels_timer_and_stays_on_main():
+    """Review L3: MapKit's reply cancels the timeout Task (none left
+    sleeping per request), and the reply is handled in place on main
+    (MapKit documents the handler runs on the main thread) rather than
+    hopping through a Task with the non-Sendable response."""
+    routing = _src("Navigation/RoutingService.swift")
+    race = decl_body(routing, "private static func calculate(")
+    assert "race.timeoutTask = Task { @MainActor in" in race
+    assert "guard !Task.isCancelled, race.waiter != nil else { return }" in race
+    handler = race[race.index("directions.calculate { response, error in"):]
+    assert handler.lstrip().split("\n")[1].strip() == "MainActor.assumeIsolated {"
+    assert "Task {" not in handler
+    finish = decl_body(routing, "func finish(")
+    assert "timeoutTask?.cancel()" in finish
+    # The timer is armed before the request, so a reply can always cancel it.
+    assert race.index("race.timeoutTask = Task") < race.index("directions.calculate {")
+
+
 def test_swift_navigator_hooks_use_timeout_and_offroute_skips_alternates():
     app = _src("App/AppStatus.swift")
     offroute = decl_body(app, "activeNavigator.onRerouteRequested = {")

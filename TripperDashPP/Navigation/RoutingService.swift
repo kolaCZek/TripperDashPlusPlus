@@ -114,24 +114,30 @@ final class RoutingService {
     /// task-group race — the async `calculate()` ignores task cancellation,
     /// so a group would still wait for MapKit's reply.
     /// ponytail: a late MapKit reply after the timeout is simply dropped.
+    ///
+    /// MapKit runs the completion handler on the main thread (documented
+    /// for `calculate(completionHandler:)`), so it handles the reply in
+    /// place instead of hopping through a Task — no extra main-actor hop,
+    /// and the non-Sendable response never crosses isolation. The reply
+    /// cancels the timer (`finish`), so no sleeping Task outlives a request.
     private static func calculate(_ directions: MKDirections,
                                   timeout: TimeInterval) async throws -> MKDirections.Response {
         let race = DirectionsRace()
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             race.waiter = cont
+            race.timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+                guard !Task.isCancelled, race.waiter != nil else { return }
+                race.timedOut = true
+                directions.cancel()
+                race.finish()
+            }
             directions.calculate { response, error in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     race.response = response
                     race.error = error
                     race.finish()
                 }
-            }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
-                guard race.waiter != nil else { return }
-                race.timedOut = true
-                directions.cancel()
-                race.finish()
             }
         }
         if race.timedOut { throw RoutingError.timedOut(seconds: timeout) }
@@ -211,10 +217,13 @@ private final class DirectionsRace {
     var error: Error?
     var timedOut = false
     var waiter: CheckedContinuation<Void, Never>?
+    var timeoutTask: Task<Void, Never>?
 
     func finish() {
         waiter?.resume()
         waiter = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
     }
 }
 

@@ -103,6 +103,10 @@ nonisolated struct SegmentGrid: Sendable {
     private let lines: [[CLLocationCoordinate2D]]
     private let originLat: Double
     private let originLon: Double
+    /// Longitudes are unwrapped around this one (`unwrapLongitude`), so data across
+    /// the antimeridian stays one contiguous block instead of a grid ~360°
+    /// wide (review N1).
+    private let refLon: Double
     private let cellLatDeg: Double
     private let cellLonDeg: Double
     private let cells: [Int: [SegRef]]
@@ -113,13 +117,14 @@ nonisolated struct SegmentGrid: Sendable {
     /// Buckets every segment of `lines` into each cell its lat/lon bounding
     /// box overlaps. Lines with < 2 points are skipped (as in the full scan).
     init(lines: [[CLLocationCoordinate2D]]) {
-        var minLat = 90.0, maxLat = -90.0, minLon = 180.0
+        let ref = lines.first { $0.count >= 2 }?[0].longitude ?? 0
+        var minLat = 90.0, maxLat = -90.0, minLon = Double.infinity
         var segCount = 0
         for line in lines where line.count >= 2 {
             for c in line {
                 minLat = min(minLat, c.latitude)
                 maxLat = max(maxLat, c.latitude)
-                minLon = min(minLon, c.longitude)
+                minLon = min(minLon, SpeedLimitService.unwrapLongitude(c.longitude, near: ref))
             }
             segCount += line.count - 1
         }
@@ -136,8 +141,10 @@ nonisolated struct SegmentGrid: Sendable {
                 let a = line[i], b = line[i + 1]
                 let r0 = Self.index(min(a.latitude, b.latitude), minLat, latDeg)
                 let r1 = Self.index(max(a.latitude, b.latitude), minLat, latDeg)
-                let c0 = Self.index(min(a.longitude, b.longitude), minLon, lonDeg)
-                let c1 = Self.index(max(a.longitude, b.longitude), minLon, lonDeg)
+                let aLon = SpeedLimitService.unwrapLongitude(a.longitude, near: ref)
+                let bLon = SpeedLimitService.unwrapLongitude(b.longitude, near: ref)
+                let c0 = Self.index(min(aLon, bLon), minLon, lonDeg)
+                let c1 = Self.index(max(aLon, bLon), minLon, lonDeg)
                 let ref = SegRef(line: Int32(li), seg: Int32(i))
                 for r in r0...r1 {
                     for c in c0...c1 {
@@ -149,6 +156,7 @@ nonisolated struct SegmentGrid: Sendable {
         self.lines = lines
         self.originLat = minLat
         self.originLon = minLon
+        self.refLon = ref
         self.cellLatDeg = latDeg
         self.cellLonDeg = lonDeg
         self.cells = buckets
@@ -170,8 +178,9 @@ nonisolated struct SegmentGrid: Sendable {
     /// global nearest (see type doc) — the caller must then full-scan.
     func nearestWithinWindow(to p: CLLocationCoordinate2D) -> Hit? {
         guard segmentCount > 0 else { return nil }
+        let lon = SpeedLimitService.unwrapLongitude(p.longitude, near: refLon)
         let r0 = Self.index(p.latitude, originLat, cellLatDeg)
-        let c0 = Self.index(p.longitude, originLon, cellLonDeg)
+        let c0 = Self.index(lon, originLon, cellLonDeg)
         var best: Hit?
         var bestSeg = 0
         for r in (r0 - 1)...(r0 + 1) {
@@ -203,8 +212,8 @@ nonisolated struct SegmentGrid: Sendable {
         let east = originLon + Double(c0 + 2) * cellLonDeg
         let radius = min((p.latitude - south) * mPerDegLat,
                          (north - p.latitude) * mPerDegLat,
-                         (p.longitude - west) * mPerDegLon,
-                         (east - p.longitude) * mPerDegLon)
+                         (lon - west) * mPerDegLon,
+                         (east - lon) * mPerDegLon)
         return hit.distanceMeters < radius - 0.5 ? hit : nil
     }
 }
@@ -334,9 +343,12 @@ actor SpeedLimitService {
         let mPerDegLon = 111_320.0 * cos(p.latitude * .pi / 180)
         // Project to local metres with `p` at the origin.
         let px = 0.0, py = 0.0
-        let ax = (a.longitude - p.longitude) * mPerDegLon
+        // `remainder(_, 360)` wraps the longitude delta into ±180° so a
+        // road across the antimeridian (Taveuni, Chukotka) measures metres,
+        // not the long way round. Exact no-op for every |Δlon| < 180°.
+        let ax = remainder(a.longitude - p.longitude, 360) * mPerDegLon
         let ay = (a.latitude - p.latitude) * mPerDegLat
-        let bx = (b.longitude - p.longitude) * mPerDegLon
+        let bx = remainder(b.longitude - p.longitude, 360) * mPerDegLon
         let by = (b.latitude - p.latitude) * mPerDegLat
 
         let dx = bx - ax, dy = by - ay
@@ -448,18 +460,32 @@ actor SpeedLimitService {
         }
     }
 
+    /// `lon` shifted by a whole turn when it is more than 180° from `ref`,
+    /// so points either side of the antimeridian compare as neighbours.
+    /// Returns `lon` itself (bit for bit) everywhere else.
+    nonisolated static func unwrapLongitude(_ lon: Double, near ref: Double) -> Double {
+        if lon - ref > 180 { return lon - 360 }
+        if lon - ref < -180 { return lon + 360 }
+        return lon
+    }
+
+    /// A route across the antimeridian gets `west > east`, which Overpass
+    /// reads as the box that wraps through ±180° (instead of a band round
+    /// the whole planet). Identical to a plain min/max box everywhere else.
     nonisolated static func boundingBox(of coords: [CLLocationCoordinate2D],
                                         bufferMeters: Double) -> BBox {
-        var minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0
+        let ref = coords.first?.longitude ?? 0
+        var minLat = 90.0, maxLat = -90.0, minLon = Double.infinity, maxLon = -Double.infinity
         for c in coords {
+            let lon = unwrapLongitude(c.longitude, near: ref)
             minLat = min(minLat, c.latitude);  maxLat = max(maxLat, c.latitude)
-            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+            minLon = min(minLon, lon);         maxLon = max(maxLon, lon)
         }
         let latBuf = bufferMeters / 111_320.0
         let midLat = (minLat + maxLat) / 2
         let lonBuf = bufferMeters / (111_320.0 * max(0.01, cos(midLat * .pi / 180)))
-        return BBox(south: minLat - latBuf, west: minLon - lonBuf,
-                    north: maxLat + latBuf, east: maxLon + lonBuf)
+        return BBox(south: minLat - latBuf, west: remainder(minLon - lonBuf, 360),
+                    north: maxLat + latBuf, east: remainder(maxLon + lonBuf, 360))
     }
 
     // MARK: - Disk cache

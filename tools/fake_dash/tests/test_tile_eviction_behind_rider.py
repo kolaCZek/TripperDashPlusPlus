@@ -79,6 +79,11 @@ def test_nothing_the_renderer_can_still_pick_is_evicted():
     is evicted while still in use (or evicted and re-baked every pass)."""
     for name in ("snapBackwardWindow", "maxTileCentreDistance", "rollingTrailMeters"):
         assert _const(name) < _const("evictBehindMeters"), name
+    # Review L2: a false forward snap (route passing near itself, C3 not
+    # fixed) can put `lastRiderRouteOffset` up to `snapForwardWindow` ahead
+    # of the real rider; the tiles within `maxTileCentreDistance` of the
+    # real position must survive it.
+    assert _const("evictBehindMeters") >= _const("snapForwardWindow") + _const("maxTileCentreDistance")
 
     anchors = _corridor(20)
     baked = {i: i for i in range(len(anchors))}
@@ -102,3 +107,16 @@ def test_swift_bake_anchors_matches_mirror():
     assert "tileRowKind = sortedIdxs.map { allAnchors[$0].lateralRow }" in tail
     assert "tileAnchorIndex = sortedIdxs" in tail
     assert "tiles.reduce(0) { $0 + $1.jpeg.count }" in tail
+
+
+def test_false_forward_snap_keeps_tiles_around_the_real_rider():
+    """Review L2: the snap jumps 5 km ahead on a loop; the real rider is
+    still at 10 km, so every tile within 1.8 km of 10 km must stay baked."""
+    anchors = _corridor(30)
+    baked = {i: i for i in range(len(anchors))}
+    real = 10_000.0
+    false_snap = real + _const("snapForwardWindow")
+    evicted, *_ = evict_and_rebuild(baked, anchors, set(), false_snap)
+    reach = _const("maxTileCentreDistance")
+    needed = [i for i, a in enumerate(anchors) if abs(a[0] - real) <= reach]
+    assert needed and not set(needed) & set(evicted)
