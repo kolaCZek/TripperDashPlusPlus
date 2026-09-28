@@ -48,6 +48,7 @@
 
 import CoreGraphics
 import CoreLocation
+import CoreText
 import Foundation
 import ImageIO
 import MapKit
@@ -62,7 +63,10 @@ import UIKit
 /// memory savings on a 256-colour-palette PNG). Renamed inside
 /// `MapViewSource` would ripple too far; the name is internal and
 /// the contents are still self-describing image data.
-struct RouteTile: Sendable {
+///
+/// `nonisolated`: built off the main actor by `RouteTileCache.composite`
+/// and handed back to it; a plain immutable value.
+nonisolated struct RouteTile: Sendable {
     /// Center coordinate of the tile composite.
     let center: CLLocationCoordinate2D
     /// Geographic extent the tile covers (informational only —
@@ -92,6 +96,84 @@ struct RouteTile: Sendable {
     /// isn't drawn tiny and a fine tile isn't drawn huge — the on-screen
     /// ground scale stays consistent across layers.
     let osmZoom: Int
+}
+
+/// Decoded 256² source tiles shared by every composite build, so the
+/// overlapping composites of one corridor (each z=15 tile sits in ~8 of
+/// them) decode it once instead of once per composite. Keyed by (z, x, y)
+/// only: raw tiles are palette-independent — the dark recolour runs on the
+/// whole stitched bitmap afterwards (`composite` → `stitch`), and both
+/// palettes share one disk namespace (`MapStyle.tileCacheNamespace`).
+/// NSCache is thread-safe; the composites that use it run off the main
+/// actor, several at a time.
+nonisolated final class DecodedTileCache: @unchecked Sendable {
+    static let shared = DecodedTileCache()
+
+    /// ~64 tiles × 256 KB ≈ 16 MB.
+    static let maxTiles = 64
+
+    private let cache = NSCache<NSString, CGImage>()
+
+    init() {
+        cache.countLimit = Self.maxTiles
+        cache.totalCostLimit = Self.maxTiles * WebMercator.tilePixels * WebMercator.tilePixels * 4
+    }
+
+    func image(z: Int, x: Int, y: Int) -> CGImage? {
+        cache.object(forKey: Self.key(z: z, x: x, y: y))
+    }
+
+    func insert(_ image: CGImage, z: Int, x: Int, y: Int) {
+        cache.setObject(image, forKey: Self.key(z: z, x: x, y: y), cost: image.bytesPerRow * image.height)
+    }
+
+    /// Decode PNG bytes now (not lazily at draw time), so the cached
+    /// CGImage holds the pixels and a hit really skips the decode.
+    static func decode(_ data: Data) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        return CGImageSourceCreateImageAtIndex(src, 0, options)
+    }
+
+    private static func key(z: Int, x: Int, y: Int) -> NSString {
+        "\(z)/\(x)/\(y)" as NSString
+    }
+}
+
+/// Process-wide cap on composites being stitched at once (the CPU part:
+/// CGContext, recolour, PNG encode — each holds a 6.5-12.8 MB bitmap).
+/// While stitching ran on the main actor only one could run at a time,
+/// whatever the number of caches baking; off the main actor the base, a
+/// reroute bake, the fine layer and the rescue tile could otherwise all
+/// stitch together. Tile fetches are not gated — waiting on the network
+/// must not hold a slot.
+actor CompositeGate {
+    nonisolated static let shared = CompositeGate(limit: RouteTileCache.parallelism)
+
+    private let limit: Int
+    private var running = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func acquire() async {
+        if running < limit {
+            running += 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Hands the slot straight to the oldest waiter, if any.
+    func release() {
+        if waiters.isEmpty {
+            running -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
 }
 
 /// Container + builder for `RouteTile`s along an `MKRoute`.
@@ -155,14 +237,15 @@ final class RouteTileCache {
     /// Composite geographic extent — informational only (feeds
     /// `RouteTile.region`). Real geometry comes from `pxPerDeg`. MapKit-era
     /// value; an OSM composite actually spans ~3.9 km at z=15.
-    static let tileSpanMeters: CLLocationDistance = 1200
+    nonisolated static let tileSpanMeters: CLLocationDistance = 1200
 
     /// Max parallel composites being assembled. Each composite waits
     /// on up to 25 OSM tile fetches; capping the OUTER loop at 3
     /// composites in flight gives the fetcher's 4-way HTTP gate
     /// some breathing room and prevents progress from going
-    /// "0% … 0% … 0% … 100%" in chunks.
-    static let parallelism = 3
+    /// "0% … 0% … 0% … 100%" in chunks. Also the process-wide stitch cap
+    /// (`CompositeGate`).
+    nonisolated static let parallelism = 3
 
     /// Most anchors a single `extend()` will queue for baking.
     ///
@@ -241,9 +324,17 @@ final class RouteTileCache {
     /// margin so a temporary stop or u-turn doesn't immediately
     /// drop the trailing tile, which would look bad to the rider
     /// (renderer would fall back to dark territory directly behind
-    /// them). We don't actively evict — this just protects against
-    /// a future eviction policy.
+    /// them). Must stay below `evictBehindMeters`, or `extend` would
+    /// re-bake what `bakeAnchors` just evicted.
     static let rollingTrailMeters: CLLocationDistance = 500
+
+    /// How far BEHIND the rider (by route offset) a baked composite is
+    /// kept; `bakeAnchors` evicts anything further back. Larger than
+    /// `snapBackwardWindow` (1.5 km, the furthest back the snap can put
+    /// the rider) and `maxTileCentreDistance` (1.8 km, the furthest a
+    /// drawn tile can be), so nothing the renderer can still pick is
+    /// dropped on a forward ride.
+    static let evictBehindMeters: CLLocationDistance = 2000
 
     // MARK: - Position-fallback tunables
 
@@ -602,8 +693,8 @@ final class RouteTileCache {
 
         let frontEdge = snappedOffset + lookaheadMeters
         // Also keep a small backwards margin so a rider who briefly
-        // stops or reverses doesn't see the trailing tiles get pruned
-        // (we don't prune at all yet, but the principle stays valid).
+        // stops or reverses keeps the tiles just behind them (eviction in
+        // `bakeAnchors` only starts at `evictBehindMeters`).
         let backEdge = max(0, snappedOffset - Self.rollingTrailMeters)
 
         let candidateIndices = anchorIndices(withinOffsetRange: backEdge...frontEdge)
@@ -670,6 +761,8 @@ final class RouteTileCache {
         for i in indices { inFlight.insert(i) }
         let total = indices.count
         var completed = 0
+        // Sendable snapshots for the off-main children (no `self` in them).
+        let z = zoom, g = gridSide, style = self.style
 
         await withTaskGroup(of: (Int, RouteTile?).self) { group in
             var nextSlot = 0
@@ -678,9 +771,8 @@ final class RouteTileCache {
                 let i = indices[nextSlot]
                 nextSlot += 1
                 let center = allAnchors[i].coord
-                let style = self.style
-                group.addTask { @MainActor in
-                    let tile = await self.composite(center: center, style: style)
+                group.addTask {
+                    let tile = await RouteTileCache.composite(center: center, zoom: z, gridSide: g, style: style)
                     return (i, tile)
                 }
             }
@@ -695,26 +787,20 @@ final class RouteTileCache {
                     let i = indices[nextSlot]
                     nextSlot += 1
                     let center = allAnchors[i].coord
-                    let style = self.style
                     // Yield before queueing the next composite so the main
                     // actor can service anything waiting behind us.
                     //
-                    // `composite` is @MainActor and does real CPU work
-                    // (CGContext setup, ~49 PNG decodes and blits, the dark
-                    // palette's vImage colour matrix). Back-to-back tiles
-                    // therefore hold the main actor for as long as the batch
-                    // takes, which starves the RTP metrics timer and the
-                    // CoreLocation delivery hop — visible on the 2026-09-02
-                    // ride as hops of 1.7-2.5 s and RTP dropping to 0 fps
-                    // during heavy bake windows.
-                    //
-                    // A yield does not make baking cheaper or move it off the
-                    // main actor; it just stops one batch monopolising it, so
-                    // the stream keeps flowing while tiles are produced
-                    // slightly slower.
+                    // The stitch itself now runs off the main actor (see the
+                    // static `composite`), but installing each result and
+                    // queueing the next still hop here; back-to-back hops
+                    // were what starved the RTP metrics timer and the
+                    // CoreLocation delivery hop on the 2026-09-02 ride
+                    // (hops of 1.7-2.5 s, RTP at 0 fps during heavy bake
+                    // windows, back when the stitch ran on main). Kept as
+                    // cheap insurance.
                     await Task.yield()
-                    group.addTask { @MainActor in
-                        let tile = await self.composite(center: center, style: style)
+                    group.addTask {
+                        let tile = await RouteTileCache.composite(center: center, zoom: z, gridSide: g, style: style)
                         return (i, tile)
                     }
                 }
@@ -738,6 +824,21 @@ final class RouteTileCache {
         // a full scan when the hint doesn't land within tileSpan/2,
         // so correctness is preserved — the cost is one extra full
         // scan per batch, well under one frame.
+        //
+        // Evict first: composites more than `evictBehindMeters` behind the
+        // rider (by route offset) are never drawn again on a forward ride,
+        // and on a long ride they were the whole of the cache's growth
+        // (each is a 0.2-0.5 MB PNG). `tiles` / `tileRowKind` /
+        // `tileAnchorIndex` are rebuilt from `bakedTileByIndex` just below,
+        // so dropping the key here keeps all four consistent. Its decoded
+        // image goes too; an evicted anchor that comes back into the
+        // `extend` window (a U-turn) is simply baked again.
+        let evictBefore = lastRiderRouteOffset - Self.evictBehindMeters
+        let evicted = bakedTileByIndex.keys.filter { allAnchors[$0].routeOffsetMeters < evictBefore }
+        for idx in evicted {
+            bakedTileByIndex.removeValue(forKey: idx)
+            imageCache.removeObject(forKey: NSNumber(value: idx))
+        }
         let sortedIdxs = bakedTileByIndex.keys.sorted { a, b in
             let aa = allAnchors[a]
             let bb = allAnchors[b]
@@ -754,7 +855,8 @@ final class RouteTileCache {
         // (A position key would hand back the picture of some other anchor
         // after the shuffle: right pixels, wrong place.)
         tileAnchorIndex = sortedIdxs
-        log.info("Baked batch: \(completed, privacy: .public) anchors, total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public)")
+        let compositeBytes = tiles.reduce(0) { $0 + $1.jpeg.count }
+        log.info("Baked batch: \(completed, privacy: .public) anchors, evicted \(evicted.count, privacy: .public), total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public), \(compositeBytes / 1024, privacy: .public) KB")
     }
 
     /// Build the full anchor list for `route` — every main anchor
@@ -1169,6 +1271,13 @@ final class RouteTileCache {
 
     // MARK: - Composite rendering
 
+    /// Fetch + stitch an OSM tile composite centered on `center`, at THIS
+    /// layer's zoom and grid side. Thin main-actor wrapper: the work runs
+    /// off the main actor in the static `composite` below.
+    private func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
+        await Self.composite(center: center, zoom: zoom, gridSide: gridSide, style: style)
+    }
+
     /// Fetch + stitch an OSM tile composite centered on `center`.
     ///
     /// Algorithm:
@@ -1189,12 +1298,22 @@ final class RouteTileCache {
     /// Geometry is fully deterministic — no probe, no measure. The
     /// renderer in `MapViewSource` reads `pxPerDeg` and `centerPixel`
     /// from the returned tile and gets pixel-exact results.
-    private func composite(center: CLLocationCoordinate2D, style: MapStyle) async -> RouteTile? {
-        let z = zoom
-        let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
-        let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
-        let bitmapSize = tilePixels
-
+    ///
+    /// Runs OFF the main actor (`@concurrent`): the stitch (CGContext
+    /// setup, ~25-49 PNG decodes and blits, the dark palette's vImage
+    /// colour matrix, the PNG encode) used to hold the main actor for the
+    /// whole bake, starving the RTP stream and the CoreLocation hop. Takes
+    /// only Sendable values and touches no cache state — the caller
+    /// (`bakeAnchors` / `ensurePositionFallback`, on the main actor)
+    /// installs the returned tile. Everything it calls is nonisolated too:
+    /// `WebMercator`, `MapStyle`, `TileColorTransform`, `DecodedTileCache`,
+    /// `drawAttribution`, and the `TileDiskCache` / `OSMTileFetcher` actors.
+    @concurrent nonisolated private static func composite(
+        center: CLLocationCoordinate2D,
+        zoom z: Int,
+        gridSide: Int,
+        style: MapStyle
+    ) async -> RouteTile? {
         // Fractional tile coords for the center. `WebMercator.tile` is
         // NaN-hardened: a non-finite coordinate used to trap in the
         // `Int(floor(fx))` below, which is a hard process kill.
@@ -1206,20 +1325,6 @@ final class RouteTileCache {
         let half = gridSide / 2
         let tlx = Int(floor(fx)) - half
         let tly = Int(floor(fy)) - half
-
-        // Pixel offset of the requested center inside the assembled
-        // bitmap, if we drew tile (tlx, tly) at (0, 0):
-        //   centerPxInBlock_x = (fx - tlx) * 256
-        //   centerPxInBlock_y = (fy - tly) * 256
-        // We want the center to land at the bitmap midpoint
-        // (bitmapSize/2, bitmapSize/2), so the paint offset is:
-        //   paintOffsetX = bitmapSize/2 - centerPxInBlock_x
-        // Same for Y. Tiles drawn at (paintOffsetX + tx*256, paintOffsetY + ty*256)
-        // for tx, ty in 0..<gridSide.
-        let centerPxInBlockX = (fx - Double(tlx)) * Double(WebMercator.tilePixels)
-        let centerPxInBlockY = (fy - Double(tly)) * Double(WebMercator.tilePixels)
-        let paintOffsetX = Double(bitmapSize) / 2.0 - centerPxInBlockX
-        let paintOffsetY = Double(bitmapSize) / 2.0 - centerPxInBlockY
 
         // Fetch all gridSide² (25 at gridSide=5) tiles in parallel. Each call
         // hits TileDiskCache first then OSMTileFetcher; misses are
@@ -1235,9 +1340,8 @@ final class RouteTileCache {
         // (candidates: `zoom` changing between bakes so the (z,x,y) key
         // never matches, or eviction running between rides). Counted
         // AFTER collection (below), not mutated from inside the
-        // concurrent `addTask` closures — those aren't MainActor-isolated
-        // here, so a shared var would be a data race under strict
-        // concurrency.
+        // concurrent `addTask` closures — a shared var would be a data
+        // race under strict concurrency.
         let tilesData: [(tx: Int, ty: Int, data: Data?, wasCacheHit: Bool)] = await withTaskGroup(
             of: (Int, Int, Data?, Bool).self
         ) { group in
@@ -1278,6 +1382,52 @@ final class RouteTileCache {
             return nil
         }
 
+        // Only the CPU part is gated (see `CompositeGate`); the fetches
+        // above never hold a slot. `stitch` is synchronous and cannot
+        // throw, so the slot is always released.
+        await CompositeGate.shared.acquire()
+        let tile = stitch(
+            center: center, zoom: z, gridSide: gridSide, style: style,
+            tlx: tlx, tly: tly, fx: fx, fy: fy,
+            tiles: tilesData.map { (tx: $0.tx, ty: $0.ty, data: $0.data) }
+        )
+        await CompositeGate.shared.release()
+        return tile
+    }
+
+    /// CPU half of `composite`: paint the fetched tiles into one bitmap,
+    /// recolour, stamp attribution, PNG-encode. Synchronous; its only
+    /// shared state is the thread-safe `DecodedTileCache`.
+    nonisolated private static func stitch(
+        center: CLLocationCoordinate2D,
+        zoom z: Int,
+        gridSide: Int,
+        style: MapStyle,
+        tlx: Int,
+        tly: Int,
+        fx: Double,
+        fy: Double,
+        tiles tilesData: [(tx: Int, ty: Int, data: Data?)]
+    ) -> RouteTile? {
+        let pxPerDegLon = WebMercator.pixelsPerDegreeLongitude(zoom: z)
+        let pxPerDegLat = WebMercator.pixelsPerDegreeLatitude(latitude: center.latitude, zoom: z)
+        // Same derivation as the instance `tilePixels` (Pitfall 11).
+        let bitmapSize = gridSide * WebMercator.tilePixels
+
+        // Pixel offset of the requested center inside the assembled
+        // bitmap, if we drew tile (tlx, tly) at (0, 0):
+        //   centerPxInBlock_x = (fx - tlx) * 256
+        //   centerPxInBlock_y = (fy - tly) * 256
+        // We want the center to land at the bitmap midpoint
+        // (bitmapSize/2, bitmapSize/2), so the paint offset is:
+        //   paintOffsetX = bitmapSize/2 - centerPxInBlock_x
+        // Same for Y. Tiles drawn at (paintOffsetX + tx*256, paintOffsetY + ty*256)
+        // for tx, ty in 0..<gridSide.
+        let centerPxInBlockX = (fx - Double(tlx)) * Double(WebMercator.tilePixels)
+        let centerPxInBlockY = (fy - Double(tly)) * Double(WebMercator.tilePixels)
+        let paintOffsetX = Double(bitmapSize) / 2.0 - centerPxInBlockX
+        let paintOffsetY = Double(bitmapSize) / 2.0 - centerPxInBlockY
+
         // Assemble into one bitmap. Background light grey (matches
         // OSM Carto land color, so missing tiles blend in instead
         // of glaring as black holes).
@@ -1310,10 +1460,18 @@ final class RouteTileCache {
         ctx.scaleBy(x: 1, y: -1)
 
         for entry in tilesData {
-            guard let data = entry.data,
-                  let imgSrc = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cgImg = CGImageSourceCreateImageAtIndex(imgSrc, 0, nil) else {
-                continue
+            guard let data = entry.data else { continue }
+            // Decoded-tile cache first: neighbouring composites share
+            // most of their source tiles, so most lookups are hits.
+            let absX = tlx + entry.tx
+            let absY = tly + entry.ty
+            let cgImg: CGImage
+            if let hit = DecodedTileCache.shared.image(z: z, x: absX, y: absY) {
+                cgImg = hit
+            } else {
+                guard let decoded = DecodedTileCache.decode(data) else { continue }
+                DecodedTileCache.shared.insert(decoded, z: z, x: absX, y: absY)
+                cgImg = decoded
             }
             let x = paintOffsetX + Double(entry.tx * WebMercator.tilePixels)
             let y = paintOffsetY + Double(entry.ty * WebMercator.tilePixels)
@@ -1362,14 +1520,28 @@ final class RouteTileCache {
         guard let outImage = ctx.makeImage() else { return nil }
 
         // PNG encode (lossless; OSM Carto's palette compresses well — typical composite is
-        // 200-500 KB).
-        let uiImage = UIImage(cgImage: outImage, scale: 1.0, orientation: .up)
-        guard let png = uiImage.pngData() else { return nil }
+        // 200-500 KB). ImageIO rather than `UIImage.pngData()`: no UIKit
+        // off the main actor.
+        let pngBuffer = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(pngBuffer as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(dest, outImage, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        let png = pngBuffer as Data
 
+        // Plain C-struct inits rather than MapKit's
+        // `init(center:latitudinalMeters:longitudinalMeters:)`, which is not
+        // guaranteed nonisolated. ponytail: flat-earth span, a hair off
+        // MapKit's; fine because nothing reads `RouteTile.region` (see its doc).
+        let metersPerDegLat = 111_320.0
+        let metersPerDegLon = max(1, metersPerDegLat * cos(center.latitude * .pi / 180))
         let region = MKCoordinateRegion(
             center: center,
-            latitudinalMeters: Self.tileSpanMeters,
-            longitudinalMeters: Self.tileSpanMeters
+            span: MKCoordinateSpan(
+                latitudeDelta: Self.tileSpanMeters / metersPerDegLat,
+                longitudeDelta: Self.tileSpanMeters / metersPerDegLon
+            )
         )
         return RouteTile(
             center: center,
@@ -1397,12 +1569,17 @@ final class RouteTileCache {
     /// sees attribution somewhere on screen, just not always in the
     /// same corner. That's fine per OSM policy as long as it IS
     /// visible.
-    private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat, style: MapStyle) {
+    ///
+    /// Pure CoreText + CoreGraphics (no UIFont / UIColor): it runs off the
+    /// main actor inside `stitch`.
+    nonisolated private static func drawAttribution(into ctx: CGContext, bitmapSize: CGFloat, style: MapStyle) {
         let text = style.attribution
-        let font = UIFont.systemFont(ofSize: 11, weight: .regular)
+        // `.system` = the same San Francisco face `UIFont.systemFont` gave.
+        let font = CTFontCreateUIFontForLanguage(.system, 11, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, 11, nil)
         let textAttrs: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor(cgColor: style.attributionInk)
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): style.attributionInk
         ]
         let attr = NSAttributedString(string: text, attributes: textAttrs)
         let line = CTLineCreateWithAttributedString(attr)

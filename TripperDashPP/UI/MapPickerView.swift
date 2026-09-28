@@ -1080,9 +1080,10 @@ struct MapPickerView: View {
     ///
     /// `buildLayers: false` on this EARLY install, though: `setTileCache`'s
     /// side effect of kicking off the coarse (z=13, 7x7=49 tiles) + fine
-    /// (z=16, 49 tiles) sibling bakes is itself real MainActor CGContext
-    /// work (see `RouteTileCache.composite` — no `nonisolated`, all tile
-    /// stitching runs on the main actor). Firing that at t=0 stacks THREE
+    /// (z=16, 49 tiles) sibling bakes was, when this was written, real
+    /// MainActor CGContext work (`RouteTileCache.composite` now stitches
+    /// off the main actor, but three bakes still compete for the network
+    /// and the CPU at startup). Firing that at t=0 stacked THREE
     /// concurrent MainActor-heavy bakes (base corridor, coarse, fine)
     /// right on top of the Wi-Fi handshake / RTP stream startup that's
     /// racing at the exact same moment — field-confirmed regression

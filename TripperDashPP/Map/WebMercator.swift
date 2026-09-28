@@ -23,7 +23,9 @@ import CoreLocation
 import Foundation
 
 /// Web Mercator projection helpers. Stateless, pure functions.
-enum WebMercator {
+/// `nonisolated`: called from `RouteTileCache.composite`, which stitches
+/// off the main actor.
+nonisolated enum WebMercator {
 
     /// Standard OSM tile size in pixels (logical, pre-Retina).
     static let tilePixels: Int = 256

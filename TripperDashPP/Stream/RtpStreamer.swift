@@ -11,9 +11,11 @@
 //
 //  Threading: the FrameSource fires its callback (MapViewSource: on the
 //  main actor); the encoder callback runs on a VideoToolbox-managed
-//  thread and hops via `sendQueue` onto the main actor, where the
-//  packetizer runs (this class is @MainActor); the NWConnection itself
-//  runs on `sendQueue`.
+//  thread and hops onto `sendQueue`, where `RtpSendPipe` packetizes and
+//  sends without touching the main actor. The pipe's counters sit behind
+//  a lock; the main actor reads them once a second (`flushMetrics`). The
+//  only main-actor hop left on the path is the once-per-frame q3c.g kick
+//  to BikeLink (6 Hz).
 //
 
 import Foundation
@@ -49,7 +51,13 @@ final class RtpStreamer {
     private let bikePort: UInt16
     private let source: FrameSource
     private let encoder: H264Encoder
-    private let packetizer = RtpPacketizer()
+    /// Packetize + send, on `sendQueue`. One per streamer, so the RTP
+    /// sequence number, SSRC and timestamp base survive a stop/start.
+    private let pipe = RtpSendPipe(
+        packetizer: RtpPacketizer(),
+        // RTP timestamp base (90 kHz, per RFC 6184)
+        timestampBase: UInt32.random(in: 0..<UInt32.max)
+    )
 
     /// Hook into the BikeLink so the streamer can announce per-frame
     /// `q3c.g` (projection-frame) TLVs over the K1G control plane (UDP
@@ -69,14 +77,9 @@ final class RtpStreamer {
     /// Hook the UI uses to redraw when metrics change. Fires on the main actor.
     var onMetrics: ((RtpStreamerMetrics) -> Void)?
 
-    // Throughput accounting
-    private var bytesAccumulator: UInt64 = 0
-    private var nalsAccumulator: UInt64 = 0
+    // Throughput accounting (the counters themselves live in `pipe`)
     private var lastTickAt = Date()
     private var metricsTimer: Timer?
-
-    // RTP timestamp base (90 kHz, per RFC 6184)
-    private let timestampBase: UInt32 = UInt32.random(in: 0..<UInt32.max)
 
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
 
@@ -93,6 +96,7 @@ final class RtpStreamer {
 
     deinit {
         // deinit may run off-main; tear down inline.
+        pipe.end()
         connection?.cancel()
     }
 
@@ -117,11 +121,21 @@ final class RtpStreamer {
         conn.start(queue: sendQueue)
         self.connection = conn
 
-        // 2. Encoder callback → packetize → send
-        encoder.onNAL = { [weak self] nal in
-            self?.sendQueue.async {
-                Task { @MainActor in self?.handleEncodedNAL(nal) }
+        // 2. Encoder callback → packetize → send, all on `sendQueue`.
+        //    Tell the dash a new map bitmap was rendered (q3c.g) once per
+        //    frame — without it the dash never refreshes the projection
+        //    surface even though the RTP packets are arriving. That kick is
+        //    BikeLink's (main actor), so it is the one hop per frame.
+        pipe.begin(connection: conn, onFrame: { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.bikeLink?.sendProjectionFrame()
             }
+        })
+        lastTickAt = Date()
+        let pipe = self.pipe
+        let queue = sendQueue
+        encoder.onNAL = { @Sendable nal in
+            queue.async { pipe.handle(nal) }
         }
         do {
             try encoder.start()
@@ -153,6 +167,9 @@ final class RtpStreamer {
         metricsTimer = nil
         source.stop()
         encoder.stop()
+        // NALs still queued on `sendQueue` now count as dropped, as they
+        // did when `send` found `connection == nil`.
+        pipe.end()
         connection?.cancel()
         connection = nil
         state = .idle
@@ -183,78 +200,25 @@ final class RtpStreamer {
         stop()
     }
 
-    // MARK: - Encode → packetize → send
+    // MARK: - Metrics
 
-    private func handleEncodedNAL(_ nal: EncodedNAL) {
-        // 90 kHz RTP timestamp = PTS seconds × 90000, plus the base.
-        let ptsSeconds = CMTimeGetSeconds(nal.timestamp)
-        let rtpTs = timestampBase &+ UInt32(truncatingIfNeeded: Int64(ptsSeconds * 90_000))
-
-        // Mark the last fragment of an access unit (the IDR / non-IDR
-        // frame itself) with the marker bit, per RFC 3550.
-        let markerOnLast: Bool
-        let isFrame: Bool
-        switch nal.kind {
-        case .idr, .nonIDR:
-            markerOnLast = true
-            isFrame = true
-        default:
-            markerOnLast = false
-            isFrame = false
-        }
-
-        let datagrams = packetizer.packetize(
-            nal: nal.bytes, timestamp90kHz: rtpTs, markerOnLast: markerOnLast
-        )
-
-        nalsAccumulator += 1
-        if case .idr = nal.kind { metrics.idrCount += 1 }
-        metrics.nalsEmitted += 1
-
-        for datagram in datagrams {
-            send(datagram)
-        }
-
-        // Tell the dash a new map bitmap was rendered (q3c.g). Once per
-        // frame, not once per NAL — parameter sets don't count. Without
-        // this the dash never refreshes the projection surface even
-        // though the RTP packets are arriving.
-        if isFrame, let link = bikeLink {
-            Task { await link.sendProjectionFrame() }
-        }
-    }
-
-    private func send(_ datagram: RtpDatagram) {
-        guard let connection else {
-            metrics.packetsDropped += 1
-            return
-        }
-        bytesAccumulator += UInt64(datagram.bytes.count)
-        connection.send(content: datagram.bytes, completion: .contentProcessed { [weak self] err in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let err {
-                    self.metrics.packetsDropped += 1
-                    self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription)")
-                } else {
-                    self.metrics.packetsSent += 1
-                }
-            }
-        })
-    }
-
+    /// 1 Hz (the Timer in `start`): the only place the send path's
+    /// counters reach the main actor.
     private func flushMetrics() {
         let now = Date()
         let dt = max(now.timeIntervalSince(lastTickAt), 0.001)
-        let fps = Double(nalsAccumulator) / dt
-        let kbps = Double(bytesAccumulator * 8) / dt / 1000.0
+        let c = pipe.takeWindow()
+        let fps = Double(c.windowNALs) / dt
+        let kbps = Double(c.windowBytes * 8) / dt / 1000.0
         // We count *NALs* per second here; for the dashboard this is a
         // close enough proxy for fps because parameter sets are rare
         // compared to coded slices. A bit of overcounting is fine.
         metrics.encodedFps = fps
         metrics.kbpsOut = kbps
-        nalsAccumulator = 0
-        bytesAccumulator = 0
+        metrics.packetsSent = c.packetsSent
+        metrics.packetsDropped = c.packetsDropped
+        metrics.nalsEmitted = c.nalsEmitted
+        metrics.idrCount = c.idrCount
         lastTickAt = now
         onMetrics?(metrics)
     }
@@ -273,5 +237,131 @@ final class RtpStreamer {
         case .cancelled:  return "cancelled"
         @unknown default: return "unknown"
         }
+    }
+}
+
+/// Encoded NAL → RTP datagrams → UDP, entirely on the streamer's
+/// `sendQueue`. Replaces the old per-NAL hop onto the main actor (and the
+/// per-datagram completion hop back to it): at 6 fps × several FU-A
+/// fragments that was dozens of main-actor jobs a second, and any of them
+/// queued behind a tile bake delayed the stream.
+///
+/// `@unchecked Sendable`: `connection`, `onFrame` and `counters` are only
+/// touched under `lock`; `packetizer` is not locked and is only used from
+/// `handle`, which runs on the one serial `sendQueue`.
+nonisolated final class RtpSendPipe: @unchecked Sendable {
+
+    nonisolated struct Counters: Sendable {
+        /// Reset by every `takeWindow` (the 1 Hz fps / kbps window).
+        var windowNALs: UInt64 = 0
+        var windowBytes: UInt64 = 0
+        /// Cumulative since `begin`.
+        var packetsSent: UInt64 = 0
+        var packetsDropped: UInt64 = 0
+        var nalsEmitted: UInt64 = 0
+        var idrCount: UInt64 = 0
+    }
+
+    private let packetizer: RtpPacketizer
+    private let timestampBase: UInt32
+    private let lock = NSLock()
+    private var connection: NWConnection?
+    private var onFrame: (@Sendable () -> Void)?
+    private var counters = Counters()
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
+
+    init(packetizer: RtpPacketizer, timestampBase: UInt32) {
+        self.packetizer = packetizer
+        self.timestampBase = timestampBase
+    }
+
+    /// Start sending on `connection`; `onFrame` fires once per coded frame.
+    func begin(connection: NWConnection, onFrame: @escaping @Sendable () -> Void) {
+        lock.withLock {
+            self.connection = connection
+            self.onFrame = onFrame
+            counters = Counters()
+        }
+    }
+
+    /// Stop sending: later NALs are packetized and counted as dropped.
+    func end() {
+        lock.withLock {
+            connection = nil
+            onFrame = nil
+        }
+    }
+
+    /// Snapshot of the counters; restarts the fps / kbps window.
+    func takeWindow() -> Counters {
+        lock.withLock {
+            let snapshot = counters
+            counters.windowNALs = 0
+            counters.windowBytes = 0
+            return snapshot
+        }
+    }
+
+    /// Send-queue only.
+    func handle(_ nal: EncodedNAL) {
+        // 90 kHz RTP timestamp = PTS seconds × 90000, plus the base.
+        let ptsSeconds = CMTimeGetSeconds(nal.timestamp)
+        let rtpTs = timestampBase &+ UInt32(truncatingIfNeeded: Int64(ptsSeconds * 90_000))
+
+        // Mark the last fragment of an access unit (the IDR / non-IDR
+        // frame itself) with the marker bit, per RFC 3550.
+        let markerOnLast: Bool
+        let isFrame: Bool
+        let isIDR: Bool
+        switch nal.kind {
+        case .idr:
+            markerOnLast = true
+            isFrame = true
+            isIDR = true
+        case .nonIDR:
+            markerOnLast = true
+            isFrame = true
+            isIDR = false
+        default:
+            markerOnLast = false
+            isFrame = false
+            isIDR = false
+        }
+
+        let datagrams = packetizer.packetize(
+            nal: nal.bytes, timestamp90kHz: rtpTs, markerOnLast: markerOnLast
+        )
+
+        let link: (connection: NWConnection?, onFrame: (@Sendable () -> Void)?) = lock.withLock {
+            counters.windowNALs += 1
+            if isIDR { counters.idrCount += 1 }
+            counters.nalsEmitted += 1
+            return (connection: connection, onFrame: onFrame)
+        }
+
+        for datagram in datagrams {
+            send(datagram, on: link.connection)
+        }
+
+        // Once per frame, not once per NAL — parameter sets don't count.
+        if isFrame {
+            link.onFrame?()
+        }
+    }
+
+    private func send(_ datagram: RtpDatagram, on connection: NWConnection?) {
+        guard let connection else {
+            lock.withLock { counters.packetsDropped += 1 }
+            return
+        }
+        lock.withLock { counters.windowBytes += UInt64(datagram.bytes.count) }
+        connection.send(content: datagram.bytes, completion: .contentProcessed { err in
+            if let err {
+                self.lock.withLock { self.counters.packetsDropped += 1 }
+                self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription)")
+            } else {
+                self.lock.withLock { self.counters.packetsSent += 1 }
+            }
+        })
     }
 }
