@@ -10,6 +10,7 @@
 //
 
 import CoreLocation
+import OSLog
 import SwiftUI
 
 struct StreamingView: View {
@@ -252,6 +253,8 @@ struct StreamingView: View {
 
             MapCacheSection()
 
+            LogExportSection()
+
             Section("About") {
                 // "1.0.3 (6) · abc1234": marketing version, CFBundleVersion
                 // build number in parentheses (what TestFlight shows), then
@@ -361,6 +364,69 @@ private struct MapCacheSection: View {
         fmt.countStyle = .file
         let files = s.count == 1 ? "1 file" : "\(s.count) files"
         return "\(files) • \(fmt.string(fromByteCount: Int64(s.bytes)))"
+    }
+}
+
+/// "Export log": the app's own log lines (every subsystem containing
+/// `kolaczek`, info level and up) since this launch, as a text file for
+/// the share sheet — so a rider can send a field log without a Mac.
+/// iOS only lets an app read its current process's entries, so this must
+/// be done before the app is quit or killed. `OSLogPreferences` in
+/// Info.plist persists the info level, so a long ride isn't rolled out of
+/// the memory buffer.
+private struct LogExportSection: View {
+    @State private var exportURL: URL?
+    @State private var isPreparing = false
+    @State private var failed = false
+
+    var body: some View {
+        Section {
+            if let url = exportURL {
+                ShareLink(item: url) {
+                    Label("Share log", systemImage: "square.and.arrow.up")
+                }
+            } else {
+                Button {
+                    Task {
+                        isPreparing = true
+                        exportURL = await Self.writeLog()
+                        failed = exportURL == nil
+                        isPreparing = false
+                    }
+                } label: {
+                    Label("Export log", systemImage: "doc.text")
+                }
+                .disabled(isPreparing)
+            }
+        } header: {
+            Text("Diagnostics")
+        } footer: {
+            Text(failed
+                 ? "Couldn't read the log."
+                 : "Everything the app logged since it was last launched, including GPS positions. Export it before you close the app.")
+        }
+    }
+
+    /// Reads and formats off main: a ride's worth of entries takes a while.
+    @concurrent nonisolated private static func writeLog() async -> URL? {
+        do {
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let own = NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "en_US_POSIX")
+            fmt.dateFormat = "HH:mm:ss.SSS"
+            var text = ""
+            for case let entry as OSLogEntryLog in try store.getEntries(matching: own) {
+                text += "\(fmt.string(from: entry.date)) [\(entry.category)] \(entry.composedMessage)\n"
+            }
+            fmt.dateFormat = "yyyy-MM-dd-HHmm"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("TripperDashPP-log-\(fmt.string(from: Date())).txt")
+            try Data(text.utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 }
 

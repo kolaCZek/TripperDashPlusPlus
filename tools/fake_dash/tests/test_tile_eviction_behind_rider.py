@@ -1,7 +1,7 @@
 """Baked composites far behind the rider are evicted (review C2).
 
-`RouteTileCache` never pruned: every composite baked on a ride (0.2-0.5 MB
-PNG each, three layers) stayed in `bakedTileByIndex` / `tiles` until the
+`RouteTileCache` never pruned: every composite baked on a ride (~0.65-0.9 MB
+PNG each measured, three layers) stayed in `bakedTileByIndex` / `tiles` until the
 route changed. `bakeAnchors` now drops anchors more than `evictBehindMeters`
 behind `lastRiderRouteOffset` before its route-order rebuild, so `tiles`,
 `tileRowKind` and `tileAnchorIndex` (all rebuilt from `bakedTileByIndex`)

@@ -152,5 +152,56 @@
 		<true/>
 	</dict>
 
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Logging: persist info level for the app's own subsystems      -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- Info-level lines ("Baked batch", "Speed-limit grid", heartbeat,
+	     reroutes) otherwise live only in a memory ring buffer and roll out
+	     during a long ride before Settings → Export log reads them.
+	     Debug (per-tile fetch spam) stays off. See os_log(5). -->
+	<key>OSLogPreferences</key>
+	<dict>
+		<key>eu.kolaczek.tripperdashpp</key>
+		<dict>
+			<key>DEFAULT-OPTIONS</key>
+			<dict>
+				<key>Level</key>
+				<dict>
+					<key>Enable</key>
+					<string>Info</string>
+					<key>Persist</key>
+					<string>Info</string>
+				</dict>
+			</dict>
+		</dict>
+		<key>cz.kolaczek.TripperDashPP</key>
+		<dict>
+			<key>DEFAULT-OPTIONS</key>
+			<dict>
+				<key>Level</key>
+				<dict>
+					<key>Enable</key>
+					<string>Info</string>
+					<key>Persist</key>
+					<string>Info</string>
+				</dict>
+			</dict>
+		</dict>
+		<key>cz.kolaczek.tripperdash</key>
+		<dict>
+			<key>DEFAULT-OPTIONS</key>
+			<dict>
+				<key>Level</key>
+				<dict>
+					<key>Enable</key>
+					<string>Info</string>
+					<key>Persist</key>
+					<string>Info</string>
+				</dict>
+			</dict>
+		</dict>
+	</dict>
+
 </dict>
 </plist>

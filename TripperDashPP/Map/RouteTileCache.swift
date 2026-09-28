@@ -323,9 +323,11 @@ final class RouteTileCache {
     /// ahead of the real rider (review C3, not fixed), and the tiles around
     /// the real position must survive that (review L2). That also covers
     /// `snapBackwardWindow` (1.5 km). Costs 5 km more of composites held
-    /// than the old 2 km window: ~32 more (base ~21 — main row every 700 m,
-    /// a wing on each side of every main anchor — fine ~7, coarse ~4),
-    /// ~6-16 MB of PNG at 0.2-0.5 MB each.
+    /// than the old 2 km window: ~21 base (main row every 700 m + a wing on
+    /// each side) and ~7 fine, ~20 MB of PNG at the sizes measured on a
+    /// Prague ride (~0.65 MB base, ~0.9 MB fine composite). A forward ride
+    /// then holds ~12 km (7 behind + 5 ahead): ~33 MB base + ~15 MB fine,
+    /// plus coarse once zoomed out.
     static let evictBehindMeters: CLLocationDistance = 7_000
 
     // MARK: - Position-fallback tunables
@@ -825,7 +827,7 @@ final class RouteTileCache {
         // Evict first: composites more than `evictBehindMeters` behind the
         // rider (by route offset) are never drawn again on a forward ride,
         // and on a long ride they were the whole of the cache's growth
-        // (each is a 0.2-0.5 MB PNG). `tiles` / `tileRowKind` /
+        // (each is a ~0.65-0.9 MB PNG). `tiles` / `tileRowKind` /
         // `tileAnchorIndex` are rebuilt from `bakedTileByIndex` just below,
         // so dropping the key here keeps all four consistent. Its decoded
         // image goes too; an evicted anchor that comes back into the

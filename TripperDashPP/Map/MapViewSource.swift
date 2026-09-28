@@ -2380,23 +2380,44 @@ extension MapViewSource {
     /// the route): the tagged limit ways AND the bare road geometry for the
     /// shadow guard. Pass `.empty` to clear (also clears the current sign).
     func setSpeedLimits(_ data: SpeedLimitData) {
-        self.speedLimitWays = data.limits
-        self.speedLimitRoads = data.roads
-        if data.limits.isEmpty {
-            speedLimitWayGrid = nil
-            speedLimitRoadGrid = nil
-        } else {
-            // ponytail: built on main, O(segments) once per install (est.
-            // tens of ms for a big downtown bbox); move off main if the
-            // logged build time says it matters.
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let wayGrid = SegmentGrid(lines: data.limits.map(\.coords))
-            let roadGrid = SegmentGrid(lines: data.roads.map(\.coords))
-            speedLimitWayGrid = wayGrid
-            speedLimitRoadGrid = roadGrid
-            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-            log.info("Speed-limit grid: \(data.limits.count, privacy: .public) ways / \(wayGrid.segmentCount, privacy: .public) segs / \(wayGrid.cellCount, privacy: .public) cells, \(data.roads.count, privacy: .public) roads / \(roadGrid.segmentCount, privacy: .public) segs / \(roadGrid.cellCount, privacy: .public) cells, built in \(ms, format: .fixed(precision: 1), privacy: .public) ms")
+        speedLimitInstallGeneration &+= 1
+        guard !data.limits.isEmpty else {
+            installSpeedLimits(data, wayGrid: nil, roadGrid: nil)
+            return
         }
+        // The grids are built off main: 89.5 ms for a ~40 km Prague route
+        // (116k segments) in the first field log, and it grows with the
+        // bbox. Until they land the previous ways + grids stay installed as
+        // a consistent pair; a newer install (or `.empty`) supersedes this.
+        let generation = speedLimitInstallGeneration
+        let wayLines = data.limits.map(\.coords)
+        let roadLines = data.roads.map(\.coords)
+        Task { @MainActor [weak self] in
+            let built = await Self.buildSpeedLimitGrids(ways: wayLines, roads: roadLines)
+            guard let self, generation == self.speedLimitInstallGeneration else { return }
+            self.installSpeedLimits(data, wayGrid: built.ways, roadGrid: built.roads)
+            self.log.info("Speed-limit grid: \(data.limits.count, privacy: .public) ways / \(built.ways.segmentCount, privacy: .public) segs / \(built.ways.cellCount, privacy: .public) cells, \(data.roads.count, privacy: .public) roads / \(built.roads.segmentCount, privacy: .public) segs / \(built.roads.cellCount, privacy: .public) cells, built off main in \(built.ms, format: .fixed(precision: 1), privacy: .public) ms")
+        }
+    }
+
+    /// Bumped by every `setSpeedLimits`, so a slow grid build never installs
+    /// over a newer route's data or a clear.
+    private var speedLimitInstallGeneration = 0
+
+    @concurrent nonisolated private static func buildSpeedLimitGrids(
+        ways: [[CLLocationCoordinate2D]], roads: [[CLLocationCoordinate2D]]
+    ) async -> (ways: SegmentGrid, roads: SegmentGrid, ms: Double) {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let wayGrid = SegmentGrid(lines: ways)
+        let roadGrid = SegmentGrid(lines: roads)
+        return (wayGrid, roadGrid, (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+    }
+
+    private func installSpeedLimits(_ data: SpeedLimitData, wayGrid: SegmentGrid?, roadGrid: SegmentGrid?) {
+        speedLimitWays = data.limits
+        speedLimitRoads = data.roads
+        speedLimitWayGrid = wayGrid
+        speedLimitRoadGrid = roadGrid
         if data.limits.isEmpty {
             currentLimitKmh = nil
             isOverSpeedLimit = false

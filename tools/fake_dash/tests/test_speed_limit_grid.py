@@ -234,9 +234,24 @@ def test_swift_segment_grid_exists_and_is_nonisolated():
 def test_swift_grid_built_on_install_not_per_fix():
     src = strip_comments(mapsource_src())
     install = decl_body(src, "func setSpeedLimits(")
-    assert "SegmentGrid(lines: data.limits.map(\\.coords))" in install
-    assert "SegmentGrid(lines: data.roads.map(\\.coords))" in install
+    # Built off main (89.5 ms on main in the first field log), installed
+    # only if no newer setSpeedLimits (route or clear) came in meanwhile.
+    assert "SegmentGrid(" not in install
+    build = decl_body(src, "@concurrent nonisolated private static func buildSpeedLimitGrids(")
+    assert "SegmentGrid(lines: ways)" in build and "SegmentGrid(lines: roads)" in build
+    assert "let wayLines = data.limits.map(\\.coords)" in install
+    assert "let roadLines = data.roads.map(\\.coords)" in install
+    assert install.index("speedLimitInstallGeneration &+= 1") < install.index("guard !data.limits.isEmpty else {")
+    await_at = install.index("await Self.buildSpeedLimitGrids(ways: wayLines, roads: roadLines)")
+    guard_at = install.index("guard let self, generation == self.speedLimitInstallGeneration else { return }")
+    assert await_at < guard_at < install.index("self.installSpeedLimits(data, wayGrid: built.ways, roadGrid: built.roads)")
     assert "Speed-limit grid:" in install
+    # Ways, roads and both grids are always swapped together.
+    put = decl_body(src, "private func installSpeedLimits(")
+    for field in ("speedLimitWays = data.limits", "speedLimitRoads = data.roads",
+                  "speedLimitWayGrid = wayGrid", "speedLimitRoadGrid = roadGrid",
+                  "recomputeSpeedLimit(for: fix)"):
+        assert field in put
     fix = decl_body(src, "private func recomputeSpeedLimit(")
     assert "SegmentGrid(" not in fix
     assert "speedLimitWayGrid?.nearestWithinWindow(to: fix.coordinate)" in fix
