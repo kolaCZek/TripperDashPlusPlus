@@ -604,59 +604,134 @@ def test_route_changes_extend_camera_and_section_prefetch():
 def test_route_changes_refetch_speed_limits():
     # Field logs 2026-09-28: the start fetch timed out (Overpass busy) and
     # limits never came back for the rest of either ride — cameras did, on
-    # the first reroute. Route changes must refetch limits too, skip when the
-    # loaded box already covers the new route, and a failed/empty fetch must
-    # release the claim so the next route change retries.
+    # the first reroute. Route changes must refetch limits too (skipped when
+    # the loaded box already covers the new route), and a failed fetch is
+    # retried every 60 s while navigating.
     from tests.swift_source import decl_body, strip_comments
     picker = strip_comments(_src("UI/MapPickerView.swift"))
     hook = picker[picker.index("onActiveRouteChanged = { [weak status] newRoute in"):]
     hook = hook[:hook.index("onAlternativesChanged")]
     assert "status.prefetchSpeedLimits(for: newRoute, extending: true)" in hook
-    body = strip_comments(decl_body(_src("App/AppStatus.swift"),
-                                    "func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false)"))
+    app = strip_comments(_src("App/AppStatus.swift"))
+    body = decl_body(app, "func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false)")
     skip = body.index("covered.contains(SpeedLimitService.boundingBox(of: coords, bufferMeters: 0))")
     assert skip < body.index("speedLimitPrefetchTask?.cancel()")
+    assert "bufferMeters: SpeedLimitService.corridorBufferMeters)" in body
     assert "speedLimitCoverage = box" in body
-    release = body.index("if self.speedLimitCoverage == box { self.speedLimitCoverage = nil }")
-    assert body.index("if data.limits.isEmpty {") < release < body.index("if extending { return }")
-    assert body.index("if extending { return }") < body.index("self.mapViewSource.setSpeedLimits(")
+    # Failure = no limits AND no roads (an untagged region still has roads).
+    assert "let failed = data.limits.isEmpty && data.roads.isEmpty" in body
+    assert "if !(failed && extending) {" in body
+    retry = body.index("try? await Task.sleep(for: .seconds(AppStatus.speedLimitRetrySeconds))")
+    assert body.index("guard failed else { return }") < retry
+    assert retry < body.index("guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }")
+    assert "static let speedLimitRetrySeconds: Double = 60" in app
     svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
     assert "o.south >= south && o.north <= north && o.west >= west && o.east <= east" in svc
 
 
-def _limit_prefetch_model():
-    """Python mirror of AppStatus.prefetchSpeedLimits' coverage logic."""
-    state = {"coverage": None, "installed": None, "fetches": 0}
+class _LimitPrefetchModel:
+    """Python mirror of AppStatus.prefetchSpeedLimits: claim (buffered box)
+    on the call, fetch in flight, resolve later; retry 60 s after a failure
+    while navigating. Boxes are (south, west, north, east) in metres."""
 
-    def contains(outer, inner):
-        return (inner[0] >= outer[0] and inner[2] <= outer[2]
-                and inner[1] >= outer[1] and inner[3] <= outer[3])
+    BUFFER = 300
+    RETRY = 60
+    EMPTY = ("no-limits", "no-roads")
 
-    def prefetch(route_box, fetched, extending=False):
-        if extending and state["coverage"] and contains(state["coverage"], route_box):
+    def __init__(self):
+        self.coverage = None
+        self.task = None
+        self.installed = None
+        self.fetches = 0
+        self.navigating = True
+
+    @staticmethod
+    def _contains(o, i):
+        return i[0] >= o[0] and i[2] <= o[2] and i[1] >= o[1] and i[3] <= o[3]
+
+    def prefetch(self, route_box, extending=False):
+        if extending and self.coverage and self._contains(self.coverage, route_box):
+            return None                                   # skipped
+        if self.task:
+            self.task["cancelled"] = True
+        b = self.BUFFER
+        self.coverage = (route_box[0] - b, route_box[1] - b, route_box[2] + b, route_box[3] + b)
+        self.task = {"extending": extending, "cancelled": False, "retry_at": None}
+        self.fetches += 1
+        return self.task
+
+    def resolve(self, task, result, now):
+        """result: None = failed (no limits, no roads); ([], roads) = untagged
+        region; (limits, roads) = normal."""
+        if task["cancelled"]:
             return
-        state["coverage"] = route_box
-        state["fetches"] += 1
-        if not fetched:
-            if state["coverage"] == route_box:
-                state["coverage"] = None
-            if extending:
-                return
-        state["installed"] = fetched
+        failed = result is None
+        if not (failed and task["extending"]):
+            self.installed = self.EMPTY if failed else result
+        task["retry_at"] = now + self.RETRY if failed else None
 
-    return state, prefetch
+    def tick(self, now):
+        t = self.task
+        if t and t["retry_at"] is not None and now >= t["retry_at"]:
+            t["retry_at"] = None
+            if not t["cancelled"] and self.navigating:
+                self.fetches += 1                         # same task, next attempt
+                return t
+        return None
 
 
-def test_limit_prefetch_model_retries_after_failed_start():
-    state, prefetch = _limit_prefetch_model()
-    route = (50.20, 14.16, 50.26, 14.30)
-    prefetch(route, [])                               # start: Overpass timed out
-    prefetch(route, ["ways"], extending=True)         # hook, same route -> retries now
-    assert state["installed"] == ["ways"] and state["fetches"] == 2
-    prefetch((50.21, 14.20, 50.25, 14.28), ["x"], extending=True)  # reroute inside: skip
-    assert state["fetches"] == 2 and state["installed"] == ["ways"]
-    prefetch((50.21, 14.20, 50.30, 14.28), [], extending=True)     # outside, fails: keep old
-    assert state["installed"] == ["ways"] and state["coverage"] is None
+ROUTE = (0, 0, 10_000, 10_000)
+INSIDE = (1_000, 1_000, 9_000, 10_200)                    # detour < 300 m: in box
+OUTSIDE = (0, 0, 10_000, 12_000)
+
+
+def test_failed_start_retries_after_60s_not_on_the_hook():
+    m = _LimitPrefetchModel()
+    start = m.prefetch(ROUTE)                             # installRouteGeometrySync
+    assert m.prefetch(ROUTE, extending=True) is None      # hook: start still in flight
+    m.resolve(start, None, now=30)                        # Overpass timed out
+    assert m.installed == m.EMPTY and m.fetches == 1
+    assert m.prefetch(INSIDE, extending=True) is None     # reroute inside: claim held
+    assert m.tick(now=60) is None                         # not yet
+    again = m.tick(now=90)
+    assert again is start and m.fetches == 2
+    m.resolve(again, (["50"], ["road"]), now=95)
+    assert m.installed == (["50"], ["road"]) and m.tick(now=500) is None
+
+
+def test_untagged_region_is_a_success_not_a_refetch_loop():
+    m = _LimitPrefetchModel()
+    m.resolve(m.prefetch(ROUTE), ([], ["road"]), now=5)   # no maxspeed tags, roads ok
+    assert m.installed == ([], ["road"])
+    assert m.tick(now=1_000) is None
+    assert m.prefetch(INSIDE, extending=True) is None and m.fetches == 1
+
+
+def test_outside_reroute_cancels_the_start_fetch():
+    m = _LimitPrefetchModel()
+    start = m.prefetch(ROUTE)
+    reroute = m.prefetch(OUTSIDE, extending=True)
+    assert reroute is not None and m.fetches == 2
+    m.resolve(start, (["90"], ["old"]), now=20)           # late start result: dropped
+    assert m.installed is None
+    m.resolve(reroute, (["50"], ["new"]), now=21)
+    assert m.installed == (["50"], ["new"])
+
+
+def test_failed_reroute_keeps_old_ways_and_retries():
+    m = _LimitPrefetchModel()
+    m.resolve(m.prefetch(ROUTE), (["50"], ["road"]), now=5)
+    reroute = m.prefetch(OUTSIDE, extending=True)
+    m.resolve(reroute, None, now=40)
+    assert m.installed == (["50"], ["road"])
+    assert m.tick(now=100) is reroute and m.fetches == 3
+
+
+def test_no_retry_after_navigation_stops():
+    m = _LimitPrefetchModel()
+    m.resolve(m.prefetch(ROUTE), None, now=30)
+    m.navigating = False
+    assert m.tick(now=90) is None and m.fetches == 1
 
 
 def test_free_ride_retires_route_camera_fetches():

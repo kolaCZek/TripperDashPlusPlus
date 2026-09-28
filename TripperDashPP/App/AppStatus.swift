@@ -1566,9 +1566,16 @@ final class AppStatus {
     /// route-changed hook): skip when the new route lies inside the box
     /// already loaded (or in flight) — which also covers the hook firing
     /// right after nav start with the same route. Otherwise refetch for
-    /// the new route. A failed or empty fetch releases the claim, so a ride
-    /// whose start fetch timed out (Overpass busy) retries on the next
-    /// route change instead of riding with no limits at all.
+    /// the new route.
+    ///
+    /// A failed fetch (Overpass busy — both field rides of 2026-09-28 lost
+    /// their start fetch this way) is retried every
+    /// `speedLimitRetrySeconds` while navigating, until it lands or the
+    /// task is replaced (route change outside the box, nav start, `.off`).
+    /// The claim is held meanwhile, so route changes inside the box don't
+    /// pile up parallel fetches. Failure = no limits AND no roads: a
+    /// region with no `maxspeed` tags still returns its roads, and must
+    /// not refetch.
     func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false) {
         let coords = route.polyline.coordinateList()
         if extending, coords.count >= 2, let covered = speedLimitCoverage,
@@ -1587,21 +1594,27 @@ final class AppStatus {
                                                 bufferMeters: SpeedLimitService.corridorBufferMeters)
         speedLimitCoverage = box
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let data = await SpeedLimitService.shared.limitsAlong(route: coords)
-            guard !Task.isCancelled else { return }
-            if data.limits.isEmpty {
-                if self.speedLimitCoverage == box { self.speedLimitCoverage = nil }
+            while true {
+                let data = await SpeedLimitService.shared.limitsAlong(route: coords)
+                guard let self, !Task.isCancelled else { return }
+                let failed = data.limits.isEmpty && data.roads.isEmpty
                 // A failed refetch mid-ride keeps the ways already loaded;
                 // they still cover whatever the old and new route share.
-                if extending { return }
+                if !(failed && extending) {
+                    // Re-check the mode after the network await.
+                    self.mapViewSource.setSpeedLimits(
+                        self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
+                    )
+                }
+                guard failed else { return }
+                try? await Task.sleep(for: .seconds(AppStatus.speedLimitRetrySeconds))
+                guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }
             }
-            // Re-check the mode after the network await.
-            self.mapViewSource.setSpeedLimits(
-                self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
-            )
         }
     }
+
+    /// Retry cadence for a failed speed-limit fetch during navigation.
+    static let speedLimitRetrySeconds: Double = 60
 
     /// Push the speed-limit display policy (mode + tolerance + units) to
     /// the renderer. Cheap; safe to call on prefetch and whenever settings
