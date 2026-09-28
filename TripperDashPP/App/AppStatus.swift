@@ -749,22 +749,106 @@ final class AppStatus {
         mapViewSource.setCurrentRoute(nil)
         mapViewSource.setTileCache(emptyCache)
 
-        // Free-ride camera overlay (feat/speed-camera-voice-alert): free-ride
-        // has no route corridor to prefetch along, so instead fetch every
-        // camera AROUND the rider's current position and draw them on the
-        // map. MAP ONLY — the set is handed to `mapViewSource`, never to
-        // `activeNavLoop`, so no voice fires (free-ride has no turn-by-turn).
-        // One-shot fetch at free-ride start; continuous re-fetch as the rider
-        // moves far from this centre is a TODO (see PR notes).
-        prefetchFreeRideCameras()
+        // Free-ride has no route corridor to prefetch along, so cameras and
+        // speed limits are fetched AROUND the rider instead, and again each
+        // time they've moved `freeRideAlertRefetchMeters` from the last
+        // centre. The fix subscription replays the last fix at once, so this
+        // also covers "no GPS fix yet at free-ride start". A nav-route limit
+        // fetch still in flight must not land on the free-ride map; the
+        // route's limits stay until the first free-ride set replaces them.
+        speedLimitPrefetchTask?.cancel()
+        freeRideAlertCenter = nil
+        freeRideLimitsFailed = false
+        freeRideLimitRetryDelay = Self.freeRideAlertRetrySeconds
+        freeRideFixSubscription = locationService.subscribeFixes { [weak self] fix in
+            Task { @MainActor in self?.refreshFreeRideAlerts(near: fix.coordinate) }
+        }
     }
 
-    /// Fetch speed cameras around the rider's current fix and hand them to
-    /// the renderer ONLY (map overlay, no voice) for free-ride. No-op when
-    /// the camera toggle is off (and clears any stale markers) or when no
-    /// GPS fix is available yet. 6 km half-side square around the fix — a
-    /// generous neighbourhood without a huge Overpass query.
-    private func prefetchFreeRideCameras() {
+    /// Half-side (m) of the square fetched around the rider in free-ride.
+    static let freeRideAlertRadiusMeters: Double = 6_000
+    /// Refetch once the rider is this far from the last centre, i.e. still
+    /// 3 km inside the loaded square.
+    static let freeRideAlertRefetchMeters: Double = 3_000
+    /// First retry of a FAILED limit fetch (Overpass busy / timed out),
+    /// doubled after each further failure up to `freeRideAlertRetryMaxSeconds`.
+    static let freeRideAlertRetrySeconds: TimeInterval = 60
+    static let freeRideAlertRetryMaxSeconds: TimeInterval = 600
+    @ObservationIgnored private var freeRideFixSubscription: LocationSubscription?
+    @ObservationIgnored private var freeRideAlertCenter: CLLocationCoordinate2D?
+    @ObservationIgnored private var freeRideAlertAt = Date.distantPast
+    @ObservationIgnored private var freeRideLimitsFailed = false
+    @ObservationIgnored private var freeRideLimitRetryDelay = AppStatus.freeRideAlertRetrySeconds
+
+    /// Per-fix free-ride hook: fetch cameras + limits around the rider on
+    /// the first fix and after `freeRideAlertRefetchMeters` of travel; in
+    /// between, retry ONLY a failed limit fetch (not an untagged region),
+    /// for the same box, with backoff.
+    private func refreshFreeRideAlerts(near coord: CLLocationCoordinate2D) {
+        guard isFreeRiding, !activeNavigator.isNavigating else { return }
+        // Link gave up (`.error`) but free ride is still on: no dash to show
+        // anything on, so don't keep querying Overpass.
+        guard bikeLink.state == .connected || bikeLink.state == .reconnecting else { return }
+        let now = Date()
+        if let center = freeRideAlertCenter {
+            let moved = CLLocation(latitude: center.latitude, longitude: center.longitude)
+                .distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
+            if moved < Self.freeRideAlertRefetchMeters {
+                if freeRideLimitsFailed, dashNavSettings.speedLimitDisplay != .off,
+                   now.timeIntervalSince(freeRideAlertAt) >= freeRideLimitRetryDelay {
+                    freeRideAlertAt = now
+                    freeRideLimitRetryDelay = min(freeRideLimitRetryDelay * 2,
+                                                  Self.freeRideAlertRetryMaxSeconds)
+                    prefetchFreeRideSpeedLimits(around: center)
+                }
+                return
+            }
+        }
+        // Snap the centre to the 0.01° grid the cache keys use, so riding
+        // the same area again hits the disk cache instead of a fresh box
+        // every time. Shifts it ≲ 0.8 km; `moved` is measured from the
+        // snapped centre, so the rider still refetches 3 km inside the edge.
+        let center = CLLocationCoordinate2D(latitude: (coord.latitude * 100).rounded() / 100,
+                                            longitude: (coord.longitude * 100).rounded() / 100)
+        freeRideAlertCenter = center
+        freeRideAlertAt = now
+        prefetchFreeRideCameras(around: center)
+        prefetchFreeRideSpeedLimits(around: center)
+    }
+
+    /// Fetch the speed-limit layer around `center` for free-ride. Shares
+    /// `speedLimitPrefetchTask`, so a nav start cancels it. A failed fetch
+    /// (no roads) keeps whatever is loaded and arms the retry above; an
+    /// untagged region (roads, no limits) is a success and is installed.
+    private func prefetchFreeRideSpeedLimits(around center: CLLocationCoordinate2D) {
+        speedLimitPrefetchTask?.cancel()
+        pushSpeedLimitConfig()
+        guard dashNavSettings.speedLimitDisplay != .off else {
+            mapViewSource.setSpeedLimits(.empty)
+            return
+        }
+        speedLimitPrefetchTask = Task { @MainActor [weak self] in
+            let data = await SpeedLimitService.shared.limitsAround(
+                center: center, radiusMeters: Self.freeRideAlertRadiusMeters)
+            guard let self, !Task.isCancelled,
+                  self.isFreeRiding, !self.activeNavigator.isNavigating,
+                  self.dashNavSettings.speedLimitDisplay != .off else { return }
+            self.freeRideLimitsFailed = data.roads.isEmpty
+            // Time the backoff from the failure, not the start: a fetch can
+            // take ~80 s to fail across both mirrors.
+            guard !data.roads.isEmpty else { self.freeRideAlertAt = Date(); return }
+            self.freeRideLimitRetryDelay = Self.freeRideAlertRetrySeconds
+            self.mapViewSource.setSpeedLimits(data)
+        }
+    }
+
+    /// Fetch speed cameras around `center` and hand them to the renderer
+    /// ONLY (map overlay, no voice) for free-ride. No-op when the camera
+    /// toggle is off (and clears any stale markers). 6 km half-side square
+    /// around the fix — a generous neighbourhood without a huge Overpass
+    /// query. MAP ONLY — never handed to `activeNavLoop`, so no voice fires
+    /// (free-ride has no turn-by-turn).
+    private func prefetchFreeRideCameras(around center: CLLocationCoordinate2D) {
         speedCameraPrefetchTask?.cancel()
         // Retire the finished route's camera/section set: a reroute fetch
         // still in flight (those aren't cancellable) must not land on the
@@ -776,11 +860,10 @@ final class AppStatus {
             mapViewSource.setSpeedCameras([])
             return
         }
-        guard let center = locationService.lastFix?.coordinate else { return }
         speedCameraPrefetchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let cams = await SpeedCameraService.shared.camerasAround(
-                center: center, radiusMeters: 6_000)
+                center: center, radiusMeters: Self.freeRideAlertRadiusMeters)
             guard !Task.isCancelled else { return }
             // Re-check the toggle after the network await, and that we're
             // still free-riding (a nav start during the await owns the layer).
@@ -798,6 +881,10 @@ final class AppStatus {
     func stopFreeRide() {
         guard isFreeRiding else { return }
         isFreeRiding = false
+        freeRideFixSubscription = nil
+        // Free-ride markers must not linger onto a later nav map (a nav
+        // start whose camera fetch fails never replaces them).
+        mapViewSource.setSpeedCameras([])
         stopStreaming()
     }
 
@@ -1676,6 +1763,10 @@ final class AppStatus {
                     // Re-enabled mid-ride → backfill markers for the
                     // current route without waiting for the next reroute.
                     self.prefetchSpeedCameras(for: route)
+                } else if self.dashNavSettings.speedCamerasEnabled, self.isFreeRiding {
+                    // Next fix refetches around the rider through the one
+                    // gated path (link state, retry clock).
+                    self.freeRideAlertCenter = nil
                 }
                 self.observeSpeedCameraToggle()
             }
@@ -1704,6 +1795,8 @@ final class AppStatus {
                           let route = self.activeNavigator.activeRoute {
                     // Turned on mid-ride with no ways loaded → backfill.
                     self.prefetchSpeedLimits(for: route)
+                } else if self.mapViewSource.speedLimitWaysEmpty, self.isFreeRiding {
+                    self.freeRideAlertCenter = nil   // next fix refetches (gated path)
                 }
                 self.observeSpeedLimitMode()
             }

@@ -747,9 +747,160 @@ def test_free_ride_retires_route_camera_fetches():
     # Reroute fetches aren't cancellable; a late one must not overwrite the
     # free-ride markers after arrival / manual stop.
     from tests.swift_source import decl_body, strip_comments
-    body = strip_comments(decl_body(_src("App/AppStatus.swift"), "private func prefetchFreeRideCameras()"))
+    body = strip_comments(decl_body(_src("App/AppStatus.swift"),
+                                    "private func prefetchFreeRideCameras(around center: CLLocationCoordinate2D)"))
     assert "speedCameraGeneration += 1" in body
     assert "speedCameraData = .empty" in body
+
+
+def test_free_ride_fetches_limits_and_cameras_around_rider():
+    # Free ride had no speed-limit sign at all (limits were only fetched
+    # along a nav route) and fetched cameras once, at start. Both are now
+    # fetched around the rider on the first fix and again after 3 km.
+    from tests.swift_source import decl_body, strip_comments
+    app = strip_comments(_src("App/AppStatus.swift"))
+    install = decl_body(app, "private func installFreeRideContent()")
+    assert "freeRideFixSubscription = locationService.subscribeFixes" in install
+    assert "self?.refreshFreeRideAlerts(near: fix.coordinate)" in install
+    assert "freeRideAlertCenter = nil" in install
+    # A nav-route limit fetch still in flight must not land on free ride.
+    assert "speedLimitPrefetchTask?.cancel()" in install
+    refresh = decl_body(app, "private func refreshFreeRideAlerts(near coord: CLLocationCoordinate2D)")
+    assert "guard isFreeRiding, !activeNavigator.isNavigating else { return }" in refresh
+    assert "if moved < Self.freeRideAlertRefetchMeters {" in refresh
+    assert "prefetchFreeRideCameras(around: center)" in refresh
+    assert refresh.count("prefetchFreeRideSpeedLimits(around: center)") == 2   # retry + refetch
+    limits = decl_body(app, "private func prefetchFreeRideSpeedLimits(around center: CLLocationCoordinate2D)")
+    assert "SpeedLimitService.shared.limitsAround(" in limits
+    # Late / failed / off results never overwrite: a failed refetch keeps
+    # the loaded layer, a nav start owns it.
+    for cond in ("!Task.isCancelled", "self.isFreeRiding",
+                 "!self.activeNavigator.isNavigating",
+                 "self.dashNavSettings.speedLimitDisplay != .off"):
+        assert cond in limits, cond
+    assert "freeRideAlertRadiusMeters: Double = 6_000" in app
+    assert "freeRideAlertRefetchMeters: Double = 3_000" in app
+    assert "freeRideFixSubscription = nil" in decl_body(app, "func stopFreeRide()")
+    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
+    around = decl_body(svc, "func limitsAround(center: CLLocationCoordinate2D, radiusMeters: Double)")
+    assert "Self.boundingBox(of: [center], bufferMeters: radiusMeters)" in around
+
+
+def _free_ride_model(radius=6000, refetch=3000, retry_s=60, retry_max=600):
+    """Python mirror of AppStatus.refreshFreeRideAlerts + the free-ride limit
+    task (1-D positions in metres along the ride). `result` of a fetch:
+    "ok" (limits + roads), "roads_only" (untagged region), "fail" (no roads)."""
+    st = {"center": None, "at": -1e9, "fetches": [], "retries": [], "failed": False,
+          "delay": retry_s, "loaded": None}
+
+    def fix(pos, t, result="ok"):
+        if st["center"] is not None and abs(pos - st["center"]) < refetch:
+            if st["failed"] and t - st["at"] >= st["delay"]:
+                st["at"] = t
+                st["delay"] = min(st["delay"] * 2, retry_max)
+                st["retries"].append((st["center"], t))   # limits only, same box
+                _land(result)
+            return
+        st["center"], st["at"] = pos, t                   # (snap: see the Swift)
+        st["fetches"].append(pos)                         # cameras + limits
+        _land(result)
+
+    def _land(result):
+        st["failed"] = result == "fail"
+        if not st["failed"]:
+            st["delay"] = retry_s
+            st["loaded"] = result
+
+    return st, fix
+
+
+def test_free_ride_refetch_keeps_rider_inside_loaded_square():
+    st, fix = _free_ride_model()
+    for i in range(0, 200):              # 20 km at 100 m per fix, 1 fix/s
+        fix(i * 100, i)
+        # The rider never gets closer than 3 km to the loaded edge.
+        assert abs(i * 100 - st["center"]) < 6000 - 2999
+    assert st["fetches"][0] == 0 and len(st["fetches"]) == 7   # every 3 km
+    assert st["retries"] == []
+
+
+def test_free_ride_retries_limits_after_failed_start():
+    st, fix = _free_ride_model()
+    fix(0, 0, "fail")                    # Overpass timed out
+    fix(50, 30)                          # <60 s: nothing
+    assert st["fetches"] == [0] and st["retries"] == []
+    fix(80, 61)                          # 60 s later: limits only, same box
+    assert st["fetches"] == [0] and st["retries"] == [(0, 61)] and st["loaded"] == "ok"
+    fix(120, 500)                        # loaded now: no timed retry
+    assert st["retries"] == [(0, 61)]
+
+
+def test_free_ride_untagged_region_is_not_a_retry_loop():
+    # Review of #145 (M1): roads but no maxspeed tags used to leave the sign
+    # layer empty, so the "limits missing" retry re-queried Overpass (limits
+    # AND cameras, on a new box each minute) for the whole ride.
+    st, fix = _free_ride_model()
+    for i in range(0, 25):               # 25 min, crawling 100 m / min
+        fix(i * 100, i * 60, "roads_only")
+    assert st["fetches"] == [0] and st["retries"] == [] and st["loaded"] == "roads_only"
+
+
+def test_free_ride_retry_backs_off():
+    st, fix = _free_ride_model()
+    fix(0, 0, "fail")
+    for t in range(1, 3000):             # parked-ish, Overpass keeps failing
+        fix(0, t, "fail")
+    gaps = [b[1] - a[1] for a, b in zip([(0, 0)] + st["retries"], st["retries"])]
+    assert gaps[:6] == [60, 120, 240, 480, 600, 600]
+
+
+def test_free_ride_hardening_from_review():
+    from tests.swift_source import decl_body, strip_comments
+    app = strip_comments(_src("App/AppStatus.swift"))
+    refresh = decl_body(app, "private func refreshFreeRideAlerts(near coord: CLLocationCoordinate2D)")
+    # M1: retry only a failed fetch, limits only, same box, with backoff.
+    assert "if freeRideLimitsFailed, dashNavSettings.speedLimitDisplay != .off," in refresh
+    assert "freeRideLimitRetryDelay = min(freeRideLimitRetryDelay * 2," in refresh
+    assert "speedLimitWaysEmpty" not in refresh
+    limits = decl_body(app, "private func prefetchFreeRideSpeedLimits(around center: CLLocationCoordinate2D)")
+    assert "self.freeRideLimitsFailed = data.roads.isEmpty" in limits
+    assert "!data.limits.isEmpty" not in limits
+    # M2: centre snapped to the 0.01° cache-key grid.
+    assert "(coord.latitude * 100).rounded() / 100" in refresh
+    assert "(coord.longitude * 100).rounded() / 100" in refresh
+    # L2: no fetching once the link has given up.
+    assert "guard bikeLink.state == .connected || bikeLink.state == .reconnecting else { return }" in refresh
+    # L4: free-ride markers don't linger onto a later nav map.
+    assert "mapViewSource.setSpeedCameras([])" in decl_body(app, "func stopFreeRide()")
+    install = decl_body(app, "private func installFreeRideContent()")
+    assert "freeRideLimitsFailed = false" in install
+    # Round 2: backoff timed from the failure; toggles go through the gated
+    # per-fix path instead of fetching directly.
+    assert "guard !data.roads.isEmpty else { self.freeRideAlertAt = Date(); return }" in limits
+    for fn in ("private func observeSpeedCameraToggle()", "private func observeSpeedLimitMode()"):
+        body = decl_body(app, fn)
+        assert "self.freeRideAlertCenter = nil" in body and "prefetchFreeRide" not in body, fn
+
+
+def test_overpass_runtime_error_remark_is_a_failure():
+    # A timeout / out-of-memory mid-query is HTTP 200 + some (or no)
+    # elements + a runtime-error remark: never use or cache it (30-day TTL),
+    # try the next mirror. Cameras too: an empty camera set is legit, so
+    # the remark is the only tell there.
+    from tests.swift_source import decl_body, strip_comments
+    for path, fn, ret in (
+        ("RideAlerts/SpeedLimitService.swift", "private func fetch(box: BBox) async throws -> SpeedLimitData",
+         "return Self.split(decoded.elements)"),
+        ("RideAlerts/SpeedCameraService.swift", "private func overpass(_ query: String) async throws -> OverpassResponse",
+         "return decoded"),
+    ):
+        svc = strip_comments(_src(path))
+        assert "let remark: String?" in svc, path
+        body = decl_body(svc, fn)
+        check = body.index('if let remark = decoded.remark, remark.contains("runtime error") {')
+    if "SpeedLimit" in path:
+        assert 'remark: \\(remark, privacy: .public)")' in body
+        assert check < body.index(ret) and "continue" in body[check:body.index(ret)], path
 
 
 def test_empty_overpass_answer_is_never_cached():
@@ -759,27 +910,12 @@ def test_empty_overpass_answer_is_never_cached():
     # the 30-day TTL instead of asking Overpass again.
     from tests.swift_source import decl_body, strip_comments
     svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
-    body = decl_body(svc, "func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedLimitData")
+    body = decl_body(svc, "private func limits(in box: BBox) async -> SpeedLimitData")
     assert "if let cached = loadCache(key: key), !cached.roads.isEmpty {" in body
     assert "if !data.roads.isEmpty { saveCache(key: key, data: data) }" in body
     # One definition + this one call each, file-wide: a new caller
     # elsewhere would bypass the guard.
     assert svc.count("saveCache(") == 2 and svc.count("loadCache(") == 2
-
-
-def test_overpass_runtime_error_remark_is_a_failure():
-    # Review round 3: a timeout / out-of-memory mid-`out geom` is HTTP 200
-    # with some elements + a runtime-error remark. Only "no roads" was
-    # caught, so a truncated set was cached for 30 days (and an empty 200
-    # from the first mirror skipped the fallback mirror).
-    from tests.swift_source import decl_body, strip_comments
-    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
-    assert "let remark: String?" in svc
-    fetch = decl_body(svc, "private func fetch(box: BBox) async throws -> SpeedLimitData")
-    check = fetch.index('if let remark = decoded.remark, remark.contains("runtime error") {')
-    assert 'remark: \\(remark, privacy: .public)")' in fetch
-    assert check < fetch.index("return Self.split(decoded.elements)")
-    assert "continue" in fetch[check:fetch.index("return Self.split(decoded.elements)")]
 
 
 def test_retry_backs_off_to_ten_minutes():

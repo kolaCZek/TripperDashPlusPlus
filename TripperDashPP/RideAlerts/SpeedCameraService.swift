@@ -225,6 +225,9 @@ actor SpeedCameraService {
             let role: String
         }
         let elements: [Element]
+        /// Overpass reports a query timeout / out-of-memory as HTTP 200 +
+        /// `"remark": "runtime error: …"`, with no or only SOME elements.
+        let remark: String?
     }
 
     /// ONE query for both layers: camera nodes, plus the average-speed
@@ -267,6 +270,13 @@ actor SpeedCameraService {
                     continue
                 }
                 let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
+                // An empty camera set is legitimate, so only the remark tells
+                // a busy mirror apart; never cache that (as `complete`) for
+                // 30 days, try the next endpoint instead.
+                if let remark = decoded.remark, remark.contains("runtime error") {
+                    lastError = URLError(.badServerResponse)
+                    continue
+                }
                 return decoded
             } catch {
                 lastError = error
