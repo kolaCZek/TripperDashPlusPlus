@@ -98,6 +98,8 @@ final class ActiveNavLoop {
     /// into the dash section panel.
     private var speedSections: [SpeedSection] = []
     private var sectionTracker = SpeedSectionTracker()
+    /// Last `ActiveNavigator.routeRecalculations` seen by the tick.
+    private var seenRouteRecalculations = 0
 
     private var task: Task<Void, Never>?
 
@@ -537,6 +539,16 @@ final class ActiveNavLoop {
         emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
                   arrivingStep: arrivingStep)
 
+        // Route recalculated or swapped → end the average-speed section and
+        // hide its panel. The average is measured along the route line, so
+        // after a swap it can read nonsense; no panel beats a wrong one.
+        // The new route only re-enters a section it rides from the start.
+        if nav.routeRecalculations != seenRouteRecalculations {
+            seenRouteRecalculations = nav.routeRecalculations
+            sectionTracker.reset()
+            mapSource?.setSpeedSection(nil)
+        }
+
         // 2b-cam. Spoken speed-camera proximity warning
         //     (feat/speed-camera-voice-alert). The camera phrase existed but
         //     nothing ever spoke it; this fires it ONCE per camera as the
@@ -668,8 +680,9 @@ final class ActiveNavLoop {
     }
 
     /// Feed the section tracker and push its reading to the dash panel
-    /// (nil outside a section). Skipped during a reroute: the old route
-    /// line is stale, so the last reading simply holds for those ticks.
+    /// (nil outside a section). Skipped during a reroute: the panel was
+    /// already cleared when the recalculation started (see the
+    /// `routeRecalculations` check in `tick`).
     private func updateSpeedSection() {
         guard settings.speedCamerasEnabled, !speedSections.isEmpty,
               let fix = location?.lastFix, let navigator else {

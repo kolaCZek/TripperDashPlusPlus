@@ -270,6 +270,17 @@ final class ActiveNavigator {
     /// Whether a reroute is currently in flight.
     private(set) var isRerouting: Bool = false
 
+    /// Bumped when an off-route recalculation starts and whenever the
+    /// active route is swapped mid-ride (reroute result, live-traffic
+    /// swap, alternative auto-switch, waypoint removed from the dash).
+    /// The nav loop ends the average-speed section on every change: its
+    /// average is measured along the route line, so after a swap it can
+    /// read nonsense. A counter rather than `isRerouting`, which a fast
+    /// MKDirections reply can flip back before the 1 Hz nav loop ever
+    /// samples it. An off-route reroute bumps twice (start + result);
+    /// consumers only compare for change.
+    private(set) var routeRecalculations = 0
+
     /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.
     /// Read-only for consumers. `nil` until the first fix lands. Minimal
     /// surface: the navigator already digests the fix; we just retain its
@@ -820,6 +831,7 @@ final class ActiveNavigator {
         // seed() also calls refreshAlternatives(), so the OLD active route
         // becomes one of the new alternatives automatically.
         guard let dest else { return false }
+        routeRecalculations += 1
         seed(route: newRoute, destination: dest)
         await onActiveRouteChanged?(newRoute)
         return true
@@ -1163,6 +1175,7 @@ final class ActiveNavigator {
 
     private func requestReroute(from coord: CLLocationCoordinate2D) async {
         guard let dest = destination, let cb = onRerouteRequested else { return }
+        routeRecalculations += 1
         isRerouting = true
         defer { isRerouting = false }
         lastRerouteAt = .now
@@ -1187,6 +1200,7 @@ final class ActiveNavigator {
     /// travelled breadcrumb is deliberately untouched — a swap replaces
     /// the road AHEAD, never the ground already covered.
     private func installSwappedRoute(_ newRoute: MKRoute) async {
+        routeRecalculations += 1
         self.activeRoute = newRoute
         self.lastSegmentIndex = 0
         self.offRouteSince = nil
@@ -1271,6 +1285,9 @@ final class ActiveNavigator {
             return false
         }
         log.info("skipCurrentLeg: rider removed waypoint at leg \(self.currentLegIndex + 1) of \(plan.legs.count)")
+        // Mid-leg swap the rider triggers: the next leg can turn off the
+        // average-speed section, so end it like any other recalculation.
+        routeRecalculations += 1
         await advanceToNextLeg(in: plan)
         return true
     }
