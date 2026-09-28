@@ -272,9 +272,10 @@ def test_section_panel_hides_on_every_route_recalculation():
     ends and the panel hides as an off-route recalculation STARTS (bump
     before the MKDirections await, so it holds even if the reroute fails)
     and on every mid-ride route swap (reroute result, live-traffic swap,
-    alternative auto-switch, waypoint removed from the dash). Keyed off a counter, not `isRerouting`, which
-    a fast reply can clear between two 1 Hz ticks; checked before the
-    `!isRerouting` block so the panel goes as the recalculation starts."""
+    alternative auto-switch, waypoint removed from the dash). Keyed off a
+    counter, not `isRerouting`, which a fast reply can clear between two
+    1 Hz ticks; checked before the `!isRerouting` block so the panel goes
+    as the recalculation starts."""
     from tests.swift_source import decl_body, strip_comments
     nav = strip_comments(_src("Navigation/ActiveNavigator.swift"))
     loop = strip_comments(_src("Navigation/ActiveNavLoop.swift"))
@@ -286,8 +287,13 @@ def test_section_panel_hides_on_every_route_recalculation():
     assert bump in swap and swap.index(bump) < swap.index("await onActiveRouteChanged?(newRoute)")
     skip = decl_body(nav, "func skipCurrentLeg(")
     assert bump in skip and skip.index(bump) < skip.index("await advanceToNextLeg(")
-    # A planned leg advance between stops is NOT a recalculation.
+    # A planned leg advance between stops is NOT a recalculation — and a
+    # bump in the shared seed() would silently make it one.
     assert bump not in decl_body(nav, "private func advanceToNextLeg(")
+    assert bump not in decl_body(nav, "private func seed(")
+    # New route-swap path? Decide whether it bumps routeRecalculations,
+    # then update this count.
+    assert nav.count("await onActiveRouteChanged?(") == 5
     alt = decl_body(nav, "private func maybeSwitchToAlternative(")
     assert bump in alt and alt.index(bump) < alt.index("await onActiveRouteChanged?(newRoute)")
     # Live-traffic swap goes through installSwappedRoute.

@@ -272,11 +272,13 @@ final class ActiveNavigator {
 
     /// Bumped when an off-route recalculation starts and whenever the
     /// active route is swapped mid-ride (reroute result, live-traffic
-    /// swap, alternative auto-switch, waypoint removed from the dash). The nav loop ends the average-speed
-    /// section on every bump: its average is measured along the route
-    /// line, so after a swap it can read nonsense. A counter rather than
-    /// `isRerouting`, which a fast MKDirections reply can flip back
-    /// before the 1 Hz nav loop ever samples it.
+    /// swap, alternative auto-switch, waypoint removed from the dash).
+    /// The nav loop ends the average-speed section on every change: its
+    /// average is measured along the route line, so after a swap it can
+    /// read nonsense. A counter rather than `isRerouting`, which a fast
+    /// MKDirections reply can flip back before the 1 Hz nav loop ever
+    /// samples it. An off-route reroute bumps twice (start + result);
+    /// consumers only compare for change.
     private(set) var routeRecalculations = 0
 
     /// Most recent GPS coordinate fed into the navigator via `ingest(fix:)`.

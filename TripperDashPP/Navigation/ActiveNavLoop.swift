@@ -680,8 +680,9 @@ final class ActiveNavLoop {
     }
 
     /// Feed the section tracker and push its reading to the dash panel
-    /// (nil outside a section). Skipped during a reroute: the old route
-    /// line is stale, so the last reading simply holds for those ticks.
+    /// (nil outside a section). Skipped during a reroute: the panel was
+    /// already cleared when the recalculation started (see the
+    /// `routeRecalculations` check in `tick`).
     private func updateSpeedSection() {
         guard settings.speedCamerasEnabled, !speedSections.isEmpty,
               let fix = location?.lastFix, let navigator else {
