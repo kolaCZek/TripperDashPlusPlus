@@ -158,7 +158,7 @@ def frame_corner_black_count(rider, heading_deg, zoom, anchor, grid_side: int, o
     and count how many land OUTSIDE the painted region (= black).
 
     `zoom` is the renderer's effective zoom (autozoom × bias). `osm_zoom`
-    is the OSM tile level the layer was baked at (base 15, coarse 12,
+    is the OSM tile level the layer was baked at (base 15, coarse 13,
     fine 16) — the renderer reads pxPerDeg from the tile, so the corner
     mapping must use the layer's own pxPerDeg, not the base z=15 value.
     """
@@ -252,7 +252,7 @@ def nearest_main_tile(tiles, rider):
         d = haversine(rider, c)
         if d < best_d:
             best_d, best = d, c
-    return best if best_d < 2500 else None
+    return best if best_d <= 1800 else None  # = RouteTileCache.maxTileCentreDistance
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +415,7 @@ def test_swift_block_uses_floor_not_round():
 
 
 # ---------------------------------------------------------------------------
-# Multi-zoom quality layers (coarse z=12 overview + fine z=16 detail).
+# Multi-zoom quality layers (coarse z=13 overview + fine z=16 detail).
 #
 # The renderer draws each layer's tile at `currentZoom * 2^(15 - osmZoom)`
 # so the on-screen ground scale is identical whichever layer supplied the
@@ -432,7 +432,7 @@ COARSE_OSM_ZOOM = 13
 FINE_OSM_ZOOM = 16
 
 # Composite grid sides per layer — MUST match the RouteTileCache(...) calls
-# in MapViewSource.buildQualityLayers. Coarse uses a WIDER grid (7) so the
+# in MapViewSource.ensureCoarseLayer / buildFineLayer. Coarse uses a WIDER grid (7) so the
 # higher-detail z=13 tiles still blanket the frame at the widest zoom-out.
 COARSE_GRID = 7
 BASE_GRID = 5
@@ -531,7 +531,7 @@ def test_layer_zoom_and_grid_match_swift():
     assert int(m_bz.group(1)) == BASE_OSM_ZOOM, m_bz.group(1)
     assert int(m_fz.group(1)) == FINE_OSM_ZOOM, m_fz.group(1)
     # Coarse composite gridSide is passed explicitly to RouteTileCache in
-    # buildQualityLayers; assert it matches COARSE_GRID.
+    # ensureCoarseLayer; assert it matches COARSE_GRID.
     m_cg = re.search(
         r"zoom: MapViewSource\.coarseLayerZoom,\s*\n\s*gridSide: (\d+)", src
     )
@@ -556,3 +556,189 @@ def test_swift_renderer_compensates_layer_scale():
     assert "pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))" in src, (
         "renderer must compensate per-layer pixel density via 2^(baseZoom - osmZoom)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-heading coverage + per-layer anchor geometry (review A2 / B3 / C9).
+#
+# The single-heading tests above follow the route's own heading. A rider
+# turning, or a route bending between anchors, puts the frame at ANY
+# rotation over a composite — so sweep 12 headings at every sample. The
+# per-layer geometry (anchor stride + whether the ±lateralOffset wing rows
+# are baked) is read from the Swift constructor calls, so this proves what
+# actually ships.
+# ---------------------------------------------------------------------------
+
+from tests.swift_source import decl_body, strip_comments  # noqa: E402
+
+HEADINGS = range(0, 360, 30)
+
+
+def _zigzag_route():
+    """~30 km of 1.5 km legs alternating NE / SE — a 90° bend every leg,
+    so anchors sit on corners as well as mid-leg."""
+    lat, lon = 50.10, 14.20
+    pts = [(lat, lon)]
+    for i in range(20):
+        hdg = math.radians(45 if i % 2 == 0 else 135)
+        lat += 1500.0 * math.cos(hdg) / 111_320.0
+        lon += 1500.0 * math.sin(hdg) / (111_320.0 * math.cos(math.radians(lat)))
+        pts.append((lat, lon))
+    return pts
+
+
+ZIGZAG = _zigzag_route()
+
+
+def _layer_ctor_args(fn_anchor: str) -> tuple[float, bool]:
+    """(anchorStride, bakesLateralRows) of the RouteTileCache(...) built in
+    the MapViewSource function at `fn_anchor`; absent = base defaults."""
+    body = strip_comments(decl_body(_map_source_src(), fn_anchor))
+    call = body[body.index("RouteTileCache("):]
+    call = call[: call.index(")")]
+    m = re.search(r"anchorStride:\s*([0-9_.]+)", call)
+    stride = float(m.group(1).replace("_", "")) if m else STRIDE_M
+    lateral_rows = "bakesLateralRows: false" not in call
+    return stride, lateral_rows
+
+
+def _layer_tiles(route, stride, lateral_rows):
+    """Mirror of RouteTileCache.computeAllAnchors with per-cache geometry."""
+    mains = anchors_along(route, stride)
+    out = [(c, 0) for c in mains]
+    if lateral_rows:
+        out += [(c, -1) for c in lateral(mains, -LATERAL_OFFSET_M)]
+        out += [(c, 1) for c in lateral(mains, LATERAL_OFFSET_M)]
+    return out
+
+
+def _nearest_layer_tile(tiles, rider, lateral_rows):
+    """Mirror of nearestTile's full scan: a main tile within 1500 m, then —
+    only for a layer WITH wing rows — any tile within 1800 m."""
+    best, best_d = None, float("inf")
+    for c, row in tiles:
+        d = haversine(rider, c)
+        if row == 0 and d < best_d:
+            best_d, best = d, c
+    if best is not None and best_d < 1500:
+        return best
+    if not lateral_rows:
+        return None
+    return nearest_main_tile(tiles, rider)
+
+
+def _multi_heading_black(route, osm_zoom, grid, stride, lateral_rows, effs, step=25):
+    tiles = _layer_tiles(route, stride, lateral_rows)
+    total = _route_distance(route)
+    riders = []
+    for dm in range(0, int(total) + 1, step):
+        rider, _ = _pos_and_heading(route, dm)
+        anchor = _nearest_layer_tile(tiles, rider, lateral_rows)
+        assert anchor is not None, "an on-route rider must always find a tile"
+        riders.append((rider, anchor))
+    out = {}
+    for eff in effs:
+        rz = eff * (2.0 ** (BASE_OSM_ZOOM - osm_zoom))
+        black = samples = 0
+        for rider, anchor in riders:
+            for h in HEADINGS:
+                samples += 1
+                if frame_corner_black_count(rider, h, rz, anchor,
+                                            grid_side=grid, osm_zoom=osm_zoom) > 0:
+                    black += 1
+        out[eff] = (black, samples)
+    return out
+
+
+COARSE_BAND = [0.12, 0.20, 0.35, 0.55, 0.77, COARSE_EDGE, COARSE_EDGE + LAYER_MARGIN]
+BASE_BAND = [COARSE_EDGE - LAYER_MARGIN, 0.8, 1.0, FINE_EDGE + LAYER_MARGIN]
+# Fine is drawn from FINE_EDGE - margin (1.07, only while zooming out of
+# fine) up to the 2.5 bias ceiling.
+FINE_BAND = [FINE_EDGE - LAYER_MARGIN, FINE_EDGE, 1.18, FINE_EDGE + LAYER_MARGIN, 1.5, 2.0, 2.5]
+
+# Today's multi-heading black-frame counts for geometry this change leaves
+# alone — recorded, not wished away. Base 5x5 / 700 m / wings goes
+# cosmetically black at the 0.77-0.8 coarse handoff (the review's C9); fine
+# 7x7 / 700 m does the same at its lower hysteresis edge 1.07-1.15, with or
+# without wing rows (an on-route rider's tile is always a main-row one).
+# Both may only get better. Unlisted zooms must be 0.
+BASE_TODAY = {
+    "ROUTE": {COARSE_EDGE - LAYER_MARGIN: 4},
+    "ZIGZAG": {COARSE_EDGE - LAYER_MARGIN: 38, 0.8: 4},
+}
+FINE_TODAY = {
+    "ROUTE": {FINE_EDGE - LAYER_MARGIN: 24, FINE_EDGE: 2},
+    "ZIGZAG": {FINE_EDGE - LAYER_MARGIN: 80, FINE_EDGE: 4},
+}
+
+
+@pytest.mark.parametrize("name,route", [("ROUTE", ROUTE), ("ZIGZAG", ZIGZAG)])
+def test_multi_heading_coverage_per_layer(name, route):
+    coarse_stride, coarse_wings = _layer_ctor_args("private func ensureCoarseLayer(")
+    fine_stride, fine_wings = _layer_ctor_args("private func buildFineLayer(")
+
+    coarse = _multi_heading_black(route, COARSE_OSM_ZOOM, COARSE_GRID,
+                                  coarse_stride, coarse_wings, COARSE_BAND)
+    assert all(b == 0 for b, _ in coarse.values()), f"coarse black frames: {coarse}"
+
+    base = _multi_heading_black(route, BASE_OSM_ZOOM, BASE_GRID,
+                                STRIDE_M, True, BASE_BAND)
+    for eff, (b, _) in base.items():
+        assert b <= BASE_TODAY[name].get(eff, 0), f"base worse than today at {eff}: {base}"
+
+    fine = _multi_heading_black(route, FINE_OSM_ZOOM, FINE_GRID,
+                                fine_stride, fine_wings, FINE_BAND)
+    for eff, (b, _) in fine.items():
+        assert b <= FINE_TODAY[name].get(eff, 0), f"fine worse than today at {eff}: {fine}"
+
+
+def _composites_per_km(route, stride, lateral_rows):
+    return len(_layer_tiles(route, stride, lateral_rows)) / (_route_distance(route) / 1000.0)
+
+
+def test_coarse_and_fine_bake_main_row_only():
+    """A2 + B3: coarse is 1400 m main-row only, fine 700 m main-row only.
+    Fails on the old geometry (both at base 700 m + wings, ~4.4/km)."""
+    coarse_args = _layer_ctor_args("private func ensureCoarseLayer(")
+    fine_args = _layer_ctor_args("private func buildFineLayer(")
+    assert coarse_args == (1400.0, False)
+    assert fine_args == (STRIDE_M, False)
+    coarse = _composites_per_km(ZIGZAG, *coarse_args)
+    fine = _composites_per_km(ZIGZAG, *fine_args)
+    base = _composites_per_km(ZIGZAG, STRIDE_M, True)
+    assert coarse < 1.0 and fine < 1.6 and base > 4.0, (coarse, fine, base)
+
+
+def test_base_geometry_defaults_unchanged():
+    """Base 700 m / 5x5 / 1500 m wings must stay exactly as-is — widening it
+    measurably blacks the frame corners. Every other RouteTileCache(...)
+    call relies on these defaults."""
+    src = strip_comments(_route_cache_src())
+    assert "nonisolated static let stride: CLLocationDistance = 700" in src
+    assert "static let lateralOffset: CLLocationDistance = 1500" in src
+    assert "nonisolated static let gridSide: Int = 5" in src
+    assert "anchorStride: CLLocationDistance = RouteTileCache.stride," in src
+    assert "bakesLateralRows: Bool = true" in src
+    anchors = decl_body(src, "private func computeAllAnchors(")
+    assert "anchorsAlongPolyline(route.polyline, stride: anchorStride)" in anchors
+    assert "bakesLateralRows" in anchors
+
+
+def test_main_only_layer_misses_off_route_and_base_catches_it():
+    """A rider 1.6 km off the route: a wingless layer must MISS (its main
+    tile is no good there) and the base layer's wing must catch it. Swift
+    side: nearestTile bails before the any-tile scan for a wingless layer,
+    and drawTileCacheFrame retries base with a full scan."""
+    mains = anchors_along(ROUTE)
+    off_route = lateral(mains, -1600.0)[3]
+    assert _nearest_layer_tile(_layer_tiles(ROUTE, STRIDE_M, False), off_route, False) is None
+    assert _nearest_layer_tile(_layer_tiles(ROUTE, STRIDE_M, True), off_route, True) is not None
+
+    nearest = strip_comments(decl_body(_route_cache_src(), "func nearestTile("))
+    assert nearest.index("guard bakesLateralRows else { return nil }") < nearest.index(
+        "guard bestDist <= Self.maxTileCentreDistance else { return nil }"
+    )
+    frame = strip_comments(decl_body(_map_source_src(), "private func drawTileCacheFrame("))
+    assert "if picked == nil, let base = routeTileCache, base !== cache {" in frame
+    assert "picked = base.nearestTile(to: fix.coordinate, hintIndex: nil)" in frame
+    assert "drawCache.image(for: refTile, atIndex: idx)" in frame

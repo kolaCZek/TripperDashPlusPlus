@@ -379,7 +379,8 @@ final class AppStatus {
         }
     }
 
-    /// Strong reference to the live MKMapView source. Created lazily
+    /// Strong reference to the dash frame source (tile cache + CGContext
+    /// renderer). Created lazily
     /// on first access. Lives for the duration of the app session so
     /// the FG-baked tile cache persists across start/stop streaming
     /// cycles.
@@ -1327,13 +1328,18 @@ final class AppStatus {
     /// Wire ActiveNavigator's reroute callback to our RoutingService
     /// and NavigationStore preferences. Done lazily after init.
     private func wireNavigation() {
+        // Off-route reroute + ETA-only refresh: both read `.first` only, so
+        // no alternates, and a hard timeout — MKDirections has none, and the
+        // dash shows "recalculating" for as long as a reroute waits.
         activeNavigator.onRerouteRequested = { [weak self] origin, dest in
             guard let self else { return nil }
             do {
                 let opts = try await self.routingService.calculate(
                     from: origin,
                     to: dest,
-                    preferences: self.navigationStore.routePreferences
+                    preferences: self.navigationStore.routePreferences,
+                    alternates: false,
+                    timeout: ActiveNavigator.routeRequestTimeout
                 )
                 return opts.first?.route
             } catch {
@@ -1352,7 +1358,8 @@ final class AppStatus {
                 let opts = try await self.routingService.calculate(
                     from: origin,
                     to: dest,
-                    preferences: self.navigationStore.routePreferences
+                    preferences: self.navigationStore.routePreferences,
+                    timeout: ActiveNavigator.routeRequestTimeout
                 )
                 return opts.map(\.route)
             } catch {
@@ -1425,6 +1432,8 @@ final class AppStatus {
     /// route installs land close together (start + immediate reroute).
     @ObservationIgnored private var speedCameraPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var speedLimitPrefetchTask: Task<Void, Never>?
+    /// Box of the speed-limit ways loaded (or being fetched) for this ride.
+    @ObservationIgnored private var speedLimitCoverage: SpeedLimitService.BBox?
 
     /// Start observing system call state and forwarding it to the dash.
     /// Mirrors `km3.u()` in the stock app: call changes become K1G
@@ -1639,25 +1648,67 @@ final class AppStatus {
     /// cleared) when the display mode is `.off`. Always pushes the current
     /// display config first so the renderer's mode/units are fresh even if
     /// the fetch returns nothing.
-    func prefetchSpeedLimits(for route: MKRoute) {
+    ///
+    /// `extending` (reroute / leg advance / alternative switch, from the
+    /// route-changed hook): skip when the new route lies inside the box
+    /// already loaded (or in flight) — which also covers the hook firing
+    /// right after nav start with the same route. Otherwise refetch for
+    /// the new route.
+    ///
+    /// A failed fetch (Overpass busy — both field rides of 2026-09-28 lost
+    /// their start fetch this way) is retried after
+    /// `speedLimitRetrySeconds`, then with the delay doubling up to
+    /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
+    /// task is replaced (route change outside the box, nav start, `.off`).
+    /// The claim is held meanwhile, so route changes inside the box don't
+    /// pile up parallel fetches. Failure = no limits AND no roads: a
+    /// region with no `maxspeed` tags still returns its roads, and must
+    /// not refetch.
+    func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false) {
+        let coords = route.polyline.coordinateList()
+        if extending, coords.count >= 2, let covered = speedLimitCoverage,
+           covered.contains(SpeedLimitService.boundingBox(of: coords, bufferMeters: 0)) {
+            return
+        }
         speedLimitPrefetchTask?.cancel()
+        speedLimitCoverage = nil
         pushSpeedLimitConfig()
         guard dashNavSettings.speedLimitDisplay != .off else {
             mapViewSource.setSpeedLimits(.empty)
             return
         }
-        let coords = route.polyline.coordinateList()
         guard coords.count >= 2 else { return }
+        let box = SpeedLimitService.boundingBox(of: coords,
+                                                bufferMeters: SpeedLimitService.corridorBufferMeters)
+        speedLimitCoverage = box
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let data = await SpeedLimitService.shared.limitsAlong(route: coords)
-            guard !Task.isCancelled else { return }
-            // Re-check the mode after the network await.
-            self.mapViewSource.setSpeedLimits(
-                self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
-            )
+            var retryDelay = AppStatus.speedLimitRetrySeconds
+            while true {
+                let data = await SpeedLimitService.shared.limitsAlong(route: coords)
+                guard let self, !Task.isCancelled else { return }
+                let failed = data.limits.isEmpty && data.roads.isEmpty
+                // A failed refetch mid-ride keeps the ways already loaded;
+                // they still cover whatever the old and new route share.
+                if !(failed && extending) {
+                    // Re-check the mode after the network await.
+                    self.mapViewSource.setSpeedLimits(
+                        self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
+                    )
+                }
+                guard failed else { return }
+                try? await Task.sleep(for: .seconds(retryDelay))
+                // Back off: a whole-route box that is simply too big for
+                // Overpass fails every time; don't hammer it every minute.
+                retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)
+                guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }
+            }
         }
     }
+
+    /// First retry of a failed speed-limit fetch during navigation, doubled
+    /// after each further failure up to `speedLimitRetryMaxSeconds`.
+    static let speedLimitRetrySeconds: Double = 60
+    static let speedLimitRetryMaxSeconds: Double = 600
 
     /// Push the speed-limit display policy (mode + tolerance + units) to
     /// the renderer. Cheap; safe to call on prefetch and whenever settings

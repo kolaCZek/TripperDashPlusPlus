@@ -35,8 +35,12 @@ import VideoToolbox
 import os.log
 
 /// One H.264 NAL unit emitted by the encoder.
-struct EncodedNAL {
-    enum Kind {
+///
+/// `nonisolated` + Sendable: handed from the VideoToolbox callback thread
+/// to `RtpSendPipe` on the RTP send queue. `@unchecked` only because of
+/// `CMTime` (a plain C value struct); every field is an immutable value.
+nonisolated struct EncodedNAL: @unchecked Sendable {
+    nonisolated enum Kind: Sendable {
         case sps        // Sequence parameter set (type 7)
         case pps        // Picture parameter set (type 8)
         case idr        // Keyframe (type 5)

@@ -18,13 +18,16 @@
 import Foundation
 
 /// One RTP/UDP datagram ready for transmission.
-struct RtpDatagram {
+nonisolated struct RtpDatagram: Sendable {
     let bytes: Data
     let marker: Bool
     let sequence: UInt16
 }
 
-final class RtpPacketizer {
+/// `nonisolated`: runs on the RTP send queue (`RtpSendPipe`), not the main
+/// actor. `@unchecked Sendable`: the only mutable state is `sequence`, and
+/// every `packetize` call happens on that one serial queue.
+nonisolated final class RtpPacketizer: @unchecked Sendable {
 
     /// Per RFC 6184, payload type for H.264 is dynamically assigned; we
     /// match better-dash + fake_dash on PT 96.

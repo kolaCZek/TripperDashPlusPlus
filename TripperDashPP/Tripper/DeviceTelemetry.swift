@@ -58,7 +58,7 @@ import CoreLocation
 /// Sendable snapshot consumed by `HeartbeatLoop` once per tick. Plain
 /// value type so it can cross the actor hop from `DeviceTelemetry`
 /// (main actor) into the heartbeat `Task` cleanly.
-struct PhoneTelemetry: Sendable, Equatable {
+nonisolated struct PhoneTelemetry: Sendable, Equatable {
     var cellSignal0to255: Int
     var batteryPct0to100: Int
     var gpsOn: Bool

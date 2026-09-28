@@ -45,7 +45,7 @@ from typing import Optional
 # --- Tunables mirrored from Swift RouteTileCache ----------------------------
 
 POSITION_FALLBACK_VALID_RADIUS_M = 800.0   # positionFallbackValidRadius
-NEAREST_TILE_MISS_RADIUS_M = 2500.0        # nearestTile's final guardrail
+NEAREST_TILE_MISS_RADIUS_M = 1800.0        # nearestTile's final guardrail (= maxTileCentreDistance)
 
 EARTH_R = 6_371_000.0
 

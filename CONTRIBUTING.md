@@ -23,7 +23,7 @@ This is the **most valuable** contribution right now. Until we know which bikes 
 - Steps to reproduce
 - Expected vs actual behavior
 - App version from Settings → About (`version (build) · commit`)
-- Logs, if you can — the app writes no log file; capture them with Console.app on a Mac (subsystem `eu.kolaczek.tripperdashpp`) or from Xcode's debug console
+- Logs, if you can — Console.app on a Mac (subsystem `eu.kolaczek.tripperdashpp`); in a build run from Xcode (Debug) also Settings → Diagnostics → Export log (everything since the app was last launched, so export before closing it)
 
 ### 💡 I have a feature idea
 

@@ -1080,9 +1080,11 @@ struct MapPickerView: View {
     ///
     /// `buildLayers: false` on this EARLY install, though: `setTileCache`'s
     /// side effect of kicking off the coarse (z=13, 7x7=49 tiles) + fine
-    /// (z=16, 49 tiles) sibling bakes is itself real MainActor CGContext
-    /// work (see `RouteTileCache.composite` — no `nonisolated`, all tile
-    /// stitching runs on the main actor). Firing that at t=0 stacks THREE
+    /// (z=16, 49 tiles) sibling bakes was, when this was written, real
+    /// MainActor CGContext work (`RouteTileCache.composite` now stitches
+    /// off the main actor, and `setTileCache` now only kicks off fine —
+    /// coarse is baked lazily on zoom-out — but a second bake still
+    /// competes for the network and the CPU at startup). Firing that at t=0 stacked THREE
     /// concurrent MainActor-heavy bakes (base corridor, coarse, fine)
     /// right on top of the Wi-Fi handshake / RTP stream startup that's
     /// racing at the exact same moment — field-confirmed regression
@@ -1094,6 +1096,11 @@ struct MapPickerView: View {
     /// tile while no longer contending with the handshake for the main
     /// actor.
     private func prerenderRouteTiles(_ route: MKRoute) async {
+        // A reroute / alternative switch can land before or during this
+        // 8 km bake; its own (shorter, later-started) bake then owns the
+        // renderer, and installing this cache would put the OLD route's
+        // tiles back under the rider.
+        guard status.mapViewSource.isCurrentRoute(route) else { return }
         let cache = RouteTileCache(style: status.mapViewSource.currentStyle)
         status.mapViewSource.setTileCache(cache, buildLayers: false)
         prerenderProgress = 0
@@ -1103,10 +1110,14 @@ struct MapPickerView: View {
         }
         // Re-install now that the corridor bake is done: same cache
         // object (no visual change), but this time kicks off the
-        // coarse/fine sibling layers — safe now that the handshake/
+        // fine sibling layer (coarse bakes on zoom-out) — safe now that the handshake/
         // stream-start race is long over.
-        status.mapViewSource.setTileCache(cache, buildLayers: true)
         prerenderActive = false
+        // A Light/Dark switch mid-bake already started its own re-bake in
+        // the new palette; installing this one would mix palettes.
+        guard status.mapViewSource.isCurrentRoute(route),
+              cache.style == status.mapViewSource.currentStyle else { return }
+        status.mapViewSource.setTileCache(cache, buildLayers: true)
     }
 
     /// Concatenate every leg's selected-option polyline into one full-trip
@@ -1176,6 +1187,10 @@ struct MapPickerView: View {
             //     next leg. No-op while the route stays inside the area
             //     already fetched for this ride (incl. right after start).
             status.prefetchSpeedCameras(for: newRoute, extending: true)
+            // (5) Same for the speed-limit ways: without it a new road never
+            //     got its limits, and neither did the rest of a ride whose
+            //     start fetch timed out.
+            status.prefetchSpeedLimits(for: newRoute, extending: true)
         }
         // F3: whenever the navigator's alternatives change (leg swap,
         // auto-switch, reroute, clear) rebuild the render models and push
@@ -1338,9 +1353,13 @@ struct MapPickerView: View {
             // Attach the route polyline + full trip context and kick off the
             // tile prerender, but DO NOT await the prerender here. The dash
             // link must not be held hostage to OSM tile downloads: in a spot
-            // with no connectivity (e.g. an underground car park) the tile
-            // fetch can stall indefinitely (`waitsForConnectivity`), and if
-            // `startStreaming()` sits behind that await the dash never gets
+            // with no connectivity (e.g. an underground car park) each tile
+            // fetch waits for a network (`waitsForConnectivity`) up to its
+            // 16 s resource timeout, and is retried twice — ~50 s per tile,
+            // 4 tiles at a time, so a whole prerender can take many minutes.
+            // (Routing requests are capped separately: a reroute gives up
+            // after `ActiveNavigator.routeRequestTimeout`, 12 s, and retries
+            // 10 s later.) If `startStreaming()` sat behind that, the dash never gets
             // its projection-on + RTP stream and times out on its side
             // ("timeout" on the bike — field report 2026-08). So: install
             // geometry synchronously, start streaming immediately (the
@@ -1379,6 +1398,7 @@ struct MapPickerView: View {
         }
         // Drop the tile cache + polyline so the next route gets a fresh build.
         status.mapViewSource.setTileCache(nil)
+        status.mapViewSource.setCurrentRoute(nil)   // late bakes must not install after stop
         status.mapViewSource.setRoutePolyline(nil)
         status.mapViewSource.setFullRoute(coords: [], waypoints: [])
         status.mapViewSource.setAlternativeRoutes([])
@@ -1401,6 +1421,9 @@ struct MapPickerView: View {
     /// cache + route geometry without restarting the RTP stream.
     private func finishArrival() async {
         status.activeNavigator.stop()
+        // Late bakes must not install the finished route, on every branch
+        // below (the link-down one used to keep it current).
+        status.mapViewSource.setCurrentRoute(nil)
         status.activeNavigator.onActiveRouteChanged = nil
         status.stagedDestination = nil
         status.plannedRoute = nil

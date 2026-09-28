@@ -24,8 +24,8 @@
 //      Caches/RouteTiles/<namespace>/<z>/<x>/<y>.png
 //
 //  Eviction: lightweight age-based purge on app startup. Tiles older
-//  than `maxAgeDays` (default 30 — matches OSM tile cache header
-//  recommendations) are deleted; we also enforce a soft total-size
+//  than `maxAgeDays` (30, measured from the last read) are deleted;
+//  we also enforce a soft total-size
 //  cap (`maxBytesOnDisk`) by deleting LRU entries until back under
 //  cap. Both run off-main and only at startup, so the hot read/write
 //  path stays fast.
@@ -47,9 +47,10 @@ actor TileDiskCache {
 
     private let log = Logger(subsystem: "cz.kolaczek.TripperDashPP", category: "TileDiskCache")
 
-    /// Tiles older than this are evicted at startup. 30 days matches
-    /// OSM's "Expires" header default; longer would technically violate
-    /// the tile usage policy.
+    /// Tiles whose mtime is older than this are evicted at startup.
+    /// `read` bumps the mtime, so a tile read on every ride is never
+    /// evicted by age (only by the size cap). The response's HTTP
+    /// caching headers are not consulted.
     private let maxAgeDays: TimeInterval = 30
 
     /// Soft cap on total cache size. When exceeded, oldest-mtime

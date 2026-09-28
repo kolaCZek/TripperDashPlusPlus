@@ -7,8 +7,8 @@ A rider's app died mid-ride on a via-point route:
     MapViewSource.drawTileCacheFrame(into:)    MapViewSource.swift:1132
 
 `MapViewSource` keeps ONE `lastTileHintIndex` but renders from THREE
-sibling cache layers with very different tile counts (base bakes 8 km,
-coarse 3 km, fine 2 km). It resets the hint when `activeLayer` changes —
+sibling cache layers with very different tile counts (base bakes 8 km —
+2 km after a mid-ride re-bake — coarse 3 km, fine 2 km). It resets the hint when `activeLayer` changes —
 but a sibling layer finishing its bake *installs a shorter `tiles` array
 under the same layer*, and a batch bake reorders `tiles` under a live hint
 as well. Either way the hint can exceed `tiles.count`, and then:

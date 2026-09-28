@@ -48,7 +48,6 @@ final class MapViewSource: NSObject, FrameSource {
 
     // MARK: - State
 
-    private let mapView = MKMapView()
     private weak var locationService: LocationService?
     private weak var activeNavigator: ActiveNavigator?
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "MapViewSource")
@@ -100,7 +99,6 @@ final class MapViewSource: NSObject, FrameSource {
     private var streamStartMediaTime: CFTimeInterval = 0
 
     private var pixelBufferPool: CVPixelBufferPool?
-    private var routePolyline: MKPolyline?
     private var routePolylineCoords: [CLLocationCoordinate2D] = []
 
     /// The ENTIRE multi-stop route geometry (every leg's selected option,
@@ -181,6 +179,16 @@ final class MapViewSource: NSObject, FrameSource {
     /// untagged road than the nearest tagged way and suppress a false limit
     /// (e.g. a 90 tertiary shadowing the 50 residential you're really on).
     private var speedLimitRoads: [RoadShape] = []
+
+    /// Spatial indexes over `speedLimitWays` / `speedLimitRoads`, built once
+    /// in `setSpeedLimits` so the per-fix match scans only the 3×3 cells
+    /// around the rider, not the whole route bbox (review B6).
+    private var speedLimitWayGrid: SegmentGrid?
+    private var speedLimitRoadGrid: SegmentGrid?
+
+    /// Bumped by every `setSpeedLimits`, so a slow off-main grid build never
+    /// installs over a newer route's data or a clear.
+    private var speedLimitInstallGeneration = 0
 
     /// Whether no limit ways are currently loaded — lets `AppStatus` decide
     /// if a mid-ride re-enable needs a backfill fetch.
@@ -301,7 +309,10 @@ final class MapViewSource: NSObject, FrameSource {
     /// rider never loses the map while a layer warms up.
     private func activeTileCache(forEffectiveZoom z: CGFloat) -> RouteTileCache? {
         switch selectLayer(forEffectiveZoom: z) {
-        case .coarse: return coarseTileCache ?? routeTileCache
+        case .coarse:
+            if let coarse = coarseTileCache { return coarse }
+            ensureCoarseLayer()
+            return routeTileCache
         case .base:   return routeTileCache
         case .fine:   return fineTileCache ?? routeTileCache
         }
@@ -332,12 +343,24 @@ final class MapViewSource: NSObject, FrameSource {
     /// km/h that's ~72 m between calls — fine granularity given the
     /// rolling lookahead is 5 km.
     private static let tileExtendThrottle: TimeInterval = 2.0
+
+    /// Fast-start window of a mid-ride re-bake: reroute
+    /// (`performPendingRebake`) and palette switch (`performStyleRebake`).
+    /// 2 km ahead + the 500 m trail ≈ 4 main anchors + wings (~12
+    /// composites vs ~36 for the 8 km start-of-ride window) — ~55 s of
+    /// road at 130 km/h, far more than the rolling extender needs to top
+    /// up the rest.
+    static let rerouteBakeAheadMeters: CLLocationDistance = 2000
+
     /// Route queued for a fresh tile bake. Coalesces reroutes that land
     /// while a bake is in flight (see `scheduleTileCacheRebuild`). Most
     /// recent value wins — if a second reroute arrives before the
     /// first bakes, the older route is discarded.
     private var pendingRebakeRoute: MKRoute?
     private var pendingRebakeInFlight: Bool = false
+    /// A lazy coarse-layer bake (`ensureCoarseLayer`) is running. One at a
+    /// time; the renderer asks again every frame while it wants coarse.
+    private var coarseBakeInFlight: Bool = false
     private var appStateObserver: NSObjectProtocol?
 
     /// The map palette the renderer is currently painting. Tile caches,
@@ -489,7 +512,6 @@ final class MapViewSource: NSObject, FrameSource {
         self.locationService = locationService
         self.activeNavigator = activeNavigator
         super.init()
-        configureMapView()
         installAppStateObserver()
     }
 
@@ -497,25 +519,6 @@ final class MapViewSource: NSObject, FrameSource {
         if let obs = appStateObserver {
             NotificationCenter.default.removeObserver(obs)
         }
-    }
-
-    var hostView: MKMapView { mapView }
-
-    private func configureMapView() {
-        mapView.frame = CGRect(origin: .zero, size: frameSize)
-        mapView.bounds = CGRect(origin: .zero, size: frameSize)
-        mapView.showsCompass = false
-        mapView.showsScale = false
-        mapView.showsTraffic = false
-        mapView.showsBuildings = true
-        mapView.showsUserLocation = true
-        mapView.userTrackingMode = .followWithHeading
-        mapView.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .default)
-        mapView.delegate = self
-        mapView.isPitchEnabled = false
-        mapView.isRotateEnabled = false
-        mapView.isScrollEnabled = false
-        mapView.isZoomEnabled = false
     }
 
     // MARK: - FrameSource
@@ -550,12 +553,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// instead of asking MapKit to draw anything.
     ///
     /// When `buildLayers` is true and a route is known, this also kicks
-    /// off (fire-and-forget) the coarse overview (z=13) and fine detail
-    /// (z=16) sibling layers around the rider's current position, so the
-    /// map quality scales with the manual zoom. The base layer is usable
-    /// immediately; the siblings appear a few seconds later once their
-    /// (much smaller) bake windows finish, and until then
-    /// `activeTileCache` transparently falls back to base.
+    /// off (fire-and-forget) the fine detail (z=16) sibling layer around
+    /// the rider's current position. The base layer is usable
+    /// immediately; fine appears a few seconds later once its (much
+    /// smaller) bake window finishes, and until then `activeTileCache`
+    /// transparently falls back to base. The coarse overview (z=13) is
+    /// never built here — only on demand, see `ensureCoarseLayer`.
     func setTileCache(_ cache: RouteTileCache?, buildLayers: Bool = true) {
         routeTileCache = cache
         coarseTileCache = nil
@@ -566,40 +569,73 @@ final class MapViewSource: NSObject, FrameSource {
         lastPositionFallbackAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
         if buildLayers, cache != nil, let route = currentRoute {
-            buildQualityLayers(route: route, around: lastFix?.coordinate)
+            buildFineLayer(route: route, around: lastFix?.coordinate)
         }
     }
 
-    /// Build the coarse (z=13) + fine (z=16) sibling quality layers for
-    /// `route`, baked around `coord` (or the route start if nil). Runs
-    /// each bake in its own Task and swaps the finished layer in
-    /// atomically. The layers use a SHORT bake-ahead window (they only
-    /// need to cover the immediate surroundings for their zoom band), so
-    /// the extra tile fetches are modest versus the base layer.
-    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+    /// Bake the coarse overview layer (z=13) the first time the renderer
+    /// selects `.coarse` and it is missing. Coarse is only picked below
+    /// ~0.77× zoom, which autozoom never reaches (floor 0.8) — only a
+    /// manual LEFT press does — yet it used to be ~70 % of the image work
+    /// after every route change. Until this bake lands, `activeTileCache`
+    /// draws base (black frame edges at the extreme zoom-out for a few
+    /// seconds). A route change or palette switch just drops the layer
+    /// (`setTileCache` / `performStyleRebake` set it to nil); the next
+    /// zoom-out rebuilds it for the current route and palette.
+    private func ensureCoarseLayer() {
+        guard coarseTileCache == nil, !coarseBakeInFlight,
+              routeTileCache != nil,
+              // A reroute bake drops the layers when it installs, so a
+              // coarse bake now would be thrown away.
+              !pendingRebakeInFlight,
+              let route = currentRoute else { return }
+        coarseBakeInFlight = true
         let style = currentStyle
+        let coord = lastFix?.coordinate
         let coarse = RouteTileCache(
             style: style,
             zoom: MapViewSource.coarseLayerZoom,
             gridSide: 7,
-            bakeAheadMeters: 3000
+            bakeAheadMeters: 3000,
+            // A 7×7 z=13 composite spans ~22 km: 1400 m spacing and no wing
+            // rows still cover every heading (test_composite_coverage),
+            // at ~1/6 of the composites.
+            anchorStride: 1400,
+            bakesLateralRows: false
         )
-        let fine = RouteTileCache(
-            style: style,
-            zoom: MapViewSource.fineLayerZoom,
-            gridSide: 7,
-            bakeAheadMeters: 2000
-        )
+        log.info("Coarse overview layer requested by zoom-out — baking")
         Task { @MainActor in
             if let coord {
                 await coarse.prerender(route: route, around: coord) { _ in }
             } else {
                 await coarse.prerender(route: route) { _ in }
             }
-            guard style == currentStyle, currentRoute === route else { return }
+            coarseBakeInFlight = false
+            // Same stale guards as every other late install: a palette
+            // switch or route change during the bake discards it.
+            guard style == currentStyle, currentRoute === route,
+                  coarseTileCache == nil else { return }
             coarseTileCache = coarse
             log.info("Coarse overview layer installed: \(coarse.tiles.count, privacy: .public) tiles")
         }
+    }
+
+    /// Build the fine detail (z=16) sibling layer for `route`, baked
+    /// around `coord` (or the route start if nil), in its own Task, and
+    /// swap it in atomically. SHORT bake-ahead window: it only needs to
+    /// cover the immediate surroundings for its zoom band.
+    private func buildFineLayer(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+        let style = currentStyle
+        let fine = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.fineLayerZoom,
+            gridSide: 7,
+            bakeAheadMeters: 2000,
+            // Fine is only drawn zoomed in on the route; wing rows never
+            // won there (main-row preference). Base covers off-route.
+            // Spacing stays 700 m — 1400 m blacks out at the fine band edge.
+            bakesLateralRows: false
+        )
         Task { @MainActor in
             if let coord {
                 await fine.prerender(route: route, around: coord) { _ in }
@@ -616,8 +652,19 @@ final class MapViewSource: NSObject, FrameSource {
     /// the new palette around the rider. Called by the picker right after
     /// it builds the initial tile cache for `route`, and by the reroute
     /// path. Pass nil when navigation stops.
+    /// Also drops any reroute bake queued for the previous route: stop, free
+    /// ride and ride start all come through here, and a queued route of a
+    /// ride that ended must never be baked (it would reinstall that ride).
     func setCurrentRoute(_ route: MKRoute?) {
         currentRoute = route
+        pendingRebakeRoute = nil
+    }
+
+    /// Whether `route` is still the route the renderer bakes for. The
+    /// picker's ride-start prerender checks this before installing, so a
+    /// reroute that landed mid-prerender keeps its own tiles.
+    func isCurrentRoute(_ route: MKRoute) -> Bool {
+        currentRoute === route
     }
 
     /// Switch the map palette (manual Light/Dark toggle, or Auto at
@@ -632,11 +679,25 @@ final class MapViewSource: NSObject, FrameSource {
         guard style != currentStyle else { return }
         currentStyle = style
         log.info("Map style → \(style.tileCacheNamespace, privacy: .public)")
+        restyleCurrentRoute()
+    }
 
+    /// Re-bake the current route in `currentStyle` (or leave it to the
+    /// in-flight reroute bake / defer it to `didBecomeActive`).
+    private func restyleCurrentRoute() {
+        let style = currentStyle
         // Not navigating yet: nothing to re-bake. The next prerender (when
         // navigation starts) will pick up `currentStyle`. We still flip
         // the vector-fallback colours immediately via currentStyle.
         guard let route = currentRoute, let fix = lastFix else { return }
+
+        // A reroute bake in flight re-bakes itself in `currentStyle` when it
+        // finishes (see `performPendingRebake`); a parallel style bake would
+        // just double the CPU and network load right after a route change.
+        guard !pendingRebakeInFlight else {
+            log.info("Style re-bake left to the in-flight reroute bake")
+            return
+        }
 
         guard UIApplication.shared.applicationState == .active else {
             pendingStyleRebake = (route, style)
@@ -653,14 +714,22 @@ final class MapViewSource: NSObject, FrameSource {
         // The style may have changed again while we were waiting; bake the
         // most recent requested style only.
         guard style == currentStyle else { return }
-        let fresh = RouteTileCache(style: style)
+        // Short window around the rider, like a reroute: every raw tile is
+        // already on disk, so this is pure CPU (stitch, recolour, PNG
+        // encode; off the main actor) — and with Auto it runs the moment the rider unlocks
+        // the phone mid-ride. The rolling `extend(near:)` tops up the rest.
+        let fresh = RouteTileCache(style: style,
+                                   bakeAheadMeters: Self.rerouteBakeAheadMeters)
         await fresh.prerender(route: route, around: coord) { _ in }
-        // Re-check: a newer style switch may have landed during the bake.
-        guard style == currentStyle else { return }
+        // Re-check: a newer style switch may have landed during the bake,
+        // or a reroute that now owns the renderer (its own bake already
+        // uses `currentStyle`).
+        guard style == currentStyle, currentRoute === route else { return }
         routeTileCache = fresh   // atomic swap; old cache was visible until now
-        // Drop the old-palette sibling layers and rebuild them in the new
-        // style around the rider, so coarse/fine quality layers don't show
-        // a stale palette after a Light/Dark switch.
+        // Drop the old-palette sibling layers so they don't show a stale
+        // palette after a Light/Dark switch. Fine is rebuilt in the new
+        // style around the rider; coarse comes back lazily on the next
+        // zoom-out (`ensureCoarseLayer`).
         coarseTileCache = nil
         fineTileCache = nil
         activeLayer = .base
@@ -668,7 +737,7 @@ final class MapViewSource: NSObject, FrameSource {
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
-        buildQualityLayers(route: route, around: coord)
+        buildFineLayer(route: route, around: coord)
     }
 
     /// Extend the rolling tile-bake window around `coord`. Called from
@@ -772,6 +841,17 @@ final class MapViewSource: NSObject, FrameSource {
     /// `pendingRebakeRoute`, and the in-flight bake re-runs with the
     /// latest route when it finishes — only the newest corridor is kept.
     func scheduleTileCacheRebuild(for route: MKRoute) {
+        // Ride start fires the route-changed hook for the route the picker
+        // already installed (`setCurrentRoute`) and is prerendering 8 km
+        // for (`prerenderRouteTiles`). A second bake of the same route
+        // would only race it on the stream-start main actor.
+        // Only when idle: mid-bake `currentRoute` is the route being baked,
+        // not the newest request, so an X → Y → X flip-flop between
+        // alternatives must go through the coalescing path (newest wins).
+        guard pendingRebakeInFlight || route !== currentRoute else {
+            log.info("Tile re-bake skipped — route already installed")
+            return
+        }
         pendingRebakeRoute = route
         if pendingRebakeInFlight {
             // A bake is already running; it will pick up this newer route
@@ -794,18 +874,67 @@ final class MapViewSource: NSObject, FrameSource {
         let bakingFor = ObjectIdentifier(route)
         pendingRebakeInFlight = true
         currentRoute = route
-        let fresh = RouteTileCache(style: currentStyle)
-        await fresh.prerender(route: route) { _ in }
+        // Short fast-start window: a reroute happens mid-ride. The full
+        // 8 km start-of-ride window (~36 composites) is the heaviest bake of
+        // the ride, right when the phone is also fetching the new route over
+        // the same cellular link; the stitch runs off the main actor now,
+        // but the tiles under the rider should land first. The rolling
+        // `extend(near:)` tops the rest up to `rollingLookaheadMeters`, 12
+        // anchors per pass.
+        //
+        // Around the rider, not from the route start: an alternative
+        // auto-switch swaps in a route that starts back at the leg start,
+        // possibly km behind the rider (a reroute starts at the rider, so
+        // there it's the same window).
+        let fresh = RouteTileCache(style: currentStyle,
+                                   bakeAheadMeters: Self.rerouteBakeAheadMeters)
+        if let coord = lastFix?.coordinate {
+            await fresh.prerender(route: route, around: coord) { _ in }
+        } else {
+            await fresh.prerender(route: route) { _ in }
+        }
         pendingRebakeInFlight = false
+        // Navigation ended (arrival → free ride, stop) or a new ride took
+        // over while we were baking: this corridor is no longer wanted.
+        // Checked BEFORE the re-bake branches below — they set
+        // `currentRoute` again, so running them first would bring a stopped
+        // route back (review M1: End mid-bake + a dusk palette switch).
+        // `setCurrentRoute` already dropped what was queued for the old
+        // ride; anything queued since is for the new ride. Its own start
+        // route is baked by the picker's prerender (same rule as the idle
+        // guard in `scheduleTileCacheRebuild`); only a reroute of it is ours.
+        guard currentRoute === route else {
+            if pendingRebakeRoute === currentRoute { pendingRebakeRoute = nil }
+            if pendingRebakeRoute != nil { await performPendingRebake(); return }
+            // `setMapStyle` left a palette switch to this bake, which is now
+            // stale: redo it for the route that took over (review L-b —
+            // End, new ride, dusk flip, all within one bake).
+            if let cache = routeTileCache, cache.style != currentStyle { restyleCurrentRoute() }
+            return
+        }
         // If a newer route was scheduled while we were baking, throw
-        // this one away and recurse — fresh data wins.
+        // this one away and recurse — fresh data wins. Same for a palette
+        // switch mid-bake: installing `fresh` would put the old palette
+        // back over the style re-bake (`pendingRebakeRoute` is still this
+        // route, so the recursion re-bakes it in `currentStyle`).
+        if fresh.style != currentStyle {
+            log.info("Map style changed during reroute bake — re-baking in the new palette")
+            await performPendingRebake()
+            return
+        }
         if let latest = pendingRebakeRoute, ObjectIdentifier(latest) != bakingFor {
             log.info("Newer reroute landed during bake — re-baking with latest")
             await performPendingRebake()
             return
         }
         pendingRebakeRoute = nil
-        setTileCache(fresh)
+        // No sibling layers on a mid-ride route change. The fine z=16 layer
+        // is the heaviest bake (7×7 distinct tiles per composite): zoomed
+        // all the way in, the renderer falls back to the base z=15 layer.
+        // Coarse comes back lazily on the next zoom-out (`ensureCoarseLayer`).
+        // ponytail: fine layer returns only on the next style switch / ride
+        // start; bake it lazily later if riders miss the extra sharpness.
+        setTileCache(fresh, buildLayers: false)
     }
 
     /// Wire up the `didBecomeActiveNotification` observer that drains a
@@ -903,12 +1032,6 @@ extension MapViewSource {
         // whole failure chain at the cost of a marker that steps at GPS rate.
         recomputeHeading()
         recomputeSpeedLimit(for: fix)
-        let region = MKCoordinateRegion(
-            center: fix.coordinate,
-            latitudinalMeters: 400,
-            longitudinalMeters: 400
-        )
-        mapView.setRegion(region, animated: false)
     }
 
     private func handleHeading(_ heading: Heading) {
@@ -1049,9 +1172,7 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
-        // Unified FG + BG path. After the PiP/thumb removal, the
-        // MKMapView is no longer in a window so layer.render produces
-        // black. Instead we always composite from the pre-rendered
+        // Unified FG + BG path: always composite from the pre-rendered
         // tile cache (built when navigation starts) — works FG and BG
         // since it's pure CGContext, no MapKit live render.
         if routeTileCache != nil {
@@ -1138,7 +1259,16 @@ extension MapViewSource {
         // previous cache's tiles[]). Reset so nearestTile does a fresh
         // full scan on the new layer rather than trusting a stale hint.
         if activeLayer != layerBefore { lastTileHintIndex = 0 }
-        guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
+        var drawCache = cache
+        var picked = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex)
+        // Coarse / fine bake no wing rows, so a rider more than one of their
+        // anchor strides off the route misses there — retry base, whose
+        // wings cover off-route. Full scan: the hint indexes the sibling.
+        if picked == nil, let base = routeTileCache, base !== cache {
+            drawCache = base
+            picked = base.nearestTile(to: fix.coordinate, hintIndex: nil)
+        }
+        guard let (refTile, idx) = picked else {
             // Off the baked route corridor (wrong turn + reroute pending,
             // or a deliberate detour). Don't drop straight to the bare
             // vector fallback — try a position-anchored rescue tile first
@@ -1146,7 +1276,8 @@ extension MapViewSource {
             drawOffCorridorFallbackFrame(into: ctx)
             return
         }
-        lastTileHintIndex = idx
+        // A base index is no hint for the active sibling layer.
+        lastTileHintIndex = drawCache === cache ? idx : 0
 
         // ── HARD INVARIANT: the drawn tile must actually contain the rider ──
         //
@@ -1218,7 +1349,7 @@ extension MapViewSource {
         // tile span = ~3.9 km → ~82 % overlap) and stack on top with
         // slightly different lat-dependent pxPerDeg → visible seams
         // and a smeared composite. Single-tile draw is correct here.
-        guard let cg = cache.image(for: refTile, atIndex: idx)?.cgImage else {
+        guard let cg = drawCache.image(for: refTile, atIndex: idx)?.cgImage else {
             // Decode failed — better a vector frame than a blank one.
             drawVectorOnlyFrame(into: ctx)
             return
@@ -1800,9 +1931,12 @@ extension MapViewSource {
             return
         }
 
-        // Use a constant scale: 1 m = 0.5 px → 526 px = ~1 km wide view.
-        let metersPerPx: Double = 2.0
+        // Same ground scale as the base tile layer (z=15 m/px at this
+        // latitude; `currentZoom` is applied on top below, as in the tile
+        // path), so dropping to this fallback doesn't jump the zoom.
         let centerLat = fix.coordinate.latitude
+        let metersPerPx = WebMercator.metersPerPixel(latitude: centerLat,
+                                                     zoom: MapViewSource.baseLayerZoom)
         let centerLon = fix.coordinate.longitude
         let mPerDegLat = 111_320.0
         let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
@@ -1913,12 +2047,7 @@ extension MapViewSource {
 
 extension MapViewSource {
     func setRoutePolyline(_ polyline: MKPolyline?) {
-        if let existing = routePolyline {
-            mapView.removeOverlay(existing)
-        }
-        routePolyline = polyline
         if let polyline {
-            mapView.addOverlay(polyline, level: .aboveRoads)
             // Cache coords for the BG composite path.
             let n = polyline.pointCount
             let pts = polyline.points()
@@ -2255,8 +2384,40 @@ extension MapViewSource {
     /// the route): the tagged limit ways AND the bare road geometry for the
     /// shadow guard. Pass `.empty` to clear (also clears the current sign).
     func setSpeedLimits(_ data: SpeedLimitData) {
-        self.speedLimitWays = data.limits
-        self.speedLimitRoads = data.roads
+        speedLimitInstallGeneration &+= 1
+        guard !data.limits.isEmpty else {
+            installSpeedLimits(data, wayGrid: nil, roadGrid: nil)
+            return
+        }
+        // The grids are built off main: 89.5 ms for a ~40 km Prague route
+        // (116k segments) in the first field log, and it grows with the
+        // bbox. Until they land the previous ways + grids stay installed as
+        // a consistent pair; a newer install (or `.empty`) supersedes this.
+        let generation = speedLimitInstallGeneration
+        let wayLines = data.limits.map(\.coords)
+        let roadLines = data.roads.map(\.coords)
+        Task { @MainActor [weak self] in
+            let built = await Self.buildSpeedLimitGrids(ways: wayLines, roads: roadLines)
+            guard let self, generation == self.speedLimitInstallGeneration else { return }
+            self.installSpeedLimits(data, wayGrid: built.ways, roadGrid: built.roads)
+            self.log.info("Speed-limit grid: \(data.limits.count, privacy: .public) ways / \(built.ways.segmentCount, privacy: .public) segs / \(built.ways.cellCount, privacy: .public) cells, \(data.roads.count, privacy: .public) roads / \(built.roads.segmentCount, privacy: .public) segs / \(built.roads.cellCount, privacy: .public) cells, built off main in \(built.ms, format: .fixed(precision: 1), privacy: .public) ms")
+        }
+    }
+
+    @concurrent nonisolated private static func buildSpeedLimitGrids(
+        ways: [[CLLocationCoordinate2D]], roads: [[CLLocationCoordinate2D]]
+    ) async -> (ways: SegmentGrid, roads: SegmentGrid, ms: Double) {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let wayGrid = SegmentGrid(lines: ways)
+        let roadGrid = SegmentGrid(lines: roads)
+        return (wayGrid, roadGrid, (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+    }
+
+    private func installSpeedLimits(_ data: SpeedLimitData, wayGrid: SegmentGrid?, roadGrid: SegmentGrid?) {
+        speedLimitWays = data.limits
+        speedLimitRoads = data.roads
+        speedLimitWayGrid = wayGrid
+        speedLimitRoadGrid = roadGrid
         if data.limits.isEmpty {
             currentLimitKmh = nil
             isOverSpeedLimit = false
@@ -2284,17 +2445,28 @@ extension MapViewSource {
             isOverSpeedLimit = false
             return
         }
-        guard let match = SpeedLimitService.nearestLimit(to: fix.coordinate,
-                                                         ways: speedLimitWays) else {
+        // Grid query first (exact when it returns a hit — see SegmentGrid);
+        // full scan only when nothing is provably nearest within the 3×3
+        // window, i.e. the rider is ~250 m+ off every loaded road.
+        let match: SpeedLimitMatch
+        if let hit = speedLimitWayGrid?.nearestWithinWindow(to: fix.coordinate) {
+            match = SpeedLimitMatch(kmh: speedLimitWays[hit.line].maxspeedKmh,
+                                    distanceMeters: hit.distanceMeters)
+        } else if let full = SpeedLimitService.nearestLimit(to: fix.coordinate,
+                                                            ways: speedLimitWays) {
+            match = full
+        } else {
             currentLimitKmh = nil
             isOverSpeedLimit = false
             return
         }
         // Shadow guard: if the rider is on a road much closer than the
         // matched tagged way, the limit belongs to a parallel road they're
-        // not on — drop it rather than show a wrong number.
-        let nearestRoad = SpeedLimitService.nearestRoadDistance(to: fix.coordinate,
-                                                                roads: speedLimitRoads)
+        // not on — drop it rather than show a wrong number. Same exact
+        // grid-then-full-scan rule, so the guard sees today's distances.
+        let nearestRoad = speedLimitRoadGrid?.nearestWithinWindow(to: fix.coordinate)?.distanceMeters
+            ?? SpeedLimitService.nearestRoadDistance(to: fix.coordinate,
+                                                     roads: speedLimitRoads)
         if Self.isShadowed(matchDistance: match.distanceMeters, nearestRoad: nearestRoad) {
             currentLimitKmh = nil
             isOverSpeedLimit = false
@@ -3180,52 +3352,5 @@ extension MapViewSource {
         ctx.fillPath()
 
         ctx.restoreGState()
-    }
-}
-
-// MARK: - MKMapViewDelegate
-
-extension MapViewSource: MKMapViewDelegate {
-    nonisolated func mapView(_: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-        if let polyline = overlay as? MKPolyline {
-            let r = MKPolylineRenderer(polyline: polyline)
-            r.strokeColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            r.lineWidth = 6
-            r.lineCap = .round
-            r.lineJoin = .round
-            return r
-        }
-        return MKOverlayRenderer(overlay: overlay)
-    }
-}
-
-// MARK: - SwiftUI host
-
-import SwiftUI
-
-struct MapViewHost: UIViewRepresentable {
-    let source: MapViewSource
-
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
-        container.clipsToBounds = true
-        container.backgroundColor = .black
-        container.addSubview(source.hostView)
-        return container
-    }
-
-    func updateUIView(_ container: UIView, context: Context) {
-        let mapView = source.hostView
-        let native = source.frameSize
-        let bounds = container.bounds
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        guard mapView.superview === container else { return }
-
-        mapView.transform = .identity
-        mapView.translatesAutoresizingMaskIntoConstraints = true
-        mapView.frame = CGRect(origin: .zero, size: native)
-        let scale = min(bounds.width / native.width, bounds.height / native.height)
-        mapView.transform = CGAffineTransform(scaleX: scale, y: scale)
-        mapView.center = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 }
