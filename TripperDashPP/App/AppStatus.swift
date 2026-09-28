@@ -1644,6 +1644,11 @@ final class AppStatus {
                 // on. The claim is held meanwhile, so route changes inside
                 // this box don't start parallel fetches; a new ride / free
                 // ride bumps the generation and ends the loop.
+                // ponytail: a failed box stays claimed, so a reroute inside it
+                // won't try its own smaller box; only the whole-route box
+                // retries. Track retrying boxes separately and exclude them
+                // from the containment skip if a log shows a camera query
+                // failing on size (`Speed cameras: … remark: runtime error`).
                 try? await Task.sleep(for: .seconds(retryDelay))
                 retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)
                 guard !Task.isCancelled, generation == self.speedCameraGeneration,

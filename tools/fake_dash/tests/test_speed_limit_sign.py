@@ -952,6 +952,7 @@ def test_nav_camera_fetch_retries_after_total_failure():
     stop = loop.index("self.activeNavigator.isNavigating,")
     assert fetch < gen < ok < sleep < back < stop
     assert "self.dashNavSettings.speedCamerasEnabled else { return }" in loop[stop:]
+    assert "guard !Task.isCancelled, generation == self.speedCameraGeneration," in loop[back:]
     # Success returns; the claim is no longer released on failure.
     assert "return" in loop[ok:sleep]
     assert "speedCameraCoverage.removeAll" not in body
