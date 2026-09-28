@@ -240,6 +240,9 @@ actor SpeedLimitService {
             let geometry: [Pt]?
         }
         let elements: [Element]
+        /// Overpass reports a query timeout / out-of-memory as HTTP 200 +
+        /// `"remark": "runtime error: …"`, with no or only SOME elements.
+        let remark: String?
     }
 
     private func fetch(box: BBox) async throws -> SpeedLimitData {
@@ -271,6 +274,12 @@ actor SpeedLimitService {
                     continue
                 }
                 let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
+                // A runtime-error answer is empty or truncated: never use or
+                // cache it, try the next endpoint instead.
+                if let remark = decoded.remark, remark.contains("runtime error") {
+                    lastError = URLError(.badServerResponse)
+                    continue
+                }
                 return Self.split(decoded.elements)
             } catch {
                 lastError = error
