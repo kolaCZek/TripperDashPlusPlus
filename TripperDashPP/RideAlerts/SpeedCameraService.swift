@@ -265,6 +265,7 @@ actor SpeedCameraService {
                     throw URLError(.badServerResponse)
                 }
                 guard http.statusCode == 200 else {
+                    log.warning("Speed cameras: \(endpoint, privacy: .public) HTTP \(http.statusCode, privacy: .public)")
                     // 429/504 from a busy mirror — try the next endpoint.
                     lastError = URLError(.badServerResponse)
                     continue
@@ -274,11 +275,16 @@ actor SpeedCameraService {
                 // a busy mirror apart; never cache that (as `complete`) for
                 // 30 days, try the next endpoint instead.
                 if let remark = decoded.remark, remark.contains("runtime error") {
+                    log.warning("Speed cameras: \(endpoint, privacy: .public) remark: \(remark, privacy: .public)")
                     lastError = URLError(.badServerResponse)
                     continue
                 }
                 return decoded
             } catch {
+                // One line per mirror, so a field log shows WHY each failed
+                // (timeout / offline / cancelled), not just the last error.
+                let ns = error as NSError
+                log.warning("Speed cameras: \(endpoint, privacy: .public) failed: \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
                 lastError = error
                 continue
             }

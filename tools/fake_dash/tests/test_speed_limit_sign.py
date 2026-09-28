@@ -932,3 +932,39 @@ def test_retry_backs_off_to_ten_minutes():
         assert m.tick(now) is t
         m.resolve(t, None, now=now)
     assert waits == [60, 120, 240, 480, 600, 600]
+
+
+def test_nav_camera_fetch_retries_after_total_failure():
+    # Field log 2026-09-28 21:11: both mirrors failed on the nav start
+    # camera fetch and cameras never came for the rest of the ride — only
+    # a route change outside the box retried. Now the same backoff as the
+    # speed limits (60 s doubling to 600 s) while navigating, toggle on.
+    from tests.swift_source import decl_body, strip_comments
+    app = strip_comments(_src("App/AppStatus.swift"))
+    body = decl_body(app, "func prefetchSpeedCameras(for route: MKRoute, extending: Bool = false)")
+    assert "var retryDelay = AppStatus.speedLimitRetrySeconds" in body
+    loop = body[body.index("while true {"):]
+    fetch = loop.index("SpeedCameraService.shared.camerasAlong(route: coords)")
+    gen = loop.index("guard let self, !Task.isCancelled, generation == self.speedCameraGeneration else { return }")
+    ok = loop.index("if let fetched {")
+    sleep = loop.index("try? await Task.sleep(for: .seconds(retryDelay))")
+    back = loop.index("retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)")
+    stop = loop.index("self.activeNavigator.isNavigating,")
+    assert fetch < gen < ok < sleep < back < stop
+    assert "self.dashNavSettings.speedCamerasEnabled else { return }" in loop[stop:]
+    assert "guard !Task.isCancelled, generation == self.speedCameraGeneration," in loop[back:]
+    # Success returns; the claim is no longer released on failure.
+    assert "return" in loop[ok:sleep]
+    assert "speedCameraCoverage.removeAll" not in body
+
+
+def test_overpass_logs_every_mirror_failure():
+    # Field log 2026-09-28 21:10: overpass-api.de failed silently for ~40 s;
+    # only the fallback mirror's error reached the log.
+    from tests.swift_source import strip_comments
+    for path, tag in (("RideAlerts/SpeedLimitService.swift", "Speed limits"),
+                      ("RideAlerts/SpeedCameraService.swift", "Speed cameras")):
+        svc = strip_comments(_src(path))
+        assert f'log.warning("{tag}: \\(endpoint, privacy: .public) HTTP \\(http.statusCode, privacy: .public)")' in svc, path
+        assert f'log.warning("{tag}: \\(endpoint, privacy: .public) failed: \\(ns.domain, privacy: .public) \\(ns.code, privacy: .public)")' in svc, path
+        assert f'log.warning("{tag}: \\(endpoint, privacy: .public) remark: \\(remark, privacy: .public)")' in svc, path
