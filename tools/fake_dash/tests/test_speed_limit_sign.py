@@ -777,6 +777,7 @@ def test_overpass_runtime_error_remark_is_a_failure():
     assert "let remark: String?" in svc
     fetch = decl_body(svc, "private func fetch(box: BBox) async throws -> SpeedLimitData")
     check = fetch.index('if let remark = decoded.remark, remark.contains("runtime error") {')
+    assert 'remark: \\(remark, privacy: .public)")' in fetch
     assert check < fetch.index("return Self.split(decoded.elements)")
     assert "continue" in fetch[check:fetch.index("return Self.split(decoded.elements)")]
 

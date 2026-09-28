@@ -417,6 +417,7 @@ actor SpeedLimitService {
                 // A runtime-error answer is empty or truncated: never use or
                 // cache it, try the next endpoint instead.
                 if let remark = decoded.remark, remark.contains("runtime error") {
+                    log.warning("Speed limits: \(endpoint, privacy: .public) remark: \(remark, privacy: .public)")
                     lastError = URLError(.badServerResponse)
                     continue
                 }
