@@ -655,6 +655,14 @@ final class MapViewSource: NSObject, FrameSource {
         // the vector-fallback colours immediately via currentStyle.
         guard let route = currentRoute, let fix = lastFix else { return }
 
+        // A reroute bake in flight re-bakes itself in `currentStyle` when it
+        // finishes (see `performPendingRebake`); a parallel style bake would
+        // just double the main-actor load right after a route change.
+        guard !pendingRebakeInFlight else {
+            log.info("Style re-bake left to the in-flight reroute bake")
+            return
+        }
+
         guard UIApplication.shared.applicationState == .active else {
             pendingStyleRebake = (route, style)
             log.info("Style re-bake deferred — app not active; will run on didBecomeActive")
@@ -859,6 +867,9 @@ final class MapViewSource: NSObject, FrameSource {
             return
         }
         pendingRebakeRoute = nil
+        // Navigation ended (arrival → free ride, stop) or a new ride took
+        // over while we were baking: this corridor is no longer wanted.
+        guard currentRoute === route else { return }
         // Coarse sibling layer only (few, widely shared z=13 tiles). The
         // fine z=16 layer is the heaviest bake (7×7 distinct tiles per
         // composite) and is skipped on a mid-ride route change: zoomed all

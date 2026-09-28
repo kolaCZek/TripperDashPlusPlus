@@ -418,14 +418,25 @@ def test_late_bakes_never_install_a_stale_route_or_palette():
     picker = strip_comments((app / "UI/MapPickerView.swift").read_text(encoding="utf-8"))
     src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
     pre = decl_body(picker, "private func prerenderRouteTiles(")
-    guard = "guard status.mapViewSource.isCurrentRoute(route) else { return }"
-    assert pre.count(guard) == 2
-    assert pre.index(guard) < pre.index("setTileCache(cache, buildLayers: false)")
-    assert pre.rindex(guard) < pre.index("setTileCache(cache, buildLayers: true)")
+    early = "guard status.mapViewSource.isCurrentRoute(route) else { return }"
+    late = ("guard status.mapViewSource.isCurrentRoute(route),\n"
+            "              cache.style == status.mapViewSource.currentStyle else { return }")
+    assert pre.index(early) < pre.index("setTileCache(cache, buildLayers: false)")
+    # The late check must follow the bake (before it, it guards nothing).
+    assert pre.index("await cache.prerender(") < pre.index(late) \
+        < pre.index("setTileCache(cache, buildLayers: true)")
     assert "currentRoute === route" in decl_body(src, "func isCurrentRoute(")
     rebake = decl_body(src, "private func performPendingRebake(")
     restyle = rebake.index("if fresh.style != currentStyle {")
-    assert restyle < rebake.index("setTileCache(fresh, buildLayers: false)")
+    stale = rebake.index("guard currentRoute === route else { return }")
+    install = rebake.index("setTileCache(fresh, buildLayers: false)")
+    assert rebake.rindex("await fresh.prerender(") < restyle < stale < install
     assert "await performPendingRebake()" in rebake[restyle:restyle + 200]
     style = decl_body(src, "private func performStyleRebake(")
     assert "guard style == currentStyle, currentRoute === route else { return }" in style
+    # No parallel style bake while a reroute bake runs (it re-styles itself).
+    setstyle = decl_body(src, "func setMapStyle(")
+    assert setstyle.index("guard !pendingRebakeInFlight else {") \
+        < setstyle.index("performStyleRebake(")
+    # Stop clears the route so a late bake can't install after it.
+    assert "setCurrentRoute(nil)" in decl_body(picker, "private func stopNavigation(")

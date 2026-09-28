@@ -1111,7 +1111,10 @@ struct MapPickerView: View {
         // coarse/fine sibling layers — safe now that the handshake/
         // stream-start race is long over.
         prerenderActive = false
-        guard status.mapViewSource.isCurrentRoute(route) else { return }
+        // A Light/Dark switch mid-bake already started its own re-bake in
+        // the new palette; installing this one would mix palettes.
+        guard status.mapViewSource.isCurrentRoute(route),
+              cache.style == status.mapViewSource.currentStyle else { return }
         status.mapViewSource.setTileCache(cache, buildLayers: true)
     }
 
@@ -1385,6 +1388,7 @@ struct MapPickerView: View {
         }
         // Drop the tile cache + polyline so the next route gets a fresh build.
         status.mapViewSource.setTileCache(nil)
+        status.mapViewSource.setCurrentRoute(nil)   // late bakes must not install after stop
         status.mapViewSource.setRoutePolyline(nil)
         status.mapViewSource.setFullRoute(coords: [], waypoints: [])
         status.mapViewSource.setAlternativeRoutes([])
