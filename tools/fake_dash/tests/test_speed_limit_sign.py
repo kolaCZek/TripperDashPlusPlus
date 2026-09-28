@@ -732,6 +732,12 @@ def test_free_ride_hardening_from_review():
     assert "mapViewSource.setSpeedCameras([])" in decl_body(app, "func stopFreeRide()")
     install = decl_body(app, "private func installFreeRideContent()")
     assert "freeRideLimitsFailed = false" in install
+    # Round 2: backoff timed from the failure; toggles go through the gated
+    # per-fix path instead of fetching directly.
+    assert "guard !data.roads.isEmpty else { self.freeRideAlertAt = Date(); return }" in limits
+    for fn in ("private func observeSpeedCameraToggle()", "private func observeSpeedLimitMode()"):
+        body = decl_body(app, fn)
+        assert "self.freeRideAlertCenter = nil" in body and "prefetchFreeRide" not in body, fn
 
 
 def test_overpass_runtime_error_remark_is_a_failure():
@@ -750,6 +756,8 @@ def test_overpass_runtime_error_remark_is_a_failure():
         assert "let remark: String?" in svc, path
         body = decl_body(svc, fn)
         check = body.index('if let remark = decoded.remark, remark.contains("runtime error") {')
+    if "SpeedLimit" in path:
+        assert 'remark: \\(remark, privacy: .public)")' in body
         assert check < body.index(ret) and "continue" in body[check:body.index(ret)], path
 
 

@@ -805,7 +805,7 @@ final class AppStatus {
         }
         // Snap the centre to the 0.01° grid the cache keys use, so riding
         // the same area again hits the disk cache instead of a fresh box
-        // every time. Shifts it ≤ ~0.7 km; `moved` is measured from the
+        // every time. Shifts it ≲ 0.8 km; `moved` is measured from the
         // snapped centre, so the rider still refetches 3 km inside the edge.
         let center = CLLocationCoordinate2D(latitude: (coord.latitude * 100).rounded() / 100,
                                             longitude: (coord.longitude * 100).rounded() / 100)
@@ -833,7 +833,9 @@ final class AppStatus {
                   self.isFreeRiding, !self.activeNavigator.isNavigating,
                   self.dashNavSettings.speedLimitDisplay != .off else { return }
             self.freeRideLimitsFailed = data.roads.isEmpty
-            guard !data.roads.isEmpty else { return }
+            // Time the backoff from the failure, not the start: a fetch can
+            // take ~80 s to fail across both mirrors.
+            guard !data.roads.isEmpty else { self.freeRideAlertAt = Date(); return }
             self.freeRideLimitRetryDelay = Self.freeRideAlertRetrySeconds
             self.mapViewSource.setSpeedLimits(data)
         }
@@ -1710,9 +1712,10 @@ final class AppStatus {
                     // Re-enabled mid-ride → backfill markers for the
                     // current route without waiting for the next reroute.
                     self.prefetchSpeedCameras(for: route)
-                } else if self.dashNavSettings.speedCamerasEnabled, self.isFreeRiding,
-                          let center = self.freeRideAlertCenter {
-                    self.prefetchFreeRideCameras(around: center)
+                } else if self.dashNavSettings.speedCamerasEnabled, self.isFreeRiding {
+                    // Next fix refetches around the rider through the one
+                    // gated path (link state, retry clock).
+                    self.freeRideAlertCenter = nil
                 }
                 self.observeSpeedCameraToggle()
             }
@@ -1741,9 +1744,8 @@ final class AppStatus {
                           let route = self.activeNavigator.activeRoute {
                     // Turned on mid-ride with no ways loaded → backfill.
                     self.prefetchSpeedLimits(for: route)
-                } else if self.mapViewSource.speedLimitWaysEmpty, self.isFreeRiding,
-                          let center = self.freeRideAlertCenter {
-                    self.prefetchFreeRideSpeedLimits(around: center)
+                } else if self.mapViewSource.speedLimitWaysEmpty, self.isFreeRiding {
+                    self.freeRideAlertCenter = nil   // next fix refetches (gated path)
                 }
                 self.observeSpeedLimitMode()
             }
