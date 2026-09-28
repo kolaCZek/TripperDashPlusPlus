@@ -681,3 +681,16 @@ def test_free_ride_retries_limits_after_failed_start():
     assert st["fetches"] == [0, 80] and st["limits_loaded"]
     fix(120, 200)                        # loaded now: no timed retry
     assert st["fetches"] == [0, 80]
+
+
+def test_empty_overpass_answer_is_never_cached():
+    # Review of the 60 s retry: a busy Overpass can answer HTTP 200 with a
+    # "Query timed out" remark and no elements. Cached, that empty set
+    # would be re-read by every retry (and every ride through the box) for
+    # the 30-day TTL instead of asking Overpass again.
+    from tests.swift_source import decl_body, strip_comments
+    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
+    body = decl_body(svc, "private func limits(in box: BBox) async -> SpeedLimitData")
+    assert "if let cached = loadCache(key: key), !cached.roads.isEmpty {" in body
+    assert "if !data.roads.isEmpty { saveCache(key: key, data: data) }" in body
+    assert body.count("saveCache(") == 1
