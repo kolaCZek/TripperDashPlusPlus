@@ -241,7 +241,7 @@ actor SpeedLimitService {
     /// service's 1 km — a speed limit only matters for roads the rider is
     /// actually on, and a smaller box keeps the (heavier, geometry-laden)
     /// way query cheaper.
-    private static let corridorBufferMeters: Double = 300
+    static let corridorBufferMeters: Double = 300
 
     private let cacheDir: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -450,8 +450,13 @@ actor SpeedLimitService {
 
     // MARK: - bbox
 
-    struct BBox {
+    struct BBox: Sendable, Equatable {
         let south, west, north, east: Double
+        // ponytail: plain min/max test, so an antimeridian box (west > east)
+        // never "contains" anything and a reroute there just refetches.
+        func contains(_ o: BBox) -> Bool {
+            o.south >= south && o.north <= north && o.west >= west && o.east <= east
+        }
         /// Coarse key (~0.01° ≈ 1.1 km grid) so re-riding a region is a
         /// disk hit, matching the camera service's keying granularity.
         var cacheKey: String {

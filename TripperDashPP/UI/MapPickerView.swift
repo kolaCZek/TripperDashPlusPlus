@@ -1187,6 +1187,10 @@ struct MapPickerView: View {
             //     next leg. No-op while the route stays inside the area
             //     already fetched for this ride (incl. right after start).
             status.prefetchSpeedCameras(for: newRoute, extending: true)
+            // (5) Same for the speed-limit ways: without it a new road never
+            //     got its limits, and neither did the rest of a ride whose
+            //     start fetch timed out.
+            status.prefetchSpeedLimits(for: newRoute, extending: true)
         }
         // F3: whenever the navigator's alternatives change (leg swap,
         // auto-switch, reroute, clear) rebuild the render models and push

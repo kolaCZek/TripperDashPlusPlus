@@ -1345,6 +1345,8 @@ final class AppStatus {
     /// route installs land close together (start + immediate reroute).
     @ObservationIgnored private var speedCameraPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var speedLimitPrefetchTask: Task<Void, Never>?
+    /// Box of the speed-limit ways loaded (or being fetched) for this ride.
+    @ObservationIgnored private var speedLimitCoverage: SpeedLimitService.BBox?
 
     /// Start observing system call state and forwarding it to the dash.
     /// Mirrors `km3.u()` in the stock app: call changes become K1G
@@ -1559,19 +1561,41 @@ final class AppStatus {
     /// cleared) when the display mode is `.off`. Always pushes the current
     /// display config first so the renderer's mode/units are fresh even if
     /// the fetch returns nothing.
-    func prefetchSpeedLimits(for route: MKRoute) {
+    ///
+    /// `extending` (reroute / leg advance / alternative switch, from the
+    /// route-changed hook): skip when the new route lies inside the box
+    /// already loaded (or in flight) — which also covers the hook firing
+    /// right after nav start with the same route. Otherwise refetch for
+    /// the new route. A failed or empty fetch releases the claim, so a ride
+    /// whose start fetch timed out (Overpass busy) retries on the next
+    /// route change instead of riding with no limits at all.
+    func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false) {
+        let coords = route.polyline.coordinateList()
+        if extending, coords.count >= 2, let covered = speedLimitCoverage,
+           covered.contains(SpeedLimitService.boundingBox(of: coords, bufferMeters: 0)) {
+            return
+        }
         speedLimitPrefetchTask?.cancel()
+        speedLimitCoverage = nil
         pushSpeedLimitConfig()
         guard dashNavSettings.speedLimitDisplay != .off else {
             mapViewSource.setSpeedLimits(.empty)
             return
         }
-        let coords = route.polyline.coordinateList()
         guard coords.count >= 2 else { return }
+        let box = SpeedLimitService.boundingBox(of: coords,
+                                                bufferMeters: SpeedLimitService.corridorBufferMeters)
+        speedLimitCoverage = box
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let data = await SpeedLimitService.shared.limitsAlong(route: coords)
             guard !Task.isCancelled else { return }
+            if data.limits.isEmpty {
+                if self.speedLimitCoverage == box { self.speedLimitCoverage = nil }
+                // A failed refetch mid-ride keeps the ways already loaded;
+                // they still cover whatever the old and new route share.
+                if extending { return }
+            }
             // Re-check the mode after the network await.
             self.mapViewSource.setSpeedLimits(
                 self.dashNavSettings.speedLimitDisplay != .off ? data : .empty

@@ -601,6 +601,64 @@ def test_route_changes_extend_camera_and_section_prefetch():
     assert "self.speedCameraData.merged(with: fetched)" in body
 
 
+def test_route_changes_refetch_speed_limits():
+    # Field logs 2026-09-28: the start fetch timed out (Overpass busy) and
+    # limits never came back for the rest of either ride — cameras did, on
+    # the first reroute. Route changes must refetch limits too, skip when the
+    # loaded box already covers the new route, and a failed/empty fetch must
+    # release the claim so the next route change retries.
+    from tests.swift_source import decl_body, strip_comments
+    picker = strip_comments(_src("UI/MapPickerView.swift"))
+    hook = picker[picker.index("onActiveRouteChanged = { [weak status] newRoute in"):]
+    hook = hook[:hook.index("onAlternativesChanged")]
+    assert "status.prefetchSpeedLimits(for: newRoute, extending: true)" in hook
+    body = strip_comments(decl_body(_src("App/AppStatus.swift"),
+                                    "func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false)"))
+    skip = body.index("covered.contains(SpeedLimitService.boundingBox(of: coords, bufferMeters: 0))")
+    assert skip < body.index("speedLimitPrefetchTask?.cancel()")
+    assert "speedLimitCoverage = box" in body
+    release = body.index("if self.speedLimitCoverage == box { self.speedLimitCoverage = nil }")
+    assert body.index("if data.limits.isEmpty {") < release < body.index("if extending { return }")
+    assert body.index("if extending { return }") < body.index("self.mapViewSource.setSpeedLimits(")
+    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
+    assert "o.south >= south && o.north <= north && o.west >= west && o.east <= east" in svc
+
+
+def _limit_prefetch_model():
+    """Python mirror of AppStatus.prefetchSpeedLimits' coverage logic."""
+    state = {"coverage": None, "installed": None, "fetches": 0}
+
+    def contains(outer, inner):
+        return (inner[0] >= outer[0] and inner[2] <= outer[2]
+                and inner[1] >= outer[1] and inner[3] <= outer[3])
+
+    def prefetch(route_box, fetched, extending=False):
+        if extending and state["coverage"] and contains(state["coverage"], route_box):
+            return
+        state["coverage"] = route_box
+        state["fetches"] += 1
+        if not fetched:
+            if state["coverage"] == route_box:
+                state["coverage"] = None
+            if extending:
+                return
+        state["installed"] = fetched
+
+    return state, prefetch
+
+
+def test_limit_prefetch_model_retries_after_failed_start():
+    state, prefetch = _limit_prefetch_model()
+    route = (50.20, 14.16, 50.26, 14.30)
+    prefetch(route, [])                               # start: Overpass timed out
+    prefetch(route, ["ways"], extending=True)         # hook, same route -> retries now
+    assert state["installed"] == ["ways"] and state["fetches"] == 2
+    prefetch((50.21, 14.20, 50.25, 14.28), ["x"], extending=True)  # reroute inside: skip
+    assert state["fetches"] == 2 and state["installed"] == ["ways"]
+    prefetch((50.21, 14.20, 50.30, 14.28), [], extending=True)     # outside, fails: keep old
+    assert state["installed"] == ["ways"] and state["coverage"] is None
+
+
 def test_free_ride_retires_route_camera_fetches():
     # Reroute fetches aren't cancellable; a late one must not overwrite the
     # free-ride markers after arrival / manual stop.
