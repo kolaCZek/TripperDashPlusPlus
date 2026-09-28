@@ -605,6 +605,79 @@ def test_free_ride_retires_route_camera_fetches():
     # Reroute fetches aren't cancellable; a late one must not overwrite the
     # free-ride markers after arrival / manual stop.
     from tests.swift_source import decl_body, strip_comments
-    body = strip_comments(decl_body(_src("App/AppStatus.swift"), "private func prefetchFreeRideCameras()"))
+    body = strip_comments(decl_body(_src("App/AppStatus.swift"),
+                                    "private func prefetchFreeRideCameras(around center: CLLocationCoordinate2D)"))
     assert "speedCameraGeneration += 1" in body
     assert "speedCameraData = .empty" in body
+
+
+def test_free_ride_fetches_limits_and_cameras_around_rider():
+    # Free ride had no speed-limit sign at all (limits were only fetched
+    # along a nav route) and fetched cameras once, at start. Both are now
+    # fetched around the rider on the first fix and again after 3 km.
+    from tests.swift_source import decl_body, strip_comments
+    app = strip_comments(_src("App/AppStatus.swift"))
+    install = decl_body(app, "private func installFreeRideContent()")
+    assert "freeRideFixSubscription = locationService.subscribeFixes" in install
+    assert "self?.refreshFreeRideAlerts(near: fix.coordinate)" in install
+    assert "freeRideAlertCenter = nil" in install
+    # A nav-route limit fetch still in flight must not land on free ride.
+    assert "speedLimitPrefetchTask?.cancel()" in install
+    refresh = decl_body(app, "private func refreshFreeRideAlerts(near coord: CLLocationCoordinate2D)")
+    assert "guard isFreeRiding, !activeNavigator.isNavigating else { return }" in refresh
+    assert "guard moved >= Self.freeRideAlertRefetchMeters || retry else { return }" in refresh
+    assert "prefetchFreeRideCameras(around: coord)" in refresh
+    assert "prefetchFreeRideSpeedLimits(around: coord)" in refresh
+    limits = decl_body(app, "private func prefetchFreeRideSpeedLimits(around center: CLLocationCoordinate2D)")
+    assert "SpeedLimitService.shared.limitsAround(" in limits
+    # Late / failed / off results never overwrite: a failed refetch keeps
+    # the loaded layer, a nav start owns it.
+    for cond in ("!Task.isCancelled", "!data.limits.isEmpty", "self.isFreeRiding",
+                 "!self.activeNavigator.isNavigating",
+                 "self.dashNavSettings.speedLimitDisplay != .off"):
+        assert cond in limits, cond
+    assert "freeRideAlertRadiusMeters: Double = 6_000" in app
+    assert "freeRideAlertRefetchMeters: Double = 3_000" in app
+    assert "freeRideFixSubscription = nil" in decl_body(app, "func stopFreeRide()")
+    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
+    around = decl_body(svc, "func limitsAround(center: CLLocationCoordinate2D, radiusMeters: Double)")
+    assert "Self.boundingBox(of: [center], bufferMeters: radiusMeters)" in around
+
+
+def _free_ride_model(radius=6000, refetch=3000, retry_s=60):
+    """Python mirror of AppStatus.refreshFreeRideAlerts' trigger logic
+    (1-D positions in metres along the ride)."""
+    st = {"center": None, "at": -1e9, "fetches": [], "limits_loaded": False}
+
+    def fix(pos, t, fetch_ok=True):
+        if st["center"] is not None:
+            moved = abs(pos - st["center"])
+            retry = (not st["limits_loaded"]) and t - st["at"] >= retry_s
+            if not (moved >= refetch or retry):
+                return
+        st["center"], st["at"] = pos, t
+        st["fetches"].append(pos)
+        if fetch_ok:
+            st["limits_loaded"] = True
+
+    return st, fix
+
+
+def test_free_ride_refetch_keeps_rider_inside_loaded_square():
+    st, fix = _free_ride_model()
+    for i in range(0, 200):              # 20 km at 100 m per fix, 1 fix/s
+        fix(i * 100, i)
+        # The rider never gets closer than 3 km to the loaded edge.
+        assert abs(i * 100 - st["center"]) < 6000 - 2999
+    assert st["fetches"][0] == 0 and len(st["fetches"]) == 7   # every 3 km
+
+
+def test_free_ride_retries_limits_after_failed_start():
+    st, fix = _free_ride_model()
+    fix(0, 0, fetch_ok=False)            # Overpass timed out
+    fix(50, 30)                          # stationary-ish, <60 s: no refetch
+    assert st["fetches"] == [0]
+    fix(80, 61)                          # 60 s later: retry
+    assert st["fetches"] == [0, 80] and st["limits_loaded"]
+    fix(120, 200)                        # loaded now: no timed retry
+    assert st["fetches"] == [0, 80]

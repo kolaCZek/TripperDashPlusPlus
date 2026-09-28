@@ -126,7 +126,17 @@ actor SpeedLimitService {
     /// failure — a missing limit layer must never break navigation.
     func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedLimitData {
         guard coords.count >= 2 else { return .empty }
-        let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
+        return await limits(in: Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters))
+    }
+
+    /// Free-ride: the same layer in a square of half-side `radiusMeters`
+    /// around `center` (no route to follow).
+    func limitsAround(center: CLLocationCoordinate2D, radiusMeters: Double) async -> SpeedLimitData {
+        guard center.latitude.isFinite, center.longitude.isFinite else { return .empty }
+        return await limits(in: Self.boundingBox(of: [center], bufferMeters: radiusMeters))
+    }
+
+    private func limits(in box: BBox) async -> SpeedLimitData {
         let key = box.cacheKey
 
         if let cached = loadCache(key: key) {
