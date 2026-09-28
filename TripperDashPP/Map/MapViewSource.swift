@@ -182,6 +182,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// (e.g. a 90 tertiary shadowing the 50 residential you're really on).
     private var speedLimitRoads: [RoadShape] = []
 
+    /// Spatial indexes over `speedLimitWays` / `speedLimitRoads`, built once
+    /// in `setSpeedLimits` so the per-fix match scans only the 3×3 cells
+    /// around the rider, not the whole route bbox (review B6).
+    private var speedLimitWayGrid: SegmentGrid?
+    private var speedLimitRoadGrid: SegmentGrid?
+
     /// Whether no limit ways are currently loaded — lets `AppStatus` decide
     /// if a mid-ride re-enable needs a backfill fetch.
     var speedLimitWaysEmpty: Bool { speedLimitWays.isEmpty }
@@ -2386,6 +2392,21 @@ extension MapViewSource {
         self.speedLimitWays = data.limits
         self.speedLimitRoads = data.roads
         if data.limits.isEmpty {
+            speedLimitWayGrid = nil
+            speedLimitRoadGrid = nil
+        } else {
+            // ponytail: built on main, O(segments) once per install (est.
+            // tens of ms for a big downtown bbox); move off main if the
+            // logged build time says it matters.
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let wayGrid = SegmentGrid(lines: data.limits.map(\.coords))
+            let roadGrid = SegmentGrid(lines: data.roads.map(\.coords))
+            speedLimitWayGrid = wayGrid
+            speedLimitRoadGrid = roadGrid
+            let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+            log.info("Speed-limit grid: \(data.limits.count, privacy: .public) ways / \(wayGrid.segmentCount, privacy: .public) segs / \(wayGrid.cellCount, privacy: .public) cells, \(data.roads.count, privacy: .public) roads / \(roadGrid.segmentCount, privacy: .public) segs / \(roadGrid.cellCount, privacy: .public) cells, built in \(ms, format: .fixed(precision: 1), privacy: .public) ms")
+        }
+        if data.limits.isEmpty {
             currentLimitKmh = nil
             isOverSpeedLimit = false
         } else if let fix = lastFix {
@@ -2412,17 +2433,28 @@ extension MapViewSource {
             isOverSpeedLimit = false
             return
         }
-        guard let match = SpeedLimitService.nearestLimit(to: fix.coordinate,
-                                                         ways: speedLimitWays) else {
+        // Grid query first (exact when it returns a hit — see SegmentGrid);
+        // full scan only when nothing is provably nearest within the 3×3
+        // window, i.e. the rider is ~250 m+ off every loaded road.
+        let match: SpeedLimitMatch
+        if let hit = speedLimitWayGrid?.nearestWithinWindow(to: fix.coordinate) {
+            match = SpeedLimitMatch(kmh: speedLimitWays[hit.line].maxspeedKmh,
+                                    distanceMeters: hit.distanceMeters)
+        } else if let full = SpeedLimitService.nearestLimit(to: fix.coordinate,
+                                                            ways: speedLimitWays) {
+            match = full
+        } else {
             currentLimitKmh = nil
             isOverSpeedLimit = false
             return
         }
         // Shadow guard: if the rider is on a road much closer than the
         // matched tagged way, the limit belongs to a parallel road they're
-        // not on — drop it rather than show a wrong number.
-        let nearestRoad = SpeedLimitService.nearestRoadDistance(to: fix.coordinate,
-                                                                roads: speedLimitRoads)
+        // not on — drop it rather than show a wrong number. Same exact
+        // grid-then-full-scan rule, so the guard sees today's distances.
+        let nearestRoad = speedLimitRoadGrid?.nearestWithinWindow(to: fix.coordinate)?.distanceMeters
+            ?? SpeedLimitService.nearestRoadDistance(to: fix.coordinate,
+                                                     roads: speedLimitRoads)
         if Self.isShadowed(matchDistance: match.distanceMeters, nearestRoad: nearestRoad) {
             currentLimitKmh = nil
             isOverSpeedLimit = false
