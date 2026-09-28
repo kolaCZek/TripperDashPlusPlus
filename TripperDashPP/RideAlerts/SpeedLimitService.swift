@@ -145,10 +145,10 @@ nonisolated struct SegmentGrid: Sendable {
                 let bLon = SpeedLimitService.unwrapLongitude(b.longitude, near: ref)
                 let c0 = Self.index(min(aLon, bLon), minLon, lonDeg)
                 let c1 = Self.index(max(aLon, bLon), minLon, lonDeg)
-                let ref = SegRef(line: Int32(li), seg: Int32(i))
+                let segRef = SegRef(line: Int32(li), seg: Int32(i))
                 for r in r0...r1 {
                     for c in c0...c1 {
-                        buckets[Self.key(r, c), default: []].append(ref)
+                        buckets[Self.key(r, c), default: []].append(segRef)
                     }
                 }
             }

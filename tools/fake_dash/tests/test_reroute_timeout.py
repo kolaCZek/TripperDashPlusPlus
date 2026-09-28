@@ -101,8 +101,14 @@ def test_swift_route_race_cancels_timer_and_stays_on_main():
     assert "race.timeoutTask = Task { @MainActor in" in race
     assert "guard !Task.isCancelled, race.waiter != nil else { return }" in race
     handler = race[race.index("directions.calculate { response, error in"):]
-    assert handler.lstrip().split("\n")[1].strip() == "MainActor.assumeIsolated {"
-    assert "Task {" not in handler
+    assert handler.lstrip().split("\n")[1].strip() == "guard Thread.isMainThread else {"
+    # Review L-c: off main it hops instead of trapping; on main, in place.
+    off_main = handler[:handler.index("MainActor.assumeIsolated")]
+    assert "Task { @MainActor in race.deliver(response, error) }" in off_main
+    assert "return" in off_main
+    assert "MainActor.assumeIsolated { race.deliver(response, error) }" in handler
+    deliver = decl_body(routing, "func deliver(")
+    assert "self.response = response" in deliver and "finish()" in deliver
     finish = decl_body(routing, "func finish(")
     assert "timeoutTask?.cancel()" in finish
     # The timer is armed before the request, so a reply can always cancel it.

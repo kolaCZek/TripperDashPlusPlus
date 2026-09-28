@@ -74,10 +74,21 @@ class FakeMapViewSource:
         self.current_route_id = route_id
         self.pending_rebake_route_id = None
 
+    restyles: list = field(default_factory=list)
+
     def set_style(self, style: str) -> None:
         # `setMapStyle` with a reroute bake in flight only records the
         # palette; the reroute bake re-styles itself.
         self.style = style
+        if not self.pending_rebake_in_flight:
+            self._restyle_current_route()
+
+    def _restyle_current_route(self) -> None:
+        # Mirror of `restyleCurrentRoute` → `performStyleRebake` (instant).
+        if self.current_route_id is None:
+            return
+        self.restyles.append((self.current_route_id, self.style))
+        self.set_tile_cache(self.current_route_id, self.style)
 
     def set_route_polyline(self, route_id: int) -> None:
         self.current_polyline_id = route_id
@@ -124,6 +135,10 @@ class FakeMapViewSource:
                 self.pending_rebake_route_id = None
             if self.pending_rebake_route_id is not None:
                 self._perform_pending_rebake()
+                return
+            # Review L-b: the palette switch left to this (now stale) bake.
+            if self.installed_style is not None and self.installed_style != self.style:
+                self._restyle_current_route()
             return
         if baked_style != self.style:
             self._perform_pending_rebake()
@@ -140,7 +155,7 @@ class FakeMapViewSource:
         ride-start bake: install only if the route is still current."""
         if route_id != self.current_route_id:
             return
-        self.set_tile_cache(route_id)
+        self.set_tile_cache(route_id, self.style)
 
     def did_become_active(self) -> None:
         """Mirror of UIApplication.didBecomeActiveNotification handler.
@@ -468,15 +483,22 @@ def test_late_bakes_never_install_a_stale_route_or_palette():
     assert "await performPendingRebake()" in rebake[restyle:restyle + 200]
     stale_branch = rebake[stale:restyle]
     assert "if pendingRebakeRoute === currentRoute { pendingRebakeRoute = nil }" in stale_branch
-    assert "if pendingRebakeRoute != nil { await performPendingRebake() }" in stale_branch
-    assert "return" in stale_branch
+    assert "if pendingRebakeRoute != nil { await performPendingRebake(); return }" in stale_branch
+    assert ("if let cache = routeTileCache, cache.style != currentStyle { restyleCurrentRoute() }"
+            in stale_branch)
+    # setMapStyle and the stale branch share one restyle path.
+    assert "restyleCurrentRoute()" in decl_body(src, "func setMapStyle(")
+    restyle_fn = decl_body(src, "private func restyleCurrentRoute(")
+    assert "guard let route = currentRoute, let fix = lastFix else { return }" in restyle_fn
+    assert "guard !pendingRebakeInFlight else {" in restyle_fn
+    assert "performStyleRebake(" in restyle_fn
     # Stop / free ride / ride start all clear the queued rebake.
     set_route = decl_body(src, "func setCurrentRoute(")
     assert "currentRoute = route" in set_route and "pendingRebakeRoute = nil" in set_route
     style = decl_body(src, "private func performStyleRebake(")
     assert "guard style == currentStyle, currentRoute === route else { return }" in style
     # No parallel style bake while a reroute bake runs (it re-styles itself).
-    setstyle = decl_body(src, "func setMapStyle(")
+    setstyle = decl_body(src, "private func restyleCurrentRoute(")
     assert setstyle.index("guard !pendingRebakeInFlight else {") \
         < setstyle.index("performStyleRebake(")
     # Stop clears the route so a late bake can't install after it.
@@ -621,3 +643,49 @@ def test_palette_switch_mid_bake_still_rebakes_while_navigating():
     src.schedule_tile_cache_rebuild(2)
     assert src.bakes_executed == [2, 2]
     assert (src.current_tile_cache_route_id, src.installed_style) == (2, "dark")
+
+
+def test_new_ride_plus_dusk_during_stale_bake_ends_in_new_palette():
+    """Review L-b: End, start a new ride (picker installs its cache in the
+    current palette), then Auto flips to Dark, all inside one stale reroute
+    bake. `setMapStyle` leaves the switch to the in-flight bake; the stale
+    branch must redo it for the new ride, or it stays Light."""
+    src = _navigating_with_reroute_in_flight()
+
+    def end_new_ride_dusk():
+        src.set_current_route(None)
+        src.set_tile_cache(None)
+        src.set_current_route(10)
+        src.picker_prerender_install(10)     # early install, light
+        src.set_style("dark")                # bake in flight → deferred
+
+    src.during_bake.append(end_new_ride_dusk)
+    src.schedule_tile_cache_rebuild(2)
+    assert src.current_route_id == 10
+    assert (src.current_tile_cache_route_id, src.installed_style) == (10, "dark")
+    assert src.restyles == [(10, "dark")]
+
+
+def test_stale_bake_without_palette_change_does_not_restyle():
+    src = _navigating_with_reroute_in_flight()
+
+    def end_new_ride():
+        src.set_current_route(10)
+        src.picker_prerender_install(10)
+
+    src.during_bake.append(end_new_ride)
+    src.schedule_tile_cache_rebuild(2)
+    assert src.restyles == []
+    assert (src.current_tile_cache_route_id, src.installed_style) == (10, "light")
+
+
+def test_finish_arrival_clears_the_route_on_every_branch():
+    """Review L-a: the link-down arrival branch used to keep the finished
+    route current, so a late reroute bake installed it."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    picker = strip_comments((app / "UI/MapPickerView.swift").read_text(encoding="utf-8"))
+    arrive = decl_body(picker, "private func finishArrival(")
+    clear = arrive.index("status.mapViewSource.setCurrentRoute(nil)")
+    assert clear < arrive.index("if status.bikeLink.state == .connected")

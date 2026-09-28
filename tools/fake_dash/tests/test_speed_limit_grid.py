@@ -323,6 +323,10 @@ def test_swift_wraps_longitudes_like_the_mirror():
     assert "let ax = remainder(a.longitude - p.longitude, 360) * mPerDegLon" in dist
     assert "let bx = remainder(b.longitude - p.longitude, 360) * mPerDegLon" in dist
     grid = decl_body(src, "nonisolated struct SegmentGrid")
+    # One name per meaning: the outer longitude reference is not shadowed.
+    assert "let ref = SegRef(" not in grid
+    assert "let segRef = SegRef(line: Int32(li), seg: Int32(i))" in grid
+    assert ".append(segRef)" in grid
     unwrap = decl_body(src, "nonisolated static func unwrapLongitude(")
     assert "if lon - ref > 180 { return lon - 360 }" in unwrap
     assert "if lon - ref < -180 { return lon + 360 }" in unwrap

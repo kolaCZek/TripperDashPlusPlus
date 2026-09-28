@@ -1417,6 +1417,9 @@ struct MapPickerView: View {
     /// cache + route geometry without restarting the RTP stream.
     private func finishArrival() async {
         status.activeNavigator.stop()
+        // Late bakes must not install the finished route, on every branch
+        // below (the link-down one used to keep it current).
+        status.mapViewSource.setCurrentRoute(nil)
         status.activeNavigator.onActiveRouteChanged = nil
         status.stagedDestination = nil
         status.plannedRoute = nil

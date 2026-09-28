@@ -323,9 +323,9 @@ final class RouteTileCache {
     /// ahead of the real rider (review C3, not fixed), and the tiles around
     /// the real position must survive that (review L2). That also covers
     /// `snapBackwardWindow` (1.5 km). Costs 5 km more of composites held
-    /// than the old 2 km window: ~25 more across the base (main row every
-    /// 700 m + side rows every 1500 m), fine and coarse layers, ~5-12 MB of
-    /// PNG at 0.2-0.5 MB each.
+    /// than the old 2 km window: ~32 more (base ~21 — main row every 700 m,
+    /// a wing on each side of every main anchor — fine ~7, coarse ~4),
+    /// ~6-16 MB of PNG at 0.2-0.5 MB each.
     static let evictBehindMeters: CLLocationDistance = 7_000
 
     // MARK: - Position-fallback tunables

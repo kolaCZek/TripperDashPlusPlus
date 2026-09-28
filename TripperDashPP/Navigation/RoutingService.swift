@@ -118,7 +118,8 @@ final class RoutingService {
     /// MapKit runs the completion handler on the main thread (documented
     /// for `calculate(completionHandler:)`), so it handles the reply in
     /// place instead of hopping through a Task — no extra main-actor hop,
-    /// and the non-Sendable response never crosses isolation. The reply
+    /// and the non-Sendable response never crosses isolation. Off main it
+    /// falls back to the old Task hop instead of trapping. The reply
     /// cancels the timer (`finish`), so no sleeping Task outlives a request.
     private static func calculate(_ directions: MKDirections,
                                   timeout: TimeInterval) async throws -> MKDirections.Response {
@@ -133,11 +134,13 @@ final class RoutingService {
                 race.finish()
             }
             directions.calculate { response, error in
-                MainActor.assumeIsolated {
-                    race.response = response
-                    race.error = error
-                    race.finish()
+                guard Thread.isMainThread else {
+                    // Not expected (documented main); hop rather than
+                    // trap mid-ride if a future iOS ever changes it.
+                    Task { @MainActor in race.deliver(response, error) }
+                    return
                 }
+                MainActor.assumeIsolated { race.deliver(response, error) }
             }
         }
         if race.timedOut { throw RoutingError.timedOut(seconds: timeout) }
@@ -218,6 +221,12 @@ private final class DirectionsRace {
     var timedOut = false
     var waiter: CheckedContinuation<Void, Never>?
     var timeoutTask: Task<Void, Never>?
+
+    func deliver(_ response: MKDirections.Response?, _ error: Error?) {
+        self.response = response
+        self.error = error
+        finish()
+    }
 
     func finish() {
         waiter?.resume()

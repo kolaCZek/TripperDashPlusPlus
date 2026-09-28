@@ -675,7 +675,13 @@ final class MapViewSource: NSObject, FrameSource {
         guard style != currentStyle else { return }
         currentStyle = style
         log.info("Map style → \(style.tileCacheNamespace, privacy: .public)")
+        restyleCurrentRoute()
+    }
 
+    /// Re-bake the current route in `currentStyle` (or leave it to the
+    /// in-flight reroute bake / defer it to `didBecomeActive`).
+    private func restyleCurrentRoute() {
+        let style = currentStyle
         // Not navigating yet: nothing to re-bake. The next prerender (when
         // navigation starts) will pick up `currentStyle`. We still flip
         // the vector-fallback colours immediately via currentStyle.
@@ -895,7 +901,11 @@ final class MapViewSource: NSObject, FrameSource {
         // guard in `scheduleTileCacheRebuild`); only a reroute of it is ours.
         guard currentRoute === route else {
             if pendingRebakeRoute === currentRoute { pendingRebakeRoute = nil }
-            if pendingRebakeRoute != nil { await performPendingRebake() }
+            if pendingRebakeRoute != nil { await performPendingRebake(); return }
+            // `setMapStyle` left a palette switch to this bake, which is now
+            // stale: redo it for the route that took over (review L-b —
+            // End, new ride, dusk flip, all within one bake).
+            if let cache = routeTileCache, cache.style != currentStyle { restyleCurrentRoute() }
             return
         }
         // If a newer route was scheduled while we were baking, throw
