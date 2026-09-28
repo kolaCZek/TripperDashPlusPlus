@@ -253,7 +253,11 @@ struct StreamingView: View {
 
             MapCacheSection()
 
+            // Debug builds only (Xcode Run → Debug; Archive, so TestFlight
+            // and the App Store, → Release): the log carries GPS positions.
+            #if DEBUG
             LogExportSection()
+            #endif
 
             Section("About") {
                 // "1.0.3 (6) · abc1234": marketing version, CFBundleVersion
@@ -367,7 +371,8 @@ private struct MapCacheSection: View {
     }
 }
 
-/// "Export log": the app's own log lines (every subsystem containing
+#if DEBUG
+/// "Export log" (Debug builds only): the app's own log lines (every subsystem containing
 /// `kolaczek`, info level and up) since this launch, as a text file for
 /// the share sheet — so a rider can send a field log without a Mac.
 /// iOS only lets an app read its current process's entries, so this must
@@ -429,6 +434,7 @@ private struct LogExportSection: View {
         }
     }
 }
+#endif
 
 #Preview {
     NavigationStack { StreamingView() }
