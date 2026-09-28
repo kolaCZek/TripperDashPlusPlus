@@ -387,10 +387,11 @@ def test_reroute_rebake_uses_short_fast_start_window():
     assert short < rolling
 
 
-def test_reroute_rebake_bakes_around_rider_and_skips_fine_layer():
+def test_reroute_rebake_bakes_around_rider_and_skips_sibling_layers():
     """Mid-ride route change: bake around the rider (an alternative
-    auto-switch starts back at the leg start) and only the coarse sibling
-    layer — the fine z=16 layer is the heaviest bake."""
+    auto-switch starts back at the leg start) and no sibling layer — the
+    fine z=16 layer is the heaviest bake, and coarse is built lazily on the
+    next zoom-out (see test_coarse_layer_is_lazy)."""
     from pathlib import Path
     from tests.swift_source import decl_body, strip_comments
     app = Path(__file__).resolve().parents[3] / "TripperDashPP"
@@ -398,9 +399,8 @@ def test_reroute_rebake_bakes_around_rider_and_skips_fine_layer():
     body = decl_body(src, "private func performPendingRebake(")
     assert "fresh.prerender(route: route, around: coord)" in body
     assert "setTileCache(fresh, buildLayers: false)" in body
-    assert "includeFine: false" in body
-    layers = decl_body(src, "private func buildQualityLayers(")
-    assert "guard includeFine else { return }" in layers
+    assert "buildFineLayer(" not in body
+    assert "RouteTileCache(" not in body.split("let fresh = RouteTileCache(", 1)[1]
     # Ride start already bakes 8 km for the route the picker installed;
     # the route-changed hook for that same route must not bake it again.
     sched = decl_body(src, "func scheduleTileCacheRebuild(")
@@ -440,3 +440,54 @@ def test_late_bakes_never_install_a_stale_route_or_palette():
         < setstyle.index("performStyleRebake(")
     # Stop clears the route so a late bake can't install after it.
     assert "setCurrentRoute(nil)" in decl_body(picker, "private func stopNavigation(")
+
+
+def test_coarse_layer_is_lazy():
+    """Review A1: the coarse z=13 layer is only selected below ~0.77× zoom,
+    which only a manual zoom-out reaches, yet it was ~70 % of the image work
+    after every route change. It is now built the first time the renderer
+    selects `.coarse` and finds it missing (one bake at a time, base drawn
+    meanwhile), under the same stale route/palette guards as every other
+    late install. Route changes and palette switches just drop it."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
+    active = decl_body(src, "private func activeTileCache(")
+    coarse_case = active[active.index("case .coarse:"):active.index("case .base:")]
+    assert "ensureCoarseLayer()" in coarse_case
+    assert "return routeTileCache" in coarse_case
+    lazy = decl_body(src, "private func ensureCoarseLayer(")
+    assert "guard coarseTileCache == nil, !coarseBakeInFlight," in lazy
+    assert "!pendingRebakeInFlight," in lazy
+    assert "let route = currentRoute else { return }" in lazy
+    done = lazy.index("coarseBakeInFlight = false")
+    stale = lazy.index("guard style == currentStyle, currentRoute === route,")
+    install = lazy.index("coarseTileCache = coarse")
+    assert lazy.index("await coarse.prerender(") < done < stale < install
+    # The only coarse RouteTileCache in the file is the lazy one.
+    assert src.count("zoom: MapViewSource.coarseLayerZoom") == 1
+    assert "zoom: MapViewSource.coarseLayerZoom" in lazy
+    # Route change / palette switch drop it; the rolling extend only tops
+    # up a coarse layer that exists.
+    assert "coarseTileCache = nil" in decl_body(src, "func setTileCache(")
+    assert "coarseTileCache = nil" in decl_body(src, "private func performStyleRebake(")
+    extend = decl_body(src, "func extendTileCache(")
+    assert "let coarse = coarseTileCache" in extend and "if let coarse {" in extend
+    assert "ensureCoarseLayer" not in extend
+
+
+def test_style_rebake_uses_short_window_and_keeps_fine():
+    """Review A5: a palette switch re-bakes only the short window around the
+    rider (all raw tiles are on disk, so it's pure main-actor CPU, and with
+    Auto it lands the moment the rider unlocks the phone). The fine layer
+    is still rebuilt; coarse returns lazily."""
+    from pathlib import Path
+    from tests.swift_source import decl_body, strip_comments
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    src = strip_comments((app / "Map/MapViewSource.swift").read_text(encoding="utf-8"))
+    style = decl_body(src, "private func performStyleRebake(")
+    assert "bakeAheadMeters: Self.rerouteBakeAheadMeters" in style
+    assert "fresh.prerender(route: route, around: coord)" in style
+    guard = style.index("guard style == currentStyle, currentRoute === route else { return }")
+    assert guard < style.index("buildFineLayer(route: route, around: coord)")

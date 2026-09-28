@@ -301,7 +301,10 @@ final class MapViewSource: NSObject, FrameSource {
     /// rider never loses the map while a layer warms up.
     private func activeTileCache(forEffectiveZoom z: CGFloat) -> RouteTileCache? {
         switch selectLayer(forEffectiveZoom: z) {
-        case .coarse: return coarseTileCache ?? routeTileCache
+        case .coarse:
+            if let coarse = coarseTileCache { return coarse }
+            ensureCoarseLayer()
+            return routeTileCache
         case .base:   return routeTileCache
         case .fine:   return fineTileCache ?? routeTileCache
         }
@@ -333,7 +336,8 @@ final class MapViewSource: NSObject, FrameSource {
     /// rolling lookahead is 5 km.
     private static let tileExtendThrottle: TimeInterval = 2.0
 
-    /// Fast-start window of a reroute re-bake (`performPendingRebake`).
+    /// Fast-start window of a mid-ride re-bake: reroute
+    /// (`performPendingRebake`) and palette switch (`performStyleRebake`).
     /// 2 km ahead + the 500 m trail ≈ 4 main anchors + wings (~12
     /// composites vs ~36 for the 8 km start-of-ride window) — ~55 s of
     /// road at 130 km/h, far more than the rolling extender needs to top
@@ -346,6 +350,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// first bakes, the older route is discarded.
     private var pendingRebakeRoute: MKRoute?
     private var pendingRebakeInFlight: Bool = false
+    /// A lazy coarse-layer bake (`ensureCoarseLayer`) is running. One at a
+    /// time; the renderer asks again every frame while it wants coarse.
+    private var coarseBakeInFlight: Bool = false
     private var appStateObserver: NSObjectProtocol?
 
     /// The map palette the renderer is currently painting. Tile caches,
@@ -558,12 +565,12 @@ final class MapViewSource: NSObject, FrameSource {
     /// instead of asking MapKit to draw anything.
     ///
     /// When `buildLayers` is true and a route is known, this also kicks
-    /// off (fire-and-forget) the coarse overview (z=13) and fine detail
-    /// (z=16) sibling layers around the rider's current position, so the
-    /// map quality scales with the manual zoom. The base layer is usable
-    /// immediately; the siblings appear a few seconds later once their
-    /// (much smaller) bake windows finish, and until then
-    /// `activeTileCache` transparently falls back to base.
+    /// off (fire-and-forget) the fine detail (z=16) sibling layer around
+    /// the rider's current position. The base layer is usable
+    /// immediately; fine appears a few seconds later once its (much
+    /// smaller) bake window finishes, and until then `activeTileCache`
+    /// transparently falls back to base. The coarse overview (z=13) is
+    /// never built here — only on demand, see `ensureCoarseLayer`.
     func setTileCache(_ cache: RouteTileCache?, buildLayers: Bool = true) {
         routeTileCache = cache
         coarseTileCache = nil
@@ -574,42 +581,64 @@ final class MapViewSource: NSObject, FrameSource {
         lastPositionFallbackAt = nil
         log.info("Tile cache installed: \(cache?.tiles.count ?? 0, privacy: .public) tiles")
         if buildLayers, cache != nil, let route = currentRoute {
-            buildQualityLayers(route: route, around: lastFix?.coordinate)
+            buildFineLayer(route: route, around: lastFix?.coordinate)
         }
     }
 
-    /// Build the coarse (z=13) + fine (z=16) sibling quality layers for
-    /// `route`, baked around `coord` (or the route start if nil). Runs
-    /// each bake in its own Task and swaps the finished layer in
-    /// atomically. The layers use a SHORT bake-ahead window (they only
-    /// need to cover the immediate surroundings for their zoom band), so
-    /// the extra tile fetches are modest versus the base layer.
-    private func buildQualityLayers(route: MKRoute, around coord: CLLocationCoordinate2D?,
-                                    includeFine: Bool = true) {
+    /// Bake the coarse overview layer (z=13) the first time the renderer
+    /// selects `.coarse` and it is missing. Coarse is only picked below
+    /// ~0.77× zoom, which autozoom never reaches (floor 0.8) — only a
+    /// manual LEFT press does — yet it used to be ~70 % of the image work
+    /// after every route change. Until this bake lands, `activeTileCache`
+    /// draws base (black frame edges at the extreme zoom-out for a few
+    /// seconds). A route change or palette switch just drops the layer
+    /// (`setTileCache` / `performStyleRebake` set it to nil); the next
+    /// zoom-out rebuilds it for the current route and palette.
+    private func ensureCoarseLayer() {
+        guard coarseTileCache == nil, !coarseBakeInFlight,
+              routeTileCache != nil,
+              // A reroute bake drops the layers when it installs, so a
+              // coarse bake now would be thrown away.
+              !pendingRebakeInFlight,
+              let route = currentRoute else { return }
+        coarseBakeInFlight = true
         let style = currentStyle
+        let coord = lastFix?.coordinate
         let coarse = RouteTileCache(
             style: style,
             zoom: MapViewSource.coarseLayerZoom,
             gridSide: 7,
             bakeAheadMeters: 3000
         )
-        let fine = RouteTileCache(
-            style: style,
-            zoom: MapViewSource.fineLayerZoom,
-            gridSide: 7,
-            bakeAheadMeters: 2000
-        )
+        log.info("Coarse overview layer requested by zoom-out — baking")
         Task { @MainActor in
             if let coord {
                 await coarse.prerender(route: route, around: coord) { _ in }
             } else {
                 await coarse.prerender(route: route) { _ in }
             }
-            guard style == currentStyle, currentRoute === route else { return }
+            coarseBakeInFlight = false
+            // Same stale guards as every other late install: a palette
+            // switch or route change during the bake discards it.
+            guard style == currentStyle, currentRoute === route,
+                  coarseTileCache == nil else { return }
             coarseTileCache = coarse
             log.info("Coarse overview layer installed: \(coarse.tiles.count, privacy: .public) tiles")
         }
-        guard includeFine else { return }
+    }
+
+    /// Build the fine detail (z=16) sibling layer for `route`, baked
+    /// around `coord` (or the route start if nil), in its own Task, and
+    /// swap it in atomically. SHORT bake-ahead window: it only needs to
+    /// cover the immediate surroundings for its zoom band.
+    private func buildFineLayer(route: MKRoute, around coord: CLLocationCoordinate2D?) {
+        let style = currentStyle
+        let fine = RouteTileCache(
+            style: style,
+            zoom: MapViewSource.fineLayerZoom,
+            gridSide: 7,
+            bakeAheadMeters: 2000
+        )
         Task { @MainActor in
             if let coord {
                 await fine.prerender(route: route, around: coord) { _ in }
@@ -678,16 +707,22 @@ final class MapViewSource: NSObject, FrameSource {
         // The style may have changed again while we were waiting; bake the
         // most recent requested style only.
         guard style == currentStyle else { return }
-        let fresh = RouteTileCache(style: style)
+        // Short window around the rider, like a reroute: every raw tile is
+        // already on disk, so this is pure main-actor CPU (stitch, recolour,
+        // PNG encode) — and with Auto it runs the moment the rider unlocks
+        // the phone mid-ride. The rolling `extend(near:)` tops up the rest.
+        let fresh = RouteTileCache(style: style,
+                                   bakeAheadMeters: Self.rerouteBakeAheadMeters)
         await fresh.prerender(route: route, around: coord) { _ in }
         // Re-check: a newer style switch may have landed during the bake,
         // or a reroute that now owns the renderer (its own bake already
         // uses `currentStyle`).
         guard style == currentStyle, currentRoute === route else { return }
         routeTileCache = fresh   // atomic swap; old cache was visible until now
-        // Drop the old-palette sibling layers and rebuild them in the new
-        // style around the rider, so coarse/fine quality layers don't show
-        // a stale palette after a Light/Dark switch.
+        // Drop the old-palette sibling layers so they don't show a stale
+        // palette after a Light/Dark switch. Fine is rebuilt in the new
+        // style around the rider; coarse comes back lazily on the next
+        // zoom-out (`ensureCoarseLayer`).
         coarseTileCache = nil
         fineTileCache = nil
         activeLayer = .base
@@ -695,7 +730,7 @@ final class MapViewSource: NSObject, FrameSource {
         lastTileExtendAt = nil
         lastPositionFallbackAt = nil
         log.info("Style re-bake installed: \(style.tileCacheNamespace, privacy: .public), \(fresh.tiles.count, privacy: .public) tiles")
-        buildQualityLayers(route: route, around: coord)
+        buildFineLayer(route: route, around: coord)
     }
 
     /// Extend the rolling tile-bake window around `coord`. Called from
@@ -870,14 +905,13 @@ final class MapViewSource: NSObject, FrameSource {
         // Navigation ended (arrival → free ride, stop) or a new ride took
         // over while we were baking: this corridor is no longer wanted.
         guard currentRoute === route else { return }
-        // Coarse sibling layer only (few, widely shared z=13 tiles). The
-        // fine z=16 layer is the heaviest bake (7×7 distinct tiles per
-        // composite) and is skipped on a mid-ride route change: zoomed all
-        // the way in, the renderer falls back to the base z=15 layer.
+        // No sibling layers on a mid-ride route change. The fine z=16 layer
+        // is the heaviest bake (7×7 distinct tiles per composite): zoomed
+        // all the way in, the renderer falls back to the base z=15 layer.
+        // Coarse comes back lazily on the next zoom-out (`ensureCoarseLayer`).
         // ponytail: fine layer returns only on the next style switch / ride
         // start; bake it lazily later if riders miss the extra sharpness.
         setTileCache(fresh, buildLayers: false)
-        buildQualityLayers(route: route, around: lastFix?.coordinate, includeFine: false)
     }
 
     /// Wire up the `didBecomeActiveNotification` observer that drains a
@@ -1872,9 +1906,12 @@ extension MapViewSource {
             return
         }
 
-        // Use a constant scale: 1 m = 0.5 px → 526 px = ~1 km wide view.
-        let metersPerPx: Double = 2.0
+        // Same ground scale as the base tile layer (z=15 m/px at this
+        // latitude; `currentZoom` is applied on top below, as in the tile
+        // path), so dropping to this fallback doesn't jump the zoom.
         let centerLat = fix.coordinate.latitude
+        let metersPerPx = WebMercator.metersPerPixel(latitude: centerLat,
+                                                     zoom: MapViewSource.baseLayerZoom)
         let centerLon = fix.coordinate.longitude
         let mPerDegLat = 111_320.0
         let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)

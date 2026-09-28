@@ -1240,13 +1240,18 @@ final class AppStatus {
     /// Wire ActiveNavigator's reroute callback to our RoutingService
     /// and NavigationStore preferences. Done lazily after init.
     private func wireNavigation() {
+        // Off-route reroute + ETA-only refresh: both read `.first` only, so
+        // no alternates, and a hard timeout — MKDirections has none, and the
+        // dash shows "recalculating" for as long as a reroute waits.
         activeNavigator.onRerouteRequested = { [weak self] origin, dest in
             guard let self else { return nil }
             do {
                 let opts = try await self.routingService.calculate(
                     from: origin,
                     to: dest,
-                    preferences: self.navigationStore.routePreferences
+                    preferences: self.navigationStore.routePreferences,
+                    alternates: false,
+                    timeout: ActiveNavigator.routeRequestTimeout
                 )
                 return opts.first?.route
             } catch {
@@ -1265,7 +1270,8 @@ final class AppStatus {
                 let opts = try await self.routingService.calculate(
                     from: origin,
                     to: dest,
-                    preferences: self.navigationStore.routePreferences
+                    preferences: self.navigationStore.routePreferences,
+                    timeout: ActiveNavigator.routeRequestTimeout
                 )
                 return opts.map(\.route)
             } catch {

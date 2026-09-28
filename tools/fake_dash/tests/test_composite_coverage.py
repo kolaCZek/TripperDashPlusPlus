@@ -252,7 +252,7 @@ def nearest_main_tile(tiles, rider):
         d = haversine(rider, c)
         if d < best_d:
             best_d, best = d, c
-    return best if best_d < 2500 else None
+    return best if best_d <= 1800 else None  # = RouteTileCache.maxTileCentreDistance
 
 
 # ---------------------------------------------------------------------------

@@ -255,8 +255,8 @@ final class RouteTileCache {
     /// The re-bake is triggered earlier, at `positionFallbackRefreshRadius`,
     /// so a replacement is already on its way before this one expires.
     ///
-    /// This is deliberately SMALLER than `nearestTile`'s 2.5 km miss
-    /// guardrail. The two don't overlap in purpose: `nearestTile` decides
+    /// This is deliberately SMALLER than `nearestTile`'s miss guardrail
+    /// (`maxTileCentreDistance`, 1.8 km). The two don't overlap in purpose: `nearestTile` decides
     /// "am I still on the baked ROUTE corridor?", this decides "does my
     /// one-off rescue tile still cover me?". A rider 1 km off-route misses
     /// the corridor (→ fallback path) yet stays inside a fresh position
@@ -358,6 +358,11 @@ final class RouteTileCache {
     /// `nearestTile(to:hintIndex:)` to prefer main-row tiles even when
     /// a wing tile is geometrically closer.
     private(set) var tileRowKind: [Int] = []
+    /// Parallel-indexed `allAnchors` index of each entry of `tiles[]`.
+    /// Stable for the life of the route (a baked anchor never changes),
+    /// unlike the position in `tiles[]`, which every batch reshuffles —
+    /// so it is the `imageCache` key.
+    private var tileAnchorIndex: [Int] = []
 
     /// All anchors for the current route. `allAnchors[i]` is unbaked
     /// unless `bakedIndices.contains(i)`. Used as the source of truth
@@ -391,8 +396,8 @@ final class RouteTileCache {
     // Kept deliberately OUT of `tiles[]` / `bakedTileByIndex` because it
     // has no `routeOffsetMeters` — it isn't on the polyline. Splicing it
     // into the route-ordered arrays would break the `nearestTile`
-    // hint-index locality invariant and the index-keyed `imageCache`
-    // (see the reorder note in `bakeAnchors`). One standalone slot avoids
+    // hint-index locality invariant and the anchor-index-keyed `imageCache`
+    // (see `tileAnchorIndex`). One standalone slot avoids
     // all of that.
 
     /// The current position-fallback tile, or nil if none is baked yet
@@ -421,7 +426,7 @@ final class RouteTileCache {
     ///   * `composite()` fetches + disk-caches tiles for exactly this
     ///     style, so a mixed-style instance could stitch a half-light /
     ///     half-dark composite;
-    ///   * `imageCache` and `tiles[]` are keyed by array index, so a
+    ///   * `imageCache` is keyed by anchor index, not by style, so a
     ///     style swap inside one instance would serve wrong-palette
     ///     bitmaps (same failure shape as the reorder bug in Pitfall #2).
     let style: MapStyle
@@ -481,6 +486,9 @@ final class RouteTileCache {
         // Reset all rolling state for the new route.
         tiles.removeAll(keepingCapacity: true)
         tileRowKind.removeAll(keepingCapacity: true)
+        tileAnchorIndex.removeAll(keepingCapacity: true)
+        // Memo keys are indices into the OLD anchor list.
+        imageCache.removeAllObjects()
         bakedTileByIndex.removeAll(keepingCapacity: true)
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
@@ -515,6 +523,9 @@ final class RouteTileCache {
         // Reset all rolling state for the new route + style.
         tiles.removeAll(keepingCapacity: true)
         tileRowKind.removeAll(keepingCapacity: true)
+        tileAnchorIndex.removeAll(keepingCapacity: true)
+        // Memo keys are indices into the OLD anchor list.
+        imageCache.removeAllObjects()
         bakedTileByIndex.removeAll(keepingCapacity: true)
         inFlight.removeAll(keepingCapacity: true)
         allAnchors = computeAllAnchors(for: route)
@@ -716,13 +727,12 @@ final class RouteTileCache {
         }
         tiles = sortedIdxs.map { bakedTileByIndex[$0]! }
         tileRowKind = sortedIdxs.map { allAnchors[$0].lateralRow }
-        // Reorder invalidates the (idx → UIImage) memo. Without this
-        // the renderer's `image(for:atIndex:)` would return a *stale*
-        // image for a freshly-shuffled index — i.e. the picture for
-        // some other anchor entirely — which paints the right pixels
-        // at the wrong geographic position. Visible symptom: composite
-        // looks like a different place than where the rider is.
-        imageCache.removeAllObjects()
+        // The decoded-image memo is keyed by anchor index, not by position
+        // in `tiles`, so this reorder leaves it valid — no purge, no
+        // re-decode of the composite under the rider after every batch.
+        // (A position key would hand back the picture of some other anchor
+        // after the shuffle: right pixels, wrong place.)
+        tileAnchorIndex = sortedIdxs
         log.info("Baked batch: \(completed, privacy: .public) anchors, total tiles now = \(self.tiles.count, privacy: .public)/\(self.allAnchors.count, privacy: .public)")
     }
 
@@ -921,7 +931,10 @@ final class RouteTileCache {
         if bestMainIdx >= 0 && bestMainDist < 1500 {
             return (tiles[bestMainIdx], bestMainIdx)
         }
-        // Final fallback: any tile within the wider 2.5 km guardrail.
+        // Final fallback: any tile within the draw-time limit. Same number
+        // the renderer enforces (`drawTileCacheFrame`): a looser limit here
+        // only hands it tiles it rejects — an error log and a full rescan
+        // every frame between the two limits.
         var bestIdx = 0
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
         for (i, t) in tiles.enumerated() {
@@ -931,7 +944,7 @@ final class RouteTileCache {
                 bestIdx = i
             }
         }
-        guard bestDist < 2500 else { return nil }
+        guard bestDist <= Self.maxTileCentreDistance else { return nil }
         return (tiles[bestIdx], bestIdx)
     }
 
@@ -1002,8 +1015,11 @@ final class RouteTileCache {
     }
 
     /// Decoded UIImage for `tile`. Cached; safe to call every frame.
+    /// `idx` is the position in `tiles` that `nearestTile` just returned;
+    /// the memo is keyed by the stable anchor index behind it.
     func image(for tile: RouteTile, atIndex idx: Int) -> UIImage? {
-        let key = NSNumber(value: idx)
+        guard tileAnchorIndex.indices.contains(idx) else { return UIImage(data: tile.jpeg) }
+        let key = NSNumber(value: tileAnchorIndex[idx])
         if let cached = imageCache.object(forKey: key) {
             return cached
         }
