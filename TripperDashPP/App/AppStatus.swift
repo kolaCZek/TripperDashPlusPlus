@@ -1569,8 +1569,9 @@ final class AppStatus {
     /// the new route.
     ///
     /// A failed fetch (Overpass busy — both field rides of 2026-09-28 lost
-    /// their start fetch this way) is retried every
-    /// `speedLimitRetrySeconds` while navigating, until it lands or the
+    /// their start fetch this way) is retried after
+    /// `speedLimitRetrySeconds`, then with the delay doubling up to
+    /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
     /// task is replaced (route change outside the box, nav start, `.off`).
     /// The claim is held meanwhile, so route changes inside the box don't
     /// pile up parallel fetches. Failure = no limits AND no roads: a
@@ -1594,6 +1595,7 @@ final class AppStatus {
                                                 bufferMeters: SpeedLimitService.corridorBufferMeters)
         speedLimitCoverage = box
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
+            var retryDelay = AppStatus.speedLimitRetrySeconds
             while true {
                 let data = await SpeedLimitService.shared.limitsAlong(route: coords)
                 guard let self, !Task.isCancelled else { return }
@@ -1607,14 +1609,19 @@ final class AppStatus {
                     )
                 }
                 guard failed else { return }
-                try? await Task.sleep(for: .seconds(AppStatus.speedLimitRetrySeconds))
+                try? await Task.sleep(for: .seconds(retryDelay))
+                // Back off: a whole-route box that is simply too big for
+                // Overpass fails every time; don't hammer it every minute.
+                retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)
                 guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }
             }
         }
     }
 
-    /// Retry cadence for a failed speed-limit fetch during navigation.
+    /// First retry of a failed speed-limit fetch during navigation, doubled
+    /// after each further failure up to `speedLimitRetryMaxSeconds`.
     static let speedLimitRetrySeconds: Double = 60
+    static let speedLimitRetryMaxSeconds: Double = 600
 
     /// Push the speed-limit display policy (mode + tolerance + units) to
     /// the renderer. Cheap; safe to call on prefetch and whenever settings

@@ -621,10 +621,13 @@ def test_route_changes_refetch_speed_limits():
     # Failure = no limits AND no roads (an untagged region still has roads).
     assert "let failed = data.limits.isEmpty && data.roads.isEmpty" in body
     assert "if !(failed && extending) {" in body
-    retry = body.index("try? await Task.sleep(for: .seconds(AppStatus.speedLimitRetrySeconds))")
+    assert "var retryDelay = AppStatus.speedLimitRetrySeconds" in body
+    retry = body.index("try? await Task.sleep(for: .seconds(retryDelay))")
+    assert retry < body.index("retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)")
     assert body.index("guard failed else { return }") < retry
     assert retry < body.index("guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }")
     assert "static let speedLimitRetrySeconds: Double = 60" in app
+    assert "static let speedLimitRetryMaxSeconds: Double = 600" in app
     svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
     assert "o.south >= south && o.north <= north && o.west >= west && o.east <= east" in svc
 
@@ -636,6 +639,7 @@ class _LimitPrefetchModel:
 
     BUFFER = 300
     RETRY = 60
+    RETRY_MAX = 600
     EMPTY = ("no-limits", "no-roads")
 
     def __init__(self):
@@ -656,7 +660,8 @@ class _LimitPrefetchModel:
             self.task["cancelled"] = True
         b = self.BUFFER
         self.coverage = (route_box[0] - b, route_box[1] - b, route_box[2] + b, route_box[3] + b)
-        self.task = {"extending": extending, "cancelled": False, "retry_at": None}
+        self.task = {"extending": extending, "cancelled": False, "retry_at": None,
+                     "delay": self.RETRY}
         self.fetches += 1
         return self.task
 
@@ -668,7 +673,11 @@ class _LimitPrefetchModel:
         failed = result is None
         if not (failed and task["extending"]):
             self.installed = self.EMPTY if failed else result
-        task["retry_at"] = now + self.RETRY if failed else None
+        if failed:
+            task["retry_at"] = now + task["delay"]
+            task["delay"] = min(task["delay"] * 2, self.RETRY_MAX)
+        else:
+            task["retry_at"] = None
 
     def tick(self, now):
         t = self.task
@@ -753,4 +762,36 @@ def test_empty_overpass_answer_is_never_cached():
     body = decl_body(svc, "func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedLimitData")
     assert "if let cached = loadCache(key: key), !cached.roads.isEmpty {" in body
     assert "if !data.roads.isEmpty { saveCache(key: key, data: data) }" in body
-    assert body.count("saveCache(") == 1
+    # One definition + this one call each, file-wide: a new caller
+    # elsewhere would bypass the guard.
+    assert svc.count("saveCache(") == 2 and svc.count("loadCache(") == 2
+
+
+def test_overpass_runtime_error_remark_is_a_failure():
+    # Review round 3: a timeout / out-of-memory mid-`out geom` is HTTP 200
+    # with some elements + a runtime-error remark. Only "no roads" was
+    # caught, so a truncated set was cached for 30 days (and an empty 200
+    # from the first mirror skipped the fallback mirror).
+    from tests.swift_source import decl_body, strip_comments
+    svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
+    assert "let remark: String?" in svc
+    fetch = decl_body(svc, "private func fetch(box: BBox) async throws -> SpeedLimitData")
+    check = fetch.index('if let remark = decoded.remark, remark.contains("runtime error") {')
+    assert check < fetch.index("return Self.split(decoded.elements)")
+    assert "continue" in fetch[check:fetch.index("return Self.split(decoded.elements)")]
+
+
+def test_retry_backs_off_to_ten_minutes():
+    # Review round 3: a whole-route box too big for Overpass fails every
+    # time; a flat 60 s retry would send ~240 heavy queries on a 4 h ride.
+    m = _LimitPrefetchModel()
+    t = m.prefetch(ROUTE)
+    m.resolve(t, None, now=0)
+    now, waits = 0, []
+    for _ in range(6):
+        wait = t["retry_at"] - now
+        waits.append(wait)
+        now = t["retry_at"]
+        assert m.tick(now) is t
+        m.resolve(t, None, now=now)
+    assert waits == [60, 120, 240, 480, 600, 600]
