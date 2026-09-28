@@ -104,7 +104,10 @@ final class RouteTileCache {
     /// polyline. Tile composite span is ~3.9 km, so 700 m gives
     /// ~82 % overlap — enough that any rotation up to 360° still
     /// leaves the user position well inside a single composite.
-    static let stride: CLLocationDistance = 700
+    /// Default for the base layer; a sibling layer may override it per
+    /// instance (`anchorStride`). `nonisolated` so it can be an init
+    /// default argument, like `gridSide` / `zoom`.
+    nonisolated static let stride: CLLocationDistance = 700
 
     /// How far AHEAD of `lastRiderRouteOffset` `snapToMainAnchor` will
     /// look for a matching anchor. Generous: it must survive a burst of
@@ -450,6 +453,20 @@ final class RouteTileCache {
     /// rider). Defaults to the base window.
     let bakeAheadMeters: CLLocationDistance
 
+    /// Main-row anchor spacing for THIS layer. Base keeps `Self.stride`
+    /// (700 m — widening it shows black corners at 0.77-0.8×). The coarse
+    /// z=13 layer uses 1400 m: its 7×7 composite spans ~22 km, and the
+    /// multi-heading harness (test_composite_coverage) shows 0 black
+    /// frames at 1400 m but some at 2100 m.
+    let anchorStride: CLLocationDistance
+
+    /// Whether THIS layer bakes the ±`lateralOffset` wing rows. Only base
+    /// needs them: they are what covers a rider 1.5-2 km off the route.
+    /// Coarse and fine are drawn only near the route, and when a
+    /// main-only layer has no covering tile `nearestTile` returns nil so
+    /// the renderer falls back to base (which has the wings).
+    let bakesLateralRows: Bool
+
     /// Composite bitmap side in px, DERIVED from this layer's gridSide so
     /// the two can never drift apart (Pitfall 11).
     var tilePixels: Int { gridSide * WebMercator.tilePixels }
@@ -458,13 +475,17 @@ final class RouteTileCache {
         style: MapStyle,
         zoom: Int = RouteTileCache.zoom,
         gridSide: Int = RouteTileCache.gridSide,
-        bakeAheadMeters: CLLocationDistance = RouteTileCache.initialBakeAheadMeters
+        bakeAheadMeters: CLLocationDistance = RouteTileCache.initialBakeAheadMeters,
+        anchorStride: CLLocationDistance = RouteTileCache.stride,
+        bakesLateralRows: Bool = true
     ) {
         precondition(gridSide % 2 == 1, "gridSide must be ODD (Pitfall 11); got \(gridSide)")
         self.style = style
         self.zoom = zoom
         self.gridSide = gridSide
         self.bakeAheadMeters = bakeAheadMeters
+        self.anchorStride = anchorStride
+        self.bakesLateralRows = bakesLateralRows
         imageCache.countLimit = 8
     }
 
@@ -741,7 +762,7 @@ final class RouteTileCache {
     /// baking anything. Pure arithmetic, runs in microseconds.
     private func computeAllAnchors(for route: MKRoute) -> [Anchor] {
         guard route.polyline.pointCount > 0 else { return [] }
-        let mainCoords = anchorsAlongPolyline(route.polyline, stride: Self.stride)
+        let mainCoords = anchorsAlongPolyline(route.polyline, stride: anchorStride)
         // Tag each main anchor with its routeOffset (distance along
         // the polyline from start). We need this to define the
         // rolling window — Euclidean distance to the rider doesn't
@@ -757,9 +778,12 @@ final class RouteTileCache {
             mainOffsets.append(acc)
             prev = c
         }
-        // Build wing rows with the same offsets as their main counterparts.
-        let leftCoords = lateralAnchors(mainCoords, offsetMeters: -Self.lateralOffset)
-        let rightCoords = lateralAnchors(mainCoords, offsetMeters: +Self.lateralOffset)
+        // Build wing rows with the same offsets as their main counterparts
+        // (base layer only — see `bakesLateralRows`).
+        let leftCoords = bakesLateralRows
+            ? lateralAnchors(mainCoords, offsetMeters: -Self.lateralOffset) : []
+        let rightCoords = bakesLateralRows
+            ? lateralAnchors(mainCoords, offsetMeters: +Self.lateralOffset) : []
         var out: [Anchor] = []
         out.reserveCapacity(mainCoords.count * 3)
         for (i, c) in mainCoords.enumerated() {
@@ -893,9 +917,10 @@ final class RouteTileCache {
                     bestMain = i
                 }
             }
-            // If a main-row tile is "close enough" (within stride),
-            // prefer it over any wing tile in the window.
-            if bestMain >= 0 && bestMainDist < 700 {
+            // If a main-row tile is "close enough" (within this layer's
+            // stride — an on-route rider is at most half a stride from a
+            // main anchor), prefer it over any wing tile in the window.
+            if bestMain >= 0 && bestMainDist < anchorStride {
                 return (tiles[bestMain], bestMain)
             }
             // Otherwise fall back to ANY tile (main or wing) within window.
@@ -931,6 +956,16 @@ final class RouteTileCache {
         if bestMainIdx >= 0 && bestMainDist < 1500 {
             return (tiles[bestMainIdx], bestMainIdx)
         }
+        // A layer without wing rows (coarse / fine) has nothing near a
+        // rider this far off the route — where the old wings would have
+        // won. Miss, so the renderer retries the base layer, whose wings
+        // cover it. (A fine main tile >1.5 km away would not even have the
+        // rider on its ~2.7 km bitmap.)
+        // ponytail: coarse's 22 km composite would still cover 1.5-1.8 km
+        // off-route, but this hands it to base, which blacks the frame
+        // edges below ~0.77×. Only matters when manually zoomed out while
+        // off the route; give coarse its own limit if riders notice.
+        guard bakesLateralRows else { return nil }
         // Final fallback: any tile within the draw-time limit. Same number
         // the renderer enforces (`drawTileCacheFrame`): a looser limit here
         // only hands it tiles it rejects — an error log and a full rescan

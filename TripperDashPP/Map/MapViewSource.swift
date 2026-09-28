@@ -608,7 +608,12 @@ final class MapViewSource: NSObject, FrameSource {
             style: style,
             zoom: MapViewSource.coarseLayerZoom,
             gridSide: 7,
-            bakeAheadMeters: 3000
+            bakeAheadMeters: 3000,
+            // A 7×7 z=13 composite spans ~22 km: 1400 m spacing and no wing
+            // rows still cover every heading (test_composite_coverage),
+            // at ~1/6 of the composites.
+            anchorStride: 1400,
+            bakesLateralRows: false
         )
         log.info("Coarse overview layer requested by zoom-out — baking")
         Task { @MainActor in
@@ -637,7 +642,11 @@ final class MapViewSource: NSObject, FrameSource {
             style: style,
             zoom: MapViewSource.fineLayerZoom,
             gridSide: 7,
-            bakeAheadMeters: 2000
+            bakeAheadMeters: 2000,
+            // Fine is only drawn zoomed in on the route; wing rows never
+            // won there (main-row preference). Base covers off-route.
+            // Spacing stays 700 m — 1400 m blacks out at the fine band edge.
+            bakesLateralRows: false
         )
         Task { @MainActor in
             if let coord {
@@ -1244,7 +1253,16 @@ extension MapViewSource {
         // previous cache's tiles[]). Reset so nearestTile does a fresh
         // full scan on the new layer rather than trusting a stale hint.
         if activeLayer != layerBefore { lastTileHintIndex = 0 }
-        guard let (refTile, idx) = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex) else {
+        var drawCache = cache
+        var picked = cache.nearestTile(to: fix.coordinate, hintIndex: lastTileHintIndex)
+        // Coarse / fine bake no wing rows, so a rider more than one of their
+        // anchor strides off the route misses there — retry base, whose
+        // wings cover off-route. Full scan: the hint indexes the sibling.
+        if picked == nil, let base = routeTileCache, base !== cache {
+            drawCache = base
+            picked = base.nearestTile(to: fix.coordinate, hintIndex: nil)
+        }
+        guard let (refTile, idx) = picked else {
             // Off the baked route corridor (wrong turn + reroute pending,
             // or a deliberate detour). Don't drop straight to the bare
             // vector fallback — try a position-anchored rescue tile first
@@ -1252,7 +1270,8 @@ extension MapViewSource {
             drawOffCorridorFallbackFrame(into: ctx)
             return
         }
-        lastTileHintIndex = idx
+        // A base index is no hint for the active sibling layer.
+        lastTileHintIndex = drawCache === cache ? idx : 0
 
         // ── HARD INVARIANT: the drawn tile must actually contain the rider ──
         //
@@ -1324,7 +1343,7 @@ extension MapViewSource {
         // tile span = ~3.9 km → ~82 % overlap) and stack on top with
         // slightly different lat-dependent pxPerDeg → visible seams
         // and a smeared composite. Single-tile draw is correct here.
-        guard let cg = cache.image(for: refTile, atIndex: idx)?.cgImage else {
+        guard let cg = drawCache.image(for: refTile, atIndex: idx)?.cgImage else {
             // Decode failed — better a vector frame than a blank one.
             drawVectorOnlyFrame(into: ctx)
             return
