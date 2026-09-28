@@ -276,13 +276,18 @@ actor SpeedLimitService {
         let box = Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters)
         let key = box.cacheKey
 
-        if let cached = loadCache(key: key) {
+        // No roads at all is never real data (the corridor holds at least
+        // the road being ridden): it's Overpass answering HTTP 200 with a
+        // "runtime error: Query timed out" remark and no elements. Never
+        // cache it, and treat one already on disk as a miss, or the retry
+        // would keep re-reading it instead of asking Overpass again.
+        if let cached = loadCache(key: key), !cached.roads.isEmpty {
             log.info("Speed limits: disk-cache hit \(key, privacy: .public) (\(cached.limits.count, privacy: .public) limits, \(cached.roads.count, privacy: .public) roads)")
             return cached
         }
         do {
             let data = try await fetch(box: box)
-            saveCache(key: key, data: data)
+            if !data.roads.isEmpty { saveCache(key: key, data: data) }
             log.info("Speed limits: fetched \(data.limits.count, privacy: .public) limits + \(data.roads.count, privacy: .public) roads for \(key, privacy: .public)")
             return data
         } catch {
