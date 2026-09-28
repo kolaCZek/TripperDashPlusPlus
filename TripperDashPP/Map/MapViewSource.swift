@@ -186,6 +186,10 @@ final class MapViewSource: NSObject, FrameSource {
     private var speedLimitWayGrid: SegmentGrid?
     private var speedLimitRoadGrid: SegmentGrid?
 
+    /// Bumped by every `setSpeedLimits`, so a slow off-main grid build never
+    /// installs over a newer route's data or a clear.
+    private var speedLimitInstallGeneration = 0
+
     /// Whether no limit ways are currently loaded — lets `AppStatus` decide
     /// if a mid-ride re-enable needs a backfill fetch.
     var speedLimitWaysEmpty: Bool { speedLimitWays.isEmpty }
@@ -2399,10 +2403,6 @@ extension MapViewSource {
             self.log.info("Speed-limit grid: \(data.limits.count, privacy: .public) ways / \(built.ways.segmentCount, privacy: .public) segs / \(built.ways.cellCount, privacy: .public) cells, \(data.roads.count, privacy: .public) roads / \(built.roads.segmentCount, privacy: .public) segs / \(built.roads.cellCount, privacy: .public) cells, built off main in \(built.ms, format: .fixed(precision: 1), privacy: .public) ms")
         }
     }
-
-    /// Bumped by every `setSpeedLimits`, so a slow grid build never installs
-    /// over a newer route's data or a clear.
-    private var speedLimitInstallGeneration = 0
 
     @concurrent nonisolated private static func buildSpeedLimitGrids(
         ways: [[CLLocationCoordinate2D]], roads: [[CLLocationCoordinate2D]]
