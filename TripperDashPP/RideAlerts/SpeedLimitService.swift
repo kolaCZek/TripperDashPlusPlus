@@ -420,6 +420,7 @@ actor SpeedLimitService {
                     throw URLError(.badServerResponse)
                 }
                 guard http.statusCode == 200 else {
+                    log.warning("Speed limits: \(endpoint, privacy: .public) HTTP \(http.statusCode, privacy: .public)")
                     lastError = URLError(.badServerResponse)
                     continue
                 }
@@ -433,6 +434,10 @@ actor SpeedLimitService {
                 }
                 return Self.split(decoded.elements)
             } catch {
+                // One line per mirror, so a field log shows WHY each failed
+                // (timeout / offline / cancelled), not just the last error.
+                let ns = error as NSError
+                log.warning("Speed limits: \(endpoint, privacy: .public) failed: \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
                 lastError = error
                 continue
             }

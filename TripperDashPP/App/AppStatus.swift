@@ -1619,25 +1619,37 @@ final class AppStatus {
         // Extending fetches don't cancel each other (or the start fetch):
         // results merge, so two quick reroutes both land.
         let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let fetched = await SpeedCameraService.shared.camerasAlong(route: coords)
-            guard !Task.isCancelled, generation == self.speedCameraGeneration else { return }
-            guard let fetched else {
-                // Total failure: release the claim so the next route change
-                // retries instead of trusting an area we never got.
-                self.speedCameraCoverage.removeAll { $0 == box }
-                return
+            var retryDelay = AppStatus.speedLimitRetrySeconds
+            while true {
+                let fetched = await SpeedCameraService.shared.camerasAlong(route: coords)
+                guard let self, !Task.isCancelled, generation == self.speedCameraGeneration else { return }
+                if let fetched {
+                    // Re-check the toggle after the network await.
+                    let data = self.speedCameraData.merged(with: fetched)
+                    let effective = self.dashNavSettings.speedCamerasEnabled ? data : .empty
+                    self.speedCameraData = effective
+                    self.mapViewSource.setSpeedCameras(effective.cameras)
+                    // Hand the same set to the active-nav loop so the voice
+                    // announcer can warn when the rider approaches one, plus
+                    // the average-speed sections for the dash section panel.
+                    self.activeNavLoop?.setSpeedCameras(effective.cameras)
+                    self.activeNavLoop?.setSpeedSections(effective.sections)
+                    return
+                }
+                // Total failure (both mirrors down, no cache). Before, only
+                // the next route change outside the box retried, so a ride
+                // whose start fetch timed out (field log 2026-09-28 21:11)
+                // had no cameras at all. Retry on the speed limits' cadence
+                // (60 s, doubling to 600 s) while navigating with the toggle
+                // on. The claim is held meanwhile, so route changes inside
+                // this box don't start parallel fetches; a new ride / free
+                // ride bumps the generation and ends the loop.
+                try? await Task.sleep(for: .seconds(retryDelay))
+                retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)
+                guard !Task.isCancelled, generation == self.speedCameraGeneration,
+                      self.activeNavigator.isNavigating,
+                      self.dashNavSettings.speedCamerasEnabled else { return }
             }
-            // Re-check the toggle after the network await.
-            let data = self.speedCameraData.merged(with: fetched)
-            let effective = self.dashNavSettings.speedCamerasEnabled ? data : .empty
-            self.speedCameraData = effective
-            self.mapViewSource.setSpeedCameras(effective.cameras)
-            // Hand the same set to the active-nav loop so the voice announcer
-            // can warn when the rider approaches one (feat/speed-camera-voice-alert),
-            // plus the average-speed sections for the dash section panel.
-            self.activeNavLoop?.setSpeedCameras(effective.cameras)
-            self.activeNavLoop?.setSpeedSections(effective.sections)
         }
         if !extending { speedCameraPrefetchTask = task }
     }
