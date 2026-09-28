@@ -1082,8 +1082,9 @@ struct MapPickerView: View {
     /// side effect of kicking off the coarse (z=13, 7x7=49 tiles) + fine
     /// (z=16, 49 tiles) sibling bakes was, when this was written, real
     /// MainActor CGContext work (`RouteTileCache.composite` now stitches
-    /// off the main actor, but three bakes still compete for the network
-    /// and the CPU at startup). Firing that at t=0 stacked THREE
+    /// off the main actor, and `setTileCache` now only kicks off fine —
+    /// coarse is baked lazily on zoom-out — but a second bake still
+    /// competes for the network and the CPU at startup). Firing that at t=0 stacked THREE
     /// concurrent MainActor-heavy bakes (base corridor, coarse, fine)
     /// right on top of the Wi-Fi handshake / RTP stream startup that's
     /// racing at the exact same moment — field-confirmed regression
@@ -1109,7 +1110,7 @@ struct MapPickerView: View {
         }
         // Re-install now that the corridor bake is done: same cache
         // object (no visual change), but this time kicks off the
-        // coarse/fine sibling layers — safe now that the handshake/
+        // fine sibling layer (coarse bakes on zoom-out) — safe now that the handshake/
         // stream-start race is long over.
         prerenderActive = false
         // A Light/Dark switch mid-bake already started its own re-bake in

@@ -42,7 +42,8 @@
 //      anchors and the disk cache → in practice ~300-500 unique tiles
 //      for a brand-new region, ~0 for a re-bake of familiar territory.
 //    * Wall-clock: ~5-15 s on 4G cold, ~1-2 s warm-cache.
-//    * Memory: decoded bitmaps are held only in an NSCache(8); baked
+//    * Memory: decoded composites are held only in an NSCache(8), decoded
+//      256² source tiles in `DecodedTileCache` (64); baked
 //      composites live as PNG bytes in `RouteTile.jpeg` (misnomer kept
 //      for compat), and `bakeAnchors` drops those more than
 //      `evictBehindMeters` behind the rider, so the cache doesn't grow

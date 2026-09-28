@@ -158,7 +158,7 @@ def frame_corner_black_count(rider, heading_deg, zoom, anchor, grid_side: int, o
     and count how many land OUTSIDE the painted region (= black).
 
     `zoom` is the renderer's effective zoom (autozoom × bias). `osm_zoom`
-    is the OSM tile level the layer was baked at (base 15, coarse 12,
+    is the OSM tile level the layer was baked at (base 15, coarse 13,
     fine 16) — the renderer reads pxPerDeg from the tile, so the corner
     mapping must use the layer's own pxPerDeg, not the base z=15 value.
     """
@@ -415,7 +415,7 @@ def test_swift_block_uses_floor_not_round():
 
 
 # ---------------------------------------------------------------------------
-# Multi-zoom quality layers (coarse z=12 overview + fine z=16 detail).
+# Multi-zoom quality layers (coarse z=13 overview + fine z=16 detail).
 #
 # The renderer draws each layer's tile at `currentZoom * 2^(15 - osmZoom)`
 # so the on-screen ground scale is identical whichever layer supplied the
@@ -432,7 +432,7 @@ COARSE_OSM_ZOOM = 13
 FINE_OSM_ZOOM = 16
 
 # Composite grid sides per layer — MUST match the RouteTileCache(...) calls
-# in MapViewSource.buildQualityLayers. Coarse uses a WIDER grid (7) so the
+# in MapViewSource.ensureCoarseLayer / buildFineLayer. Coarse uses a WIDER grid (7) so the
 # higher-detail z=13 tiles still blanket the frame at the widest zoom-out.
 COARSE_GRID = 7
 BASE_GRID = 5
@@ -531,7 +531,7 @@ def test_layer_zoom_and_grid_match_swift():
     assert int(m_bz.group(1)) == BASE_OSM_ZOOM, m_bz.group(1)
     assert int(m_fz.group(1)) == FINE_OSM_ZOOM, m_fz.group(1)
     # Coarse composite gridSide is passed explicitly to RouteTileCache in
-    # buildQualityLayers; assert it matches COARSE_GRID.
+    # ensureCoarseLayer; assert it matches COARSE_GRID.
     m_cg = re.search(
         r"zoom: MapViewSource\.coarseLayerZoom,\s*\n\s*gridSide: (\d+)", src
     )

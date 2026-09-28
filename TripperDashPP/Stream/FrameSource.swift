@@ -4,7 +4,8 @@
 //
 //  Pluggable frame producer for the H.264 streamer. The active
 //  navigation pipeline ships a single implementation (`MapViewSource`)
-//  that feeds the live MKMapView snapshot stream into the encoder.
+//  that feeds CPU-composited frames from the pre-baked OSM tile cache
+//  into the encoder.
 //  The protocol stays generic so future sources (offline-tile renderer,
 //  diagnostic overlays, etc.) can drop in without touching the streamer.
 //

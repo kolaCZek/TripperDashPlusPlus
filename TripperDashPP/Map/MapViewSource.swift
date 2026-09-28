@@ -679,7 +679,7 @@ final class MapViewSource: NSObject, FrameSource {
 
         // A reroute bake in flight re-bakes itself in `currentStyle` when it
         // finishes (see `performPendingRebake`); a parallel style bake would
-        // just double the main-actor load right after a route change.
+        // just double the CPU and network load right after a route change.
         guard !pendingRebakeInFlight else {
             log.info("Style re-bake left to the in-flight reroute bake")
             return
@@ -701,8 +701,8 @@ final class MapViewSource: NSObject, FrameSource {
         // most recent requested style only.
         guard style == currentStyle else { return }
         // Short window around the rider, like a reroute: every raw tile is
-        // already on disk, so this is pure main-actor CPU (stitch, recolour,
-        // PNG encode) — and with Auto it runs the moment the rider unlocks
+        // already on disk, so this is pure CPU (stitch, recolour, PNG
+        // encode; off the main actor) — and with Auto it runs the moment the rider unlocks
         // the phone mid-ride. The rolling `extend(near:)` tops up the rest.
         let fresh = RouteTileCache(style: style,
                                    bakeAheadMeters: Self.rerouteBakeAheadMeters)

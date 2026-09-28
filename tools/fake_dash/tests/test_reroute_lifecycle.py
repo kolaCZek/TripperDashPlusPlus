@@ -366,8 +366,8 @@ def test_tile_bake_is_NEVER_held_back_by_app_state():
 
 def test_reroute_rebake_uses_short_fast_start_window():
     """A mid-ride reroute re-bake must NOT bake the full 8 km start-of-ride
-    window in one block — it shares the main actor with the dash heartbeat
-    and the RTP stream. It bakes a short window and leaves the rest to the
+    window in one block — it competes for the cellular link with the new
+    route fetch, and the tiles under the rider should land first. It bakes a short window and leaves the rest to the
     rolling `extend(near:)` (capped per pass)."""
     from pathlib import Path
     from tests.swift_source import decl_body, strip_comments
@@ -479,7 +479,7 @@ def test_coarse_layer_is_lazy():
 
 def test_style_rebake_uses_short_window_and_keeps_fine():
     """Review A5: a palette switch re-bakes only the short window around the
-    rider (all raw tiles are on disk, so it's pure main-actor CPU, and with
+    rider (all raw tiles are on disk, so it's pure CPU, and with
     Auto it lands the moment the rider unlocks the phone). The fine layer
     is still rebuilt; coarse returns lazily."""
     from pathlib import Path
