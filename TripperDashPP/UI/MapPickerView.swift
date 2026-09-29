@@ -101,10 +101,15 @@ struct MapPickerView: View {
     @State private var longPressCoord: CLLocationCoordinate2D?
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
-    /// Waypoint ids of the plan last saved via the planner's bookmark
+    /// Stops (id + name) of the plan last saved via the planner's bookmark
     /// button. The button shows "saved" only while the plan still has
-    /// exactly these stops — edit the plan and it can be saved again.
-    @State private var savedPlanStops: [UUID]?
+    /// exactly these stops — edit the plan, or let a "Pin …" get its
+    /// reverse-geocoded name, and it can be saved again (overwrites).
+    @State private var savedPlanStops: [String]?
+
+    private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
+        plan.waypoints.map { "\($0.id)|\($0.name)" }
+    }
 
     private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
     private var mode: DisplayMode {
@@ -620,20 +625,19 @@ struct MapPickerView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") { status.cancelPlanning() }
             }
-            if !plan.isTrack {
+            if !plan.isFromLibrary {
+                let saved = savedPlanStops == Self.stopsSnapshot(plan)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         if status.saveCurrentPlan() != nil {
-                            savedPlanStops = plan.waypoints.map(\.id)
+                            savedPlanStops = Self.stopsSnapshot(plan)
                         }
                     } label: {
-                        Image(systemName: savedPlanStops == plan.waypoints.map(\.id)
-                              ? "bookmark.fill" : "bookmark")
+                        Image(systemName: saved ? "bookmark.fill" : "bookmark")
                     }
-                    .disabled(savedPlanStops == plan.waypoints.map(\.id))
-                    .accessibilityLabel(savedPlanStops == plan.waypoints.map(\.id)
-                                        ? "Route saved to Saved routes"
-                                        : "Save route to Saved routes")
+                    .disabled(saved)
+                    .accessibilityLabel(saved ? "Route saved to Saved routes"
+                                              : "Save route to Saved routes")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

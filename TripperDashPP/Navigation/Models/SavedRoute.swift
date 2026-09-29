@@ -173,10 +173,16 @@ extension SavedRoute {
                          roadDistanceMeters: Double?,
                          now: Date = .now) -> SavedRoute? {
         let stops = waypoints.filter { !$0.isCurrentLocation }
-        guard let last = stops.last else { return nil }
-        let points = stops.map { RoutePoint(coordinate: $0.coordinate, name: $0.name) }
+        guard !stops.isEmpty else { return nil }
+        // An empty name (possible from MKMapItem) is stored as nil, so the
+        // route name falls back to coordinates and a start labels it
+        // "Stop N" / "Route end" like any unnamed GPX point.
+        let points = stops.map {
+            RoutePoint(coordinate: $0.coordinate, name: $0.name.isEmpty ? nil : $0.name)
+        }
         return SavedRoute(
-            name: stops.count == 1 ? last.name : "\(stops[0].name) → \(last.name)",
+            name: points.count == 1 ? label(for: points[0])
+                : "\(label(for: points.first)) → \(label(for: points.last))",
             kind: .waypoints,
             points: points,
             totalDistanceMeters: roadDistanceMeters

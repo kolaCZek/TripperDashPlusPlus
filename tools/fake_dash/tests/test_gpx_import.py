@@ -20,9 +20,11 @@ the asserts double as a regression pin on the haversine/RDP constants.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
+from tests.swift_source import decl_body, strip_comments
 from tests.gpx_geometry_mirror import (
     EDITABLE_LIST_THRESHOLD,
     NAVIGABLE_CAP,
@@ -424,12 +426,33 @@ class TestAnalyze:
 
     def test_just_over_threshold_boundary(self):
         # Construct a route where nearest is index 1 and the saving is
-        # just above 300 m. Spacing 400 m between pt0 and pt1.
-        route = [Pt(50.0, 14.0), Pt(50.0, 14.0 + 400 / 111_320 / math.cos(math.radians(50)) )]
+        # just above 300 m. Spacing 400 m between pt0 and pt1; a third
+        # point beyond, so pt1 isn't the destination (never prompted).
+        step = 400 / 111_320 / math.cos(math.radians(50))
+        route = [Pt(50.0, 14.0), Pt(50.0, 14.0 + step), Pt(50.0, 14.0 + 2 * step)]
         # Rider sits on pt1 → dist_first ≈ 400 m, nearest 0 → saving 400.
         d = analyze(route, route[1])
         assert d.nearest_index == 1
         assert d.should_prompt is True
+
+
+    def test_round_trip_at_its_destination_never_prompts(self):
+        # Review of #151: a loop planned at home and started at the bike
+        # (home) has its nearest point at the END. "From the nearest point"
+        # would navigate [home] → instant arrival.
+        route = _route_line() + [Pt(50.0, 14.0)]
+        d = analyze(route, Pt(50.0, 14.0))
+        assert d.nearest_index in (0, len(route) - 1)
+        loop_far_start = [Pt(50.0, 14.01), Pt(50.0, 14.02), Pt(50.0, 14.0)]
+        d = analyze(loop_far_start, Pt(50.0, 14.0))
+        assert d.nearest_index == len(loop_far_start) - 1
+        assert d.should_prompt is False
+
+    def test_swift_never_prompts_for_the_last_point(self):
+        src = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "Navigation"
+               / "RouteStartPlanner.swift").read_text()
+        body = strip_comments(decl_body(src, "static func analyze"))
+        assert "nearestIdx < points.count - 1" in body
 
 
 class TestNavigablePoints:

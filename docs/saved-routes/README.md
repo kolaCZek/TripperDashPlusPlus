@@ -39,9 +39,12 @@ and at the bike just open Saved routes → **Start navigation**.
   on start (fresh traffic). A grey alternative you picked is not kept —
   add a via stop to pin a specific road.
 - Name defaults to `First stop → Last stop` (or the destination for a
-  single stop); rename it in the route detail.
-- Hidden for a plan launched from a saved `.track` (already saved). The
-  icon fills once saved and re-arms when you change the stops.
+  single stop; coordinates for an unnamed stop); rename it in the route
+  detail.
+- Hidden for a plan launched from Saved routes (it's already there). The
+  icon fills once saved and re-arms when you change the stops or a
+  dropped pin gets its real name; saving again **updates** the same
+  entry instead of adding a copy.
 
 ## Editing a saved route
 
@@ -106,7 +109,8 @@ fix to the route:
 - **From the nearest point** — snap onto the route at the closest point
   and ride from there (skip the leading portion already behind you).
 
-The app only **prompts** when the nearest point isn't the first one AND
+The app only **prompts** when the nearest point isn't the first one (nor
+the last — joining a loop at its destination isn't resuming it) AND
 starting from first would mean a meaningful (>300 m) detour backwards.
 Otherwise it silently starts from the first point. The live GPS location
 is always prepended as the routing origin so MKDirections has a real

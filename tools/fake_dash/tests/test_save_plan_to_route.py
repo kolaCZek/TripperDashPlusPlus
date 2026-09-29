@@ -17,9 +17,16 @@ Contract pinned here, without Xcode:
     `.track` would be reduced and its stops presented as shape).
   - ROUND TRIP: plan at home → save → start at the bike gives a plan whose
     stops equal the planned stops, with the bike's position as origin.
-  - A plan launched from a saved `.track` is not offered for saving
-    (it is already in the library).
+  - A plan launched from Saved routes (ANY kind) is not offered for
+    saving — the copy would be degraded (review of #151).
+  - Saving the same plan again overwrites its entry (no duplicates); the
+    "saved" state includes stop names, so a pin that gets its
+    reverse-geocoded name re-arms the button.
+  - An empty stop name falls back to coordinates (no " → X" names).
+  - A round trip started at its destination never offers "start from
+    the nearest point" (it would arrive instantly).
   - The toolbar button routes through `AppStatus.saveCurrentPlan`.
+  The Swift itself is covered by `SavedRouteFromPlanTests.swift`.
 """
 
 from __future__ import annotations
@@ -55,13 +62,17 @@ def _haversine(a, b) -> float:
     return 2 * r * math.asin(math.sqrt(h))
 
 
+def _label(p) -> str:
+    return p[2] if p[2] else f"{p[0]:.4f}, {p[1]:.4f}"
+
+
 def from_plan(waypoints: list[Waypoint], road_distance: float | None):
     """Mirror of `SavedRoute.fromPlan`."""
     stops = [w for w in waypoints if not w.is_current_location]
     if not stops:
         return None
-    points = [(w.lat, w.lon, w.name) for w in stops]
-    name = stops[-1].name if len(stops) == 1 else f"{stops[0].name} → {stops[-1].name}"
+    points = [(w.lat, w.lon, w.name or None) for w in stops]
+    name = _label(points[0]) if len(points) == 1 else f"{_label(points[0])} → {_label(points[-1])}"
     dist = road_distance
     if dist is None:
         dist = sum(_haversine(points[i][:2], points[i + 1][:2]) for i in range(len(points) - 1))
@@ -138,7 +149,7 @@ def test_swift_from_plan_saves_waypoints_kind_not_track():
 
 
 def test_swift_from_plan_keeps_stop_names():
-    assert "name: $0.name" in _from_plan_body()
+    assert "$0.name.isEmpty ? nil : $0.name" in _from_plan_body()
 
 
 def test_swift_saved_waypoints_route_is_not_reduced_on_start():
@@ -147,13 +158,37 @@ def test_swift_saved_waypoints_route_is_not_reduced_on_start():
     assert "route.kind == .track" in body and "GPXGeometry.reduce" in body
 
 
-def test_swift_save_current_plan_skips_track_plans():
+def test_empty_stop_name_falls_back_to_coordinates():
+    r = from_plan([HOME, Waypoint("", 50.4330, 14.5780)], road_distance=None)
+    assert r["name"] == "50.4330, 14.5780"
+    assert r["points"][0][2] is None
+
+
+def test_swift_save_current_plan_skips_library_plans_and_overwrites_on_resave():
     body = strip_comments(decl_body(APPSTATUS.read_text(), "func saveCurrentPlan"))
-    assert "!plan.isTrack" in body
+    assert "!plan.isFromLibrary" in body
+    assert "!plan.isTrack" not in body, "a .waypoints plan from the library must be hidden too"
     assert "SavedRoute.fromPlan" in body
-    assert "savedRoutesStore.add(" in body
+    assert "savedRoutesStore.replace(id: id, with: route)" in body
+    assert body.index("savedRoutesStore.replace(") < body.index("savedRoutesStore.add(")
+    assert "plan.savedRouteId = saved.id" in body
+
+
+def test_swift_every_library_start_is_flagged():
+    body = strip_comments(decl_body(APPSTATUS.read_text(), "func beginPlanningFromSavedRoute"))
+    assert "plan.isFromLibrary = true" in body
+
+
+def test_swift_from_plan_empty_names_fall_back():
+    body = _from_plan_body()
+    assert "$0.name.isEmpty ? nil : $0.name" in body
+    assert "label(for: points.first)" in body and "label(for: points.last)" in body
 
 
 def test_swift_planner_toolbar_has_save_button():
     body = strip_comments(decl_body(PICKER.read_text(), "private func planningBody"))
     assert "status.saveCurrentPlan()" in body
+    assert "if !plan.isFromLibrary {" in body
+    assert "savedPlanStops = Self.stopsSnapshot(plan)" in body
+    snap = strip_comments(decl_body(PICKER.read_text(), "private static func stopsSnapshot"))
+    assert "$0.name" in snap, "a pin renamed by reverse geocoding must re-arm the button"

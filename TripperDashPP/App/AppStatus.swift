@@ -1117,21 +1117,29 @@ final class AppStatus {
         let plan = PlannedRoute(waypoints: [origin] + routeWaypoints)
         // Track via-points are shape, not stops → HUD presents start→finish.
         plan.isTrack = (route.kind == .track)
+        plan.isFromLibrary = true
         plannedRoute = plan
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
 
     /// Save the live plan's stops to Saved routes, so a route planned at
-    /// home can be started later from the library. Skipped for a `.track`
-    /// plan — that one was launched FROM the library already.
+    /// home can be started later from the library. Skipped for a plan
+    /// launched FROM the library (`isFromLibrary`). Saving the same plan
+    /// again (stops edited, a pin got its real name) overwrites the entry
+    /// it was saved to; if the rider deleted that entry, it is added anew.
     @discardableResult
     func saveCurrentPlan() -> SavedRoute? {
-        guard let plan = plannedRoute, !plan.isTrack,
+        guard let plan = plannedRoute, !plan.isFromLibrary,
               let route = SavedRoute.fromPlan(
                   plan.waypoints,
                   roadDistanceMeters: plan.isComputed ? plan.totalDistanceMeters : nil)
         else { return nil }
-        return savedRoutesStore.add(route)
+        if let id = plan.savedRouteId, let updated = savedRoutesStore.replace(id: id, with: route) {
+            return updated
+        }
+        let saved = savedRoutesStore.add(route)
+        plan.savedRouteId = saved.id
+        return saved
     }
 
     /// Recompute the given dirty legs of `plan` (defaults to the live
