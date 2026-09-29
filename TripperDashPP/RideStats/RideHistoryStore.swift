@@ -8,9 +8,10 @@
 //
 //  One ride = one RideStatsService session (connect → bike off /
 //  disconnect), the same unit the trip panel shows. `RideStatsService`
-//  hands every teardown snapshot (`end()` / `pause()`) to `record(_:)`; a
-//  multi-leg session keeps one `startedAt`, so each teardown overwrites
-//  the same file instead of adding a duplicate.
+//  passes every teardown (`end()` / `pause()`) and mid-ride checkpoint
+//  through `accept(_:)` and writes the file on `io`; `reset()` uses
+//  `record(_:)`. A multi-leg session keeps one `startedAt`, so each write
+//  overwrites the same file instead of adding a duplicate.
 //
 //  Storage: one JSON file per ride in Application Support/RideHistory,
 //  named by the start time (`ride-<epoch>.json`). Not UserDefaults: a
@@ -29,8 +30,9 @@ final class RideHistoryStore {
 
     nonisolated static let retentionDays = 30
 
-    /// The one serial queue for every ride-history file write/remove AND
-    /// the last-ride UserDefaults write/remove (`RideStatsService`). Off the
+    /// The one serial queue for every write/remove of a ride's file (except
+    /// the >30-day prune, which never touches a live ride) AND the
+    /// last-ride UserDefaults write/remove (`RideStatsService`). Off the
     /// main actor, so encoding + writing a long track never stalls the
     /// render loop; serial, so writes land in order — a late mid-ride
     /// checkpoint can't overwrite a newer teardown, resurrect a deleted
@@ -38,17 +40,19 @@ final class RideHistoryStore {
     nonisolated static let io = DispatchQueue(label: "eu.kolaczek.tripperdashpp.ridehistory", qos: .utility)
 
     /// Rides, newest first. Filled by `load()` (history sheet on appear)
-    /// and kept in sync by `record` / `delete`.
+    /// and kept in sync by `accept` / `delete`.
     private(set) var rides: [RideStats] = []
 
     private let directory: URL
-    /// Files deleted by the rider this session → the ride's track length at
+    /// Files deleted by the rider this session → the ride's distance at
     /// deletion. The live RideStatsService still holds the same ride (same
     /// `startedAt`), so without this the next teardown (bike off) would
-    /// write it straight back. Once the session rides on (the track grows
-    /// past that length) the ride is kept again — as the whole session,
-    /// deleted part included, like any multi-leg ride.
-    private var deleted: [String: Int] = [:]
+    /// write it straight back. Once the session rides on by another
+    /// `minimumDistanceMeters` the ride is kept again — as the whole
+    /// session, deleted part included, like any multi-leg ride. Distance,
+    /// not track length: a stationary fix (restart, the replayed last fix)
+    /// adds a track point but no distance.
+    private var deleted: [String: Double] = [:]
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RideHistory")
 
     init(directory: URL = URL.applicationSupportDirectory
@@ -93,8 +97,8 @@ final class RideHistoryStore {
     func accept(_ stats: RideStats, now: Date = .now) -> URL? {
         guard Self.isWorthKeeping(stats), let start = stats.startedAt else { return nil }
         let name = Self.fileName(for: start)
-        if let lengthAtDeletion = deleted[name] {
-            guard stats.trackPoints.count > lengthAtDeletion else { return nil }
+        if let distanceAtDeletion = deleted[name] {
+            guard stats.distanceMeters >= distanceAtDeletion + Self.minimumDistanceMeters else { return nil }
             deleted[name] = nil
         }
         rides.removeAll { $0.startedAt.map { Self.fileName(for: $0) } == name }
@@ -140,7 +144,7 @@ final class RideHistoryStore {
     func delete(_ ride: RideStats) {
         guard let start = ride.startedAt else { return }
         let name = Self.fileName(for: start)
-        deleted[name] = ride.trackPoints.count
+        deleted[name] = ride.distanceMeters
         let url = directory.appending(path: name)
         // On `io`, after any write of this ride still queued.
         let remove: @Sendable () -> Void = { try? FileManager.default.removeItem(at: url) }

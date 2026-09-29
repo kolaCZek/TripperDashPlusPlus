@@ -21,7 +21,8 @@ Contract pinned here, without Xcode (the Swift side is unit-tested in
     * closing a RESTORED summary must not clear `restoredFromDisk` (the
       next ride would fold onto yesterday's and merge history files);
     * a ride deleted this session is not written back by a teardown, but
-      comes back once the session rides on (track grows past its length);
+      comes back once the session rides on by another 100 m (distance, not
+      track length — a stationary fix adds a point, no distance);
     * a restored summary is never re-recorded by `end()` either;
     * sessions under 100 m / 2 track points aren't kept;
     * the track is checkpointed every 300 accepted fixes (~5 min), off the
@@ -79,14 +80,14 @@ class History:
 
     def __init__(self) -> None:
         self.files: dict[str, dict] = {}
-        self.deleted: dict[str, int] = {}   # name → track length at deletion
+        self.deleted: dict[str, float] = {}   # name → distance at deletion
 
     def record(self, ride: dict, now: float) -> None:
         if ride.get("startedAt") is None or ride.get("distance", 1_000) < MIN_DISTANCE_M:
             return
         name = file_name(ride["startedAt"])
         if name in self.deleted:
-            if ride.get("legs", 0) <= self.deleted[name]:
+            if ride.get("distance", 1_000) < self.deleted[name] + MIN_DISTANCE_M:
                 return
             del self.deleted[name]
         self.files[name] = ride
@@ -94,7 +95,7 @@ class History:
 
     def delete(self, ride: dict) -> None:
         name = file_name(ride["startedAt"])
-        self.deleted[name] = ride.get("legs", 0)   # `legs` stands in for track length
+        self.deleted[name] = ride.get("distance", 1_000)
         self.files.pop(name, None)
 
     def prune(self, now: float) -> None:
@@ -120,7 +121,8 @@ class Service:
         if self.stats["startedAt"] is None or self.restored:
             self.stats = {"startedAt": started_at, "legs": 0}
             self.restored = False
-        self.stats = {**self.stats, "legs": self.stats["legs"] + 1}
+        self.stats = {**self.stats, "legs": self.stats["legs"] + 1,
+                      "distance": self.stats.get("distance", 0) + 1_000}   # 1 km per leg
 
     def end(self, now: float) -> None:          # persistLastRide
         if self.stats["startedAt"] is not None and not self.restored:
@@ -206,6 +208,20 @@ def test_deleted_ride_comes_back_once_the_session_rides_on():
     svc.ride_leg(T0)                # next leg, same session (same startedAt)
     svc.end(T0 + 3600)
     assert [r["legs"] for r in h.load(T0 + 3600)] == [2]
+
+
+def test_a_stationary_fix_does_not_bring_a_deleted_ride_back():
+    # Review 3 of #152: Free ride started and stopped without moving (or a
+    # restart replaying the last fix) adds track points but no distance.
+    h = History()
+    svc = Service(h)
+    svc.ride_leg(T0)
+    svc.end(T0 + 60)
+    h.delete(svc.stats)
+    svc.stats = {**svc.stats, "distance": svc.stats["distance"] + 5}   # +1 fix, 5 m jitter
+    svc.end(T0 + 63)
+    svc.reset(T0 + 90)
+    assert h.load(T0 + 90) == []
 
 
 def test_restored_summary_is_not_rewritten_by_end():
@@ -318,10 +334,10 @@ def test_swift_store_tombstones_deletes_and_skips_short_sessions():
     src = _store()
     acc = strip_comments(decl_body(src, "func accept("))
     assert "guard Self.isWorthKeeping(stats)" in acc
-    assert "guard stats.trackPoints.count > lengthAtDeletion else { return nil }" in acc
+    assert "guard stats.distanceMeters >= distanceAtDeletion + Self.minimumDistanceMeters else { return nil }" in acc
     assert "Self.io.sync(execute: write)" in strip_comments(decl_body(src, "func record("))
     dele = strip_comments(decl_body(src, "func delete("))
-    assert "deleted[name] = ride.trackPoints.count" in dele
+    assert "deleted[name] = ride.distanceMeters" in dele
     assert "Self.io.sync(execute: remove)" in dele
     keep = strip_comments(decl_body(src, "nonisolated static func isWorthKeeping"))
     assert "stats.trackPoints.count >= 2" in keep

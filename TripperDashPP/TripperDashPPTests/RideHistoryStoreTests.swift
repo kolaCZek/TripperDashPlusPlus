@@ -142,6 +142,28 @@ struct RideHistoryStoreTests {
         #expect(fresh.rides.map(\.trackPoints.count) == [4])
     }
 
+    @Test func aStationaryFixDoesNotBringADeletedRideBack() async {
+        // Review 3 of #152: a restart replays the last fix — one more track
+        // point, no distance. The delete must stick.
+        let dir = tempDir()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let store = RideHistoryStore(directory: dir, now: now)
+        let r = ride(start: 999_000, fixes: 3)
+        store.record(r, now: now)
+        store.delete(r)
+        let last = r.trackPoints.last!
+        let stationary = r.folding(Fix(CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude),
+            altitude: 100, horizontalAccuracy: 5, verticalAccuracy: 5,
+            course: 90, speed: 0, timestamp: last.timestamp.addingTimeInterval(3))))
+        #expect(stationary.trackPoints.count == r.trackPoints.count + 1)
+        store.record(stationary, now: now)
+        #expect(store.rides.isEmpty)
+        let fresh = RideHistoryStore(directory: dir, now: now)
+        await fresh.load(now: now)
+        #expect(fresh.rides.isEmpty)
+    }
+
     /// A service whose persisted last ride started an hour ago.
     private func serviceWithLastRide(history: RideHistoryStore) -> (RideStatsService, RideStats) {
         let suite = UserDefaults(suiteName: "test.ridehist.\(UUID().uuidString)")!
