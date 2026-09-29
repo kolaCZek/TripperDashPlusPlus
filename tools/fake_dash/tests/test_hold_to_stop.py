@@ -81,9 +81,16 @@ def test_planner_cancel_checks_for_unsaved_work():
     plan = decl_body(src, "private func planningBody")
     cancel = plan[plan.index('Button("Cancel")'):]
     cancel = cancel[:cancel.index("ToolbarItem")]
-    assert "Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops)" in cancel
-    # Library plans are still in the library: never ask for them.
-    assert cancel.index("!plan.isFromLibrary") < cancel.index("planHasUnsavedWork")
+    assert "Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: baseline)" in cancel
+    # A library plan is compared with its stops as loaded (edits for this
+    # ride can still be lost); a planner plan with its last save.
+    assert "plan.isFromLibrary ? libraryBaselineStops : savedPlanStops" in cancel
+    assert "saved: baseline" in cancel
+    body = strip_comments(decl_body(src, "var body: some View"))
+    staged = body[body.index(".onChange(of: status.plannedRoute.map(ObjectIdentifier.init)"):]
+    staged = staged[:staged.index(".onChange(", 1)]
+    assert "plan.isFromLibrary" in staged
+    assert "libraryBaselineStops = Self.stopsSnapshot(plan)" in staged
     assert "showDiscardPlanDialog = true" in cancel
     assert cancel.index("planHasUnsavedWork") < cancel.index("status.cancelPlanning()")
     dialog = plan[plan.index('.confirmationDialog("Discard this plan?"'):plan.index(".toolbar")]
@@ -103,7 +110,13 @@ def test_auto_start_is_held_under_the_discard_dialog():
     assert "!showDiscardPlanDialog" in auto
     assert auto.index("!showDiscardPlanDialog") < auto.index("startNavigation(plan:")
     resume = src[src.index(".onChange(of: showDiscardPlanDialog)"):]
-    assert "tryAutoStartNavigation()" in resume[:resume.index("}\n")+200]
+    resume = resume[:resume.index(".onChange(", 1)]
+    assert "if !up { tryAutoStartNavigation() }" in resume
+    # The dialog's planner going away also clears the flag (a dropped
+    # write-back would otherwise keep `anotherModalUp` true for good).
+    planning = src[src.index(".onChange(of: isPlanning)"):]
+    planning = planning[:planning.index(".onChange(", 1)]
+    assert "showDiscardPlanDialog = false" in planning
     dialog = src[src.index('.confirmationDialog("Discard this plan?"'):]
     discard = dialog[dialog.index('Button("Discard"'):dialog.index('Button("Keep editing"')]
     assert discard.index("pendingAutoStart = false") < discard.index("status.cancelPlanning()")

@@ -107,6 +107,9 @@ struct MapPickerView: View {
     /// exactly these stops — edit the plan, or let a "Pin …" get its
     /// reverse-geocoded name, and it can be saved again (overwrites).
     @State private var savedPlanStops: [String]?
+    /// Stops of a plan opened from Saved routes, as loaded — the baseline for
+    /// "Discard this plan?" (such a plan can't be saved from the planner).
+    @State private var libraryBaselineStops: [String]?
     /// A save is in flight (reverse-geocoding the current location).
     @State private var savingPlan = false
     /// The built route awaiting a name in the "Save route" prompt.
@@ -349,7 +352,17 @@ struct MapPickerView: View {
             // Rider tore down the plan (cleared destination) while waiting
             // to connect → cancel the armed auto-start so a later manual
             // connect doesn't unexpectedly launch into nothing.
-            if !planning { pendingAutoStart = false }
+            if !planning {
+                pendingAutoStart = false
+                // The dialog lives in the planner that just went away; a
+                // dropped write-back must not leave `anotherModalUp` stuck.
+                showDiscardPlanDialog = false
+            }
+        }
+        .onChange(of: status.plannedRoute.map(ObjectIdentifier.init), initial: true) { _, _ in
+            if let plan = status.plannedRoute, plan.isFromLibrary {
+                libraryBaselineStops = Self.stopsSnapshot(plan)
+            }
         }
         .onChange(of: showPlanSaveAlert) { _, up in
             // Auto-start held while the rider names the route (below) —
@@ -701,10 +714,11 @@ struct MapPickerView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") {
-                    // A library plan is still in the library (and can't be saved
-                    // from here), so there's nothing to lose.
-                    if !plan.isFromLibrary,
-                       Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops) {
+                    // A library plan is compared with its stops as loaded: it
+                    // can't be saved from here, but edits made for this ride can
+                    // still be lost.
+                    let baseline = plan.isFromLibrary ? libraryBaselineStops : savedPlanStops
+                    if Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: baseline) {
                         showDiscardPlanDialog = true
                     } else {
                         status.cancelPlanning()
