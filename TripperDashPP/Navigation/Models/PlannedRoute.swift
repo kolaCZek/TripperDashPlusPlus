@@ -90,6 +90,17 @@ final class PlannedRoute {
     /// every waypoint is a real stop the rider chose).
     var isTrack: Bool = false
 
+    /// True when this plan was started from Saved routes (any kind). Such a
+    /// plan is never offered for saving again: after `.fromNearest` its
+    /// leading stops are gone and unnamed points carry invented names
+    /// ("Stop 2", "Route end") — the copy would be worse than the original.
+    var isFromLibrary: Bool = false
+
+    /// The Saved routes entry this plan was saved to from the planner.
+    /// A second save (after editing the stops) overwrites that entry
+    /// instead of piling up near-identical copies.
+    var savedRouteId: UUID?
+
     // MARK: - Init
 
     /// Build from an ordered list of waypoints. Legs start empty —

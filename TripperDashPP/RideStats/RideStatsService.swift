@@ -29,12 +29,17 @@
 //      calls it when the bike link goes fully down (user disconnect, or
 //      auto-reconnect gives up after the reconnect budget = motorcycle off).
 //
-//  Why persist only at teardown (not per-fix): a long ride's `trackPoints`
-//  is thousands of points, so writing it on every 1 Hz fix would be wasteful.
-//  The reported failure is arrival → app killed while backgrounded, and
-//  `end()` runs at that arrival teardown — so the summary is on disk before
-//  the app can be terminated. A crash mid-ride loses at most the current
-//  in-flight leg, which is acceptable for a summary panel.
+//  Why persist at teardown plus a checkpoint every `checkpointEveryFixes`
+//  accepted fixes (not per-fix): a long ride's `trackPoints` is thousands
+//  of points, so writing it on every 1 Hz fix would be wasteful. The
+//  checkpoint (~5 min) is for the ride history — arrival no longer tears
+//  the stream down, so a whole outing is often ONE leg, and a swipe-kill
+//  or jetsam mid-ride would otherwise lose all of it. A kill now loses at
+//  most the last ~5 minutes. The checkpoint encodes and writes on the
+//  serial `RideHistoryStore.io` queue without waiting (a long track is
+//  tens of ms of JSON — the render loop shares the main actor); teardowns
+//  wait on the same queue, so they're on disk before iOS can suspend the
+//  app and always land after any checkpoint still in flight.
 //
 
 import Foundation
@@ -49,6 +54,9 @@ final class RideStatsService {
     /// UserDefaults key holding the last ride's persisted `RideStats` (JSON).
     private static let storageKey = "RideStats.lastRide.v1"
 
+    /// Mid-ride checkpoint cadence: accepted fixes (~1 Hz → ~5 min).
+    static let checkpointEveryFixes = 300
+
     /// The live accumulator. Views read this; all math is in RideStats.
     private(set) var stats = RideStats()
 
@@ -58,6 +66,9 @@ final class RideStatsService {
     private weak var location: LocationService?
     private var sub: LocationSubscription?
     private let defaults: UserDefaults
+    /// Ride history (last 30 days). Gets every teardown snapshot; nil in
+    /// tests that only exercise the last-ride summary.
+    private let history: RideHistoryStore?
 
     /// True when `stats` was rehydrated from disk on launch and no new ride
     /// has begun yet. The restored ride is a FINISHED ride from a previous
@@ -65,9 +76,11 @@ final class RideStatsService {
     /// new ride doesn't fold onto last time's totals. Cleared by `begin()`.
     private var restoredFromDisk = false
 
-    init(location: LocationService, defaults: UserDefaults = .standard) {
+    init(location: LocationService, defaults: UserDefaults = .standard,
+         history: RideHistoryStore? = nil) {
         self.location = location
         self.defaults = defaults
+        self.history = history
         restoreLastRide()
     }
 
@@ -123,24 +136,32 @@ final class RideStatsService {
     /// Also clears the persisted copy — the session is over, so a relaunch
     /// should NOT resurrect this ride's summary.
     func reset() {
+        // The session-end path (link fully down) runs reset() before
+        // stopStreaming() → end(), so this is the last chance to keep the
+        // ride in history. A summary restored from disk was recorded in its
+        // own session — re-recording it would resurrect a ride the rider
+        // deleted from the history.
+        if !restoredFromDisk { history?.record(stats) }
         sub = nil
         stats = RideStats()
         state = .idle
         restoredFromDisk = false
-        defaults.removeObject(forKey: Self.storageKey)
+        removePersistedRide()
     }
 
     /// The rider dismissed the post-arrival summary panel (its close
     /// button). Drop the persisted copy so a relaunch doesn't resurrect a
     /// summary the rider has already seen and closed — without this the
     /// on-disk record would re-hydrate and the panel would reappear on the
-    /// next launch. Only clears disk + the restored flag: the live in-memory
-    /// `stats` stay (the UI hides the panel via its own transient
-    /// `rideStatsDismissed` flag), so a back-to-back next leg still resumes
-    /// onto the same totals within this session.
+    /// next launch. Only clears disk: the live in-memory `stats` stay (the
+    /// UI hides the panel via its own transient `rideStatsDismissed` flag),
+    /// so a back-to-back next leg still resumes onto the same totals within
+    /// this session. `restoredFromDisk` is left alone on purpose: a
+    /// summary restored from a PREVIOUS session must still be zeroed by the
+    /// next `begin()` — clearing it here folded today's ride onto
+    /// yesterday's (same `startedAt`, one merged history file).
     func acknowledgeSummary() {
-        defaults.removeObject(forKey: Self.storageKey)
-        restoredFromDisk = false
+        removePersistedRide()
     }
 
     /// Streaming stopped — drop the subscription, keep totals on screen.
@@ -159,14 +180,39 @@ final class RideStatsService {
     /// Write the current `stats` to disk as the "last ride" summary. Called
     /// at each teardown (`end()`/`pause()`). Skips empty rides (no
     /// `startedAt`) so a stop before any fix doesn't leave a blank record.
-    private func persistLastRide() {
+    ///
+    /// `background: true` (mid-ride checkpoint) queues the encode + writes
+    /// on `RideHistoryStore.io` and returns at once; a teardown waits.
+    private func persistLastRide(background: Bool = false) {
         guard stats.startedAt != nil else { return }
-        do {
-            let data = try JSONEncoder().encode(stats)
-            defaults.set(data, forKey: Self.storageKey)
-        } catch {
-            Self.log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
+        let snapshot = stats
+        // A restored summary was recorded in its own session; an `end()`
+        // before the next `begin()` (link drop mid-connect) must not write
+        // it back — the rider may have deleted it since.
+        let historyURL = restoredFromDisk ? nil : history?.accept(snapshot)
+        let defaults = self.defaults, key = Self.storageKey, log = Self.log
+        let write: @Sendable () -> Void = {
+            do {
+                let data = try JSONEncoder().encode(snapshot)   // once, for both
+                defaults.set(data, forKey: key)
+                if let historyURL { try data.write(to: historyURL, options: .atomic) }
+            } catch {
+                log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
+            }
         }
+        if background {
+            RideHistoryStore.io.async(execute: write)
+        } else {
+            RideHistoryStore.io.sync(execute: write)
+        }
+    }
+
+    /// Drop the last-ride key — on `io`, after any checkpoint still queued,
+    /// so a late write can't bring it back.
+    private func removePersistedRide() {
+        let defaults = self.defaults, key = Self.storageKey
+        let remove: @Sendable () -> Void = { defaults.removeObject(forKey: key) }
+        RideHistoryStore.io.sync(execute: remove)
     }
 
     /// Rehydrate the last ride's summary from disk on launch. The restored
@@ -189,7 +235,10 @@ final class RideStatsService {
 
     private func ingest(_ fix: Fix) {
         guard state == .running else { return }
+        let before = stats.trackPoints.count
         stats = stats.folding(fix)
+        let count = stats.trackPoints.count
+        if count != before, count % Self.checkpointEveryFixes == 0 { persistLastRide(background: true) }
     }
 
     // MARK: - Save ride to the route library
@@ -211,6 +260,12 @@ final class RideStatsService {
     /// where MKDirections needs a sane number of legs. `totalDistanceMeters`
     /// is measured along the full trace.
     func makeSavedRoute(name: String? = nil, now: Date = Date()) -> SavedRoute? {
+        Self.savedRoute(from: stats, name: name, now: now)
+    }
+
+    /// Same as `makeSavedRoute`, for any ride (e.g. one from the history).
+    static func savedRoute(from stats: RideStats, name: String? = nil,
+                           now: Date = Date()) -> SavedRoute? {
         let track = stats.trackPoints
         guard !track.isEmpty else { return nil }
 

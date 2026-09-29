@@ -98,6 +98,7 @@
 		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
 		A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */; };
 		A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */; };
+		7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */; };
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
 		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
@@ -107,9 +108,12 @@
 		A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */; };
 		A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */; };
 		A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */; };
+		7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A67 /* RideHistoryStoreTests.swift */; };
 		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
 		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
+		7E5700000000000000000A66 /* RideHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A65 /* RideHistoryView.swift */; };
 		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
+		7E5700000000000000000A64 /* RideHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A63 /* RideHistoryStore.swift */; };
 		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
 		A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E001 /* VoiceNavigator.swift */; };
 		A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D00001 /* DemoDashModel.swift */; };
@@ -225,6 +229,7 @@
 		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
 		A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPersistenceTests.swift; sourceTree = "<group>"; };
 		A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStoreTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteFromPlanTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
@@ -234,9 +239,12 @@
 		A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncerTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjectionTests.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStoreTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A67 /* RideHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStoreTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A65 /* RideHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryView.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A63 /* RideHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStore.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
 		A4F0FFFF000000000000E001 /* VoiceNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNavigator.swift; sourceTree = "<group>"; };
 		A4DE70000000000000D00001 /* DemoDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDashModel.swift; sourceTree = "<group>"; };
@@ -309,6 +317,7 @@
 				7E5700000000000000000A53 /* RideStatsFormatting.swift */,
 				7E5700000000000000000A55 /* RideStatsService.swift */,
 				7E5700000000000000000A61 /* GPXExporter.swift */,
+				7E5700000000000000000A63 /* RideHistoryStore.swift */,
 			);
 			path = RideStats;
 			sourceTree = "<group>";
@@ -371,6 +380,7 @@
 				A4DE70000000000000D10001 /* PermissionsView.swift */,
 				A4DE70000000000000B10001 /* AddBikeSheet.swift */,
 				7E5700000000000000000A57 /* RideStatsPanel.swift */,
+				7E5700000000000000000A65 /* RideHistoryView.swift */,
 				A4F0FFFF000000000000A003 /* Navigation */,
 			);
 			path = UI;
@@ -511,6 +521,7 @@
 				7E57000000000000000000A4 /* RideStatsTests.swift */,
 				A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */,
 				A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */,
+				7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
@@ -519,6 +530,7 @@
 				A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */,
 				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
 				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
+				7E5700000000000000000A67 /* RideHistoryStoreTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -802,6 +814,7 @@
 				A4DE70000000000000D11001 /* PermissionsView.swift in Sources */,
 				A4DE70000000000000B11001 /* AddBikeSheet.swift in Sources */,
 				7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */,
+				7E5700000000000000000A66 /* RideHistoryView.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
@@ -827,6 +840,7 @@
 				FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */,
 				FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */,
 				7E5700000000000000000A62 /* GPXExporter.swift in Sources */,
+				7E5700000000000000000A64 /* RideHistoryStore.swift in Sources */,
 				7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */,
 				A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */,
 				A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */,
@@ -849,6 +863,7 @@
 				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
 				A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */,
 				A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */,
+				7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
@@ -857,6 +872,7 @@
 				A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */,
 				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
 				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
+				7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

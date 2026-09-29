@@ -38,6 +38,7 @@ struct MapPickerView: View {
     @State private var transitioning = false
     @State private var showSettings = false
     @State private var showSavedRoutes = false
+    @State private var showRideHistory = false
 
     /// Armed when the rider taps "Connect to dash to start" while a plan
     /// is laid out — i.e. they intend to ride, not just connect. When the
@@ -101,6 +102,17 @@ struct MapPickerView: View {
     @State private var longPressCoord: CLLocationCoordinate2D?
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
+    /// Stops (id + name) of the plan last saved via the planner's bookmark
+    /// button. The button shows "saved" only while the plan still has
+    /// exactly these stops — edit the plan, or let a "Pin …" get its
+    /// reverse-geocoded name, and it can be saved again (overwrites).
+    @State private var savedPlanStops: [String]?
+    /// A save is in flight (reverse-geocoding the current location).
+    @State private var savingPlan = false
+
+    private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
+        plan.waypoints.map { "\($0.id)|\($0.name)" }
+    }
 
     private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
     private var mode: DisplayMode {
@@ -167,6 +179,12 @@ struct MapPickerView: View {
                     }
                     .accessibilityLabel("Saved routes")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showRideHistory = true } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .accessibilityLabel("Ride history")
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: {
@@ -183,6 +201,10 @@ struct MapPickerView: View {
             SavedRoutesListView()
                 .environment(status)
                 .environment(status.savedRoutesStore)
+        }
+        .sheet(isPresented: $showRideHistory) {
+            RideHistoryView()
+                .environment(status)
         }
         .fullScreenCover(isPresented: $prerenderActive) {
             PrerenderProgressView(progress: prerenderProgress)
@@ -615,6 +637,25 @@ struct MapPickerView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") { status.cancelPlanning() }
+            }
+            if !plan.isFromLibrary {
+                let saved = savedPlanStops == Self.stopsSnapshot(plan)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        savingPlan = true
+                        Task {
+                            if await status.saveCurrentPlan() != nil {
+                                savedPlanStops = Self.stopsSnapshot(plan)
+                            }
+                            savingPlan = false
+                        }
+                    } label: {
+                        Image(systemName: saved ? "bookmark.fill" : "bookmark")
+                    }
+                    .disabled(saved || savingPlan)
+                    .accessibilityLabel(saved ? "Route saved to Saved routes"
+                                              : "Save route to Saved routes")
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -81,6 +81,23 @@ final class SavedRoutesStore {
         return route
     }
 
+    /// Overwrite a route with a new version of itself (planner re-save),
+    /// keeping its id and createdAt. nil if the id is gone.
+    @discardableResult
+    func replace(id: UUID, with route: SavedRoute) -> SavedRoute? {
+        guard let idx = routes.firstIndex(where: { $0.id == id }) else { return nil }
+        let old = routes[idx]
+        routes[idx] = SavedRoute(id: id,
+                                 name: route.name,
+                                 kind: route.kind,
+                                 points: route.points,
+                                 totalDistanceMeters: route.totalDistanceMeters,
+                                 sourceFilename: route.sourceFilename,
+                                 createdAt: old.createdAt)
+        persist()
+        return routes[idx]
+    }
+
     /// Rename in place. No-op (logged) if the id is gone.
     func rename(id: UUID, to newName: String) {
         guard let idx = routes.firstIndex(where: { $0.id == id }) else {
