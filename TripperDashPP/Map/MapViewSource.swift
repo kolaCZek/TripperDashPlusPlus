@@ -1094,10 +1094,10 @@ extension MapViewSource {
 
 extension MapViewSource {
     /// Render loop via Swift Concurrency Task + Task.sleep, on
-    /// `SuspendingClock` — the same uptime clock HeartbeatLoop's
-    /// `Task.sleep(nanoseconds:)` runs on (confirmed to keep ticking on the
-    /// locked screen under the CoreLocation wakelock) and the uptime base of
-    /// the `CACurrentMediaTime` PTS.
+    /// `SuspendingClock` — in practice the same uptime base as
+    /// HeartbeatLoop's `Task.sleep(nanoseconds:)` (confirmed to keep ticking
+    /// on the locked screen under the CoreLocation wakelock) and as the
+    /// `CACurrentMediaTime` PTS.
     ///
     /// Sleeps until an absolute deadline on a fixed 1/targetFps grid, NOT
     /// for a fixed interval after each tick. A relative sleep adds the
@@ -1108,25 +1108,27 @@ extension MapViewSource {
     /// Two guards keep the dash from ever seeing a burst:
     /// - a tick that overruns its slot skips the missed slots instead of
     ///   catching up;
-    /// - a tick that STARTS late (main actor busy when the sleep fired)
-    ///   skips the next slot if it would land closer than half an interval,
-    ///   so no two frames are ever less than 83 ms apart (≤ 12 fps even for
-    ///   a single pair — the decoder blinks above ~12 fps). The average
-    ///   stays exactly targetFps; ordinary few-ms jitter never trips it.
+    /// - the next tick never starts less than half an interval after the
+    ///   previous one ENDED (the frame goes to the encoder at the end of the
+    ///   tick), so two frames never reach the dash less than 83 ms apart
+    ///   (≤ 12 fps even for a single pair — the decoder blinks above
+    ///   ~12 fps). A slow or late tick is delayed, not dropped, so the rate
+    ///   degrades gradually under load; with ordinary few-ms jitter neither
+    ///   guard trips and the average is exactly targetFps.
     private func startTimer() {
         renderTask?.cancel()
         let interval = Duration.seconds(1) / targetFps
         renderTask = Task { [weak self] in
             let clock = SuspendingClock()
             var deadline = clock.now
-            while !Task.isCancelled {
-                let tickStart = clock.now
+            // `self != nil`: [weak self] alone would keep a loop whose
+            // source was freed ticking at 6 Hz (deinit can't cancel it).
+            while !Task.isCancelled, self != nil {
                 await self?.tickOnMain()
                 deadline += interval
                 let now = clock.now
-                let earliest = tickStart + interval / 2
-                while deadline <= now || deadline < earliest { deadline += interval }
-                try? await Task.sleep(until: deadline, clock: clock)
+                while deadline <= now { deadline += interval }
+                try? await Task.sleep(until: max(deadline, now + interval / 2), clock: clock)
             }
         }
     }

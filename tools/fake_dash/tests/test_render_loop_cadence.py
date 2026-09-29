@@ -27,29 +27,28 @@ def _start_timer() -> str:
     return strip_comments(decl_body(src, "private func startTimer()"))
 
 
-def _deadline_loop(work, seconds=60.0, late=lambda _: 0.0, min_gap=True):
+def _deadline_loop(work, seconds=60.0, late=lambda _: 0.0, min_gap=True, skip=True):
     """Mirror of startTimer.
 
     `late(i)`: how long the main actor was busy when tick i's sleep fired,
     i.e. the tick STARTS that late. `work(i)`: the tick's own render time.
-    `min_gap=False` models the loop without the half-interval guard.
-    Returns tick START times (when the frame is produced).
+    `min_gap=False` / `skip=False` model the loop without each guard.
+    Returns the times frames reach the encoder (end of each tick).
     """
     t = deadline = 0.0
-    ticks = []
+    out = []
     i = 0
     while t < seconds - 1e-9:  # float grid: 360 × (1/6) lands a hair under 60
         t += late(i)
-        tick_start = t
-        ticks.append(tick_start)
         t += work(i)
+        out.append(t)            # onFrame fires at the END of the tick
         i += 1
         deadline += INTERVAL
-        earliest = tick_start + INTERVAL / 2
-        while deadline <= t or (min_gap and deadline < earliest):
+        while skip and deadline <= t:
             deadline += INTERVAL
-        t = deadline
-    return ticks
+        wake = max(deadline, t + INTERVAL / 2) if min_gap else deadline
+        t = max(t, wake)         # sleeping until a past instant returns at once
+    return out
 
 
 def _gaps(ticks):
@@ -75,29 +74,51 @@ def test_deadline_loop_holds_exact_fps_under_render_load():
     assert len(_deadline_loop(lambda _: 0.026)) == 60 * FPS
 
 
+def _every_10th(ms, base=0.0):
+    return lambda i: ms / 1000 if i % 10 == 9 else base
+
+
+def _short_runs(out):
+    """Longest run of consecutive frame gaps shorter than one interval."""
+    run = best = 0
+    for g in _gaps(out):
+        run = run + 1 if g < INTERVAL - 1e-9 else 0
+        best = max(best, run)
+    return best
+
+
 def test_overrun_skips_slots_instead_of_bursting():
-    # Every 10th tick renders 400 ms (main actor busy mid-tick).
-    ticks = _deadline_loop(lambda i: 0.4 if i % 10 == 9 else 0.026)
-    assert min(_gaps(ticks)) >= INTERVAL - 1e-9
-    assert len(ticks) <= 60 * FPS
+    # Every 10th tick renders 400 ms: afterwards ONE short gap at most, not
+    # a catch-up burst of back-to-back frames.
+    work = _every_10th(400, 0.026)
+    assert _short_runs(_deadline_loop(work)) <= 1
+    assert _short_runs(_deadline_loop(work, skip=False)) >= 2
 
 
-def _late_every_10th(ms):
-    return lambda i: ms / 1000 if i % 10 == 9 else 0.0
-
-
-def test_late_start_would_bunch_frames_without_the_min_gap_guard():
-    # Review of #150: the sleep fires on time but the main actor is busy,
-    # so the tick starts 140 ms late; the next deadline is still on grid.
-    ticks = _deadline_loop(lambda _: 0.026, late=_late_every_10th(140), min_gap=False)
-    assert min(_gaps(ticks)) < 0.03  # two frames ~27 ms apart (~37 fps pair)
+def test_slow_or_overrunning_tick_never_bunches_frames():
+    # Review 2 of #150: the gap must hold between frames SENT (tick end),
+    # not tick starts — a 150 ms render inside its slot used to leave the
+    # next frame 42.7 ms behind it, a 490 ms overrun ~36 ms.
+    for ms in (150, 490):
+        work = _every_10th(ms, 0.026)
+        assert min(_gaps(_deadline_loop(work))) >= INTERVAL / 2 - 1e-9, ms
+        assert min(_gaps(_deadline_loop(work, min_gap=False))) < 0.05, ms
 
 
 def test_late_start_never_puts_two_frames_closer_than_half_an_interval():
     for ms in (50, 100, 140, 160):
-        ticks = _deadline_loop(lambda _: 0.026, late=_late_every_10th(ms))
-        assert min(_gaps(ticks)) >= INTERVAL / 2 - 1e-9, ms  # never above 12 fps
-        assert len(ticks) >= 60 * FPS * 0.89, ms  # skips at most the 1-in-10 slot
+        out = _deadline_loop(lambda _: 0.026, late=_every_10th(ms))
+        assert min(_gaps(out)) >= INTERVAL / 2 - 1e-9, ms  # never above 12 fps
+        assert len(out) >= 60 * FPS * 0.9 - 1, ms
+    no_guard = _deadline_loop(lambda _: 0.026, late=_every_10th(140), min_gap=False)
+    assert min(_gaps(no_guard)) < 0.03  # ~27 ms pair without the guard
+
+
+def test_steady_lateness_degrades_gradually():
+    # Review 2 of #150: skipping a slot on every late start halved the rate
+    # at 85 ms steady lateness (6 → 3 fps). Delaying instead degrades softly.
+    fps = len(_deadline_loop(lambda _: 0.026, late=lambda _: 0.085)) / 60.0
+    assert fps > 4.0, fps
 
 
 def test_ordinary_jitter_keeps_exact_fps():
@@ -109,9 +130,11 @@ def test_swift_start_timer_sleeps_until_deadline():
     body = _start_timer()
     assert "let interval = Duration.seconds(1) / targetFps" in body
     assert "deadline += interval" in body
-    assert "try? await Task.sleep(until: deadline, clock: clock)" in body
     assert "let clock = SuspendingClock()" in body, "same uptime clock as HeartbeatLoop / PTS"
-    assert "let tickStart = clock.now" in body
-    assert "let earliest = tickStart + interval / 2" in body
-    assert "while deadline <= now || deadline < earliest { deadline += interval }" in body
+    # min gap measured from the tick's END (after tickOnMain), not its start
+    assert body.index("await self?.tickOnMain()") < body.index("let now = clock.now")
+    assert "while deadline <= now { deadline += interval }" in body
+    assert "try? await Task.sleep(until: max(deadline, now + interval / 2), clock: clock)" in body
+    assert "tickStart" not in body
+    assert "while !Task.isCancelled, self != nil {" in body, "stop once the source is freed"
     assert "Task.sleep(nanoseconds:" not in body, "relative sleep drifts below targetFps"
