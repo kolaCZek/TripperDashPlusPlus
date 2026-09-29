@@ -1096,13 +1096,26 @@ extension MapViewSource {
     /// Render loop via Swift Concurrency Task + Task.sleep.
     /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
     /// keeps ticking on the locked screen under the CoreLocation wakelock.
+    ///
+    /// Sleeps until an absolute deadline on a fixed 1/targetFps grid, NOT
+    /// for a fixed interval after each tick. A relative sleep adds the
+    /// tick's own render time to every period: ~26 ms of work + 166.7 ms
+    /// of sleep gave 5.2 fps in the field (log 2026-09-28, 60 frames every
+    /// ~11.6 s). A tick that overruns its slot (main actor busy, or the
+    /// app briefly suspended) skips the missed slots instead of bursting
+    /// frames to catch up, so the dash never gets more than targetFps.
     private func startTimer() {
         renderTask?.cancel()
-        let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)
+        let interval = Duration.seconds(1) / targetFps
         renderTask = Task { [weak self] in
+            let clock = ContinuousClock()
+            var deadline = clock.now
             while !Task.isCancelled {
                 await self?.tickOnMain()
-                try? await Task.sleep(nanoseconds: intervalNs)
+                deadline += interval
+                let now = clock.now
+                while deadline <= now { deadline += interval }
+                try? await Task.sleep(until: deadline, clock: clock)
             }
         }
     }
