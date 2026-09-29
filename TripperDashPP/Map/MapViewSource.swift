@@ -292,8 +292,19 @@ final class MapViewSource: NSObject, FrameSource {
 
         switch activeLayer {
         case .coarse:
-            // Stay coarse until we climb well past the edge.
-            if z > coarseEdge + margin { activeLayer = (z >= fineEdge ? .fine : .base) }
+            // Stay coarse until we climb well past the edge, OR the manual
+            // zoom-out that asked for coarse has fully reverted and base
+            // covers the frame again. Coarse only exists for the joystick
+            // zoom-out: autozoom alone never goes below 0.8, but above
+            // ~116 km/h it settles under the `coarseEdge + margin` exit
+            // (0.93), so without the neutral-bias exit a single LEFT press
+            // on a highway left the rider on 3-4x upscaled z=13 tiles
+            // ("roads like a splash of paint", field report 9/2026) until
+            // they zoomed back in. The hysteresis still holds while a
+            // manual bias is active, so the layer can't flicker then.
+            if z > coarseEdge + margin || (userZoomBias >= 1.0 && z >= coarseEdge - margin) {
+                activeLayer = (z >= fineEdge ? .fine : .base)
+            }
         case .base:
             if z < coarseEdge - margin { activeLayer = .coarse }
             else if z > fineEdge + margin { activeLayer = .fine }

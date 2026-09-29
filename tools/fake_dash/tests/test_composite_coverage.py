@@ -518,6 +518,69 @@ def test_layer_band_edges_match_swift():
     assert abs(float(m_margin.group(1)) - LAYER_MARGIN) < 1e-9, m_margin.group(1)
 
 
+def _select_layer(layer: str, z: float, bias: float) -> str:
+    """Mirror of MapViewSource.selectLayer (hysteresis state machine)."""
+    lo, hi = COARSE_EDGE - LAYER_MARGIN, COARSE_EDGE + LAYER_MARGIN
+    if layer == "coarse":
+        if z > hi or (bias >= 1.0 and z >= lo):
+            layer = "fine" if z >= FINE_EDGE else "base"
+    elif layer == "base":
+        if z < lo:
+            layer = "coarse"
+        elif z > FINE_EDGE + LAYER_MARGIN:
+            layer = "fine"
+    elif z < FINE_EDGE - LAYER_MARGIN:
+        layer = "coarse" if z <= COARSE_EDGE else "base"
+    return layer
+
+
+def _ride(kmh: float, presses: dict[int, bool], seconds: int = 120):
+    """Replay the per-frame zoom loop at 6 fps (decayZoomBias -> targetZoom
+    -> lerp in updateZoom, then selectLayer at draw) at a constant speed.
+    `presses` maps frame -> zoom_in. Yields (layer, z, bias) per frame."""
+    from tests.zoom_bias_mirror import ZoomBias
+
+    zb, fps = ZoomBias(), 6
+    speed_zoom = min(max(2.0 - kmh * 0.00923, 0.8), 2.0)
+    z, layer = speed_zoom, "base"
+    for f in range(seconds * fps):
+        now = f / fps
+        if f in presses:
+            zb.nudge(presses[f], now)
+        zb.decay(now)
+        target = speed_zoom * zb.bias
+        z += (target - z) * (0.15 if target > z else 0.05)
+        layer = _select_layer(layer, z, zb.bias)
+        yield layer, z, zb.bias
+
+
+@pytest.mark.parametrize("kmh", [120, 130, 150])
+def test_highway_zoom_out_does_not_stick_on_coarse(kmh):
+    """Field report 9/2026: one LEFT press on a highway left the map on the
+    upscaled z=13 layer ("roads like a splash of paint") until the rider
+    zoomed in. Above ~116 km/h autozoom settles below the old coarse exit
+    (COARSE_EDGE + margin), so coarse must also be left once the manual
+    bias has reverted to neutral."""
+    frames = list(_ride(kmh, {0: False}))
+    assert any(layer == "coarse" for layer, _, _ in frames), "scenario never reached coarse"
+    layer, z, bias = frames[-1]
+    assert bias == 1.0 and layer == "base", f"{kmh} km/h: stuck on {layer} at z={z:.2f}"
+
+
+def test_neutral_bias_exit_never_uses_base_below_its_coverage():
+    """LEFT then RIGHT at highway speed snaps the bias back to 1.0 while
+    the zoom is still far out; base must not be picked until z is back in
+    the band it fully covers (>= COARSE_EDGE - margin), or the rider sees
+    black corners for the ~2 s the zoom takes to climb back."""
+    for layer, z, _ in _ride(130, {0: False, 12: True}, seconds=60):
+        assert layer != "base" or z >= COARSE_EDGE - LAYER_MARGIN, z
+
+
+def test_swift_coarse_exit_on_neutral_bias():
+    src = (_repo_root() / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+    assert "if z > coarseEdge + margin || (userZoomBias >= 1.0 && z >= coarseEdge - margin) {" in src
+
+
 def test_layer_zoom_and_grid_match_swift():
     """The Python mirror's per-layer OSM zoom + composite gridSide MUST
     track MapViewSource so the coverage proof stays honest if someone
