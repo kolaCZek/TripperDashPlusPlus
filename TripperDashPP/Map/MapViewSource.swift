@@ -1093,34 +1093,44 @@ extension MapViewSource {
 // MARK: - Render tick
 
 extension MapViewSource {
-    /// Render loop via Swift Concurrency Task + Task.sleep.
-    /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
-    /// keeps ticking on the locked screen under the CoreLocation wakelock.
+    /// Render loop via Swift Concurrency Task + Task.sleep, on
+    /// `SuspendingClock` — the same uptime clock HeartbeatLoop's
+    /// `Task.sleep(nanoseconds:)` runs on (confirmed to keep ticking on the
+    /// locked screen under the CoreLocation wakelock) and the uptime base of
+    /// the `CACurrentMediaTime` PTS.
     ///
     /// Sleeps until an absolute deadline on a fixed 1/targetFps grid, NOT
     /// for a fixed interval after each tick. A relative sleep adds the
     /// tick's own render time to every period: ~26 ms of work + 166.7 ms
     /// of sleep gave 5.2 fps in the field (log 2026-09-28, 60 frames every
-    /// ~11.6 s). A tick that overruns its slot (main actor busy, or the
-    /// app briefly suspended) skips the missed slots instead of bursting
-    /// frames to catch up, so the dash never gets more than targetFps.
+    /// ~11.6 s).
+    ///
+    /// Two guards keep the dash from ever seeing a burst:
+    /// - a tick that overruns its slot skips the missed slots instead of
+    ///   catching up;
+    /// - a tick that STARTS late (main actor busy when the sleep fired)
+    ///   skips the next slot if it would land closer than half an interval,
+    ///   so no two frames are ever less than 83 ms apart (≤ 12 fps even for
+    ///   a single pair — the decoder blinks above ~12 fps). The average
+    ///   stays exactly targetFps; ordinary few-ms jitter never trips it.
     private func startTimer() {
         renderTask?.cancel()
         let interval = Duration.seconds(1) / targetFps
         renderTask = Task { [weak self] in
-            let clock = ContinuousClock()
+            let clock = SuspendingClock()
             var deadline = clock.now
             while !Task.isCancelled {
+                let tickStart = clock.now
                 await self?.tickOnMain()
                 deadline += interval
                 let now = clock.now
-                while deadline <= now { deadline += interval }
+                let earliest = tickStart + interval / 2
+                while deadline <= now || deadline < earliest { deadline += interval }
                 try? await Task.sleep(until: deadline, clock: clock)
             }
         }
     }
 
-    @MainActor
     private func tickOnMain() async {
         guard onFrame != nil else { return }
 
