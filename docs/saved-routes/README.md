@@ -47,9 +47,13 @@ and at the bike just open Saved routes → **Start navigation**.
 - Tapping the bookmark asks for a name (**Cancel** / **Save**),
   prefilled with `First stop → Last stop` (or the destination for a
   single stop; coordinates for an unnamed stop). Saving the plan again
-  prefills the name it was saved under, so a custom name survives edits.
-  Leave it blank for the automatic name; you can still rename it in the
-  route detail.
+  prefills a custom name it was saved under (typed, or renamed in the
+  library), so it survives edits; an automatic one is recomputed for the
+  new stops. Leave it blank for the automatic name (names are capped at
+  80 characters); you can still rename it in the route detail.
+- If you tap Start or Cancel, or open another screen, while the save is
+  looking up your location, it saves under the suggested name without
+  asking — rename it in the library.
 - Hidden for a plan launched from Saved routes (it's already there). The
   icon fills once saved and re-arms when you change the stops or a
   dropped pin gets its real name; saving again **updates** the same

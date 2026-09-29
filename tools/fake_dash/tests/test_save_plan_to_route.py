@@ -29,15 +29,18 @@ Contract pinned here, without Xcode:
     reverse-geocoded name re-arms the button.
   - An empty stop name falls back to coordinates (no " → X" names).
   - The toolbar button builds the route (`AppStatus.draftPlanSave`), asks
-    for a name in a "Save route" alert (Cancel / Save, prefilled with the
-    name it was saved under before, else `First → Last`), and stores it
-    via `commitPlanSave` → `SavedRoutesStore.save` (blank → automatic).
+    for a name in a "Save route" alert (Cancel / Save, prefilled with a
+    custom name it was saved under before, else `First → Last`), and stores
+    it via `commitPlanSave` → `SavedRoutesStore.save` (blank → automatic,
+    capped at 80). With another screen up, or after Start/Cancel during the
+    geocode, it saves under the suggestion without a prompt.
   The Swift itself is covered by `SavedRouteFromPlanTests.swift`.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -206,13 +209,19 @@ def test_swift_save_current_plan_skips_library_plans_and_overwrites_on_resave():
     assert "!plan.isFromLibrary" in body
     assert "!plan.isTrack" not in body, "a .waypoints plan from the library must be hidden too"
     assert "SavedRoute.fromPlan" in body
-    # Suggest the name it was saved under (renamed in the library too).
-    assert "$0.id == plan.savedRouteId" in body and "previous?.name ?? route.name" in body
+    # Suggest only a custom name it was saved under (typed, or renamed in the
+    # library); an old automatic name must not stick to changed stops.
+    assert "$0.id == plan.savedRouteId" in body and "previous?.customName ?? route.name" in body
+    model = strip_comments(SAVED_ROUTE.read_text())
+    custom = model[model.index("var customName: String?"):]
+    assert "name == Self.automaticName(for: points) ? nil : name" in custom[:200]
+    assert "name: automaticName(for: points)," in _from_plan_body()
     commit = strip_comments(decl_body(APPSTATUS.read_text(), "func commitPlanSave"))
     assert "savedRoutesStore.save(route, named: name, replacing: plan.savedRouteId)" in commit
     assert "plan.savedRouteId = saved.id" in commit
     store = strip_comments(decl_body(STORE.read_text(), "func save(_ route: SavedRoute, named"))
     assert "if !trimmed.isEmpty { route.name = trimmed }" in store
+    assert ".prefix(Self.maxNameLength)" in store
     assert store.index("replace(id: id, with: route)") < store.index("add(route)")
 
 
@@ -224,13 +233,27 @@ def test_swift_every_library_start_is_flagged():
 def test_swift_from_plan_empty_names_fall_back():
     body = _from_plan_body()
     assert "name.isEmpty ? nil : name" in body
-    assert "label(for: points.first)" in body and "label(for: points.last)" in body
+    auto = strip_comments(decl_body(SAVED_ROUTE.read_text(), "static func automaticName"))
+    assert "label(for: points.first)" in auto and "label(for: points.last)" in auto
 
 
 def test_swift_planner_toolbar_has_save_button():
     body = strip_comments(decl_body(PICKER.read_text(), "private func planningBody"))
     assert "await status.draftPlanSave()" in body
     assert "showPlanSaveAlert = true" in body
+    # Stops snapshotted when the route is built, not when Save is tapped.
+    after = body[body.index("await status.draftPlanSave()"):]
+    assert after.index("let stops = Self.stopsSnapshot(draft.plan)") < after.index("showPlanSaveAlert = true")
+    # Never present over another modal / after Start or Cancel — SwiftUI
+    # drops that alert and the save with it; commit without a prompt.
+    assert "if anotherModalUp || transitioning || status.plannedRoute !== draft.plan {" in after
+    silent = after[after.index("if anotherModalUp"):after.index("} else {")]
+    assert "status.commitPlanSave(draft.route, named: draft.suggestedName, for: draft.plan)" in silent
+    modal = strip_comments(decl_body(PICKER.read_text(), "private var anotherModalUp"))
+    root_src = strip_comments(decl_body(PICKER.read_text(), "var body: some View"))
+    for flag in re.findall(r"isPresented: \$(\w+)", root_src) + ["showBikePicker"]:
+        if flag != "showPlanSaveAlert":
+            assert flag in modal, f"{flag} can be up while the draft returns"
     assert ".disabled(saved || savingPlan)" in body, "no double save while geocoding"
     # The name prompt hangs on the root view, so a Start/Cancel during the
     # geocode (planner gone) still gets it; Cancel saves nothing.
@@ -238,9 +261,10 @@ def test_swift_planner_toolbar_has_save_button():
     alert = root[root.index('.alert("Save route"'):]
     alert = alert[:alert.index(".confirmationDialog(")]
     assert 'TextField("Route name", text: $planSaveName)' in alert
-    assert 'Button("Cancel", role: .cancel) {}' in alert
+    assert 'Button("Cancel", role: .cancel) { planSave = nil }' in alert
     assert "status.commitPlanSave(draft.route, named: planSaveName, for: draft.plan)" in alert
-    assert "savedPlanStops = Self.stopsSnapshot(draft.plan)" in alert
+    assert "savedPlanStops = draft.stops" in alert
+    assert ".keyboardShortcut(.defaultAction)" in alert, "Return saves (gloves)"
     assert "if !plan.isFromLibrary {" in body
     snap = strip_comments(decl_body(PICKER.read_text(), "private static func stopsSnapshot"))
     assert "$0.name" in snap, "a pin renamed by reverse geocoding must re-arm the button"

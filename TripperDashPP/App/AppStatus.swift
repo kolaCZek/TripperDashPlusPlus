@@ -1126,8 +1126,8 @@ final class AppStatus {
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
 
-    /// Save the live plan to Saved routes, so a route planned at home can
-    /// be started later from the library. Every point is kept, the live
+    /// Build a save of the live plan to Saved routes, so a route planned at
+    /// home can be started later from the library. Every point is kept, the live
     /// "Current location" origin included — as a fixed point at the latest
     /// fix, named after the place (reverse geocode; coordinates offline).
     /// A rider who doesn't want it removes it from the plan first.
@@ -1138,9 +1138,11 @@ final class AppStatus {
     /// rider deleted that entry, it is added anew.
     ///
     /// Two steps around the planner's name prompt: this one builds the
-    /// route (the geocode is the slow part) and suggests a name — the one
-    /// the plan was saved under before (possibly renamed in the library),
-    /// else the automatic `First → Last`; `commitPlanSave` stores it.
+    /// route (the geocode is the slow part) and suggests a name — a custom
+    /// one the plan was saved under before (typed, or renamed in the
+    /// library), else the automatic `First → Last` of the points as they are
+    /// now, so an old automatic name doesn't stick to changed stops;
+    /// `commitPlanSave` stores it.
     /// `plan` is returned and held strongly, so a Start/Cancel during the
     /// geocode doesn't lose what the rider asked to save.
     func draftPlanSave() async -> (plan: PlannedRoute, route: SavedRoute, suggestedName: String)? {
@@ -1161,7 +1163,7 @@ final class AppStatus {
                   currentLocationName: hereName)
         else { return nil }
         let previous = savedRoutesStore.routes.first { $0.id == plan.savedRouteId }
-        return (plan, route, previous?.name ?? route.name)
+        return (plan, route, previous?.customName ?? route.name)
     }
 
     /// Store a `draftPlanSave` route under the rider's name (blank → the

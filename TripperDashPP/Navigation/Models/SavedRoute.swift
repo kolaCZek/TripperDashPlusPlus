@@ -121,6 +121,19 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     /// Human label for the destination point.
     var endName: String { Self.label(for: points.last) }
 
+    /// `First → Last` (the destination alone for a single point) — the
+    /// name a planner save gets unless the rider types one.
+    static func automaticName(for points: [RoutePoint]) -> String {
+        points.count == 1 ? label(for: points[0])
+            : "\(label(for: points.first)) → \(label(for: points.last))"
+    }
+
+    /// The name, if the rider chose it (typed on save or renamed in the
+    /// library) rather than it being `automaticName` of these points.
+    var customName: String? {
+        name == Self.automaticName(for: points) ? nil : name
+    }
+
     private static func label(for p: RoutePoint?) -> String {
         guard let p else { return "—" }
         if let n = p.name, !n.isEmpty { return n }
@@ -189,8 +202,7 @@ extension SavedRoute {
                               name: name.isEmpty ? nil : name)
         }
         return SavedRoute(
-            name: points.count == 1 ? label(for: points[0])
-                : "\(label(for: points.first)) → \(label(for: points.last))",
+            name: automaticName(for: points),
             kind: .waypoints,
             points: points,
             totalDistanceMeters: roadDistanceMeters

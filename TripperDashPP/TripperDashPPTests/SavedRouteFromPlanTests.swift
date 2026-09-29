@@ -98,6 +98,23 @@ struct SavedRouteFromPlanTests {
         let blank = store.save(route, named: "   ", replacing: UUID())
         #expect(blank.name == "Mělník → Kokořín")
         #expect(store.routes.count == 2)
+        // A pasted essay is capped.
+        let long = store.save(route, named: String(repeating: "x", count: 500), replacing: nil)
+        #expect(long.name.count == SavedRoutesStore.maxNameLength)
+    }
+
+    @Test func onlyACustomNameIsSuggestedOnResave() throws {
+        var saved = try #require(SavedRoute.fromPlan(
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
+            roadDistanceMeters: nil))
+        // Saved under the automatic name → not suggested again, so a changed
+        // destination gets its own `First → Last`.
+        #expect(saved.customName == nil)
+        saved.name = "Sunday loop"
+        #expect(saved.customName == "Sunday loop")
+        let single = try #require(SavedRoute.fromPlan([stop("Úštěk", 50.5850, 14.3420)],
+                                                      roadDistanceMeters: nil))
+        #expect(single.name == "Úštěk" && single.customName == nil)
     }
 
     private let loop = [RoutePoint(latitude: 50.2385, longitude: 14.2011, name: "Zvoleněves"),
