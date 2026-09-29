@@ -18,8 +18,10 @@
 //
 //  We only PROMPT when the choice is non-obvious: the nearest point is
 //  not the first one AND starting from first would mean a meaningful
-//  detour backwards. Otherwise we silently start from the first point
-//  (the common case: rider is at/near the route start).
+//  detour backwards AND the rider isn't already at the destination
+//  (within the threshold of the last point). Otherwise we silently start
+//  from the first point (the common case: rider is at/near the route
+//  start).
 //
 //  This type holds NO UIKit/MapKit/CoreLocation-manager state — just
 //  coordinate math — so it's unit-testable on Linux and mirrored 1:1 in
@@ -84,14 +86,16 @@ enum RouteStartPlanner {
         // the start but a slightly-closer second point exists.
         // Never when the rider is already AT the destination (within the
         // threshold of the last point): "from the nearest point" would be a
-        // one-stop plan that arrives at once — e.g. a loop saved without
-        // its home origin (or a GPX loop) started at home. A one-way route
+        // plan that arrives at once — e.g. a loop saved without its home
+        // origin (or a GPX loop) started at home. Measured to the last
+        // point itself, not "nearest == last": on a dense track the rider
+        // at the end is nearest to a point just before it. A one-way route
         // whose nearest point is a far-off destination still prompts.
         // A loop saved from the planner WITH its origin starts and ends at
         // home, so at home the saving over the first point is only metres —
         // no prompt, and `droppingReachedStart` skips the first.
-        let atDestination = nearestIdx == points.count - 1
-            && nearestDist <= promptThresholdMeters
+        let atDestination = points.count > 1
+            && GPXGeometry.haversine(rider, points[points.count - 1].coordinate) <= promptThresholdMeters
         let shouldPrompt = nearestIdx > 0 && !atDestination
             && (distFirst - nearestDist) > promptThresholdMeters
 

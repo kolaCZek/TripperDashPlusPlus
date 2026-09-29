@@ -114,6 +114,17 @@ struct SavedRouteFromPlanTests {
         #expect(d.shouldPrompt == false)
     }
 
+    @Test func denseTrackStartedAtItsEndDoesNotPrompt() {
+        // Review 4 of #151: on a dense track the rider at the end is nearest
+        // to a point just before it; still "at the destination".
+        let step = 22 / 111_320 / cos(50 * Double.pi / 180)
+        let track = (0..<500).map { RoutePoint(latitude: 50, longitude: 14 + Double($0) * step) }
+        let rider = CLLocationCoordinate2D(latitude: 50, longitude: 14 + 497 * step + 0.00001)
+        let d = RouteStartPlanner.analyze(points: track, riderLocation: rider)
+        #expect(d.nearestIndex == 497)
+        #expect(d.shouldPrompt == false)
+    }
+
     @Test func oneWayRouteJoinedNearItsEndStillPrompts() {
         // Review 2 of #151: A → B → C with C 80 km past B; the rider is
         // 30 km short of C, so C is the nearest point — ask, don't

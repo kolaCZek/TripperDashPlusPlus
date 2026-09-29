@@ -471,6 +471,19 @@ class TestAnalyze:
         # A 2-point route started within 300 m of its end: same.
         assert analyze([Pt(50.0, 14.0), Pt(50.1, 14.0)], Pt(50.101, 14.0)).should_prompt is False
 
+    def test_dense_track_started_at_its_end_never_prompts(self):
+        # Review 4 of #151: 500 points ~22 m apart, rider 43 m from the end
+        # is NEAREST to point 497, not the last — must still count as "at
+        # the destination" (else "from nearest" = 3 points, instant arrival).
+        step = 22 / 111_320 / math.cos(math.radians(50))
+        track = [Pt(50.0, 14.0 + i * step) for i in range(500)]
+        rider = Pt(50.0, 14.0 + 497 * step + 0.00001)
+        d = analyze(track, rider)
+        assert d.nearest_index == 497
+        assert d.should_prompt is False
+        # 1 km short of the end it's a real mid-route join → prompt.
+        assert analyze(track, track[450]).should_prompt is True
+
     def test_first_point_kept_when_rider_is_not_there(self):
         route = _route_line()
         assert dropping_reached_start(route, Pt(50.01, 14.0)) == route   # ~1.1 km off
@@ -483,7 +496,8 @@ class TestAnalyze:
                / "RouteStartPlanner.swift").read_text()
         body = strip_comments(decl_body(src, "static func analyze"))
         assert "nearestIdx < points.count - 1" not in body, "a far-off destination must be promptable"
-        assert "nearestDist <= promptThresholdMeters" in body and "!atDestination" in body
+        assert "GPXGeometry.haversine(rider, points[points.count - 1].coordinate) <= promptThresholdMeters" in body
+        assert "!atDestination" in body
         drop = strip_comments(decl_body(src, "static func droppingReachedStart"))
         assert "points.count > 1" in drop and "<= promptThresholdMeters" in drop
         app = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "App"

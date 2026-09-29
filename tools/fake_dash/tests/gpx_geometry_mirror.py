@@ -256,7 +256,7 @@ def analyze(points: list[Pt], rider: Optional[Pt]) -> StartDecision:
             nearest_dist = d
             nearest_idx = i
 
-    at_destination = nearest_idx == len(points) - 1 and nearest_dist <= PROMPT_THRESHOLD_M
+    at_destination = len(points) > 1 and haversine(rider, points[-1]) <= PROMPT_THRESHOLD_M
     should_prompt = (nearest_idx > 0 and not at_destination
                      and (dist_first - nearest_dist) > PROMPT_THRESHOLD_M)
     return StartDecision(nearest_idx, dist_first, nearest_dist, should_prompt)
