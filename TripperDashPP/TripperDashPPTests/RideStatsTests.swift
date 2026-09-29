@@ -62,6 +62,19 @@ struct RideStatsTests {
         s = s.folding(fix(0, 0.00, speed: 20, t: 0))
         s = s.folding(fix(0, 0.01, speed: 0.5, t: 60))
         #expect(abs(s.distanceMeters - 1113.2) < 5)
+        #expect(s.movingSeconds == 10)     // capped gap, like before
+    }
+
+    @Test func wanderAfterRejectedFixesAddsNothing() {
+        // Under a roof, 60–80 m fixes (rejected by the 50 m gate) stretch
+        // the step to 15 s; the next accepted one wandered ~20 m, Doppler 0.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00000, speed: 0, acc: 40, t: 0))
+        s = s.folding(fix(0, 0.00009, speed: 0, acc: 70, t: 5))   // rejected
+        s = s.folding(fix(0, 0.00018, speed: 0, acc: 45, t: 15))  // ~20 m
+        #expect(s.acceptedFixCount == 2)
+        #expect(s.distanceMeters == 0)
+        #expect(s.movingSeconds == 0)
     }
 
     @Test func unknownSpeedStillCountsDistance() {
