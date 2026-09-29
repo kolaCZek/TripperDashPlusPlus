@@ -387,7 +387,7 @@ struct MapPickerView: View {
         // rider is building now; it waits until that plan is gone.
         if !isPlanning, let share = status.pendingShare {
             status.pendingShare = nil
-            Task { await status.beginPlanningFromShared(share) }
+            Task { await status.beginPlanningFromShared(share, replay: true) }
         } else if let hint = status.pendingSearchHint, !hint.isEmpty {
             sharedSearchSeed = hint
             showSearch = true
@@ -1476,6 +1476,9 @@ struct MapPickerView: View {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
+            // The rider chose this plan over a share parked during an
+            // earlier ride — don't replay a stale destination after it.
+            status.pendingShare = nil
             installRouteChangedHook()
             // Resolve Light/Dark/Auto for the current position+time before
             // the first bake, so the ride opens in the right palette.

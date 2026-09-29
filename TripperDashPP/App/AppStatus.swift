@@ -1257,8 +1257,10 @@ final class AppStatus {
     /// fall back to `pendingSearchHint` so the rider can finish by hand.
     /// Returns whether anything actionable was staged.
     @discardableResult
-    func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
-        if resolution != .empty, rideActive {
+    func beginPlanningFromShared(_ resolution: ShareResolution, replay: Bool = false) async -> Bool {
+        // Nothing actionable: leave a parked share alone.
+        guard resolution != .empty else { return false }
+        if rideActive {
             parkShare(resolution)
             return true
         }
@@ -1276,7 +1278,7 @@ final class AppStatus {
                 stagePlan(to: [Waypoint(name: dest.name,
                                         addressLine: dest.addressLine,
                                         coordinate: dest.coordinate,
-                                        isCurrentLocation: false)])
+                                        isCurrentLocation: false)], replay: replay)
                 return true
             }
             pendingSearchHint = hint
@@ -1327,7 +1329,7 @@ final class AppStatus {
                Self.isSameSpot(stops[0].coordinate, fix) {
                 stops.removeFirst()
             }
-            stagePlan(to: stops)
+            stagePlan(to: stops, replay: replay)
             return true
         }
     }
@@ -1351,10 +1353,17 @@ final class AppStatus {
     /// Stage a `PlannedRoute` from the live location through the given stops
     /// and kick off leg routing. Shared by the coordinate and geocoded-name
     /// paths so both behave identically.
-    private func stagePlan(to stops: [Waypoint]) {
+    private func stagePlan(to stops: [Waypoint], replay: Bool = false) {
+        let shared = ShareResolution.waypoints(stops.map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) })
         // A ride may have started while the shared name was geocoding.
         guard !rideActive else {
-            parkShare(.waypoints(stops.map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) }))
+            parkShare(shared)
+            return
+        }
+        // A replayed share must not replace a plan the rider started while
+        // it was geocoding; it waits again (already announced when parked).
+        guard !(replay && plannedRoute != nil) else {
+            pendingShare = shared
             return
         }
         let originCoord = locationService.lastFix?.coordinate

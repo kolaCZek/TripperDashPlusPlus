@@ -40,7 +40,7 @@ class SearchHintWaitsForGate(unittest.TestCase):
         self.assertIn("guard shareGateOpen else { return }", consume)
         self.assertLess(consume.index("guard shareGateOpen"),
                         consume.index("status.pendingSearchHint = nil"))
-        self.assertIn("status.beginPlanningFromShared(share)", consume)
+        self.assertIn("status.beginPlanningFromShared(share", consume)
         # The hint onChange must not present Search / clear the hint itself.
         self.assertIn(".onChange(of: status.pendingSearchHint) { _, _ in consumePendingShare() }",
                       self.src)
@@ -70,6 +70,27 @@ class ShareParkedDuringRide(unittest.TestCase):
         body = decl_body(self.src, "func beginPlanningFromShared")
         self.assertLess(body.index("rideActive"), body.index("switch resolution"))
         self.assertIn("parkShare(resolution)", body)
+
+    def test_empty_share_leaves_a_parked_one_alone(self):
+        # An unreadable share has nothing to replace a parked one with.
+        body = decl_body(self.src, "func beginPlanningFromShared")
+        self.assertLess(body.index("guard resolution != .empty else { return false }"),
+                        body.index("pendingShare = nil"))
+
+    def test_replay_does_not_replace_a_plan_started_during_its_geocode(self):
+        body = decl_body(self.src, "func beginPlanningFromShared")
+        self.assertEqual(body.count("replay: replay"), 2)   # both stagePlan calls
+        stage = decl_body(self.src, "private func stagePlan")
+        guard = stage.index("guard !(replay && plannedRoute != nil)")
+        self.assertLess(guard, stage.index("plannedRoute = plan"))
+        self.assertIn("pendingShare = shared", stage[guard:stage.index("plannedRoute = plan")])
+        picker = strip_comments(PICKER.read_text(encoding="utf-8"))
+        self.assertIn("status.beginPlanningFromShared(share, replay: true)", picker)
+
+    def test_starting_a_ride_from_another_plan_drops_a_parked_share(self):
+        picker = strip_comments(PICKER.read_text(encoding="utf-8"))
+        start = decl_body(picker, "private func startNavigation(plan: PlannedRoute)")
+        self.assertIn("status.pendingShare = nil", start)
 
     def test_newer_share_supersedes_a_parked_one(self):
         # Latest wins: once not parking, the handled share clears the slot
