@@ -1426,6 +1426,7 @@ final class AppStatus {
         activeNavigator.trafficRerouteEnabled = dashNavSettings.trafficRerouteEnabled
         activeNavigator.trafficRerouteSavingSeconds = dashNavSettings.trafficRerouteSavingSeconds
         observeTrafficRerouteSettings()
+        observeStreamingIntent()
 
         // Final-destination arrival: keep the stream UP so the dash never
         // blinks out of projection. We DON'T tear the stream down or drop the
@@ -1453,6 +1454,23 @@ final class AppStatus {
     /// the enable flag and the saving threshold are mirrored, so flipping
     /// the toggle or nudging the minutes stepper mid-ride takes effect on
     /// the next periodic check without restarting navigation.
+    /// Re-evaluate the wakelock whenever the ride intent flips — navigation
+    /// stop, arrival, dash exit button. During `.reconnecting` `isStreaming`
+    /// is already false, so a stop path that only calls `stopStreaming()`
+    /// `if isStreaming` would otherwise leave the location wakelock held
+    /// until the next link-state change (up to the 30 min reconnect budget).
+    private func observeStreamingIntent() {
+        withObservationTracking {
+            _ = hasStreamingIntent
+        } onChange: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.applyKeepAwake()
+                self.observeStreamingIntent()
+            }
+        }
+    }
+
     private func observeTrafficRerouteSettings() {
         withObservationTracking {
             _ = dashNavSettings.trafficRerouteEnabled
