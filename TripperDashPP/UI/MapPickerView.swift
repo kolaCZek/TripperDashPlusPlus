@@ -113,6 +113,7 @@ struct MapPickerView: View {
     @State private var planSave: PlanSaveDraft?
     @State private var showPlanSaveAlert = false
     @State private var planSaveName = ""
+    @State private var showDiscardPlanDialog = false
 
     private struct PlanSaveDraft {
         let plan: PlannedRoute
@@ -127,11 +128,17 @@ struct MapPickerView: View {
     private var anotherModalUp: Bool {
         showSettings || showSavedRoutes || showRideHistory || prerenderActive
             || showSearch || showFavoriteEditor || showRoutePreferences
-            || showLongPressDialog || showBikePicker
+            || showLongPressDialog || showBikePicker || showDiscardPlanDialog
     }
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
         plan.waypoints.map { "\($0.id)|\($0.name)" }
+    }
+
+    /// Planner Cancel asks first only for a multi-stop plan that isn't
+    /// saved as-is; an A→B plan is one search away.
+    static func planHasUnsavedWork(stops: [String], saved: [String]?) -> Bool {
+        stops.count > 2 && stops != saved
     }
 
     private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
@@ -678,9 +685,20 @@ struct MapPickerView: View {
                 largePlanSummary(plan: plan)
             }
         }
+        .confirmationDialog("Discard this plan?", isPresented: $showDiscardPlanDialog,
+                            titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { status.cancelPlanning() }
+            Button("Keep editing", role: .cancel) {}
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { status.cancelPlanning() }
+                Button("Cancel") {
+                    if Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops) {
+                        showDiscardPlanDialog = true
+                    } else {
+                        status.cancelPlanning()
+                    }
+                }
             }
             if !plan.isFromLibrary {
                 let saved = savedPlanStops == Self.stopsSnapshot(plan)
@@ -885,21 +903,15 @@ struct MapPickerView: View {
                 .padding()
                 .background(Color.gray.opacity(0.15))
 
+        // Hold-to-stop: a gloved or mount-bumped tap must not end the ride
+        // (no undo — re-plan, new MKDirections, new prerender).
         case (.navigating, _):
-            Button(role: .destructive) { stopNavigation() } label: {
-                Label("Stop navigation", systemImage: "stop.circle.fill")
-                    .frame(maxWidth: .infinity).padding()
-                    .background(Color.red.opacity(0.15))
-            }
-            .buttonStyle(.plain)
+            HoldToConfirmButton(title: "Hold to stop navigation",
+                                systemImage: "stop.circle.fill") { stopNavigation() }
 
         case (.freeRiding, _):
-            Button(role: .destructive) { status.stopFreeRide() } label: {
-                Label("Stop free ride", systemImage: "stop.circle.fill")
-                    .frame(maxWidth: .infinity).padding()
-                    .background(Color.red.opacity(0.15))
-            }
-            .buttonStyle(.plain)
+            HoldToConfirmButton(title: "Hold to stop free ride",
+                                systemImage: "stop.circle.fill") { status.stopFreeRide() }
 
         // Connection-in-progress takes precedence over the planning UI:
         // a rider who tapped "Connect to dash" from the plan screen must
@@ -1577,6 +1589,48 @@ struct MapPickerView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Hold to confirm
+
+/// Bottom-bar destructive control that fires only after a continuous
+/// press of `holdDuration`; a fill sweeps leading→trailing while held and
+/// drops back on early release. VoiceOver double-tap acts directly.
+private struct HoldToConfirmButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    static let holdDuration: Double = 2
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .frame(maxWidth: .infinity).padding()
+            .background {
+                ZStack {
+                    Color.red.opacity(0.15)
+                    Color.red.opacity(0.45)
+                        .scaleEffect(x: progress, y: 1, anchor: .leading)
+                }
+            }
+            .contentShape(Rectangle())
+            // perform fires once per press, so holding past 2 s can't
+            // re-trigger. Generous maximumDistance: a gloved finger drifts.
+            .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
+                action()
+            } onPressingChanged: { pressing in
+                let anim: Animation? = pressing ? .linear(duration: Self.holdDuration)
+                    : (reduceMotion ? nil : .easeOut(duration: 0.15))
+                withAnimation(anim) { progress = pressing ? 1 : 0 }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
     }
 }
 
