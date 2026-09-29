@@ -110,9 +110,6 @@ nonisolated enum K1G {
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
     static let handshakeStepTimeout: TimeInterval = 5.0
 
-    /// Currently unused — no code reads this constant.
-    static let handshakeOverallTimeout: TimeInterval = 10.0
-
     /// Delay between auto-reconnect attempts after an established link
     /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
     static let reconnectInterval: TimeInterval = 5.0

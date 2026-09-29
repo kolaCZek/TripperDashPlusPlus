@@ -61,3 +61,47 @@ def test_unused_tile_cache_symbols_are_gone():
     tile = decl_body(src, "nonisolated struct RouteTile: Sendable {")
     assert not re.search(r"\blet region\b", tile)
     assert "MKCoordinateRegion" not in src
+
+
+# --- Connection-block cleanup (bike-link audit) ------------------------------
+#
+# Unused symbols in `Tripper/` and `Stream/` were deleted, the per-packet
+# initial-burst TX hex moved to `.debug` so it stays out of Release logs, and
+# `deviceHostname()` lost a redundant `MainActor.run` hop (BikeLink is already
+# `@MainActor`).
+
+
+def test_unused_link_symbols_are_gone():
+    assert not re.search(r"\bhandshakeOverallTimeout\b", _src("Tripper/K1GConstants.swift"))
+    assert not re.search(r"\bextractPubkey\b", _src("Tripper/RsaHandshake.swift"))
+    assert not re.search(r"\bconnectionStateLabel\b", _src("Stream/RtpStreamer.swift"))
+
+
+def test_dash_socket_start_has_no_timeout_parameter():
+    sock = _src("Tripper/DashSocket.swift")
+    assert "func start() async throws {" in sock
+    link = _src("Tripper/BikeLink.swift")
+    assert "s.start(timeout:" not in link
+    assert "try await s.start()" in link
+
+
+def test_initial_burst_tx_hex_is_debug_level():
+    handshake = decl_body(_src("Tripper/BikeLink.swift"), "private func runHandshake(")
+    tx = [ln for ln in handshake.splitlines() if "TX burst #" in ln]
+    assert len(tx) == 1, tx
+    assert "log.debug(" in tx[0]
+
+
+def test_device_hostname_is_plain_main_actor_static():
+    link = _src("Tripper/BikeLink.swift")
+    body = decl_body(link, "private static func deviceHostname(")
+    assert body.startswith("private static func deviceHostname() -> String {")
+    assert "MainActor.run" not in body
+    assert "let hostname = Self.deviceHostname()" in link
+
+
+def test_empty_reconnect_branch_block_is_gone():
+    # The observer's final `else` held an `if` whose body was only a comment;
+    # the comment now sits directly above applyKeepAwake().
+    src = _src("App/AppStatus.swift")
+    assert not re.search(r"if state == \.connected && !self\.isStreaming \{\s*\}", src)

@@ -142,15 +142,6 @@ enum RsaHandshake {
         return ct as Data
     }
 
-    /// Pull modulus and exponent out of a decoded handshake reply.
-    static func extractPubkey(from segments: [K1GSegment]) throws -> (modulus: Data, exponent: Data) {
-        let modulus = segments.first { $0.type == K1G.SegType.auth.rawValue && $0.sub == K1G.AuthSub.modulus.rawValue }?.payload
-        let exponent = segments.first { $0.type == K1G.SegType.auth.rawValue && $0.sub == K1G.AuthSub.exponent.rawValue }?.payload
-        guard let modulus else { throw HandshakeError.missingSegment("07 00 (modulus)") }
-        guard let exponent else { throw HandshakeError.missingSegment("07 03 (exponent)") }
-        return (modulus, exponent)
-    }
-
     /// Detect the auth-OK reply (07 01 01).
     static func isAuthOK(_ segments: [K1GSegment]) -> Bool {
         return segments.contains {

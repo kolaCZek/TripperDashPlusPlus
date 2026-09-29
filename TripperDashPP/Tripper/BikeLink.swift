@@ -818,7 +818,7 @@ final class BikeLink {
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
-            try await s.start(timeout: 5.0)
+            try await s.start()
             try Task.checkCancellation()
             self.socket = s
             log.info("[\(ms(), privacy: .public)ms] DashSocket ready, entering handshake")
@@ -1051,8 +1051,8 @@ final class BikeLink {
     /// True when the Wi-Fi interface (en0) currently has an IPv4 address in the
     /// dash's `192.168.1.0/24` subnet — the positive signal that DHCP finished
     /// and the interface is routable to the bike. Uses `getifaddrs`; no
-    /// permissions needed (unlike SSID reads). `nonisolated` so the poll loop
-    /// doesn't thrash the actor.
+    /// permissions needed (unlike SSID reads). `nonisolated` because it reads
+    /// no actor state, so it can be called from any isolation.
     nonisolated static func wifiHasDashSubnetIPv4() -> Bool {
         var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return false }
@@ -1125,7 +1125,7 @@ final class BikeLink {
         //    discovery handshake; if any are missing it never transitions
         //    out of "Connected to <phone>" pairing and the RSA handshake
         //    never completes. See InitialBurst doc + better-dash.
-        let hostname = await Self.deviceHostname()
+        let hostname = Self.deviceHostname()
         let burst = InitialBurst.packets(
             hostname: hostname,
             fixedTempC: 20,
@@ -1135,7 +1135,7 @@ final class BikeLink {
         for (i, pkt) in burst.enumerated() {
             try Task.checkCancellation()
             try await socket.send(pkt)
-            log.info("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
+            log.debug("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
             // 60 ms gap matches better-dash's default --burst-pause.
             // Skip the gap after the last packet so the handshake can start
             // listening immediately.
@@ -1243,14 +1243,12 @@ final class BikeLink {
     /// Build the hostname the dash will show on its pairing screen.
     /// Mirrors the Android app: prefers the device's user-set name,
     /// falls back to "TripperDashPP" if iOS denies access.
-    private static func deviceHostname() async -> String {
-        await MainActor.run {
-            #if canImport(UIKit)
-            let name = UIDevice.current.name
-            if !name.isEmpty { return name }
-            #endif
-            return "TripperDashPP"
-        }
+    private static func deviceHostname() -> String {
+        #if canImport(UIKit)
+        let name = UIDevice.current.name
+        if !name.isEmpty { return name }
+        #endif
+        return "TripperDashPP"
     }
 
     private func startInboundLoop(socket: DashSocket) {
