@@ -48,10 +48,20 @@ struct RideStatsTests {
         s = s.folding(fix(0, 0.00005, speed: 0.3, acc: 30, t: 2))  // ~5.6 m
         s = s.folding(fix(0, 0.00018, speed: 0,   acc: 30, t: 3))  // ~14 m
         #expect(s.distanceMeters == 0)
+        #expect(s.movingSeconds == 0)      // implied 5–14 m/s, Doppler ~0
         #expect(s.trackPoints.count == 4)
         // Riding off again counts, from the last wandered point.
         s = s.folding(fix(0, 0.00118, speed: 10, t: 13))           // ~111 m
         #expect(abs(s.distanceMeters - 111.32) < 1.5)
+    }
+
+    @Test func slowFixAfterASignalGapKeepsTheGapDistance() {
+        // Tunnel: 60 s without fixes, the first one back reads 0.5 m/s.
+        // The ~1.1 km chord across the gap is real distance.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00, speed: 20, t: 0))
+        s = s.folding(fix(0, 0.01, speed: 0.5, t: 60))
+        #expect(abs(s.distanceMeters - 1113.2) < 5)
     }
 
     @Test func unknownSpeedStillCountsDistance() {
