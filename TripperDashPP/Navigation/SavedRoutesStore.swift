@@ -105,9 +105,12 @@ final class SavedRoutesStore {
     func save(_ route: SavedRoute, named name: String, replacing id: UUID?) -> SavedRoute {
         var route = route
         let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The unedited automatic name stays whole: capped, it would no
-        // longer match `automaticName` and stick to changed stops as "custom".
-        if !typed.isEmpty, typed != route.name { route.name = Self.cleanName(typed) }
+        // The unedited automatic name stays whole: capped (or trimmed, if a
+        // stop label has a stray blank), it would no longer match
+        // `automaticName` and stick to changed stops as "custom".
+        if !typed.isEmpty, typed != route.name.trimmingCharacters(in: .whitespacesAndNewlines) {
+            route.name = Self.cleanName(typed)
+        }
         if let id, let updated = replace(id: id, with: route) { return updated }
         return add(route)
     }

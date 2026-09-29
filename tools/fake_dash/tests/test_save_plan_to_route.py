@@ -221,12 +221,18 @@ def test_swift_save_current_plan_skips_library_plans_and_overwrites_on_resave():
     assert "plan.savedRouteId = saved.id" in commit
     store = strip_comments(decl_body(STORE.read_text(), "func save(_ route: SavedRoute, named"))
     # An unedited long automatic name is not capped (it would turn "custom").
-    assert "if !typed.isEmpty, typed != route.name { route.name = Self.cleanName(typed) }" in store
+    assert "if !typed.isEmpty, typed != route.name.trimmingCharacters(in: .whitespacesAndNewlines) {" in store
+    assert "route.name = Self.cleanName(typed)" in store
     clean = strip_comments(decl_body(STORE.read_text(), "static func cleanName"))
     assert ".prefix(maxNameLength)" in clean
     assert clean.rstrip().rstrip("}").rstrip().endswith(".trimmingCharacters(in: .whitespacesAndNewlines)")
     rename = strip_comments(decl_body(STORE.read_text(), "func rename(id: UUID"))
     assert "Self.cleanName(newName)" in rename, "library renames are capped too"
+    detail = strip_comments(decl_body(
+        (REPO / "TripperDashPP" / "UI" / "Navigation" / "SavedRouteDetailView.swift").read_text(),
+        "private func commitName"))
+    assert detail.index("store.rename(") < detail.index("draftName = SavedRoutesStore.cleanName(trimmed)"), \
+        "the field must show the capped name that was stored"
     assert store.index("replace(id: id, with: route)") < store.index("add(route)")
 
 

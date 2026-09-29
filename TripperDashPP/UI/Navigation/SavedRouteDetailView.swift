@@ -287,6 +287,8 @@ struct SavedRouteDetailView: View {
         let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let route, !trimmed.isEmpty, trimmed != route.name else { return }
         store.rename(id: routeId, to: trimmed)
+        // Show what was stored (the store caps the length).
+        draftName = SavedRoutesStore.cleanName(trimmed)
         nameCommitted = true
     }
 

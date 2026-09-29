@@ -122,6 +122,18 @@ struct SavedRouteFromPlanTests {
         #expect(saved.customName == nil)
     }
 
+    @Test func automaticNameWithAStrayBlankStaysAutomatic() throws {
+        let store = SavedRoutesStore(defaults: UserDefaults(suiteName: "test.routes.\(UUID().uuidString)")!)
+        // A stop label with a trailing blank (MKMapItem / shared link): the
+        // prompt's text is trimmed, but it's still the automatic name.
+        let route = try #require(SavedRoute.fromPlan(
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín ", 50.4330, 14.5780)],
+            roadDistanceMeters: nil))
+        let saved = store.save(route, named: route.name, replacing: nil)
+        #expect(saved.name == route.name)
+        #expect(saved.customName == nil)
+    }
+
     @Test func onlyACustomNameIsSuggestedOnResave() throws {
         var saved = try #require(SavedRoute.fromPlan(
             [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],

@@ -399,7 +399,9 @@ struct MapPickerView: View {
         guard pendingAutoStart else { return }
         guard status.bikeLink.state == .connected else { return }
         // Not under the Save route prompt: the prerender cover can't be
-        // presented over it, and the ride shouldn't start mid-typing.
+        // presented over it, and the ride shouldn't start mid-typing. If
+        // SwiftUI dropped that alert (flag stuck true), this holds auto-start
+        // until the next bookmark tap resets it; "Start navigation" still works.
         guard !showPlanSaveAlert else { return }
         guard mode == .picking,
               let plan = status.plannedRoute,
@@ -696,9 +698,10 @@ struct MapPickerView: View {
                                     // screen opened during the geocode: no
                                     // prompt, save under the suggested name
                                     // (rename in the library). A flag still
-                                    // `true` here means an earlier alert was
-                                    // dropped mid-transition — reset it so the
-                                    // next save can prompt again.
+                                    // `true` here can only mean an earlier
+                                    // alert was dropped mid-transition (a live
+                                    // one is modal) — reset it so the next
+                                    // save can prompt again.
                                     status.commitPlanSave(draft.route, named: draft.suggestedName, for: draft.plan)
                                     savedPlanStops = stops
                                     showPlanSaveAlert = false
