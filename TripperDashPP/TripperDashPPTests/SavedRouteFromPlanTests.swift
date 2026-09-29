@@ -204,3 +204,63 @@ struct SavedRouteFromPlanTests {
         #expect(d.shouldPrompt == true)
     }
 }
+
+/// feat/edit-route-mid-ride — the pure half of the "Edit route" sheet: which
+/// stops are still ahead, and the replacement plan's waypoints.
+@MainActor
+struct EditRouteMidRideTests {
+
+    private func stop(_ name: String, _ lat: Double, _ lon: Double) -> Waypoint {
+        Waypoint(name: name, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    }
+    private let here = CLLocationCoordinate2D(latitude: 50.30, longitude: 14.40)
+
+    @Test func remainingStopsStartAtTheCurrentLegsDestination() {
+        let home = Waypoint.currentLocation(CLLocationCoordinate2D(latitude: 50.2385, longitude: 14.2011))
+        let a = stop("Mělník", 50.3505, 14.4741)
+        let b = stop("Kokořín", 50.4330, 14.5780)
+        let c = stop("Doksy", 50.5647, 14.6550)
+        let plan = PlannedRoute(waypoints: [home, a, b, c])
+        #expect(PlannedRoute.remainingStops(of: plan, fromLegIndex: 0) == [a, b, c])
+        #expect(PlannedRoute.remainingStops(of: plan, fromLegIndex: 1) == [b, c])
+        #expect(PlannedRoute.remainingStops(of: plan, fromLegIndex: 2) == [c])
+        #expect(PlannedRoute.remainingStops(of: plan, fromLegIndex: 3).isEmpty)
+        // Single-destination nav: the destination alone.
+        #expect(PlannedRoute.remainingStops(of: PlannedRoute(waypoints: [home, c]), fromLegIndex: 0) == [c])
+    }
+
+    @Test func replacementIsTheLiveOriginThenTheEditedStops() throws {
+        let a = stop("Mělník", 50.3505, 14.4741)
+        let b = stop("Kokořín", 50.4330, 14.5780)
+        let wps = try #require(PlannedRoute.replacementWaypoints(currentLocation: here, stops: [b, a]))
+        #expect(wps.count == 3)
+        #expect(wps[0].isCurrentLocation)
+        #expect(wps[0].coordinate.latitude == here.latitude && wps[0].coordinate.longitude == here.longitude)
+        #expect(Array(wps.dropFirst()) == [b, a])   // reorder kept, ids kept
+        // One leg per gap, from here.
+        #expect(PlannedRoute(waypoints: wps).legs.count == 2)
+    }
+
+    @Test func draftOriginIsReplacedAndNoStopGivesNothing() throws {
+        let old = Waypoint.currentLocation(CLLocationCoordinate2D(latitude: 50.0, longitude: 14.0))
+        let a = stop("Mělník", 50.3505, 14.4741)
+        // The draft's own origin row is passed in as-is: replaced by `here`.
+        let wps = try #require(PlannedRoute.replacementWaypoints(currentLocation: here, stops: [old, a]))
+        #expect(wps.count == 2 && wps[0].id != old.id && wps[1] == a)
+        #expect(wps.filter(\.isCurrentLocation).count == 1)
+        #expect(PlannedRoute.replacementWaypoints(currentLocation: here, stops: []) == nil)
+        #expect(PlannedRoute.replacementWaypoints(currentLocation: here, stops: [old]) == nil)
+    }
+
+    @Test func editorIsNotOfferedForTracksOrDensePlans() {
+        let home = Waypoint.currentLocation(here)
+        let small = PlannedRoute(waypoints: [home, stop("A", 50.35, 14.47), stop("B", 50.43, 14.57)])
+        #expect(small.isEditableMidRide)
+        small.isTrack = true
+        #expect(!small.isEditableMidRide)
+        let dense = PlannedRoute(waypoints: [home] + (0..<RoutePoint.editableListThreshold).map {
+            stop("P\($0)", 50 + Double($0) * 0.01, 14)
+        })
+        #expect(!dense.isEditableMidRide)
+    }
+}

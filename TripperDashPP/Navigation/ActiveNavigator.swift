@@ -628,10 +628,16 @@ final class ActiveNavigator {
         }
         seed(route: route, destination: destWp.asDestination)
         self.isNavigating = true
-        // Progress gauge baseline: sum EVERY leg's selected distance
-        // (from `fromLegIndex` to the end) so the bar measures against the
-        // whole remaining trip.
-        let plannedLegs = Array(plan.legs[self.currentLegIndex...])
+        setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex)
+        log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
+        await onActiveRouteChanged?(route)
+    }
+
+    /// Progress gauge baseline: sum EVERY leg's selected distance (from
+    /// `fromLegIndex` to the end) so the bar measures against the whole
+    /// remaining trip. Shared by `start(plan:)` and `replacePlan(_:)`.
+    private func setProgressBaseline(plan: PlannedRoute, fromLegIndex: Int) {
+        let plannedLegs = Array(plan.legs[fromLegIndex...])
         let legDistances = plannedLegs.map { $0.selected?.distanceMeters ?? 0 }
         let total = legDistances.reduce(0.0, +)
         self.plannedTotalDistance = total
@@ -655,8 +661,6 @@ final class ActiveNavigator {
         } else {
             self.plannedWaypointFractions = []
         }
-        log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
-        await onActiveRouteChanged?(route)
     }
 
     /// Seed all per-leg display + geometry state from a single route.
@@ -1304,6 +1308,49 @@ final class ActiveNavigator {
         return true
     }
 
+    // MARK: - Mid-ride route edit (phone "Edit route" sheet)
+
+    /// Swap the running navigation onto `newPlan` — the rider's edited
+    /// stops, with the live position as waypoint 0 — WITHOUT ending the
+    /// ride. Unlike `start(plan:)`, the ride-level state stays: the
+    /// breadcrumb, `hasBeenUnderway`, `rideStartCoordinate` and
+    /// `isNavigating`, so the stream, ride stats and the dash projection
+    /// carry on. Re-seeds from leg 0 and fires `onActiveRouteChanged` like
+    /// `advanceToNextLeg`, so polyline, tiles, full-route line, cameras and
+    /// limits follow as after a reroute; the ETA pump, alternatives and
+    /// overview restart in `seed`.
+    ///
+    /// Returns `false` (nothing changed) when not navigating, already
+    /// arrived, mid-reroute (its late result would be installed onto the
+    /// new plan's leg 0 with the OLD destination), or `newPlan` has no
+    /// route for leg 0.
+    @discardableResult
+    func replacePlan(_ newPlan: PlannedRoute) async -> Bool {
+        guard isNavigating, plan != nil, !hasArrived, !isRerouting,
+              newPlan.isComputed,
+              let leg = newPlan.legs.first,
+              let route = leg.selected?.route,
+              let destWp = newPlan.waypoint(id: leg.toWaypointId) else {
+            log.info("replacePlan: not applicable — ignored")
+            return false
+        }
+        log.info("replacePlan: \(newPlan.legs.count) leg(s), now to \(destWp.name, privacy: .public)")
+        self.plan = newPlan
+        self.currentLegIndex = 0
+        self.remainingWaypoints = newPlan.legs.count
+        // The final destination may have changed: re-arm its capture zone
+        // from scratch so a closest approach to the OLD one can't count.
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
+        self.stationaryInRadiusSince = nil
+        // Ends an average-speed section like any other recalculation.
+        routeRecalculations += 1
+        setProgressBaseline(plan: newPlan, fromLegIndex: 0)
+        seed(route: route, destination: destWp.asDestination)
+        await onActiveRouteChanged?(route)
+        return true
+    }
+
     // MARK: - ETA refresh (F6 — periodic Apple re-fetch)
 
     /// (Re)start the periodic MKDirections re-fetch pump for the
@@ -1365,12 +1412,15 @@ final class ActiveNavigator {
             // may itself be the faster alternative.
             let remainingEta = etaSeconds
             let candidates = await traffic(coord, dest)
+            // `seed` (leg advance, replacePlan) cancelled this pump while
+            // Apple answered: these routes lead to the OLD destination.
+            guard !Task.isCancelled else { return }
             if let best = candidates.first {
                 self.legArrivalDate = Date(timeIntervalSinceNow: best.expectedTravelTime)
             }
             await checkLiveTrafficReroute(candidates: candidates, remainingEta: remainingEta)
         } else if let cb = onRerouteRequested,
-                  let route = await cb(coord, dest) {
+                  let route = await cb(coord, dest), !Task.isCancelled {
             self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
         }
     }

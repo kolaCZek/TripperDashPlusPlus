@@ -35,6 +35,7 @@
 		A4F000000000000000000F21 /* RouteLegPolyline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F20 /* RouteLegPolyline.swift */; };
 		A4F000000000000000000F31 /* PlanningMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F30 /* PlanningMapView.swift */; };
 		A4F000000000000000000F41 /* WaypointListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F40 /* WaypointListView.swift */; };
+		ED17000000000000000000A1 /* EditRouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17000000000000000000A0 /* EditRouteSheet.swift */; };
 		A4F000000000000000000F51 /* RoutePreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F50 /* RoutePreferencesView.swift */; };
 		A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000D0 /* QuickAccessTiles.swift */; };
 		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
@@ -161,6 +162,7 @@
 		A4F000000000000000000F20 /* RouteLegPolyline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteLegPolyline.swift; sourceTree = "<group>"; };
 		A4F000000000000000000F30 /* PlanningMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningMapView.swift; sourceTree = "<group>"; };
 		A4F000000000000000000F40 /* WaypointListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaypointListView.swift; sourceTree = "<group>"; };
+		ED17000000000000000000A0 /* EditRouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditRouteSheet.swift; sourceTree = "<group>"; };
 		A4F000000000000000000F50 /* RoutePreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePreferencesView.swift; sourceTree = "<group>"; };
 		A4F0000000000000000000D0 /* QuickAccessTiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessTiles.swift; sourceTree = "<group>"; };
 		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
@@ -502,6 +504,7 @@
 				A4F000000000000000000F20 /* RouteLegPolyline.swift */,
 				A4F000000000000000000F30 /* PlanningMapView.swift */,
 				A4F000000000000000000F40 /* WaypointListView.swift */,
+				ED17000000000000000000A0 /* EditRouteSheet.swift */,
 				A4F000000000000000000F50 /* RoutePreferencesView.swift */,
 				FE70000000000000000000D0 /* SavedRoutesListView.swift */,
 				FE70000000000000000000E0 /* SavedRouteDetailView.swift */,
@@ -777,6 +780,7 @@
 				A4F000000000000000000F21 /* RouteLegPolyline.swift in Sources */,
 				A4F000000000000000000F31 /* PlanningMapView.swift in Sources */,
 				A4F000000000000000000F41 /* WaypointListView.swift in Sources */,
+				ED17000000000000000000A1 /* EditRouteSheet.swift in Sources */,
 				A4F000000000000000000F51 /* RoutePreferencesView.swift in Sources */,
 				A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */,
 				A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */,
