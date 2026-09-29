@@ -16,8 +16,9 @@
 //  polyline + start/end pins on top in plain Core Graphics, and park the
 //  snapshotter in SnapshotterPark so its command buffer drains safely.
 //
-//  Unlike the old 1 Hz MapPreviewView this is a ONE-SHOT snapshot (routes don't move),
-//  re-taken only when the point set or the pixel size changes.
+//  Unlike the old 1 Hz MapPreviewView this is a ONE-SHOT snapshot
+//  (routes don't move), re-taken only when the point set or the pixel
+//  size changes.
 //
 
 import CoreLocation

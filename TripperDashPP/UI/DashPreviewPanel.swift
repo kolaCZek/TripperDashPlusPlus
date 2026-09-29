@@ -148,8 +148,8 @@ struct DashPreviewPanel: View {
     }
 
     /// Distance-to-next maneuver, via the Live Activity formatter (fine
-    /// metres/feet under 1 km, shared km/mi above) so the preview, the Lock
-    /// Screen and the dash agree.
+    /// metres/feet under 1 km, shared km/mi above) so the preview and the
+    /// Lock Screen agree.
     private func distanceText(_ bubble: DemoNavBubble) -> String? {
         guard let m = bubble.distanceToNextMeters, m >= 0 else { return nil }
         return LiveActivityController.distanceText(meters: m, imperial: bubble.imperial)

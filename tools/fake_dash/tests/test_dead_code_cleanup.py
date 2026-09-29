@@ -100,6 +100,8 @@ def test_favorite_editor_is_add_only():
     picker = _src("UI/MapPickerView.swift")
     assert "FavoriteEditorSheet(seed: favoriteEditorSeed)" in picker
     assert "FavoriteEditorSheet(existing:" not in picker
+    # Edit mode was its only caller.
+    assert "func updateFavorite" not in _src("Navigation/NavigationStore.swift")
 
 
 def test_planning_map_has_no_tap_waypoint_hook():
