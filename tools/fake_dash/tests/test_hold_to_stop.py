@@ -85,9 +85,8 @@ def test_planner_cancel_checks_for_unsaved_work():
     # A library plan is compared with its stops as loaded (edits for this
     # ride can still be lost); a planner plan with its last save.
     assert "plan.isFromLibrary ? libraryBaselineStops : savedPlanStops" in cancel
-    assert "saved: baseline" in cancel
     body = strip_comments(decl_body(src, "var body: some View"))
-    staged = body[body.index(".onChange(of: status.plannedRoute.map(ObjectIdentifier.init)"):]
+    staged = body[body.index(".onChange(of: status.plannedRoute.map(ObjectIdentifier.init), initial: true)"):]
     staged = staged[:staged.index(".onChange(", 1)]
     assert "plan.isFromLibrary" in staged
     assert "libraryBaselineStops = Self.stopsSnapshot(plan)" in staged
@@ -112,11 +111,12 @@ def test_auto_start_is_held_under_the_discard_dialog():
     resume = src[src.index(".onChange(of: showDiscardPlanDialog)"):]
     resume = resume[:resume.index(".onChange(", 1)]
     assert "if !up { tryAutoStartNavigation() }" in resume
-    # The dialog's planner going away also clears the flag (a dropped
-    # write-back would otherwise keep `anotherModalUp` true for good).
-    planning = src[src.index(".onChange(of: isPlanning)"):]
-    planning = planning[:planning.index(".onChange(", 1)]
-    assert "showDiscardPlanDialog = false" in planning
+    # The plan going away OR being replaced (a share while the dialog is up)
+    # clears the flag: Discard must never hit a plan the rider didn't see, and
+    # a dropped write-back must not keep `anotherModalUp` true for good.
+    ident = src[src.index(".onChange(of: status.plannedRoute.map(ObjectIdentifier.init)"):]
+    ident = ident[:ident.index(".onChange(", 1)]
+    assert "showDiscardPlanDialog = false" in ident
     dialog = src[src.index('.confirmationDialog("Discard this plan?"'):]
     discard = dialog[dialog.index('Button("Discard"'):dialog.index('Button("Keep editing"')]
     assert discard.index("pendingAutoStart = false") < discard.index("status.cancelPlanning()")

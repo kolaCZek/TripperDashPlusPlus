@@ -352,14 +352,13 @@ struct MapPickerView: View {
             // Rider tore down the plan (cleared destination) while waiting
             // to connect → cancel the armed auto-start so a later manual
             // connect doesn't unexpectedly launch into nothing.
-            if !planning {
-                pendingAutoStart = false
-                // The dialog lives in the planner that just went away; a
-                // dropped write-back must not leave `anotherModalUp` stuck.
-                showDiscardPlanDialog = false
-            }
+            if !planning { pendingAutoStart = false }
         }
         .onChange(of: status.plannedRoute.map(ObjectIdentifier.init), initial: true) { _, _ in
+            // "Discard this plan?" asked about the plan that is gone or was
+            // just replaced (e.g. by a share) — never let it discard the new
+            // one, nor a dropped write-back leave `anotherModalUp` stuck.
+            showDiscardPlanDialog = false
             if let plan = status.plannedRoute, plan.isFromLibrary {
                 libraryBaselineStops = Self.stopsSnapshot(plan)
             }
