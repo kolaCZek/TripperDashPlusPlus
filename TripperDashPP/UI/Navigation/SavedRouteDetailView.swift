@@ -114,7 +114,7 @@ struct SavedRouteDetailView: View {
                     }
                 } else {
                     Button {
-                        exportURL = writeGPX(route)
+                        exportURL = Self.writeGPX(route)
                     } label: {
                         Label("Export as GPX", systemImage: "square.and.arrow.up")
                             .frame(maxWidth: .infinity)
@@ -327,7 +327,7 @@ struct SavedRouteDetailView: View {
     /// Serialise the route to a temp `.gpx` file and return its URL for a
     /// ShareLink. Nil on write failure. The filename is the route's
     /// slugified name (e.g. `Alps-day2.gpx`).
-    private func writeGPX(_ route: SavedRoute) -> URL? {
+    static func writeGPX(_ route: SavedRoute) -> URL? {
         guard let xml = GPXExporter.gpx(from: route) else { return nil }
         let base = GPXExporter.fileBaseName(for: route.name)
         let url = FileManager.default.temporaryDirectory

@@ -58,6 +58,9 @@ final class RideStatsService {
     private weak var location: LocationService?
     private var sub: LocationSubscription?
     private let defaults: UserDefaults
+    /// Ride history (last 30 days). Gets every teardown snapshot; nil in
+    /// tests that only exercise the last-ride summary.
+    private let history: RideHistoryStore?
 
     /// True when `stats` was rehydrated from disk on launch and no new ride
     /// has begun yet. The restored ride is a FINISHED ride from a previous
@@ -65,9 +68,11 @@ final class RideStatsService {
     /// new ride doesn't fold onto last time's totals. Cleared by `begin()`.
     private var restoredFromDisk = false
 
-    init(location: LocationService, defaults: UserDefaults = .standard) {
+    init(location: LocationService, defaults: UserDefaults = .standard,
+         history: RideHistoryStore? = nil) {
         self.location = location
         self.defaults = defaults
+        self.history = history
         restoreLastRide()
     }
 
@@ -123,6 +128,12 @@ final class RideStatsService {
     /// Also clears the persisted copy — the session is over, so a relaunch
     /// should NOT resurrect this ride's summary.
     func reset() {
+        // The session-end path (link fully down) runs reset() before
+        // stopStreaming() → end(), so this is the last chance to keep the
+        // ride in history. A summary restored from disk was recorded in its
+        // own session — re-recording it would resurrect a ride the rider
+        // deleted from the history.
+        if !restoredFromDisk { history?.record(stats) }
         sub = nil
         stats = RideStats()
         state = .idle
@@ -161,6 +172,7 @@ final class RideStatsService {
     /// `startedAt`) so a stop before any fix doesn't leave a blank record.
     private func persistLastRide() {
         guard stats.startedAt != nil else { return }
+        history?.record(stats)
         do {
             let data = try JSONEncoder().encode(stats)
             defaults.set(data, forKey: Self.storageKey)
@@ -211,6 +223,12 @@ final class RideStatsService {
     /// where MKDirections needs a sane number of legs. `totalDistanceMeters`
     /// is measured along the full trace.
     func makeSavedRoute(name: String? = nil, now: Date = Date()) -> SavedRoute? {
+        Self.savedRoute(from: stats, name: name, now: now)
+    }
+
+    /// Same as `makeSavedRoute`, for any ride (e.g. one from the history).
+    static func savedRoute(from stats: RideStats, name: String? = nil,
+                           now: Date = Date()) -> SavedRoute? {
         let track = stats.trackPoints
         guard !track.isEmpty else { return nil }
 
