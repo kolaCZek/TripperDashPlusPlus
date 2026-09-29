@@ -156,6 +156,50 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+extension SavedRoute {
+    /// A `.waypoints` route built from ALL the planner's points — "plan it
+    /// at home, save it, just start it at the bike".
+    ///
+    /// The live-GPS origin is kept as an ordinary fixed point at
+    /// `currentLocation` (the latest fix; the waypoint's own snapshot if
+    /// nil), named `currentLocationName` — "Current location" means
+    /// nothing in the library. The rider removes it from the plan if they
+    /// don't want it. At start, `beginPlanningFromSavedRoute` prepends the
+    /// live position again and skips the first point if the rider is
+    /// already there (`RouteStartPlanner.droppingReachedStart`).
+    ///
+    /// Only the points are kept, not the computed `MKRoute`s (not Codable,
+    /// and stale by ride day) — legs are recomputed at start with fresh
+    /// traffic, so a hand-picked grey alternative is not remembered.
+    ///
+    /// `roadDistanceMeters` is the plan's routed total when computed;
+    /// otherwise the straight-line length between the points, like a GPX
+    /// `<wpt>` import. A plan of nothing but the live origin saves nothing.
+    static func fromPlan(_ waypoints: [Waypoint],
+                         roadDistanceMeters: Double?,
+                         currentLocation: CLLocationCoordinate2D? = nil,
+                         currentLocationName: String? = nil,
+                         now: Date = .now) -> SavedRoute? {
+        guard waypoints.contains(where: { !$0.isCurrentLocation }) else { return nil }
+        // An empty name (possible from MKMapItem, or a failed geocode) is
+        // stored as nil, so labels fall back to coordinates / "Stop N".
+        let points = waypoints.map { wp in
+            let name = wp.isCurrentLocation ? (currentLocationName ?? "") : wp.name
+            return RoutePoint(coordinate: wp.isCurrentLocation ? (currentLocation ?? wp.coordinate) : wp.coordinate,
+                              name: name.isEmpty ? nil : name)
+        }
+        return SavedRoute(
+            name: points.count == 1 ? label(for: points[0])
+                : "\(label(for: points.first)) → \(label(for: points.last))",
+            kind: .waypoints,
+            points: points,
+            totalDistanceMeters: roadDistanceMeters
+                ?? GPXGeometry.pathLength(points.map(\.coordinate)),
+            createdAt: now
+        )
+    }
+}
+
 extension RoutePoint {
     /// Hard cap on navigable via-points for a `.track` route. MKDirections
     /// is called once per leg (point→point), so this bounds the network /

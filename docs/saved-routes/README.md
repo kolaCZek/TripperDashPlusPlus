@@ -26,6 +26,32 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
    From there the existing *Connect to dash → Start* path takes over
    unchanged (auto-start, reroute, arrival, dash glyphs all apply).
 
+## Saving a route from the planner
+
+While planning (search → preview, multi-stop, or a shared Maps link),
+the **bookmark** in the top bar saves the plan's points to Saved routes
+as a `.waypoints` route (`SavedRoute.fromPlan`). Plan at home, save,
+and at the bike just open Saved routes → **Start navigation**.
+
+- Every point is stored, your current location included — as a fixed
+  point named after the place (coordinates when offline; rename it in the
+  route detail). Don't want it? Remove it from the plan before saving.
+  Saving again re-reads your position, so the saved start follows you if
+  you re-save somewhere else.
+- On start the live location is the routing origin as always, and the
+  first point is skipped if you're already within 300 m of it — a loop
+  planned at home and started at home just rides the loop.
+- Only the points are stored, not the computed roads: legs are recomputed
+  on start (fresh traffic). A grey alternative you picked is not kept —
+  add a via stop to pin a specific road.
+- Name defaults to `First stop → Last stop` (or the destination for a
+  single stop; coordinates for an unnamed stop); rename it in the route
+  detail.
+- Hidden for a plan launched from Saved routes (it's already there). The
+  icon fills once saved and re-arms when you change the stops or a
+  dropped pin gets its real name; saving again **updates** the same
+  entry instead of adding a copy.
+
 ## Editing a saved route
 
 The detail screen's **Edit** button (`EditButton`) reveals per-point
@@ -93,7 +119,14 @@ The app only **prompts** when the nearest point isn't the first one AND
 starting from first would mean a meaningful (>300 m) detour backwards.
 Otherwise it silently starts from the first point. The live GPS location
 is always prepended as the routing origin so MKDirections has a real
-source for the first leg.
+source for the first leg, and the first point to navigate is dropped
+when you're within 300 m of it (`RouteStartPlanner.droppingReachedStart`)
+so guidance doesn't open with an instant "arrived at stop 1". A round
+trip saved from the planner at home starts and ends at home, so at home
+the saving over the first point is a few metres at most — no prompt. It
+never prompts either when you're already within 300 m of the route's
+destination (a loop saved without its home point, a GPX loop): "from the
+nearest point" would arrive at once, so it rides from the first point.
 
 ## Persistence
 
