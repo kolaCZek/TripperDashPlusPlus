@@ -16,8 +16,8 @@
 //  named by the start time (`ride-<epoch>.json`). Not UserDefaults: a
 //  2-hour ride's 1 Hz track is ~0.7 MB of JSON and a month of rides can
 //  reach tens of MB. Pruning only reads filenames, so app launch never
-//  decodes a track; `load()` decodes on demand when the history sheet
-//  opens.
+//  decodes a track; `load()` decodes off the main actor, once per opening
+//  of the history sheet. Sessions under 100 m aren't kept.
 //
 
 import Foundation
@@ -34,6 +34,10 @@ final class RideHistoryStore {
     private(set) var rides: [RideStats] = []
 
     private let directory: URL
+    /// Files deleted by the rider this session. The live RideStatsService
+    /// still holds the same ride (same `startedAt`), so without this the
+    /// next teardown — bike off, another leg — would write it straight back.
+    private var deleted: Set<String> = []
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RideHistory")
 
     init(directory: URL = URL.applicationSupportDirectory
@@ -60,18 +64,31 @@ final class RideHistoryStore {
         startedAt < now.addingTimeInterval(-Double(retentionDays) * 86_400)
     }
 
+    /// Connect-and-disconnect at home, a desk test, a stale replayed fix:
+    /// not a ride worth a history entry.
+    nonisolated static let minimumDistanceMeters = 100.0
+
+    nonisolated static func isWorthKeeping(_ stats: RideStats) -> Bool {
+        stats.startedAt != nil
+            && stats.trackPoints.count >= 2
+            && stats.distanceMeters >= minimumDistanceMeters
+    }
+
     // MARK: - CRUD
 
     /// Write (or overwrite) the ride keyed by its start time. No-op for a
-    /// ride without a fix.
+    /// ride too short to keep, or one the rider deleted this session.
+    /// `encoded`: the caller's JSON of `stats`, if it already has it.
     // ponytail: synchronous main-actor write (~0.7 MB for a 2 h ride), same
     // cost as the existing last-ride UserDefaults write at teardown; move
     // to a background task if teardown ever stutters.
-    func record(_ stats: RideStats, now: Date = .now) {
-        guard let start = stats.startedAt else { return }
+    func record(_ stats: RideStats, encoded: Data? = nil, now: Date = .now) {
+        guard Self.isWorthKeeping(stats), let start = stats.startedAt else { return }
         let name = Self.fileName(for: start)
+        guard !deleted.contains(name) else { return }
         do {
-            try JSONEncoder().encode(stats).write(to: directory.appending(path: name), options: .atomic)
+            try (encoded ?? JSONEncoder().encode(stats))
+                .write(to: directory.appending(path: name), options: .atomic)
         } catch {
             log.error("Failed to write ride \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return
@@ -82,17 +99,27 @@ final class RideHistoryStore {
         prune(now: now)
     }
 
-    /// Decode every stored ride. Unreadable files are skipped, not fatal.
-    func load(now: Date = .now) {
+    /// Decode every stored ride OFF the main actor (a month can be tens of
+    /// MB of JSON). Unreadable files are skipped, not fatal.
+    // ponytail: a ride recorded while this decode runs shows up on the next
+    // open (its file is on disk); merge by name if that ever matters.
+    func load(now: Date = .now) async {
         prune(now: now)
-        rides = files()
-            .compactMap { try? JSONDecoder().decode(RideStats.self, from: Data(contentsOf: $0)) }
+        let urls = files()
+        rides = await Task.detached(priority: .userInitiated) {
+            RideHistoryStore.decode(urls)
+        }.value
+    }
+
+    nonisolated static func decode(_ urls: [URL]) -> [RideStats] {
+        urls.compactMap { try? JSONDecoder().decode(RideStats.self, from: Data(contentsOf: $0)) }
             .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
     }
 
     func delete(_ ride: RideStats) {
         guard let start = ride.startedAt else { return }
         let name = Self.fileName(for: start)
+        deleted.insert(name)
         try? FileManager.default.removeItem(at: directory.appending(path: name))
         rides.removeAll { $0.startedAt.map { Self.fileName(for: $0) } == name }
     }

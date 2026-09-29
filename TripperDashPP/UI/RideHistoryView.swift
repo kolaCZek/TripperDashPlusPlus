@@ -16,13 +16,18 @@ struct RideHistoryView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var history: RideHistoryStore { status.rideHistory }
+    /// Once per presentation — the root's appear also fires on every pop
+    /// back from a detail view.
+    @State private var loaded = false
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
     private var useCommaDecimal: Bool { status.dashNavSettings.decimalSeparator == .comma }
 
     var body: some View {
         NavigationStack {
             Group {
-                if history.rides.isEmpty {
+                if !loaded {
+                    ProgressView()
+                } else if history.rides.isEmpty {
                     ContentUnavailableView(
                         "No rides yet",
                         systemImage: "clock.arrow.circlepath",
@@ -55,7 +60,11 @@ struct RideHistoryView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .onAppear { history.load() }
+            .task {
+                guard !loaded else { return }
+                await history.load()
+                loaded = true
+            }
         }
     }
 
@@ -81,15 +90,19 @@ private struct RideHistoryDetailView: View {
     @Environment(AppStatus.self) private var status
 
     let ride: RideStats
-    /// Built once (fresh point ids on every body pass would re-snapshot
-    /// the preview map). nil for a ride with no recorded track.
+    /// Built once, when the detail is shown — NOT in init: the list's
+    /// NavigationLink builds every visible row's destination on each list
+    /// render, and mapping thousands of track points there is wasted.
+    /// Fresh point ids on every body pass would also re-snapshot the
+    /// preview map. nil until built, and for a ride with no track.
     @State private var route: SavedRoute?
-    @State private var savedRouteId: UUID?
     @State private var exportURL: URL?
 
-    init(ride: RideStats) {
-        self.ride = ride
-        _route = State(initialValue: RideStatsService.savedRoute(from: ride))
+    /// Already in Saved routes (from here, a reopen, or the trip panel's
+    /// "Save ride" — same default name). A renamed copy isn't matched.
+    private var isSaved: Bool {
+        guard let route else { return false }
+        return status.savedRoutesStore.routes.contains { $0.kind == .track && $0.name == route.name }
     }
 
     private var imperial: Bool { status.dashNavSettings.units == .imperial }
@@ -117,14 +130,13 @@ private struct RideHistoryDetailView: View {
             if let route {
                 Section {
                     Button {
-                        guard savedRouteId == nil else { return }
+                        guard !isSaved else { return }
                         status.savedRoutesStore.add(route)
-                        savedRouteId = route.id
                     } label: {
-                        Label(savedRouteId == nil ? "Save to routes" : "Saved to routes",
-                              systemImage: savedRouteId == nil ? "bookmark" : "checkmark.circle.fill")
+                        Label(isSaved ? "Saved to routes" : "Save to routes",
+                              systemImage: isSaved ? "checkmark.circle.fill" : "bookmark")
                     }
-                    .disabled(savedRouteId != nil)
+                    .disabled(isSaved)
 
                     if let url = exportURL {
                         ShareLink(item: url) {
@@ -142,5 +154,8 @@ private struct RideHistoryDetailView: View {
         }
         .navigationTitle(Text(ride.startedAt ?? .distantPast, format: .dateTime.day().month(.abbreviated).hour().minute()))
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if route == nil { route = RideStatsService.savedRoute(from: ride) }
+        }
     }
 }

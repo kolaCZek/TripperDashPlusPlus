@@ -29,12 +29,13 @@
 //      calls it when the bike link goes fully down (user disconnect, or
 //      auto-reconnect gives up after the reconnect budget = motorcycle off).
 //
-//  Why persist only at teardown (not per-fix): a long ride's `trackPoints`
-//  is thousands of points, so writing it on every 1 Hz fix would be wasteful.
-//  The reported failure is arrival → app killed while backgrounded, and
-//  `end()` runs at that arrival teardown — so the summary is on disk before
-//  the app can be terminated. A crash mid-ride loses at most the current
-//  in-flight leg, which is acceptable for a summary panel.
+//  Why persist at teardown plus a checkpoint every `checkpointEveryFixes`
+//  accepted fixes (not per-fix): a long ride's `trackPoints` is thousands
+//  of points, so writing it on every 1 Hz fix would be wasteful. The
+//  checkpoint (~5 min) is for the ride history — arrival no longer tears
+//  the stream down, so a whole outing is often ONE leg, and a swipe-kill
+//  or jetsam mid-ride would otherwise lose all of it. A kill now loses at
+//  most the last ~5 minutes.
 //
 
 import Foundation
@@ -48,6 +49,9 @@ final class RideStatsService {
 
     /// UserDefaults key holding the last ride's persisted `RideStats` (JSON).
     private static let storageKey = "RideStats.lastRide.v1"
+
+    /// Mid-ride checkpoint cadence: accepted fixes (~1 Hz → ~5 min).
+    static let checkpointEveryFixes = 300
 
     /// The live accumulator. Views read this; all math is in RideStats.
     private(set) var stats = RideStats()
@@ -145,13 +149,15 @@ final class RideStatsService {
     /// button). Drop the persisted copy so a relaunch doesn't resurrect a
     /// summary the rider has already seen and closed — without this the
     /// on-disk record would re-hydrate and the panel would reappear on the
-    /// next launch. Only clears disk + the restored flag: the live in-memory
-    /// `stats` stay (the UI hides the panel via its own transient
-    /// `rideStatsDismissed` flag), so a back-to-back next leg still resumes
-    /// onto the same totals within this session.
+    /// next launch. Only clears disk: the live in-memory `stats` stay (the
+    /// UI hides the panel via its own transient `rideStatsDismissed` flag),
+    /// so a back-to-back next leg still resumes onto the same totals within
+    /// this session. `restoredFromDisk` is left alone on purpose: a
+    /// summary restored from a PREVIOUS session must still be zeroed by the
+    /// next `begin()` — clearing it here folded today's ride onto
+    /// yesterday's (same `startedAt`, one merged history file).
     func acknowledgeSummary() {
         defaults.removeObject(forKey: Self.storageKey)
-        restoredFromDisk = false
     }
 
     /// Streaming stopped — drop the subscription, keep totals on screen.
@@ -172,10 +178,13 @@ final class RideStatsService {
     /// `startedAt`) so a stop before any fix doesn't leave a blank record.
     private func persistLastRide() {
         guard stats.startedAt != nil else { return }
-        history?.record(stats)
         do {
             let data = try JSONEncoder().encode(stats)
             defaults.set(data, forKey: Self.storageKey)
+            // A restored summary was recorded in its own session; an `end()`
+            // before the next `begin()` (link drop mid-connect) must not
+            // write it back — the rider may have deleted it since.
+            if !restoredFromDisk { history?.record(stats, encoded: data) }
         } catch {
             Self.log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
         }
@@ -201,7 +210,10 @@ final class RideStatsService {
 
     private func ingest(_ fix: Fix) {
         guard state == .running else { return }
+        let before = stats.trackPoints.count
         stats = stats.folding(fix)
+        let count = stats.trackPoints.count
+        if count != before, count % Self.checkpointEveryFixes == 0 { persistLastRide() }
     }
 
     // MARK: - Save ride to the route library

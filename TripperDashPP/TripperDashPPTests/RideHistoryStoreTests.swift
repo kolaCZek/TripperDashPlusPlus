@@ -30,25 +30,26 @@ struct RideHistoryStoreTests {
             course: 90, speed: 10, timestamp: Date(timeIntervalSince1970: t)))
     }
 
-    /// A ride starting at `start` (epoch seconds) with `n` fixes 1 s apart.
+    /// A ride starting at `start` (epoch seconds) with `n` fixes 10 s apart.
     private func ride(start: TimeInterval, fixes n: Int = 2) -> RideStats {
-        (0..<n).reduce(RideStats()) { s, i in s.folding(fix(14 + Double(i) * 0.0002, start + Double(i))) }
+        // ~143 m per 10 s step: over the 100 m history minimum from 2 fixes.
+        (0..<n).reduce(RideStats()) { s, i in s.folding(fix(14 + Double(i) * 0.002, start + Double(i) * 10)) }
     }
 
-    @Test func recordThenReloadRoundTrips() {
+    @Test func recordThenReloadRoundTrips() async {
         let dir = tempDir()
         let now = Date(timeIntervalSince1970: 1_000_000)
         let store = RideHistoryStore(directory: dir, now: now)
         store.record(ride(start: 999_000), now: now)
 
         let fresh = RideHistoryStore(directory: dir, now: now)
-        fresh.load(now: now)
+        await fresh.load(now: now)
         #expect(fresh.rides.count == 1)
         #expect(fresh.rides[0].startedAt == Date(timeIntervalSince1970: 999_000))
         #expect(fresh.rides[0].trackPoints.count == 2)
     }
 
-    @Test func sameSessionOverwritesInsteadOfDuplicating() {
+    @Test func sameSessionOverwritesInsteadOfDuplicating() async {
         let dir = tempDir()
         let now = Date(timeIntervalSince1970: 1_000_000)
         let store = RideHistoryStore(directory: dir, now: now)
@@ -57,12 +58,12 @@ struct RideHistoryStoreTests {
         #expect(store.rides.count == 1)
 
         let fresh = RideHistoryStore(directory: dir, now: now)
-        fresh.load(now: now)
+        await fresh.load(now: now)
         #expect(fresh.rides.count == 1)
         #expect(fresh.rides[0].trackPoints.count == 5)
     }
 
-    @Test func newestFirstAndExpiredRidesPruned() {
+    @Test func newestFirstAndExpiredRidesPruned() async {
         let dir = tempDir()
         let day: TimeInterval = 86_400
         let t0: TimeInterval = 10_000_000
@@ -72,14 +73,14 @@ struct RideHistoryStoreTests {
         store.record(ride(start: t0 - 1 * day), now: Date(timeIntervalSince1970: t0))
 
         let fresh = RideHistoryStore(directory: dir, now: Date(timeIntervalSince1970: t0))
-        fresh.load(now: Date(timeIntervalSince1970: t0))
+        await fresh.load(now: Date(timeIntervalSince1970: t0))
         #expect(fresh.rides.map(\.startedAt) == [
             Date(timeIntervalSince1970: t0 - 1 * day),
             Date(timeIntervalSince1970: t0 - 2 * day),
         ])
     }
 
-    @Test func deleteRemovesTheFile() {
+    @Test func deleteRemovesTheFile() async {
         let dir = tempDir()
         let now = Date(timeIntervalSince1970: 1_000_000)
         let store = RideHistoryStore(directory: dir, now: now)
@@ -87,7 +88,7 @@ struct RideHistoryStoreTests {
         store.record(r, now: now)
         store.delete(r)
         let fresh = RideHistoryStore(directory: dir, now: now)
-        fresh.load(now: now)
+        await fresh.load(now: now)
         #expect(fresh.rides.isEmpty)
     }
 
@@ -95,6 +96,34 @@ struct RideHistoryStoreTests {
         let store = RideHistoryStore(directory: tempDir())
         store.record(RideStats())
         #expect(store.rides.isEmpty)
+    }
+
+    @Test func sessionUnder100mIsNotRecorded() {
+        // Connect + disconnect at home: one fix, or a few metres of jitter.
+        let store = RideHistoryStore(directory: tempDir())
+        let short = (0..<3).reduce(RideStats()) { s, i in
+            s.folding(fix(14 + Double(i) * 0.0002, 999_000 + Double(i)))   // ~14 m steps
+        }
+        #expect(short.distanceMeters < RideHistoryStore.minimumDistanceMeters)
+        store.record(short)
+        store.record(ride(start: 999_100, fixes: 1))
+        #expect(store.rides.isEmpty)
+    }
+
+    @Test func deletedRideIsNotWrittenBackByTheNextTeardown() async {
+        // Review of #152: the live service still holds the deleted ride
+        // (same startedAt); bike off → reset() → record must not restore it.
+        let dir = tempDir()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let store = RideHistoryStore(directory: dir, now: now)
+        let r = ride(start: 999_000)
+        store.record(r, now: now)
+        store.delete(r)
+        store.record(ride(start: 999_000, fixes: 4), now: now)   // next leg / reset()
+        #expect(store.rides.isEmpty)
+        let fresh = RideHistoryStore(directory: dir, now: now)
+        await fresh.load(now: now)
+        #expect(fresh.rides.isEmpty)
     }
 
     /// A service whose persisted last ride started an hour ago.
@@ -105,7 +134,7 @@ struct RideHistoryStoreTests {
         return (RideStatsService(location: LocationService(), defaults: suite, history: history), last)
     }
 
-    @Test func resetDoesNotResurrectADeletedRestoredRide() {
+    @Test func resetDoesNotResurrectADeletedRestoredRide() async {
         // The last-ride summary restored on launch was recorded in its own
         // session. If the rider deleted it from the history, the link-down
         // reset() must not write it back.
@@ -118,7 +147,31 @@ struct RideHistoryStoreTests {
         svc.reset()
         #expect(svc.stats.startedAt == nil)
         let fresh = RideHistoryStore(directory: dir)
-        fresh.load()
+        await fresh.load()
+        #expect(fresh.rides.isEmpty)
+    }
+
+    @Test func acknowledgedRestoredSummaryIsStillZeroedByTheNextRide() {
+        // Review of #152 (High): closing yesterday's restored panel used to
+        // clear `restoredFromDisk`, so today's begin() folded onto
+        // yesterday's stats — one merged ride under yesterday's startedAt.
+        let (svc, _) = serviceWithLastRide(history: RideHistoryStore(directory: tempDir()))
+        #expect(svc.stats.startedAt != nil)
+        svc.acknowledgeSummary()
+        svc.begin()
+        #expect(svc.stats.startedAt == nil)
+        #expect(svc.stats.distanceMeters == 0)
+    }
+
+    @Test func endBeforeANewBeginDoesNotRewriteTheRestoredRide() async {
+        // Link drop during stream warm-up: stopStreaming() → end() runs
+        // while `stats` is still the restored summary (no begin() yet).
+        let dir = tempDir()
+        let history = RideHistoryStore(directory: dir)
+        let (svc, _) = serviceWithLastRide(history: history)
+        svc.end()
+        let fresh = RideHistoryStore(directory: dir)
+        await fresh.load()
         #expect(fresh.rides.isEmpty)
     }
 
