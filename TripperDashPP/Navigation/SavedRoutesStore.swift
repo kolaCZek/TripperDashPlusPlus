@@ -98,13 +98,41 @@ final class SavedRoutesStore {
         return routes[idx]
     }
 
+    /// Planner save: store `route` under `name` (`cleanName`; blank keeps
+    /// the route's automatic name), overwriting `id` if it's still in the
+    /// library (keeps id + createdAt), else adding it.
+    @discardableResult
+    func save(_ route: SavedRoute, named name: String, replacing id: UUID?) -> SavedRoute {
+        var route = route
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The unedited automatic name stays whole: capped (or trimmed, if a
+        // stop label has a stray blank), it would no longer match
+        // `automaticName` and stick to changed stops as "custom".
+        if !typed.isEmpty, typed != route.name.trimmingCharacters(in: .whitespacesAndNewlines) {
+            route.name = Self.cleanName(typed)
+        }
+        if let id, let updated = replace(id: id, with: route) { return updated }
+        return add(route)
+    }
+
+    /// A pasted essay would wreck the library rows and the detail title.
+    static let maxNameLength = 80
+
+    /// Trimmed and capped at `maxNameLength` (re-trimmed, so a cut at a
+    /// space leaves no trailing blank). `prefix` counts Characters, so an
+    /// emoji or accented letter is never split.
+    static func cleanName(_ name: String) -> String {
+        String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxNameLength))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Rename in place. No-op (logged) if the id is gone.
     func rename(id: UUID, to newName: String) {
         guard let idx = routes.firstIndex(where: { $0.id == id }) else {
             log.warning("rename: id not found \(id)")
             return
         }
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.cleanName(newName)
         routes[idx].name = trimmed.isEmpty ? routes[idx].name : trimmed
         persist()
     }

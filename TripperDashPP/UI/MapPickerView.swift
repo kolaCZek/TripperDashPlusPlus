@@ -109,6 +109,26 @@ struct MapPickerView: View {
     @State private var savedPlanStops: [String]?
     /// A save is in flight (reverse-geocoding the current location).
     @State private var savingPlan = false
+    /// The built route awaiting a name in the "Save route" prompt.
+    @State private var planSave: PlanSaveDraft?
+    @State private var showPlanSaveAlert = false
+    @State private var planSaveName = ""
+
+    private struct PlanSaveDraft {
+        let plan: PlannedRoute
+        let route: SavedRoute
+        /// `stopsSnapshot` when the route was built — a pin renamed while
+        /// the prompt is up must still re-arm the bookmark.
+        let stops: [String]
+    }
+
+    /// Another sheet/cover/dialog is up; SwiftUI would drop an alert
+    /// presented now (and the save with it).
+    private var anotherModalUp: Bool {
+        showSettings || showSavedRoutes || showRideHistory || prerenderActive
+            || showSearch || showFavoriteEditor || showRoutePreferences
+            || showLongPressDialog || showBikePicker
+    }
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
         plan.waypoints.map { "\($0.id)|\($0.name)" }
@@ -251,6 +271,20 @@ struct MapPickerView: View {
                     .environment(status.navigationStore)
             }
         }
+        // Only presented while the planner is still up with nothing else
+        // on screen; otherwise the save commits without a prompt.
+        .alert("Save route", isPresented: $showPlanSaveAlert, presenting: planSave) { draft in
+            TextField("Route name", text: $planSaveName)
+            Button("Cancel", role: .cancel) { planSave = nil }
+            Button("Save") {
+                status.commitPlanSave(draft.route, named: planSaveName, for: draft.plan)
+                savedPlanStops = draft.stops
+                planSave = nil
+            }
+            .keyboardShortcut(.defaultAction)
+        } message: { _ in
+            Text("Leave blank for an automatic name.")
+        }
         .confirmationDialog("Add to route", isPresented: $showLongPressDialog, titleVisibility: .visible) {
             Button("Add as stop") { commitLongPress(asDestination: false) }
             Button("Set as destination") { commitLongPress(asDestination: true) }
@@ -310,6 +344,11 @@ struct MapPickerView: View {
             // connect doesn't unexpectedly launch into nothing.
             if !planning { pendingAutoStart = false }
         }
+        .onChange(of: showPlanSaveAlert) { _, up in
+            // Auto-start held while the rider names the route (below) —
+            // fire it once the prompt is answered.
+            if !up { tryAutoStartNavigation() }
+        }
         .onChange(of: status.requestDismissSavedRoutes) { _, request in
             // A saved route was staged for navigation from inside the
             // Saved Routes sheet — tear the sheet down so the picker's
@@ -359,6 +398,11 @@ struct MapPickerView: View {
     private func tryAutoStartNavigation() {
         guard pendingAutoStart else { return }
         guard status.bikeLink.state == .connected else { return }
+        // Not under the Save route prompt: the prerender cover can't be
+        // presented over it, and the ride shouldn't start mid-typing. If
+        // SwiftUI dropped that alert (flag stuck true), this holds auto-start
+        // until the next bookmark tap resets it; "Start navigation" still works.
+        guard !showPlanSaveAlert else { return }
         guard mode == .picking,
               let plan = status.plannedRoute,
               plan.isComputed else { return }
@@ -644,8 +688,28 @@ struct MapPickerView: View {
                     Button {
                         savingPlan = true
                         Task {
-                            if await status.saveCurrentPlan() != nil {
-                                savedPlanStops = Self.stopsSnapshot(plan)
+                            if let draft = await status.draftPlanSave() {
+                                let stops = Self.stopsSnapshot(draft.plan)
+                                if anotherModalUp || transitioning || showPlanSaveAlert
+                                    || status.plannedRoute !== draft.plan {
+                                    // Start tapped (the prerender cover is
+                                    // ~500 ms away and an alert would block
+                                    // it) / planning cancelled / another
+                                    // screen opened during the geocode: no
+                                    // prompt, save under the suggested name
+                                    // (rename in the library). A flag still
+                                    // `true` here can only mean an earlier
+                                    // alert was dropped mid-transition (a live
+                                    // one is modal) — reset it so the next
+                                    // save can prompt again.
+                                    status.commitPlanSave(draft.route, named: draft.suggestedName, for: draft.plan)
+                                    savedPlanStops = stops
+                                    showPlanSaveAlert = false
+                                } else {
+                                    planSave = PlanSaveDraft(plan: draft.plan, route: draft.route, stops: stops)
+                                    planSaveName = draft.suggestedName
+                                    showPlanSaveAlert = true
+                                }
                             }
                             savingPlan = false
                         }
