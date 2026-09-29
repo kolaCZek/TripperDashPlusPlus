@@ -1093,21 +1093,46 @@ extension MapViewSource {
 // MARK: - Render tick
 
 extension MapViewSource {
-    /// Render loop via Swift Concurrency Task + Task.sleep.
-    /// Same scheduler pattern as HeartbeatLoop, which we've confirmed
-    /// keeps ticking on the locked screen under the CoreLocation wakelock.
+    /// Render loop via Swift Concurrency Task + Task.sleep, on
+    /// `SuspendingClock` — in practice the same uptime base as
+    /// HeartbeatLoop's `Task.sleep(nanoseconds:)` (confirmed to keep ticking
+    /// on the locked screen under the CoreLocation wakelock) and as the
+    /// `CACurrentMediaTime` PTS.
+    ///
+    /// Sleeps until an absolute deadline on a fixed 1/targetFps grid, NOT
+    /// for a fixed interval after each tick. A relative sleep adds the
+    /// tick's own render time to every period: ~26 ms of work + 166.7 ms
+    /// of sleep gave 5.2 fps in the field (log 2026-09-28, 60 frames every
+    /// ~11.6 s).
+    ///
+    /// Two guards keep the dash from ever seeing a burst:
+    /// - a tick that overruns its slot skips the missed slots instead of
+    ///   catching up;
+    /// - the next tick never starts less than half an interval after the
+    ///   previous one ENDED (the frame goes to the encoder at the end of the
+    ///   tick), so two frames never reach the dash less than 83 ms apart
+    ///   (≤ 12 fps even for a single pair — the decoder blinks above
+    ///   ~12 fps). A slow or late tick is delayed, not dropped, so the rate
+    ///   degrades gradually under load; with ordinary few-ms jitter neither
+    ///   guard trips and the average is exactly targetFps.
     private func startTimer() {
         renderTask?.cancel()
-        let intervalNs: UInt64 = UInt64(1_000_000_000) / UInt64(targetFps)
+        let interval = Duration.seconds(1) / targetFps
         renderTask = Task { [weak self] in
-            while !Task.isCancelled {
+            let clock = SuspendingClock()
+            var deadline = clock.now
+            // `self != nil`: [weak self] alone would keep a loop whose
+            // source was freed ticking at 6 Hz (deinit can't cancel it).
+            while !Task.isCancelled, self != nil {
                 await self?.tickOnMain()
-                try? await Task.sleep(nanoseconds: intervalNs)
+                deadline += interval
+                let now = clock.now
+                while deadline <= now { deadline += interval }
+                try? await Task.sleep(until: max(deadline, now + interval / 2), clock: clock)
             }
         }
     }
 
-    @MainActor
     private func tickOnMain() async {
         guard onFrame != nil else { return }
 
