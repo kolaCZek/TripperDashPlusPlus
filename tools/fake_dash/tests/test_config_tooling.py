@@ -41,6 +41,20 @@ def test_join_verify_ipv4_fallback_only_when_ssid_unreadable():
     assert "live == ssid || BikeLink.wifiHasDashSubnetIPv4()" not in src
 
 
+def test_join_failure_tells_rider_to_join_the_bike_wifi_manually():
+    """iOS can stay on a store/carrier Passpoint network it auto-joined (seen on
+    "HomeDepot-Passpoint") and the app can't disconnect it. A manual join in
+    Settings → Wi-Fi always wins, so both failure paths must say so: the join
+    check in WiFiJoiner and the connect preflight (notOnDashNetwork)."""
+    from tests.swift_source import strip_comments
+
+    tripper = REPO / "TripperDashPP" / "Tripper"
+    src = strip_comments((tripper / "WiFiJoiner.swift").read_text())
+    assert 'If it is, join \\"\\(ssid)\\" manually in Settings → Wi-Fi and retry.' in src
+    hs = strip_comments((tripper / "RsaHandshake.swift").read_text())
+    assert hs.count('Join \\"\\(expected)\\" manually in Settings → Wi-Fi and try again.') == 2
+
+
 def test_gpx_poi_waypoints_are_not_spliced_into_track(tmp_path):
     gpx = tmp_path / "in.gpx"
     gpx.write_text(

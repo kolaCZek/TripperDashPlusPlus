@@ -69,9 +69,9 @@ enum HandshakeError: Error, LocalizedError {
             return "SecRandomCopyBytes failed (status=\(s))"
         case .notOnDashNetwork(let expected, let actual):
             if let actual {
-                return "Not on the dash Wi-Fi (expected \"\(expected)\", on \"\(actual)\"). Join the bike's network and try again."
+                return "Not on the dash Wi-Fi (expected \"\(expected)\", on \"\(actual)\"). Join \"\(expected)\" manually in Settings → Wi-Fi and try again."
             }
-            return "Not on the dash Wi-Fi (expected \"\(expected)\"). Join the bike's network and try again."
+            return "Not on the dash Wi-Fi (expected \"\(expected)\"). Join \"\(expected)\" manually in Settings → Wi-Fi and try again."
         }
     }
 }

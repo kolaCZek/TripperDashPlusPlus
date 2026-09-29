@@ -130,7 +130,12 @@ final class WiFiJoiner {
                     } else {
                         let detail = live.map { "on \"\($0)\"" } ?? "not on Wi-Fi"
                         self.log.error("Join \(ssid, privacy: .public) reported OK but \(detail, privacy: .public)")
-                        cont.resume(returning: .failed("couldn't reach \(ssid) — \(detail). Is the bike on and in range?"))
+                        // iOS may refuse to leave a working network with internet
+                        // (often a store/carrier Passpoint hotspot it auto-joined)
+                        // for the dash AP, and an app can't disconnect a network it
+                        // didn't configure. A manual join in Settings always wins,
+                        // and needs no password: `apply` above already saved it.
+                        cont.resume(returning: .failed("couldn't reach \(ssid) — \(detail). Is the bike on and in range? If it is, join \"\(ssid)\" manually in Settings → Wi-Fi and retry."))
                     }
                 }
             }
