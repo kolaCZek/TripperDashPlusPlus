@@ -88,8 +88,8 @@ make fake-dash-down    # stop
 The Tripper Dash (big round map-capable TFT) ships on:
 
 - ✅ **Royal Enfield Guerrilla 450** (2024+) — primary dev bike (@kolaCZek), field-validated
-- ❓ **Royal Enfield Himalayan 450** (2023+) — same dash hardware in theory, untested
-- ❓ **Royal Enfield Bear 650** (2024+) — same Tripper Dash hardware, untested
+- ✅ **Royal Enfield Himalayan 450** (2023+) — same Tripper Dash hardware, confirmed working
+- ✅ **Royal Enfield Bear 650** (2024+) — same Tripper Dash hardware, confirmed working by beta testers
 
 **Not compatible:** the small arrow-only Tripper Navigation Pod on Meteor 350 / Classic 350 / Hunter 350 / Shotgun 650 / Super Meteor 650. Different display, different protocol — this app won't talk to it.
 
