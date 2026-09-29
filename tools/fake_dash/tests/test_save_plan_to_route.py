@@ -220,8 +220,13 @@ def test_swift_save_current_plan_skips_library_plans_and_overwrites_on_resave():
     assert "savedRoutesStore.save(route, named: name, replacing: plan.savedRouteId)" in commit
     assert "plan.savedRouteId = saved.id" in commit
     store = strip_comments(decl_body(STORE.read_text(), "func save(_ route: SavedRoute, named"))
-    assert "if !trimmed.isEmpty { route.name = trimmed }" in store
-    assert ".prefix(Self.maxNameLength)" in store
+    # An unedited long automatic name is not capped (it would turn "custom").
+    assert "if !typed.isEmpty, typed != route.name { route.name = Self.cleanName(typed) }" in store
+    clean = strip_comments(decl_body(STORE.read_text(), "static func cleanName"))
+    assert ".prefix(maxNameLength)" in clean
+    assert clean.rstrip().rstrip("}").rstrip().endswith(".trimmingCharacters(in: .whitespacesAndNewlines)")
+    rename = strip_comments(decl_body(STORE.read_text(), "func rename(id: UUID"))
+    assert "Self.cleanName(newName)" in rename, "library renames are capped too"
     assert store.index("replace(id: id, with: route)") < store.index("add(route)")
 
 
@@ -246,17 +251,33 @@ def test_swift_planner_toolbar_has_save_button():
     assert after.index("let stops = Self.stopsSnapshot(draft.plan)") < after.index("showPlanSaveAlert = true")
     # Never present over another modal / after Start or Cancel — SwiftUI
     # drops that alert and the save with it; commit without a prompt.
-    assert "if anotherModalUp || transitioning || status.plannedRoute !== draft.plan {" in after
+    # A flag still true (alert dropped mid-transition) also goes silent and
+    # is reset, so the bookmark can't go dead.
+    cond = after[after.index("if anotherModalUp"):]
+    cond = cond[:cond.index("{\n")]
+    for part in ("anotherModalUp", "transitioning", "showPlanSaveAlert", "status.plannedRoute !== draft.plan"):
+        assert part in cond
     silent = after[after.index("if anotherModalUp"):after.index("} else {")]
     assert "status.commitPlanSave(draft.route, named: draft.suggestedName, for: draft.plan)" in silent
+    assert "showPlanSaveAlert = false" in silent
+    # Every presentation anywhere in MapPickerView (not just the root body).
     modal = strip_comments(decl_body(PICKER.read_text(), "private var anotherModalUp"))
-    root_src = strip_comments(decl_body(PICKER.read_text(), "var body: some View"))
-    for flag in re.findall(r"isPresented: \$(\w+)", root_src) + ["showBikePicker"]:
-        if flag != "showPlanSaveAlert":
-            assert flag in modal, f"{flag} can be up while the draft returns"
+    view_src = strip_comments(PICKER.read_text())
+    view_src = view_src[:view_src.index("private struct StatusBanner")]
+    flags = set(re.findall(r"(?:isPresented|item): \$(\w+)", view_src)) - {"showPlanSaveAlert"}
+    assert "showBikePicker" in flags
+    for flag in flags:
+        assert flag in modal, f"{flag} can be up while the draft returns"
+    # Auto-start (armed by Connect while planning) waits for the prompt.
+    auto = strip_comments(decl_body(PICKER.read_text(), "private func tryAutoStartNavigation"))
+    assert "guard !showPlanSaveAlert else { return }" in auto
+    assert auto.index("guard !showPlanSaveAlert") < auto.index("startNavigation(plan: plan)")
+    root_body = strip_comments(decl_body(PICKER.read_text(), "var body: some View"))
+    on_alert = root_body[root_body.index(".onChange(of: showPlanSaveAlert)"):]
+    assert "if !up { tryAutoStartNavigation() }" in on_alert[:200]
     assert ".disabled(saved || savingPlan)" in body, "no double save while geocoding"
-    # The name prompt hangs on the root view, so a Start/Cancel during the
-    # geocode (planner gone) still gets it; Cancel saves nothing.
+    # The name prompt (root view): the alert's own Cancel saves nothing;
+    # Save commits the typed name with the stops snapshotted at draft time.
     root = strip_comments(decl_body(PICKER.read_text(), "var body: some View"))
     alert = root[root.index('.alert("Save route"'):]
     alert = alert[:alert.index(".confirmationDialog(")]

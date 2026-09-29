@@ -49,11 +49,13 @@ and at the bike just open Saved routes → **Start navigation**.
   single stop; coordinates for an unnamed stop). Saving the plan again
   prefills a custom name it was saved under (typed, or renamed in the
   library), so it survives edits; an automatic one is recomputed for the
-  new stops. Leave it blank for the automatic name (names are capped at
-  80 characters); you can still rename it in the route detail.
+  new stops. Leave it blank for the automatic name. A typed name (here or
+  in the route detail) is capped at 80 characters; an unedited automatic
+  one is kept whole.
 - If you tap Start or Cancel, or open another screen, while the save is
   looking up your location, it saves under the suggested name without
-  asking — rename it in the library.
+  asking — rename it in the library. An auto-start armed by Connect waits
+  until the prompt is answered.
 - Hidden for a plan launched from Saved routes (it's already there). The
   icon fills once saved and re-arms when you change the stops or a
   dropped pin gets its real name; saving again **updates** the same

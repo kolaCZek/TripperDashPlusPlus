@@ -344,6 +344,11 @@ struct MapPickerView: View {
             // connect doesn't unexpectedly launch into nothing.
             if !planning { pendingAutoStart = false }
         }
+        .onChange(of: showPlanSaveAlert) { _, up in
+            // Auto-start held while the rider names the route (below) —
+            // fire it once the prompt is answered.
+            if !up { tryAutoStartNavigation() }
+        }
         .onChange(of: status.requestDismissSavedRoutes) { _, request in
             // A saved route was staged for navigation from inside the
             // Saved Routes sheet — tear the sheet down so the picker's
@@ -393,6 +398,9 @@ struct MapPickerView: View {
     private func tryAutoStartNavigation() {
         guard pendingAutoStart else { return }
         guard status.bikeLink.state == .connected else { return }
+        // Not under the Save route prompt: the prerender cover can't be
+        // presented over it, and the ride shouldn't start mid-typing.
+        guard !showPlanSaveAlert else { return }
         guard mode == .picking,
               let plan = status.plannedRoute,
               plan.isComputed else { return }
@@ -680,15 +688,20 @@ struct MapPickerView: View {
                         Task {
                             if let draft = await status.draftPlanSave() {
                                 let stops = Self.stopsSnapshot(draft.plan)
-                                if anotherModalUp || transitioning || status.plannedRoute !== draft.plan {
+                                if anotherModalUp || transitioning || showPlanSaveAlert
+                                    || status.plannedRoute !== draft.plan {
                                     // Start tapped (the prerender cover is
                                     // ~500 ms away and an alert would block
                                     // it) / planning cancelled / another
                                     // screen opened during the geocode: no
                                     // prompt, save under the suggested name
-                                    // (rename in the library).
+                                    // (rename in the library). A flag still
+                                    // `true` here means an earlier alert was
+                                    // dropped mid-transition — reset it so the
+                                    // next save can prompt again.
                                     status.commitPlanSave(draft.route, named: draft.suggestedName, for: draft.plan)
                                     savedPlanStops = stops
+                                    showPlanSaveAlert = false
                                 } else {
                                     planSave = PlanSaveDraft(plan: draft.plan, route: draft.route, stops: stops)
                                     planSaveName = draft.suggestedName

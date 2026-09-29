@@ -98,9 +98,28 @@ struct SavedRouteFromPlanTests {
         let blank = store.save(route, named: "   ", replacing: UUID())
         #expect(blank.name == "Mělník → Kokořín")
         #expect(store.routes.count == 2)
-        // A pasted essay is capped.
+        // A pasted essay is capped, with no trailing blank at the cut; a
+        // library rename is capped too.
         let long = store.save(route, named: String(repeating: "x", count: 500), replacing: nil)
         #expect(long.name.count == SavedRoutesStore.maxNameLength)
+        let cutAtSpace = store.save(route, named: String(repeating: "a", count: 79) + " b", replacing: nil)
+        #expect(cutAtSpace.name == String(repeating: "a", count: 79))
+        store.rename(id: first.id, to: String(repeating: "y", count: 200))
+        #expect(store.routes.first { $0.id == first.id }?.name.count == SavedRoutesStore.maxNameLength)
+    }
+
+    @Test func unchangedLongAutomaticNameIsKeptWhole() throws {
+        let store = SavedRoutesStore(defaults: UserDefaults(suiteName: "test.routes.\(UUID().uuidString)")!)
+        let route = try #require(SavedRoute.fromPlan(
+            [stop("Parkoviště u Státního hradu Kokořín, Kokořínský Důl", 50.4330, 14.5780),
+             stop("Rozhledna na vrchu Vlhošť, Holany", 50.5580, 14.4180)],
+            roadDistanceMeters: nil))
+        #expect(route.name.count > SavedRoutesStore.maxNameLength)
+        // Save tapped on the prefilled automatic name: not truncated, so it
+        // still reads as automatic and won't stick to changed stops.
+        let saved = store.save(route, named: route.name, replacing: nil)
+        #expect(saved.name == route.name)
+        #expect(saved.customName == nil)
     }
 
     @Test func onlyACustomNameIsSuggestedOnResave() throws {
