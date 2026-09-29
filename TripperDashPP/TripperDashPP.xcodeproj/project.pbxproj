@@ -99,6 +99,7 @@
 		A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */; };
 		A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */; };
 		7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */; };
+		6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0A00000000000000000001 /* LinkErrorMappingTests.swift */; };
 		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
 		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
 		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
@@ -230,6 +231,7 @@
 		A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPersistenceTests.swift; sourceTree = "<group>"; };
 		A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStoreTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteFromPlanTests.swift; sourceTree = "<group>"; };
+		6C0A00000000000000000001 /* LinkErrorMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkErrorMappingTests.swift; sourceTree = "<group>"; };
 		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
 		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
@@ -522,6 +524,7 @@
 				A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */,
 				A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */,
 				7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */,
+				6C0A00000000000000000001 /* LinkErrorMappingTests.swift */,
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
@@ -864,6 +867,7 @@
 				A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */,
 				A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */,
 				7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */,
+				6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */,
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,

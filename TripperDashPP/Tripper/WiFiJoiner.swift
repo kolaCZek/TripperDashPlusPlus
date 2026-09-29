@@ -83,17 +83,18 @@ final class WiFiJoiner {
         return await withCheckedContinuation { cont in
             NEHotspotConfigurationManager.shared.apply(config) { error in
                 if let error = error as NSError? {
-                    // "already associated" is success, not a failure: iOS
-                    // returns it when the phone is already on the network.
-                    if error.domain == NEHotspotConfigurationErrorDomain,
-                       error.code == NEHotspotConfigurationError.alreadyAssociated.rawValue {
-                        self.log.info("Already associated with \(ssid, privacy: .public)")
-                        cont.resume(returning: .alreadyJoined)
+                    if let outcome = Self.outcome(forApplyError: error) {
+                        if case .alreadyJoined = outcome {
+                            self.log.info("Already associated with \(ssid, privacy: .public)")
+                        } else {
+                            self.log.error("Join \(ssid, privacy: .public) failed: \(error.domain, privacy: .public) \(error.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
+                        }
+                        cont.resume(returning: outcome)
                         return
                     }
-                    self.log.error("Join \(ssid, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                    cont.resume(returning: .failed(error.localizedDescription))
-                    return
+                    // `.pending`: an earlier apply is still in flight — fall
+                    // through to the association poll instead of failing.
+                    self.log.info("Join \(ssid, privacy: .public) already pending — polling for association")
                 }
                 // `apply` succeeding only means iOS SAVED the config — it does
                 // NOT prove we actually associated (tap "Join" for an AP that
@@ -139,6 +140,27 @@ final class WiFiJoiner {
                     }
                 }
             }
+        }
+    }
+
+    /// Map an `apply` error to an outcome with rider-readable text instead of
+    /// "The operation couldn't be completed. (… error 7.)". Returns nil for
+    /// `.pending` (keep polling). "Already associated" is success: iOS returns
+    /// it when the phone is already on the network.
+    nonisolated static func outcome(forApplyError error: NSError) -> WiFiJoinOutcome? {
+        guard error.domain == NEHotspotConfigurationErrorDomain else {
+            return .failed(error.localizedDescription)
+        }
+        typealias E = NEHotspotConfigurationError
+        switch error.code {
+        case E.alreadyAssociated.rawValue: return .alreadyJoined
+        case E.pending.rawValue: return nil
+        case E.userDenied.rawValue: return .failed("Wi-Fi join was declined")
+        case E.invalidSSID.rawValue, E.invalidSSIDPrefix.rawValue:
+            return .failed("The bike's Wi-Fi name looks wrong")
+        case E.invalidWPAPassphrase.rawValue: return .failed("The bike's Wi-Fi password was rejected")
+        case E.applicationIsNotInForeground.rawValue: return .failed("Open the app to join the bike's Wi-Fi")
+        default: return .failed("Wi-Fi join failed (error \(error.code))")
         }
     }
 

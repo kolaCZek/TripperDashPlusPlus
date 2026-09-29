@@ -63,10 +63,23 @@ nonisolated struct HeartbeatLoop: Sendable {
         category: "Heartbeat"
     )
 
+    /// Consecutive transient send failures tolerated before the loop stops
+    /// (and the caller treats it as a link drop).
+    static let maxTransientSendFailures = 3
+
+    /// True for `DashSocket.send` errnos that mean "buffer full, try later"
+    /// on the non-blocking socket, rather than "the link is gone".
+    static func isTransientSendError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == "DashSocket" else { return false }
+        return ns.code == Int(ENOBUFS) || ns.code == Int(EAGAIN) || ns.code == Int(EWOULDBLOCK)
+    }
+
     /// Run until cancelled. Suspends on cancellation cleanly.
     @concurrent func run() async {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
+        var transientFailures = 0
         while !Task.isCancelled {
             // Phone status: mirrors the OEM 1 Hz `REForeGroundService` timer
             // which re-reads BatteryManager + cell info each fire. The
@@ -104,6 +117,7 @@ nonisolated struct HeartbeatLoop: Sendable {
             do {
                 try await socket.send(hb)
                 try await socket.send(md)
+                transientFailures = 0
                 tick &+= 1
                 if tick == 1 {
                     Self.log.info("Heartbeat tick #1 sent (0044=\(hb.count)B + 0030=\(md.count)B)")
@@ -111,8 +125,16 @@ nonisolated struct HeartbeatLoop: Sendable {
                     Self.log.debug("Heartbeat tick #\(tick) sent")
                 }
             } catch {
-                Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
-                return
+                // The socket is non-blocking, so a full send buffer (RTP on the
+                // same interface, Wi-Fi power-save) is a normal hiccup, not a
+                // drop. Tolerate a few in a row; anything else stops as before.
+                if Self.isTransientSendError(error), transientFailures < Self.maxTransientSendFailures {
+                    transientFailures += 1
+                    Self.log.notice("Heartbeat send hiccup (\(transientFailures)/\(Self.maxTransientSendFailures)): \(error.localizedDescription, privacy: .public) — retrying next tick")
+                } else {
+                    Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
+                    return
+                }
             }
             try? await Task.sleep(nanoseconds: UInt64(K1G.heartbeatInterval * 1_000_000_000))
         }

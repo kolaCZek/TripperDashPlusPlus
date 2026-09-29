@@ -250,10 +250,13 @@ actor DashSocket {
                     }
                 }
                 if sent < 0 {
-                    let err = String(cString: strerror(errno))
+                    // Capture errno before anything else can clobber it:
+                    // HeartbeatLoop classifies the error by this code.
+                    let code = errno
+                    let err = String(cString: strerror(code))
                     cont.resume(throwing: NSError(
                         domain: "DashSocket",
-                        code: Int(errno),
+                        code: Int(code),
                         userInfo: [NSLocalizedDescriptionKey: "sendto(): \(err)"]
                     ))
                 } else if sent != data.count {
