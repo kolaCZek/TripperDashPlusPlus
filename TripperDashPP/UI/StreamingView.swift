@@ -79,6 +79,9 @@ struct StreamingView: View {
                 } else {
                     ForEach(status.savedBikes.bikes) { bike in
                         bikeRow(bike)
+                            // Deleting drops the iOS Wi-Fi config too — not
+                            // while the link is using it.
+                            .deleteDisabled(!isEditableState)
                     }
                     .onDelete { offsets in
                         for i in offsets { status.removeBike(id: status.savedBikes.bikes[i].id) }
@@ -246,7 +249,7 @@ struct StreamingView: View {
                 )) {
                     Text("Route progress bar")
                 }
-                Text("Auto follows local sunrise and sunset from your GPS position. Light and dark map tiles are cached separately.")
+                Text("Auto follows local sunrise and sunset from your GPS position.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -55,6 +55,10 @@ struct MapPickerView: View {
     /// We use a single shared sheet that watches `prerenderActive`.
     @State private var prerenderActive = false
     @State private var prerenderProgress: Double = 0
+    /// The 4 s arrival auto-dismiss. Cancelled whenever navigation ends or
+    /// restarts first, so a late `finishArrival()` can't start a free ride
+    /// after the rider pressed Stop.
+    @State private var arrivalTask: Task<Void, Never>?
 
     // Sheet flags
     @State private var showSearch = false
@@ -727,6 +731,7 @@ struct MapPickerView: View {
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                 }
+                .accessibilityLabel("Route preferences")
             }
         }
     }
@@ -828,8 +833,11 @@ struct MapPickerView: View {
                 guard arrived else { return }
                 // Rider confirmed: auto-dismiss the arrival card after a
                 // few seconds (both hands busy on the bike).
-                Task { @MainActor in
+                arrivalTask?.cancel()
+                arrivalTask = Task { @MainActor in
                     try? await Task.sleep(for: .seconds(4))
+                    guard !Task.isCancelled else { return }
+                    arrivalTask = nil
                     await finishArrival()
                 }
             }
@@ -1448,6 +1456,8 @@ struct MapPickerView: View {
             status.bikeLink.connect()
             return
         }
+        arrivalTask?.cancel()
+        arrivalTask = nil
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -1495,6 +1505,11 @@ struct MapPickerView: View {
     /// `AppStatus.activeNavigator.onRerouteRequested`.
 
     private func stopNavigation() {
+        arrivalTask?.cancel()
+        arrivalTask = nil
+        // The corridor bake may still be running; its cover must not
+        // outlive the ride (e.g. stopped from the dash button).
+        prerenderActive = false
         status.activeNavigator.stop()
         status.activeNavigator.onActiveRouteChanged = nil
         status.activeNavigator.onExitNavRequested = nil
@@ -1628,7 +1643,7 @@ private struct StatusBanner: View {
                 : "Reconnecting to dash…"
         case .connected:    "Connected — idle"
         case .streaming:    "Streaming"
-        case .error:        "Connection failed — tap to retry"
+        case .error:        "Connection failed"
         }
     }
 }
