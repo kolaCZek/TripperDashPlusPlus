@@ -256,10 +256,15 @@ def analyze(points: list[Pt], rider: Optional[Pt]) -> StartDecision:
             nearest_dist = d
             nearest_idx = i
 
-    should_prompt = (nearest_idx > 0
-                     and nearest_idx < len(points) - 1
-                     and (dist_first - nearest_dist) > PROMPT_THRESHOLD_M)
+    should_prompt = nearest_idx > 0 and (dist_first - nearest_dist) > PROMPT_THRESHOLD_M
     return StartDecision(nearest_idx, dist_first, nearest_dist, should_prompt)
+
+
+def dropping_reached_start(points: list[Pt], rider: Optional[Pt]) -> list[Pt]:
+    """Mirror of RouteStartPlanner.droppingReachedStart."""
+    if len(points) > 1 and rider is not None and haversine(rider, points[0]) <= PROMPT_THRESHOLD_M:
+        return list(points[1:])
+    return list(points)
 
 
 def navigable_points(points: list[Pt], mode: str, nearest_index: int) -> list[Pt]:
@@ -358,7 +363,7 @@ def _first_named_child(root, parent_tag: str) -> Optional[str]:
     return None
 
 
-def planned_navigable_points(points, mode, nearest_index, kind):
+def planned_navigable_points(points, mode, nearest_index, kind, rider=None):
     """Mirror AppStatus.beginPlanningFromSavedRoute point selection.
 
     Select the start-mode slice, then — for a `.track` route only — reduce
@@ -368,6 +373,8 @@ def planned_navigable_points(points, mode, nearest_index, kind):
     own stored points are untouched (this is transient nav-time geometry).
     """
     selected = navigable_points(points, mode, nearest_index)
+    if rider is not None:
+        selected = dropping_reached_start(selected, rider)
     if kind == "track":
         return reduce(selected, NAVIGABLE_CAP)
     return selected

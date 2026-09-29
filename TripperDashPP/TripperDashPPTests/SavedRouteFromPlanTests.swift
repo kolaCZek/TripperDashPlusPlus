@@ -4,9 +4,10 @@
 //
 //  feat/save-route-from-planner — the REAL `SavedRoute.fromPlan`,
 //  `SavedRoutesStore.replace` and `RouteStartPlanner.analyze` (the Python
-//  suite only mirrors them): stops kept, live origin dropped, route name
-//  rules, empty names, distance fallback, re-save overwrites, and a round
-//  trip that ends at its start never offers "start from nearest".
+//  suite only mirrors them): every point kept (live origin as a named
+//  fixed point), route name rules, empty names, distance fallback, re-save
+//  overwrites, and the start rules — a loop started at home skips home
+//  without a prompt; a one-way route joined near its end still prompts.
 //
 
 import CoreLocation
@@ -22,23 +23,34 @@ struct SavedRouteFromPlanTests {
         Waypoint(name: name, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
     }
 
-    @Test func dropsLiveOriginKeepsStopsAndNamesFirstToLast() throws {
+    @Test func keepsTheLiveOriginAsANamedFixedPoint() throws {
+        let fix = CLLocationCoordinate2D(latitude: 50.2390, longitude: 14.2020)
         let r = try #require(SavedRoute.fromPlan(
             [home, stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
-            roadDistanceMeters: 42_000))
+            roadDistanceMeters: 42_000, currentLocation: fix, currentLocationName: "Zvoleněves"))
         #expect(r.kind == .waypoints)
-        #expect(r.points.map(\.name) == ["Mělník", "Kokořín"])
-        #expect(r.name == "Mělník → Kokořín")
+        #expect(r.points.map(\.name) == ["Zvoleněves", "Mělník", "Kokořín"])
+        #expect(r.points[0].latitude == fix.latitude && r.points[0].longitude == fix.longitude)
+        #expect(r.name == "Zvoleněves → Kokořín")
         #expect(r.totalDistanceMeters == 42_000)
     }
 
+    @Test func ungeocodedOriginFallsBackToCoordinatesAndNeverToCurrentLocation() throws {
+        let r = try #require(SavedRoute.fromPlan([home, stop("Kokořín", 50.4330, 14.5780)],
+                                                 roadDistanceMeters: nil))
+        #expect(r.points[0].name == nil)
+        #expect(r.name == "50.2385, 14.2011 → Kokořín")
+        #expect(!r.points.contains { $0.name == "Current location" })
+    }
+
     @Test func singleStopIsNamedAfterItAndUncomputedFallsBackToStraightLine() throws {
-        let one = try #require(SavedRoute.fromPlan([home, stop("Kokořín", 50.4330, 14.5780)],
+        // Origin removed from the plan by the rider → just the stops.
+        let one = try #require(SavedRoute.fromPlan([stop("Kokořín", 50.4330, 14.5780)],
                                                    roadDistanceMeters: nil))
         #expect(one.name == "Kokořín")
         #expect(one.totalDistanceMeters == 0)
         let two = try #require(SavedRoute.fromPlan(
-            [home, stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
             roadDistanceMeters: nil))
         #expect(two.totalDistanceMeters > 10_000 && two.totalDistanceMeters < 12_000)
     }
@@ -48,7 +60,7 @@ struct SavedRouteFromPlanTests {
     }
 
     @Test func emptyStopNameFallsBackToCoordinates() throws {
-        let r = try #require(SavedRoute.fromPlan([home, stop("", 50.4330, 14.5780)],
+        let r = try #require(SavedRoute.fromPlan([stop("", 50.4330, 14.5780)],
                                                  roadDistanceMeters: nil))
         #expect(r.points[0].name == nil)
         #expect(r.name == "50.4330, 14.5780")
@@ -70,15 +82,38 @@ struct SavedRouteFromPlanTests {
         #expect(store.replace(id: UUID(), with: edited) == nil)
     }
 
-    @Test func roundTripStartedAtItsEndNeverPromptsForNearest() {
-        // Planned at home: Mělník → Kokořín → Home. At the bike (home) the
-        // nearest point is the destination — must start from the first.
-        let points = [RoutePoint(latitude: 50.3505, longitude: 14.4741, name: "Mělník"),
-                      RoutePoint(latitude: 50.4330, longitude: 14.5780, name: "Kokořín"),
-                      RoutePoint(latitude: 50.2385, longitude: 14.2011, name: "Home")]
-        let d = RouteStartPlanner.analyze(points: points,
-                                          riderLocation: CLLocationCoordinate2D(latitude: 50.2385, longitude: 14.2011))
-        #expect(d.nearestIndex == 2)
+    private let loop = [RoutePoint(latitude: 50.2385, longitude: 14.2011, name: "Zvoleněves"),
+                        RoutePoint(latitude: 50.3505, longitude: 14.4741, name: "Mělník"),
+                        RoutePoint(latitude: 50.4330, longitude: 14.5780, name: "Kokořín"),
+                        RoutePoint(latitude: 50.2386, longitude: 14.2012, name: "Home")]
+
+    @Test func loopStartedAtHomeSkipsHomeWithoutAPrompt() {
+        let bike = CLLocationCoordinate2D(latitude: 50.2387, longitude: 14.2015)   // ~30 m off
+        let d = RouteStartPlanner.analyze(points: loop, riderLocation: bike)
         #expect(d.shouldPrompt == false)
+        let nav = RouteStartPlanner.droppingReachedStart(
+            RouteStartPlanner.navigablePoints(loop, mode: .fromFirst, nearestIndex: d.nearestIndex),
+            riderLocation: bike)
+        #expect(nav.map(\.name) == ["Mělník", "Kokořín", "Home"])
+    }
+
+    @Test func firstPointIsKeptWhenTheRiderIsNotThere() {
+        let away = CLLocationCoordinate2D(latitude: 50.2450, longitude: 14.2011)   // ~720 m north
+        #expect(RouteStartPlanner.droppingReachedStart(loop, riderLocation: away).count == 4)
+        #expect(RouteStartPlanner.droppingReachedStart(loop, riderLocation: nil).count == 4)
+        #expect(RouteStartPlanner.droppingReachedStart([loop[0]], riderLocation: loop[0].coordinate).count == 1)
+    }
+
+    @Test func oneWayRouteJoinedNearItsEndStillPrompts() {
+        // Review 2 of #151: A → B → C with C 80 km past B; the rider is
+        // 30 km short of C, so C is the nearest point — ask, don't
+        // silently send them 100+ km back to A.
+        let oneWay = [RoutePoint(latitude: 50.00, longitude: 14.0, name: "A"),
+                      RoutePoint(latitude: 50.10, longitude: 14.0, name: "B"),
+                      RoutePoint(latitude: 50.82, longitude: 14.0, name: "C")]
+        let rider = CLLocationCoordinate2D(latitude: 50.55, longitude: 14.0)
+        let d = RouteStartPlanner.analyze(points: oneWay, riderLocation: rider)
+        #expect(d.nearestIndex == 2)
+        #expect(d.shouldPrompt == true)
     }
 }

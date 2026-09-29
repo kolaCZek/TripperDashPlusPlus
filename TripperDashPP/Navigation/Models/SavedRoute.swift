@@ -157,28 +157,36 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
 }
 
 extension SavedRoute {
-    /// A `.waypoints` route built from the planner's stops — "plan it at
-    /// home, save it, just start it at the bike".
+    /// A `.waypoints` route built from ALL the planner's points — "plan it
+    /// at home, save it, just start it at the bike".
     ///
-    /// The live-GPS origin is dropped: `beginPlanningFromSavedRoute`
-    /// re-prepends wherever the rider is when they start. Only the stops
-    /// are kept, not the computed `MKRoute`s (not Codable, and stale by
-    /// ride day) — legs are recomputed at start with fresh traffic, so a
-    /// hand-picked grey alternative is not remembered.
+    /// The live-GPS origin is kept as an ordinary fixed point at
+    /// `currentLocation` (the latest fix; the waypoint's own snapshot if
+    /// nil), named `currentLocationName` — "Current location" means
+    /// nothing in the library. The rider removes it from the plan if they
+    /// don't want it. At start, `beginPlanningFromSavedRoute` prepends the
+    /// live position again and skips the first point if the rider is
+    /// already there (`RouteStartPlanner.droppingReachedStart`).
     ///
-    /// `roadDistanceMeters` is the plan's routed total when computed
-    /// (includes the leg from where it was planned); otherwise the
-    /// straight-line length between the stops, like a GPX `<wpt>` import.
+    /// Only the points are kept, not the computed `MKRoute`s (not Codable,
+    /// and stale by ride day) — legs are recomputed at start with fresh
+    /// traffic, so a hand-picked grey alternative is not remembered.
+    ///
+    /// `roadDistanceMeters` is the plan's routed total when computed;
+    /// otherwise the straight-line length between the points, like a GPX
+    /// `<wpt>` import. A plan of nothing but the live origin saves nothing.
     static func fromPlan(_ waypoints: [Waypoint],
                          roadDistanceMeters: Double?,
+                         currentLocation: CLLocationCoordinate2D? = nil,
+                         currentLocationName: String? = nil,
                          now: Date = .now) -> SavedRoute? {
-        let stops = waypoints.filter { !$0.isCurrentLocation }
-        guard !stops.isEmpty else { return nil }
-        // An empty name (possible from MKMapItem) is stored as nil, so the
-        // route name falls back to coordinates and a start labels it
-        // "Stop N" / "Route end" like any unnamed GPX point.
-        let points = stops.map {
-            RoutePoint(coordinate: $0.coordinate, name: $0.name.isEmpty ? nil : $0.name)
+        guard waypoints.contains(where: { !$0.isCurrentLocation }) else { return nil }
+        // An empty name (possible from MKMapItem, or a failed geocode) is
+        // stored as nil, so labels fall back to coordinates / "Stop N".
+        let points = waypoints.map { wp in
+            let name = wp.isCurrentLocation ? (currentLocationName ?? "") : wp.name
+            return RoutePoint(coordinate: wp.isCurrentLocation ? (currentLocation ?? wp.coordinate) : wp.coordinate,
+                              name: name.isEmpty ? nil : name)
         }
         return SavedRoute(
             name: points.count == 1 ? label(for: points[0])

@@ -106,6 +106,8 @@ struct MapPickerView: View {
     /// exactly these stops — edit the plan, or let a "Pin …" get its
     /// reverse-geocoded name, and it can be saved again (overwrites).
     @State private var savedPlanStops: [String]?
+    /// A save is in flight (reverse-geocoding the current location).
+    @State private var savingPlan = false
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
         plan.waypoints.map { "\($0.id)|\($0.name)" }
@@ -629,13 +631,17 @@ struct MapPickerView: View {
                 let saved = savedPlanStops == Self.stopsSnapshot(plan)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        if status.saveCurrentPlan() != nil {
-                            savedPlanStops = Self.stopsSnapshot(plan)
+                        savingPlan = true
+                        Task {
+                            if await status.saveCurrentPlan() != nil {
+                                savedPlanStops = Self.stopsSnapshot(plan)
+                            }
+                            savingPlan = false
                         }
                     } label: {
                         Image(systemName: saved ? "bookmark.fill" : "bookmark")
                     }
-                    .disabled(saved)
+                    .disabled(saved || savingPlan)
                     .accessibilityLabel(saved ? "Route saved to Saved routes"
                                               : "Save route to Saved routes")
                 }

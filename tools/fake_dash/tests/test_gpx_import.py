@@ -40,6 +40,7 @@ from tests.gpx_geometry_mirror import (
     import_route,
     is_valid,
     navigable_points,
+    dropping_reached_start,
     parse,
     path_length,
     perpendicular_distance,
@@ -436,23 +437,45 @@ class TestAnalyze:
         assert d.should_prompt is True
 
 
-    def test_round_trip_at_its_destination_never_prompts(self):
-        # Review of #151: a loop planned at home and started at the bike
-        # (home) has its nearest point at the END. "From the nearest point"
-        # would navigate [home] → instant arrival.
-        route = _route_line() + [Pt(50.0, 14.0)]
-        d = analyze(route, Pt(50.0, 14.0))
-        assert d.nearest_index in (0, len(route) - 1)
-        loop_far_start = [Pt(50.0, 14.01), Pt(50.0, 14.02), Pt(50.0, 14.0)]
-        d = analyze(loop_far_start, Pt(50.0, 14.0))
-        assert d.nearest_index == len(loop_far_start) - 1
-        assert d.should_prompt is False
+    def test_one_way_route_joined_near_its_end_still_prompts(self):
+        # Review 2 of #151: A → B → C, C 80 km past B, rider 30 km short of
+        # C → nearest is the LAST point; must ask, not send them back to A.
+        route = [Pt(50.00, 14.0), Pt(50.10, 14.0), Pt(50.82, 14.0)]
+        d = analyze(route, Pt(50.55, 14.0))
+        assert d.nearest_index == 2
+        assert d.should_prompt is True
 
-    def test_swift_never_prompts_for_the_last_point(self):
+    def test_loop_saved_at_home_started_at_home_no_prompt_home_skipped(self):
+        # A loop saved from the planner starts with home; ends at a home
+        # favourite a few metres off. At the bike: no prompt, and the
+        # first point (where the rider stands) is not navigated to.
+        home = Pt(50.2385, 14.2011, name="Zvoleněves")
+        loop = [home, Pt(50.3505, 14.4741, name="Mělník"), Pt(50.4330, 14.5780, name="Kokořín"),
+                Pt(50.2386, 14.2012, name="Home")]
+        bike = Pt(50.2387, 14.2015)
+        d = analyze(loop, bike)
+        assert d.should_prompt is False
+        out = planned_navigable_points(loop, "from_first", d.nearest_index, "waypoints", rider=bike)
+        assert [p.name for p in out] == ["Mělník", "Kokořín", "Home"]
+
+    def test_first_point_kept_when_rider_is_not_there(self):
+        route = _route_line()
+        assert dropping_reached_start(route, Pt(50.01, 14.0)) == route   # ~1.1 km off
+        assert dropping_reached_start(route, None) == route
+        assert dropping_reached_start(route[:1], route[0]) == route[:1]
+        assert dropping_reached_start(route, route[0]) == route[1:]
+
+    def test_swift_start_rules(self):
         src = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "Navigation"
                / "RouteStartPlanner.swift").read_text()
         body = strip_comments(decl_body(src, "static func analyze"))
-        assert "nearestIdx < points.count - 1" in body
+        assert "nearestIdx < points.count - 1" not in body, "the last point must be promptable again"
+        drop = strip_comments(decl_body(src, "static func droppingReachedStart"))
+        assert "points.count > 1" in drop and "<= promptThresholdMeters" in drop
+        app = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "App"
+               / "AppStatus.swift").read_text()
+        begin = strip_comments(decl_body(app, "func beginPlanningFromSavedRoute"))
+        assert begin.index("droppingReachedStart") < begin.index("GPXGeometry.reduce")
 
 
 class TestNavigablePoints:

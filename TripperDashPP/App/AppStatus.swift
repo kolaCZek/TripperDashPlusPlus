@@ -1084,9 +1084,9 @@ final class AppStatus {
     func beginPlanningFromSavedRoute(_ route: SavedRoute,
                                      mode: RouteStartMode,
                                      nearestIndex: Int) {
-        let selected = RouteStartPlanner.navigablePoints(route.points,
-                                                         mode: mode,
-                                                         nearestIndex: nearestIndex)
+        let selected = RouteStartPlanner.droppingReachedStart(
+            RouteStartPlanner.navigablePoints(route.points, mode: mode, nearestIndex: nearestIndex),
+            riderLocation: locationService.lastFix?.coordinate)
         // A `.track` route carries its FULL precise geometry (potentially
         // thousands of points). MKDirections is one call per leg and Apple
         // rate-limits it, so reduce a track to ≤navigableCap significant
@@ -1122,17 +1122,34 @@ final class AppStatus {
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
 
-    /// Save the live plan's stops to Saved routes, so a route planned at
-    /// home can be started later from the library. Skipped for a plan
-    /// launched FROM the library (`isFromLibrary`). Saving the same plan
-    /// again (stops edited, a pin got its real name) overwrites the entry
-    /// it was saved to; if the rider deleted that entry, it is added anew.
+    /// Save the live plan to Saved routes, so a route planned at home can
+    /// be started later from the library. Every point is kept, the live
+    /// "Current location" origin included — as a fixed point at the latest
+    /// fix, named after the place (reverse geocode; coordinates offline).
+    /// A rider who doesn't want it removes it from the plan first.
+    /// Skipped for a plan launched FROM the library (`isFromLibrary`).
+    /// Saving the same plan again (stops edited, a pin got its real name)
+    /// overwrites the entry it was saved to; if the rider deleted that
+    /// entry, it is added anew.
     @discardableResult
-    func saveCurrentPlan() -> SavedRoute? {
-        guard let plan = plannedRoute, !plan.isFromLibrary,
+    func saveCurrentPlan() async -> SavedRoute? {
+        guard let plan = plannedRoute, !plan.isFromLibrary else { return nil }
+        var here: CLLocationCoordinate2D?
+        var hereName: String?
+        if let origin = plan.waypoints.first(where: \.isCurrentLocation) {
+            let coord = locationService.lastFix?.coordinate ?? origin.coordinate
+            here = coord
+            let placemark = try? await CLGeocoder().reverseGeocodeLocation(
+                CLLocation(latitude: coord.latitude, longitude: coord.longitude)).first
+            hereName = placemark?.name ?? placemark?.locality
+        }
+        // The rider may have cancelled or switched plans during the geocode.
+        guard plannedRoute === plan,
               let route = SavedRoute.fromPlan(
                   plan.waypoints,
-                  roadDistanceMeters: plan.isComputed ? plan.totalDistanceMeters : nil)
+                  roadDistanceMeters: plan.isComputed ? plan.totalDistanceMeters : nil,
+                  currentLocation: here,
+                  currentLocationName: hereName)
         else { return nil }
         if let id = plan.savedRouteId, let updated = savedRoutesStore.replace(id: id, with: route) {
             return updated

@@ -82,11 +82,11 @@ enum RouteStartPlanner {
         // saving (first − nearest) exceeds the threshold. That second
         // clause is what stops a prompt when the rider is basically at
         // the start but a slightly-closer second point exists.
-        // Never when the nearest point is the LAST one: joining a route at
-        // its destination isn't resuming it — a round trip planned at home
-        // and started at the bike (home) would "arrive" instantly.
+        // A round trip saved from the planner starts AND ends at home, so
+        // at home the saving (first − nearest) is at most the few metres
+        // between those two points — no prompt, whichever is nearer — and
+        // `droppingReachedStart` skips the first.
         let shouldPrompt = nearestIdx > 0
-            && nearestIdx < points.count - 1
             && (distFirst - nearestDist) > promptThresholdMeters
 
         return RouteStartDecision(nearestIndex: nearestIdx,
@@ -112,5 +112,19 @@ enum RouteStartPlanner {
             guard nearestIndex > 0, nearestIndex < points.count else { return points }
             return Array(points[nearestIndex...])
         }
+    }
+
+    /// Drop the first point to navigate when the rider is already there
+    /// (within `promptThresholdMeters`): the live-GPS origin is prepended
+    /// anyway, and navigating to a point you stand on "arrives" at stop 1
+    /// the moment guidance starts. Typical case: a round trip planned at
+    /// home (home saved as its first stop) started at the bike. A single
+    /// point is never dropped.
+    static func droppingReachedStart(_ points: [RoutePoint],
+                                     riderLocation: CLLocationCoordinate2D?) -> [RoutePoint] {
+        guard points.count > 1, let rider = riderLocation,
+              GPXGeometry.haversine(rider, points[0].coordinate) <= promptThresholdMeters
+        else { return points }
+        return Array(points.dropFirst())
     }
 }

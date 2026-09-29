@@ -33,9 +33,13 @@ the **bookmark** in the top bar saves the plan's stops to Saved routes
 as a `.waypoints` route (`SavedRoute.fromPlan`). Plan at home, save,
 and at the bike just open Saved routes → **Start navigation**.
 
-- The live-GPS origin is not stored; the start is wherever you are when
-  you launch it, like any saved route.
-- Only the stops are stored, not the computed roads: legs are recomputed
+- Every point is stored, your current location included — as a fixed
+  point named after the place (coordinates when offline). Don't want it?
+  Remove it from the plan before saving.
+- On start the live location is the routing origin as always, and the
+  first point is skipped if you're already within 300 m of it — a loop
+  planned at home and started at home just rides the loop.
+- Only the points are stored, not the computed roads: legs are recomputed
   on start (fresh traffic). A grey alternative you picked is not kept —
   add a via stop to pin a specific road.
 - Name defaults to `First stop → Last stop` (or the destination for a
@@ -109,12 +113,15 @@ fix to the route:
 - **From the nearest point** — snap onto the route at the closest point
   and ride from there (skip the leading portion already behind you).
 
-The app only **prompts** when the nearest point isn't the first one (nor
-the last — joining a loop at its destination isn't resuming it) AND
+The app only **prompts** when the nearest point isn't the first one AND
 starting from first would mean a meaningful (>300 m) detour backwards.
 Otherwise it silently starts from the first point. The live GPS location
 is always prepended as the routing origin so MKDirections has a real
-source for the first leg.
+source for the first leg, and the first point to navigate is dropped
+when you're within 300 m of it (`RouteStartPlanner.droppingReachedStart`)
+so guidance doesn't open with an instant "arrived at stop 1". A round
+trip saved from the planner at home starts and ends at home, so at home
+the saving over the first point is a few metres at most — no prompt.
 
 ## Persistence
 
