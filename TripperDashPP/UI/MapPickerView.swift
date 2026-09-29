@@ -356,6 +356,10 @@ struct MapPickerView: View {
             // fire it once the prompt is answered.
             if !up { tryAutoStartNavigation() }
         }
+        .onChange(of: showDiscardPlanDialog) { _, up in
+            // "Keep editing" → resume a held auto-start ("Discard" disarms it).
+            if !up { tryAutoStartNavigation() }
+        }
         .onChange(of: status.requestDismissSavedRoutes) { _, request in
             // A saved route was staged for navigation from inside the
             // Saved Routes sheet — tear the sheet down so the picker's
@@ -409,7 +413,8 @@ struct MapPickerView: View {
         // presented over it, and the ride shouldn't start mid-typing. If
         // SwiftUI dropped that alert (flag stuck true), this holds auto-start
         // until the next bookmark tap resets it; "Start navigation" still works.
-        guard !showPlanSaveAlert else { return }
+        // Same for "Discard this plan?": don't launch the plan being discarded.
+        guard !showPlanSaveAlert, !showDiscardPlanDialog else { return }
         guard mode == .picking,
               let plan = status.plannedRoute,
               plan.isComputed else { return }
@@ -687,13 +692,19 @@ struct MapPickerView: View {
         }
         .confirmationDialog("Discard this plan?", isPresented: $showDiscardPlanDialog,
                             titleVisibility: .visible) {
-            Button("Discard", role: .destructive) { status.cancelPlanning() }
+            Button("Discard", role: .destructive) {
+                pendingAutoStart = false
+                status.cancelPlanning()
+            }
             Button("Keep editing", role: .cancel) {}
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") {
-                    if Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops) {
+                    // A library plan is still in the library (and can't be saved
+                    // from here), so there's nothing to lose.
+                    if !plan.isFromLibrary,
+                       Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops) {
                         showDiscardPlanDialog = true
                     } else {
                         status.cancelPlanning()
@@ -906,11 +917,11 @@ struct MapPickerView: View {
         // Hold-to-stop: a gloved or mount-bumped tap must not end the ride
         // (no undo — re-plan, new MKDirections, new prerender).
         case (.navigating, _):
-            HoldToConfirmButton(title: "Hold to stop navigation",
+            HoldToConfirmButton(title: "Hold to stop navigation", spokenTitle: "Stop navigation",
                                 systemImage: "stop.circle.fill") { stopNavigation() }
 
         case (.freeRiding, _):
-            HoldToConfirmButton(title: "Hold to stop free ride",
+            HoldToConfirmButton(title: "Hold to stop free ride", spokenTitle: "Stop free ride",
                                 systemImage: "stop.circle.fill") { status.stopFreeRide() }
 
         // Connection-in-progress takes precedence over the planning UI:
@@ -1599,6 +1610,8 @@ struct MapPickerView: View {
 /// drops back on early release. VoiceOver double-tap acts directly.
 private struct HoldToConfirmButton: View {
     let title: String
+    /// VoiceOver label: a double-tap acts directly, so no "Hold to".
+    let spokenTitle: String
     let systemImage: String
     let action: () -> Void
 
@@ -1628,7 +1641,7 @@ private struct HoldToConfirmButton: View {
                 withAnimation(anim) { progress = pressing ? 1 : 0 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
+            .accessibilityLabel(spokenTitle)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { action() }
     }

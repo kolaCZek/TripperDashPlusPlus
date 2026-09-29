@@ -276,7 +276,7 @@ def test_swift_planner_toolbar_has_save_button():
         assert flag in modal, f"{flag} can be up while the draft returns"
     # Auto-start (armed by Connect while planning) waits for the prompt.
     auto = strip_comments(decl_body(PICKER.read_text(), "private func tryAutoStartNavigation"))
-    assert "guard !showPlanSaveAlert else { return }" in auto
+    assert re.search(r"guard !showPlanSaveAlert\b[^\n]*else \{ return \}", auto)
     assert auto.index("guard !showPlanSaveAlert") < auto.index("startNavigation(plan: plan)")
     root_body = strip_comments(decl_body(PICKER.read_text(), "var body: some View"))
     on_alert = root_body[root_body.index(".onChange(of: showPlanSaveAlert)"):]

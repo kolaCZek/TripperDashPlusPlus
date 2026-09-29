@@ -22,7 +22,8 @@ from pathlib import Path
 from .swift_source import decl_body, strip_comments
 
 REPO = Path(__file__).resolve().parents[3]
-PICKER = REPO / "TripperDashPP" / "UI" / "MapPickerView.swift"
+UI = REPO / "TripperDashPP" / "UI"
+PICKER = UI / "MapPickerView.swift"
 
 
 def _src() -> str:
@@ -41,25 +42,36 @@ def test_ride_stop_buttons_use_the_hold_component():
 
 
 def test_no_plain_button_stops_a_ride():
-    src = _src()
     # Any `Button` whose action closure calls a ride stop is a one-tap stop.
-    one_tap = re.findall(r"(?<!\w)Button\b[^{}]*\{\s*(?:status\.)?(?:stopNavigation|stopFreeRide)\(\)", src)
-    assert not one_tap, one_tap
-    # And the only UI call sites are the two hold buttons (the dash exit
-    # hook's `self.stopNavigation()` is not a button and stays immediate).
-    assert src.count("status.stopFreeRide()") == 1
-    assert len(re.findall(r"(?<![.\w])(?<!func )stopNavigation\(\)", src)) == 1
+    # `stopFreeRide` is public on AppStatus, so check every UI file.
+    one_tap_re = re.compile(
+        r"(?<!\w)Button\b[^{}]*\{\s*(?:status\.)?(?:stopNavigation|stopFreeRide)\(\)")
+    free_ride_calls = 0
+    for f in sorted(UI.rglob("*.swift")):
+        src = strip_comments(f.read_text(encoding="utf-8"))
+        assert not one_tap_re.findall(src), f.name
+        free_ride_calls += src.count("stopFreeRide()")
+    # The only UI call site is the hold button.
+    assert free_ride_calls == 1
+    # `stopNavigation` is private to the picker: its only button is the hold
+    # one (the dash exit hook's `self.stopNavigation()` stays immediate).
+    src = _src()
+    assert len(re.findall(r"\{\s*stopNavigation\(\)\s*\}", src)) == 1
 
 
 def test_hold_component_needs_two_seconds_and_fires_once():
     body = decl_body(_src(), "private struct HoldToConfirmButton")
-    assert "static let holdDuration: Double = 2" in body
+    assert re.search(r"static let holdDuration(?::\s*\w+)?\s*=\s*2(?:\.0)?\b", body)
     assert ".onLongPressGesture(minimumDuration: Self.holdDuration" in body
     assert "onPressingChanged:" in body
     assert ".linear(duration: Self.holdDuration)" in body
     # VoiceOver can still stop the ride with a double-tap.
     assert ".accessibilityAddTraits(.isButton)" in body
     assert ".accessibilityAction { action() }" in body
+    # VoiceOver acts on a double-tap, so its label must not say "Hold to".
+    assert ".accessibilityLabel(spokenTitle)" in body
+    for spoken in ('spokenTitle: "Stop navigation"', 'spokenTitle: "Stop free ride"'):
+        assert spoken in _src()
     # No hand-rolled timer loop.
     assert "Timer" not in body and "Task.sleep" not in body
 
@@ -70,12 +82,29 @@ def test_planner_cancel_checks_for_unsaved_work():
     cancel = plan[plan.index('Button("Cancel")'):]
     cancel = cancel[:cancel.index("ToolbarItem")]
     assert "Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: savedPlanStops)" in cancel
+    # Library plans are still in the library: never ask for them.
+    assert cancel.index("!plan.isFromLibrary") < cancel.index("planHasUnsavedWork")
     assert "showDiscardPlanDialog = true" in cancel
     assert cancel.index("planHasUnsavedWork") < cancel.index("status.cancelPlanning()")
     dialog = plan[plan.index('.confirmationDialog("Discard this plan?"'):plan.index(".toolbar")]
     assert "isPresented: $showDiscardPlanDialog" in dialog
-    assert 'Button("Discard", role: .destructive) { status.cancelPlanning() }' in dialog
+    assert 'Button("Discard", role: .destructive)' in dialog
+    assert "status.cancelPlanning()" in dialog
     assert 'Button("Keep editing", role: .cancel)' in dialog
-    pred = decl_body(src, "static func planHasUnsavedWork")
-    assert "stops.count > 2 && stops != saved" in pred
+    assert "stops.count > 2" in decl_body(src, "static func planHasUnsavedWork")
+
+
+def test_auto_start_is_held_under_the_discard_dialog():
+    # Connect & start, then Cancel → "Discard this plan?": the link coming up
+    # must not launch the plan under the dialog; Keep editing resumes it,
+    # Discard disarms it.
+    src = _src()
+    auto = decl_body(src, "private func tryAutoStartNavigation")
+    assert "!showDiscardPlanDialog" in auto
+    assert auto.index("!showDiscardPlanDialog") < auto.index("startNavigation(plan:")
+    resume = src[src.index(".onChange(of: showDiscardPlanDialog)"):]
+    assert "tryAutoStartNavigation()" in resume[:resume.index("}\n")+200]
+    dialog = src[src.index('.confirmationDialog("Discard this plan?"'):]
+    discard = dialog[dialog.index('Button("Discard"'):dialog.index('Button("Keep editing"')]
+    assert discard.index("pendingAutoStart = false") < discard.index("status.cancelPlanning()")
     assert "showDiscardPlanDialog" in decl_body(src, "private var anotherModalUp")
