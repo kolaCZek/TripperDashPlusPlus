@@ -68,12 +68,12 @@ struct SavedRouteFromPlanTests {
 
     @Test func replaceKeepsIdAndCreatedAt() throws {
         let store = SavedRoutesStore(defaults: UserDefaults(suiteName: "test.routes.\(UUID().uuidString)")!)
-        let first = try #require(SavedRoute.fromPlan([home, stop("Kokořín", 50.4330, 14.5780)],
+        let first = try #require(SavedRoute.fromPlan([stop("Kokořín", 50.4330, 14.5780)],
                                                      roadDistanceMeters: nil,
                                                      now: Date(timeIntervalSince1970: 1_000)))
         store.add(first)
         let edited = try #require(SavedRoute.fromPlan(
-            [home, stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
             roadDistanceMeters: nil))
         let out = try #require(store.replace(id: first.id, with: edited))
         #expect(store.routes.count == 1)
