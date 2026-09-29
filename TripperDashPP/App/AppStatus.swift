@@ -1233,6 +1233,21 @@ final class AppStatus {
     /// can finish the lookup manually. Cleared once consumed.
     var pendingSearchHint: String? = nil
 
+    /// A share that arrived mid-ride, parked (latest wins) until the picker
+    /// is back and replays it through `beginPlanningFromShared`. Staging
+    /// during a ride would be wiped by the next `stopNavigation()`.
+    var pendingShare: ShareResolution? = nil
+
+    private var rideActive: Bool { activeNavigator.isNavigating || isFreeRiding }
+
+    private func parkShare(_ resolution: ShareResolution) {
+        pendingShare = resolution
+        pendingSearchHint = nil   // older than this share
+        mapViewSource.showNotice(
+            DashNotice(text: "Share saved for after the ride", level: .info, duration: 5)
+        )
+    }
+
     /// Pre-fill the planner from a resolved shared payload (Google/Apple
     /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
     /// exactly like a saved-route import (origin = live location, shared
@@ -1243,6 +1258,10 @@ final class AppStatus {
     /// Returns whether anything actionable was staged.
     @discardableResult
     func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
+        if resolution != .empty, rideActive {
+            parkShare(resolution)
+            return true
+        }
         switch resolution {
         case .empty:
             return false
@@ -1330,6 +1349,11 @@ final class AppStatus {
     /// and kick off leg routing. Shared by the coordinate and geocoded-name
     /// paths so both behave identically.
     private func stagePlan(to stops: [Waypoint]) {
+        // A ride may have started while the shared name was geocoding.
+        guard !rideActive else {
+            parkShare(.waypoints(stops.map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) }))
+            return
+        }
         let originCoord = locationService.lastFix?.coordinate
             ?? stops[0].coordinate
         let origin = Waypoint.currentLocation(originCoord)

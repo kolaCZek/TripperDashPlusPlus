@@ -358,15 +358,37 @@ struct MapPickerView: View {
                 status.requestDismissSavedRoutes = false
             }
         }
-        .onChange(of: status.pendingSearchHint) { _, hint in
-            // "Share to TripperDash++" couldn't geocode the shared link but
-            // recovered a place/road label → open Search pre-filled with it
-            // so the rider finishes the lookup manually. One-shot: consume.
-            if let hint, !hint.isEmpty {
-                sharedSearchSeed = hint
-                showSearch = true
-                status.pendingSearchHint = nil
+        .onChange(of: status.pendingSearchHint) { _, _ in consumePendingShare() }
+        .onChange(of: status.pendingShare) { _, _ in consumePendingShare() }
+        .onChange(of: shareGateOpen, initial: true) { _, open in
+            // Let a just-dismissed sheet finish animating out first, or the
+            // Search sheet presented on top of it is dropped too.
+            guard open else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                consumePendingShare()
             }
+        }
+    }
+
+    /// Search can only be presented from the idle picker with nothing else
+    /// on screen — SwiftUI drops a sheet presented over another modal.
+    private var shareGateOpen: Bool {
+        mode == .picking && !anotherModalUp && !showPlanSaveAlert
+    }
+
+    /// Replay a share parked during a ride, or open Search pre-filled with a
+    /// label "Share to TripperDash++" couldn't geocode. Consumed only once
+    /// the gate is open; otherwise it stays pending for the gate onChange.
+    private func consumePendingShare() {
+        guard shareGateOpen else { return }
+        if let share = status.pendingShare {
+            status.pendingShare = nil
+            Task { await status.beginPlanningFromShared(share) }
+        } else if let hint = status.pendingSearchHint, !hint.isEmpty {
+            sharedSearchSeed = hint
+            showSearch = true
+            status.pendingSearchHint = nil
         }
     }
 
