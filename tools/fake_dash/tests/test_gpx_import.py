@@ -20,9 +20,11 @@ the asserts double as a regression pin on the haversine/RDP constants.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
+from tests.swift_source import decl_body, strip_comments
 from tests.gpx_geometry_mirror import (
     EDITABLE_LIST_THRESHOLD,
     NAVIGABLE_CAP,
@@ -38,6 +40,7 @@ from tests.gpx_geometry_mirror import (
     import_route,
     is_valid,
     navigable_points,
+    dropping_reached_start,
     parse,
     path_length,
     perpendicular_distance,
@@ -424,12 +427,83 @@ class TestAnalyze:
 
     def test_just_over_threshold_boundary(self):
         # Construct a route where nearest is index 1 and the saving is
-        # just above 300 m. Spacing 400 m between pt0 and pt1.
-        route = [Pt(50.0, 14.0), Pt(50.0, 14.0 + 400 / 111_320 / math.cos(math.radians(50)) )]
+        # just above 300 m. Spacing 400 m between pt0 and pt1; a third
+        # point beyond, so pt1 isn't the destination (never prompted).
+        step = 400 / 111_320 / math.cos(math.radians(50))
+        route = [Pt(50.0, 14.0), Pt(50.0, 14.0 + step), Pt(50.0, 14.0 + 2 * step)]
         # Rider sits on pt1 → dist_first ≈ 400 m, nearest 0 → saving 400.
         d = analyze(route, route[1])
         assert d.nearest_index == 1
         assert d.should_prompt is True
+
+
+    def test_one_way_route_joined_near_its_end_still_prompts(self):
+        # Review 2 of #151: A → B → C, C 80 km past B, rider 30 km short of
+        # C → nearest is the LAST point; must ask, not send them back to A.
+        route = [Pt(50.00, 14.0), Pt(50.10, 14.0), Pt(50.82, 14.0)]
+        d = analyze(route, Pt(50.55, 14.0))
+        assert d.nearest_index == 2
+        assert d.should_prompt is True
+
+    def test_loop_saved_at_home_started_at_home_no_prompt_home_skipped(self):
+        # A loop saved from the planner starts with home; ends at a home
+        # favourite a few metres off. At the bike: no prompt, and the
+        # first point (where the rider stands) is not navigated to.
+        home = Pt(50.2385, 14.2011, name="Zvoleněves")
+        loop = [home, Pt(50.3505, 14.4741, name="Mělník"), Pt(50.4330, 14.5780, name="Kokořín"),
+                Pt(50.2386, 14.2012, name="Home")]
+        bike = Pt(50.2387, 14.2015)
+        d = analyze(loop, bike)
+        assert d.should_prompt is False
+        out = planned_navigable_points(loop, "from_first", d.nearest_index, "waypoints", rider=bike)
+        assert [p.name for p in out] == ["Mělník", "Kokořín", "Home"]
+
+    def test_loop_without_origin_started_at_its_end_never_prompts(self):
+        # Review 3 of #151: [Mělník, Kokořín, Home] started at home — the
+        # nearest point is the destination the rider stands on; "from the
+        # nearest point" would be ['Home'] → instant arrival. Ride it from
+        # the first point instead, no prompt.
+        loop = [Pt(50.3505, 14.4741, name="Mělník"), Pt(50.4330, 14.5780, name="Kokořín"),
+                Pt(50.2386, 14.2012, name="Home")]
+        d = analyze(loop, Pt(50.2387, 14.2015))
+        assert d.nearest_index == 2
+        assert d.should_prompt is False
+        # A 2-point route started within 300 m of its end: same.
+        assert analyze([Pt(50.0, 14.0), Pt(50.1, 14.0)], Pt(50.101, 14.0)).should_prompt is False
+
+    def test_dense_track_started_at_its_end_never_prompts(self):
+        # Review 4 of #151: 500 points ~22 m apart, rider 43 m from the end
+        # is NEAREST to point 497, not the last — must still count as "at
+        # the destination" (else "from nearest" = 3 points, instant arrival).
+        step = 22 / 111_320 / math.cos(math.radians(50))
+        track = [Pt(50.0, 14.0 + i * step) for i in range(500)]
+        rider = Pt(50.0, 14.0 + 497 * step + 0.00001)
+        d = analyze(track, rider)
+        assert d.nearest_index == 497
+        assert d.should_prompt is False
+        # 1 km short of the end it's a real mid-route join → prompt.
+        assert analyze(track, track[450]).should_prompt is True
+
+    def test_first_point_kept_when_rider_is_not_there(self):
+        route = _route_line()
+        assert dropping_reached_start(route, Pt(50.01, 14.0)) == route   # ~1.1 km off
+        assert dropping_reached_start(route, None) == route
+        assert dropping_reached_start(route[:1], route[0]) == route[:1]
+        assert dropping_reached_start(route, route[0]) == route[1:]
+
+    def test_swift_start_rules(self):
+        src = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "Navigation"
+               / "RouteStartPlanner.swift").read_text()
+        body = strip_comments(decl_body(src, "static func analyze"))
+        assert "nearestIdx < points.count - 1" not in body, "a far-off destination must be promptable"
+        assert "GPXGeometry.haversine(rider, points[points.count - 1].coordinate) <= promptThresholdMeters" in body
+        assert "!atDestination" in body
+        drop = strip_comments(decl_body(src, "static func droppingReachedStart"))
+        assert "points.count > 1" in drop and "<= promptThresholdMeters" in drop
+        app = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "App"
+               / "AppStatus.swift").read_text()
+        begin = strip_comments(decl_body(app, "func beginPlanningFromSavedRoute"))
+        assert begin.index("droppingReachedStart") < begin.index("GPXGeometry.reduce")
 
 
 class TestNavigablePoints:
