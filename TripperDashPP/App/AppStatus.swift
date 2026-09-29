@@ -1137,11 +1137,13 @@ final class AppStatus {
     /// saved origin follows the rider if they re-save elsewhere; if the
     /// rider deleted that entry, it is added anew.
     ///
-    /// Completes even if the rider starts navigation or cancels during the
-    /// geocode (the planner drops `plannedRoute` then): they asked to save,
-    /// and `plan` is held strongly, so its points are still what they saw.
-    @discardableResult
-    func saveCurrentPlan() async -> SavedRoute? {
+    /// Two steps around the planner's name prompt: this one builds the
+    /// route (the geocode is the slow part) and suggests a name — the one
+    /// the plan was saved under before (possibly renamed in the library),
+    /// else the automatic `First → Last`; `commitPlanSave` stores it.
+    /// `plan` is returned and held strongly, so a Start/Cancel during the
+    /// geocode doesn't lose what the rider asked to save.
+    func draftPlanSave() async -> (plan: PlannedRoute, route: SavedRoute, suggestedName: String)? {
         guard let plan = plannedRoute, !plan.isFromLibrary else { return nil }
         var here: CLLocationCoordinate2D?
         var hereName: String?
@@ -1158,10 +1160,15 @@ final class AppStatus {
                   currentLocation: here,
                   currentLocationName: hereName)
         else { return nil }
-        if let id = plan.savedRouteId, let updated = savedRoutesStore.replace(id: id, with: route) {
-            return updated
-        }
-        let saved = savedRoutesStore.add(route)
+        let previous = savedRoutesStore.routes.first { $0.id == plan.savedRouteId }
+        return (plan, route, previous?.name ?? route.name)
+    }
+
+    /// Store a `draftPlanSave` route under the rider's name (blank → the
+    /// automatic one).
+    @discardableResult
+    func commitPlanSave(_ route: SavedRoute, named name: String, for plan: PlannedRoute) -> SavedRoute {
+        let saved = savedRoutesStore.save(route, named: name, replacing: plan.savedRouteId)
         plan.savedRouteId = saved.id
         return saved
     }

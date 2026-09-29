@@ -98,6 +98,18 @@ final class SavedRoutesStore {
         return routes[idx]
     }
 
+    /// Planner save: store `route` under `name` (trimmed; blank keeps the
+    /// route's automatic name), overwriting `id` if it's still in the
+    /// library (keeps id + createdAt), else adding it.
+    @discardableResult
+    func save(_ route: SavedRoute, named name: String, replacing id: UUID?) -> SavedRoute {
+        var route = route
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { route.name = trimmed }
+        if let id, let updated = replace(id: id, with: route) { return updated }
+        return add(route)
+    }
+
     /// Rename in place. No-op (logged) if the id is gone.
     func rename(id: UUID, to newName: String) {
         guard let idx = routes.firstIndex(where: { $0.id == id }) else {

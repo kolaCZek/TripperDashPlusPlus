@@ -109,6 +109,15 @@ struct MapPickerView: View {
     @State private var savedPlanStops: [String]?
     /// A save is in flight (reverse-geocoding the current location).
     @State private var savingPlan = false
+    /// The built route awaiting a name in the "Save route" prompt.
+    @State private var planSave: PlanSaveDraft?
+    @State private var showPlanSaveAlert = false
+    @State private var planSaveName = ""
+
+    private struct PlanSaveDraft {
+        let plan: PlannedRoute
+        let route: SavedRoute
+    }
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
         plan.waypoints.map { "\($0.id)|\($0.name)" }
@@ -250,6 +259,18 @@ struct MapPickerView: View {
                 RoutePreferencesView()
                     .environment(status.navigationStore)
             }
+        }
+        // On the root view, not the planner: a Start/Cancel during the
+        // geocode drops the planner, but the rider still gets to save.
+        .alert("Save route", isPresented: $showPlanSaveAlert, presenting: planSave) { draft in
+            TextField("Route name", text: $planSaveName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                status.commitPlanSave(draft.route, named: planSaveName, for: draft.plan)
+                savedPlanStops = Self.stopsSnapshot(draft.plan)
+            }
+        } message: { _ in
+            Text("Saved routes can be started later from the library.")
         }
         .confirmationDialog("Add to route", isPresented: $showLongPressDialog, titleVisibility: .visible) {
             Button("Add as stop") { commitLongPress(asDestination: false) }
@@ -644,8 +665,10 @@ struct MapPickerView: View {
                     Button {
                         savingPlan = true
                         Task {
-                            if await status.saveCurrentPlan() != nil {
-                                savedPlanStops = Self.stopsSnapshot(plan)
+                            if let draft = await status.draftPlanSave() {
+                                planSave = PlanSaveDraft(plan: draft.plan, route: draft.route)
+                                planSaveName = draft.suggestedName
+                                showPlanSaveAlert = true
                             }
                             savingPlan = false
                         }

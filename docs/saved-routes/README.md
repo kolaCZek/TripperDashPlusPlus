@@ -44,9 +44,12 @@ and at the bike just open Saved routes → **Start navigation**.
 - Only the points are stored, not the computed roads: legs are recomputed
   on start (fresh traffic). A grey alternative you picked is not kept —
   add a via stop to pin a specific road.
-- Name defaults to `First stop → Last stop` (or the destination for a
-  single stop; coordinates for an unnamed stop); rename it in the route
-  detail.
+- Tapping the bookmark asks for a name (**Cancel** / **Save**),
+  prefilled with `First stop → Last stop` (or the destination for a
+  single stop; coordinates for an unnamed stop). Saving the plan again
+  prefills the name it was saved under, so a custom name survives edits.
+  Leave it blank for the automatic name; you can still rename it in the
+  route detail.
 - Hidden for a plan launched from Saved routes (it's already there). The
   icon fills once saved and re-arms when you change the stops or a
   dropped pin gets its real name; saving again **updates** the same

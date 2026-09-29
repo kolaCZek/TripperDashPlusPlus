@@ -6,7 +6,7 @@
 //  `SavedRoutesStore.replace` and `RouteStartPlanner.analyze` (the Python
 //  suite only mirrors them): every point kept (live origin as a named
 //  fixed point), route name rules, empty names, distance fallback, re-save
-//  overwrites, and the start rules — a loop started at home skips home
+//  overwrites (under the rider's name), and the start rules — a loop started at home skips home
 //  without a prompt; a one-way route joined near its end still prompts.
 //
 
@@ -80,6 +80,24 @@ struct SavedRouteFromPlanTests {
         #expect(out.id == first.id && out.createdAt == first.createdAt)
         #expect(out.name == "Mělník → Kokořín")
         #expect(store.replace(id: UUID(), with: edited) == nil)
+    }
+
+    @Test func plannerSaveUsesTheRidersNameOrFallsBack() throws {
+        let store = SavedRoutesStore(defaults: UserDefaults(suiteName: "test.routes.\(UUID().uuidString)")!)
+        let route = try #require(SavedRoute.fromPlan(
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
+            roadDistanceMeters: nil, now: Date(timeIntervalSince1970: 1_000)))
+        let first = store.save(route, named: "  Sunday loop ", replacing: nil)
+        #expect(first.name == "Sunday loop")
+        // Re-save: same entry (id, createdAt), the name typed this time.
+        let again = store.save(route, named: "Kokořín via Mělník", replacing: first.id)
+        #expect(store.routes.count == 1)
+        #expect(again.id == first.id && again.createdAt == first.createdAt)
+        #expect(again.name == "Kokořín via Mělník")
+        // Blank → the automatic name; a gone id → added anew.
+        let blank = store.save(route, named: "   ", replacing: UUID())
+        #expect(blank.name == "Mělník → Kokořín")
+        #expect(store.routes.count == 2)
     }
 
     private let loop = [RoutePoint(latitude: 50.2385, longitude: 14.2011, name: "Zvoleněves"),
