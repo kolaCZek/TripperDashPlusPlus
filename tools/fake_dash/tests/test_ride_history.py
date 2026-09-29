@@ -37,6 +37,8 @@ Contract pinned here, without Xcode (the Swift side is unit-tested in
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 
 from tests.swift_source import decl_body, strip_comments
@@ -218,10 +220,23 @@ def test_a_stationary_fix_does_not_bring_a_deleted_ride_back():
     svc.ride_leg(T0)
     svc.end(T0 + 60)
     h.delete(svc.stats)
-    svc.stats = {**svc.stats, "distance": svc.stats["distance"] + 5}   # +1 fix, 5 m jitter
+    svc.stats = {**svc.stats, "legs": svc.stats["legs"] + 1,        # +1 track point,
+                 "distance": svc.stats["distance"] + 5}                 # 5 m jitter
     svc.end(T0 + 63)
     svc.reset(T0 + 90)
     assert h.load(T0 + 90) == []
+
+
+@pytest.mark.parametrize("more, kept", [(99, False), (100, True)])
+def test_a_deleted_ride_comes_back_at_exactly_100_m_more(more, kept):
+    h = History()
+    svc = Service(h)
+    svc.ride_leg(T0)
+    svc.end(T0 + 60)
+    h.delete(svc.stats)
+    svc.stats = {**svc.stats, "distance": svc.stats["distance"] + more}
+    svc.end(T0 + 120)
+    assert bool(h.load(T0 + 120)) is kept
 
 
 def test_restored_summary_is_not_rewritten_by_end():
