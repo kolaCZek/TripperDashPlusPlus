@@ -104,6 +104,16 @@ struct SavedRouteFromPlanTests {
         #expect(RouteStartPlanner.droppingReachedStart([loop[0]], riderLocation: loop[0].coordinate).count == 1)
     }
 
+    @Test func loopWithoutOriginStartedAtItsEndDoesNotPrompt() {
+        // Review 3 of #151: nearest = the destination the rider stands on →
+        // "from nearest" would arrive at once; ride from the first point.
+        let noOrigin = Array(loop.dropFirst())                 // Mělník, Kokořín, Home
+        let d = RouteStartPlanner.analyze(points: noOrigin,
+                                          riderLocation: CLLocationCoordinate2D(latitude: 50.2387, longitude: 14.2015))
+        #expect(d.nearestIndex == 2)
+        #expect(d.shouldPrompt == false)
+    }
+
     @Test func oneWayRouteJoinedNearItsEndStillPrompts() {
         // Review 2 of #151: A → B → C with C 80 km past B; the rider is
         // 30 km short of C, so C is the nearest point — ask, don't

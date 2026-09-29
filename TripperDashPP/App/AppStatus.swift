@@ -1129,8 +1129,13 @@ final class AppStatus {
     /// A rider who doesn't want it removes it from the plan first.
     /// Skipped for a plan launched FROM the library (`isFromLibrary`).
     /// Saving the same plan again (stops edited, a pin got its real name)
-    /// overwrites the entry it was saved to; if the rider deleted that
-    /// entry, it is added anew.
+    /// overwrites the entry it was saved to — re-reading the fix, so the
+    /// saved origin follows the rider if they re-save elsewhere; if the
+    /// rider deleted that entry, it is added anew.
+    ///
+    /// Completes even if the rider starts navigation or cancels during the
+    /// geocode (the planner drops `plannedRoute` then): they asked to save,
+    /// and `plan` is held strongly, so its points are still what they saw.
     @discardableResult
     func saveCurrentPlan() async -> SavedRoute? {
         guard let plan = plannedRoute, !plan.isFromLibrary else { return nil }
@@ -1143,9 +1148,7 @@ final class AppStatus {
                 CLLocation(latitude: coord.latitude, longitude: coord.longitude)).first
             hereName = placemark?.name ?? placemark?.locality
         }
-        // The rider may have cancelled or switched plans during the geocode.
-        guard plannedRoute === plan,
-              let route = SavedRoute.fromPlan(
+        guard let route = SavedRoute.fromPlan(
                   plan.waypoints,
                   roadDistanceMeters: plan.isComputed ? plan.totalDistanceMeters : nil,
                   currentLocation: here,

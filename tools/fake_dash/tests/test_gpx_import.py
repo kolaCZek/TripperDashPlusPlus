@@ -458,6 +458,19 @@ class TestAnalyze:
         out = planned_navigable_points(loop, "from_first", d.nearest_index, "waypoints", rider=bike)
         assert [p.name for p in out] == ["Mělník", "Kokořín", "Home"]
 
+    def test_loop_without_origin_started_at_its_end_never_prompts(self):
+        # Review 3 of #151: [Mělník, Kokořín, Home] started at home — the
+        # nearest point is the destination the rider stands on; "from the
+        # nearest point" would be ['Home'] → instant arrival. Ride it from
+        # the first point instead, no prompt.
+        loop = [Pt(50.3505, 14.4741, name="Mělník"), Pt(50.4330, 14.5780, name="Kokořín"),
+                Pt(50.2386, 14.2012, name="Home")]
+        d = analyze(loop, Pt(50.2387, 14.2015))
+        assert d.nearest_index == 2
+        assert d.should_prompt is False
+        # A 2-point route started within 300 m of its end: same.
+        assert analyze([Pt(50.0, 14.0), Pt(50.1, 14.0)], Pt(50.101, 14.0)).should_prompt is False
+
     def test_first_point_kept_when_rider_is_not_there(self):
         route = _route_line()
         assert dropping_reached_start(route, Pt(50.01, 14.0)) == route   # ~1.1 km off
@@ -469,7 +482,8 @@ class TestAnalyze:
         src = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "Navigation"
                / "RouteStartPlanner.swift").read_text()
         body = strip_comments(decl_body(src, "static func analyze"))
-        assert "nearestIdx < points.count - 1" not in body, "the last point must be promptable again"
+        assert "nearestIdx < points.count - 1" not in body, "a far-off destination must be promptable"
+        assert "nearestDist <= promptThresholdMeters" in body and "!atDestination" in body
         drop = strip_comments(decl_body(src, "static func droppingReachedStart"))
         assert "points.count > 1" in drop and "<= promptThresholdMeters" in drop
         app = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "App"

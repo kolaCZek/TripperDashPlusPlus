@@ -82,11 +82,17 @@ enum RouteStartPlanner {
         // saving (first − nearest) exceeds the threshold. That second
         // clause is what stops a prompt when the rider is basically at
         // the start but a slightly-closer second point exists.
-        // A round trip saved from the planner starts AND ends at home, so
-        // at home the saving (first − nearest) is at most the few metres
-        // between those two points — no prompt, whichever is nearer — and
-        // `droppingReachedStart` skips the first.
-        let shouldPrompt = nearestIdx > 0
+        // Never when the rider is already AT the destination (within the
+        // threshold of the last point): "from the nearest point" would be a
+        // one-stop plan that arrives at once — e.g. a loop saved without
+        // its home origin (or a GPX loop) started at home. A one-way route
+        // whose nearest point is a far-off destination still prompts.
+        // A loop saved from the planner WITH its origin starts and ends at
+        // home, so at home the saving over the first point is only metres —
+        // no prompt, and `droppingReachedStart` skips the first.
+        let atDestination = nearestIdx == points.count - 1
+            && nearestDist <= promptThresholdMeters
+        let shouldPrompt = nearestIdx > 0 && !atDestination
             && (distFirst - nearestDist) > promptThresholdMeters
 
         return RouteStartDecision(nearestIndex: nearestIdx,

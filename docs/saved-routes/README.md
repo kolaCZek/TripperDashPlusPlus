@@ -29,13 +29,15 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
 ## Saving a route from the planner
 
 While planning (search → preview, multi-stop, or a shared Maps link),
-the **bookmark** in the top bar saves the plan's stops to Saved routes
+the **bookmark** in the top bar saves the plan's points to Saved routes
 as a `.waypoints` route (`SavedRoute.fromPlan`). Plan at home, save,
 and at the bike just open Saved routes → **Start navigation**.
 
 - Every point is stored, your current location included — as a fixed
-  point named after the place (coordinates when offline). Don't want it?
-  Remove it from the plan before saving.
+  point named after the place (coordinates when offline; rename it in the
+  route detail). Don't want it? Remove it from the plan before saving.
+  Saving again re-reads your position, so the saved start follows you if
+  you re-save somewhere else.
 - On start the live location is the routing origin as always, and the
   first point is skipped if you're already within 300 m of it — a loop
   planned at home and started at home just rides the loop.
@@ -121,7 +123,10 @@ source for the first leg, and the first point to navigate is dropped
 when you're within 300 m of it (`RouteStartPlanner.droppingReachedStart`)
 so guidance doesn't open with an instant "arrived at stop 1". A round
 trip saved from the planner at home starts and ends at home, so at home
-the saving over the first point is a few metres at most — no prompt.
+the saving over the first point is a few metres at most — no prompt. It
+never prompts either when you're already within 300 m of the route's
+destination (a loop saved without its home point, a GPX loop): "from the
+nearest point" would arrive at once, so it rides from the first point.
 
 ## Persistence
 

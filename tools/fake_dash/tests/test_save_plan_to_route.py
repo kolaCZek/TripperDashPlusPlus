@@ -171,7 +171,8 @@ def test_swift_from_plan_keeps_live_origin():
     save = strip_comments(decl_body(APPSTATUS.read_text(), "func saveCurrentPlan"))
     assert "locationService.lastFix?.coordinate ?? origin.coordinate" in save
     assert "reverseGeocodeLocation" in save
-    assert "guard plannedRoute === plan" in save, "a plan cancelled during the geocode must not be saved"
+    # Review 3 of #151: Start/Cancel during the geocode must not drop the save.
+    assert "plannedRoute === plan" not in save
 
 
 def test_swift_from_plan_saves_waypoints_kind_not_track():
