@@ -15,11 +15,18 @@
 //
 //    1. Distance   — great-circle sum between consecutive accepted fixes.
 //    2. Fix gating — reject accuracy < 0 or > 50 m, non-monotonic time,
-//                    sub-3 m jitter steps (0 distance), and teleport
-//                    glitches (implied speed > 90 m/s → skip distance,
-//                    still advance the clock).
-//    3. Moving time — sum of dt while max(gpsSpeed, d/dt) ≥ 0.7 m/s, each
-//                    dt capped at 10 s (a longer gap = signal loss).
+//                    sub-3 m jitter steps (0 distance), steps whose
+//                    trusted Doppler speed says "stopped" (< 0.7 m/s →
+//                    0 distance: poor-signal wander in a garage or at a
+//                    light; trusted = a normal ≤ 10 s step, or a longer
+//                    gap whose chord is ≤ 2 × the accuracy gate, so a
+//                    tunnel's chord still counts), and teleport glitches
+//                    (implied speed > 90 m/s → skip distance, still
+//                    advance the clock).
+//    3. Moving time — sum of dt while the speed is ≥ 0.7 m/s, each dt
+//                    capped at 10 s (a longer gap = signal loss). Speed
+//                    = Doppler when trusted (same call as the distance
+//                    rule), else max(Doppler, d/dt) (d/dt → 0 on a glitch).
 //    4. Max speed  — max Doppler GPS speed (ignores -1 unknown).
 //    5. Avg speed  — distance / movingSeconds (moving average).
 //    6. Elevation  — positive altitude deltas with a 2 m hysteresis so
@@ -28,7 +35,8 @@
 //    7. Elapsed    — lastFixAt − startedAt (wall clock), for a total.
 //
 //  Distance under-reads a bike odometer (chord not arc, sub-3 m jitter
-//  dropped) — acceptable for a ride summary, not a certified odometer.
+//  and Doppler-stopped steps dropped) — acceptable for a ride summary,
+//  not a certified odometer.
 //
 
 import CoreLocation
@@ -45,9 +53,10 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     /// One recorded point of the live ride track — the raw material a
     /// GPX `<trkpt>` is serialised from (`GPXExporter`). Captured for
     /// every GATE-PASSING fix (accuracy + monotonic-time), i.e. the same
-    /// fixes the totals fold, so the exported trace matches the on-screen
-    /// distance. Jitter-floor / teleport fixes are still recorded — a GPX
-    /// track is the raw path, not the distance-gated subset — but bad-
+    /// fixes the totals fold. Jitter-floor / teleport / Doppler-stopped
+    /// fixes are still recorded — a GPX track is the raw path, not the
+    /// distance-gated subset, so its length can exceed the on-screen
+    /// distance (e.g. poor-signal wander while stopped) — but bad-
     /// accuracy / out-of-order fixes never enter either the totals or the
     /// track. Plain `Codable` value so `RideStats` stays `Sendable`.
     nonisolated struct TrackPoint: Sendable, Equatable, Codable {
@@ -137,15 +146,36 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
         let impliedSpeed = d / dt
         let glitch = impliedSpeed > Self.teleportSpeedMps
 
-        // Distance (jitter floor + glitch guard).
-        if !glitch, d >= Self.jitterFloorMeters {
+        // Trust a known Doppler speed over the chord on a normal step, or
+        // after a gap whose chord is within GPS noise (2 × the accuracy
+        // gate) — rejected poor-accuracy fixes under a roof stretch dt past
+        // 10 s without the bike moving. A longer chord after a gap (tunnel)
+        // is real: a slow first fix back must not swallow it.
+        // ponytail: a ≤ 100 m chord after a > 10 s gap that ends on a slow
+        // fix (signal lost crawling in traffic) is dropped; add a
+        // dt-scaled bound if a real GPX shows it matters.
+        let trustDoppler = fix.speed >= 0
+            && (dt <= Self.maxStepSeconds || d <= 2 * Self.accuracyGateMeters)
+
+        // Distance (jitter floor + glitch guard + Doppler "stopped").
+        // Under a roof the position wanders 3–15 m a step at 20–50 m
+        // accuracy while Doppler speed stays ~0; unknown speed (-1) keeps
+        // the old chord-only rule.
+        let stopped = trustDoppler && fix.speed < Self.movingThresholdMps
+        if !glitch, !stopped, d >= Self.jitterFloorMeters {
             s.distanceMeters += d
         }
 
-        // Moving time. A teleport glitch's implied speed is bogus, so we
-        // drop it and fall back to the (possibly unknown) Doppler speed —
-        // a glitch must never fabricate moving time.
-        let effectiveSpeed = max(fix.speed, glitch ? 0 : impliedSpeed)
+        // Moving time, on the same call as distance. Trusted Doppler wins:
+        // stationary wander has a 3–15 m/s implied speed but ~0 Doppler,
+        // and must not count as moving (else the average reads low once
+        // its distance is dropped). Otherwise (unknown speed, or a gap
+        // with a real chord) max(Doppler, d/dt) — except a teleport
+        // glitch, whose implied speed is bogus and must never fabricate
+        // moving time.
+        let effectiveSpeed = trustDoppler
+            ? fix.speed
+            : max(fix.speed, glitch ? 0 : impliedSpeed)
         if effectiveSpeed >= Self.movingThresholdMps {
             s.movingSeconds += min(dt, Self.maxStepSeconds)
         }
@@ -177,9 +207,10 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     /// `folding(_:)` AFTER the accuracy + monotonic-time gates (and only
     /// for fixes that seed or advance the accumulator), so the track never
     /// contains a bad-accuracy or out-of-order point. Deliberately keeps
-    /// jitter-floor / teleport fixes: those are dropped from the DISTANCE
-    /// total (chord noise / GPS glitch) but a raw GPX trace still wants the
-    /// point — a rider stopped at lights should show as a dense cluster,
+    /// jitter-floor / teleport / Doppler-stopped fixes: those are dropped
+    /// from the DISTANCE total (chord noise / stopped wander / GPS glitch)
+    /// but a raw GPX trace still wants the point — a rider stopped at
+    /// lights should show as a dense cluster,
     /// not a gap, and one teleport spike is better carried and smoothed by
     /// a downstream tool than silently swallowed.
     private mutating func recordTrackPoint(_ fix: Fix) {

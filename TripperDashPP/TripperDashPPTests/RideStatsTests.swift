@@ -40,6 +40,65 @@ struct RideStatsTests {
         #expect(s.distanceMeters == 0)
     }
 
+    @Test func stationaryWanderAddsNoDistance() {
+        // Poor signal while stopped: 5–15 m position steps, Doppler ~0.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00000, speed: 0,   acc: 30, t: 0))
+        s = s.folding(fix(0, 0.00010, speed: 0,   acc: 30, t: 1))  // ~11 m
+        s = s.folding(fix(0, 0.00005, speed: 0.3, acc: 30, t: 2))  // ~5.6 m
+        s = s.folding(fix(0, 0.00018, speed: 0,   acc: 30, t: 3))  // ~14 m
+        #expect(s.distanceMeters == 0)
+        #expect(s.movingSeconds == 0)      // implied 5–14 m/s, Doppler ~0
+        #expect(s.trackPoints.count == 4)
+        // Riding off again counts, from the last wandered point.
+        s = s.folding(fix(0, 0.00118, speed: 10, t: 13))           // ~111 m
+        #expect(abs(s.distanceMeters - 111.32) < 1.5)
+    }
+
+    @Test func slowFixAfterASignalGapKeepsTheGapDistance() {
+        // Tunnel: 60 s without fixes, the first one back reads 0.5 m/s.
+        // The ~1.1 km chord across the gap is real distance.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00, speed: 20, t: 0))
+        s = s.folding(fix(0, 0.01, speed: 0.5, t: 60))
+        #expect(abs(s.distanceMeters - 1113.2) < 5)
+        #expect(s.movingSeconds == 10)     // capped gap, like before
+    }
+
+    @Test func gapChordIsNoiseUpTo100mAndRealAbove() {
+        // Pins the 2 × accuracyGateMeters bound: after a 15 s gap ending on
+        // a stopped fix, a ~95 m chord is wander, a ~106 m one is real.
+        var near = RideStats()
+        near = near.folding(fix(0, 0, speed: 0, t: 0))
+        near = near.folding(fix(0, 0.00085, speed: 0, t: 15))    // ~94.5 m
+        #expect(near.distanceMeters == 0)
+        #expect(near.movingSeconds == 0)
+        var far = RideStats()
+        far = far.folding(fix(0, 0, speed: 0, t: 0))
+        far = far.folding(fix(0, 0.00095, speed: 0, t: 15))      // ~105.6 m
+        #expect(abs(far.distanceMeters - 105.64) < 1)
+        #expect(far.movingSeconds == 10)
+    }
+
+    @Test func wanderAfterRejectedFixesAddsNothing() {
+        // Under a roof, 60–80 m fixes (rejected by the 50 m gate) stretch
+        // the step to 15 s; the next accepted one wandered ~20 m, Doppler 0.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00000, speed: 0, acc: 40, t: 0))
+        s = s.folding(fix(0, 0.00009, speed: 0, acc: 70, t: 5))   // rejected
+        s = s.folding(fix(0, 0.00018, speed: 0, acc: 45, t: 15))  // ~20 m
+        #expect(s.acceptedFixCount == 2)
+        #expect(s.distanceMeters == 0)
+        #expect(s.movingSeconds == 0)
+    }
+
+    @Test func unknownSpeedStillCountsDistance() {
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, speed: -1, t: 0))
+        s = s.folding(fix(0, 0.001, speed: -1, t: 5))
+        #expect(abs(s.distanceMeters - 111.32) < 1.5)
+    }
+
     @Test func rejectsInaccurateFix() {
         var s = RideStats()
         s = s.folding(fix(0, 0, acc: 5, t: 0))
@@ -118,7 +177,7 @@ struct RideStatsTests {
     @Test func elapsedIsWallClockSpan() {
         var s = RideStats()
         s = s.folding(fix(0, 0.000, speed: 10, t: 100))
-        s = s.folding(fix(0, 0.001, speed: 0.1, t: 160)) // 60 s later, barely moving
+        s = s.folding(fix(0, 0.001, speed: 0.1, t: 160)) // 60 s later, slow fix
         // Wall clock counts all 60 s even though moving time doesn't.
         #expect(abs(s.elapsedSeconds - 60) < 0.01)
     }
