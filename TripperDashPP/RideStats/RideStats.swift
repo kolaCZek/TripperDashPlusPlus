@@ -16,10 +16,13 @@
 //    1. Distance   — great-circle sum between consecutive accepted fixes.
 //    2. Fix gating — reject accuracy < 0 or > 50 m, non-monotonic time,
 //                    sub-3 m jitter steps (0 distance), steps whose
-//                    Doppler speed says "stopped" (< 0.7 m/s → 0
-//                    distance: poor-signal wander in a garage or at a
-//                    light), and teleport glitches (implied speed >
-//                    90 m/s → skip distance, still advance the clock).
+//                    trusted Doppler speed says "stopped" (< 0.7 m/s →
+//                    0 distance: poor-signal wander in a garage or at a
+//                    light; trusted = a normal ≤ 10 s step, or a longer
+//                    gap whose chord is ≤ 2 × the accuracy gate, so a
+//                    tunnel's chord still counts), and teleport glitches
+//                    (implied speed > 90 m/s → skip distance, still
+//                    advance the clock).
 //    3. Moving time — sum of dt while the speed is ≥ 0.7 m/s, each dt
 //                    capped at 10 s (a longer gap = signal loss). Speed
 //                    = Doppler when trusted (same call as the distance
@@ -206,8 +209,8 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     /// contains a bad-accuracy or out-of-order point. Deliberately keeps
     /// jitter-floor / teleport / Doppler-stopped fixes: those are dropped
     /// from the DISTANCE total (chord noise / stopped wander / GPS glitch)
-    /// but a raw GPX trace still wants the
-    /// point — a rider stopped at lights should show as a dense cluster,
+    /// but a raw GPX trace still wants the point — a rider stopped at
+    /// lights should show as a dense cluster,
     /// not a gap, and one teleport spike is better carried and smoothed by
     /// a downstream tool than silently swallowed.
     private mutating func recordTrackPoint(_ fix: Fix) {

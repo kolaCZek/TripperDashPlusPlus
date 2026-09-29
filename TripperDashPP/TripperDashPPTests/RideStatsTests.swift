@@ -65,6 +65,21 @@ struct RideStatsTests {
         #expect(s.movingSeconds == 10)     // capped gap, like before
     }
 
+    @Test func gapChordIsNoiseUpTo100mAndRealAbove() {
+        // Pins the 2 × accuracyGateMeters bound: after a 15 s gap ending on
+        // a stopped fix, a ~95 m chord is wander, a ~106 m one is real.
+        var near = RideStats()
+        near = near.folding(fix(0, 0, speed: 0, t: 0))
+        near = near.folding(fix(0, 0.00085, speed: 0, t: 15))    // ~94.5 m
+        #expect(near.distanceMeters == 0)
+        #expect(near.movingSeconds == 0)
+        var far = RideStats()
+        far = far.folding(fix(0, 0, speed: 0, t: 0))
+        far = far.folding(fix(0, 0.00095, speed: 0, t: 15))      // ~105.6 m
+        #expect(abs(far.distanceMeters - 105.64) < 1)
+        #expect(far.movingSeconds == 10)
+    }
+
     @Test func wanderAfterRejectedFixesAddsNothing() {
         // Under a roof, 60–80 m fixes (rejected by the 50 m gate) stretch
         // the step to 15 s; the next accepted one wandered ~20 m, Doppler 0.
@@ -162,7 +177,7 @@ struct RideStatsTests {
     @Test func elapsedIsWallClockSpan() {
         var s = RideStats()
         s = s.folding(fix(0, 0.000, speed: 10, t: 100))
-        s = s.folding(fix(0, 0.001, speed: 0.1, t: 160)) // 60 s later, barely moving
+        s = s.folding(fix(0, 0.001, speed: 0.1, t: 160)) // 60 s later, slow fix
         // Wall clock counts all 60 s even though moving time doesn't.
         #expect(abs(s.elapsedSeconds - 60) < 0.01)
     }
