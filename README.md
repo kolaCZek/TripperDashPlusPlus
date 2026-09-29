@@ -118,7 +118,3 @@ This project is **source-available under the [PolyForm Noncommercial License](LI
 **[PolyForm Noncommercial 1.0.0](LICENSE)** © 2026 Martin Kolací
 
 Noncommercial use — personal, hobby, research, educational — is free. **Commercial use (including paid distribution on any app store) requires a separate license from the author.** Not affiliated with Royal Enfield or Eicher Motors.
-
----
-
-*"The best dash mod is the one you can revert with one tap of the lock button." — me, probably*
