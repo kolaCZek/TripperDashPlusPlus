@@ -26,6 +26,23 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
    From there the existing *Connect to dash → Start* path takes over
    unchanged (auto-start, reroute, arrival, dash glyphs all apply).
 
+## Saving a route from the planner
+
+While planning (search → preview, multi-stop, or a shared Maps link),
+the **bookmark** in the top bar saves the plan's stops to Saved routes
+as a `.waypoints` route (`SavedRoute.fromPlan`). Plan at home, save,
+and at the bike just open Saved routes → **Start navigation**.
+
+- The live-GPS origin is not stored; the start is wherever you are when
+  you launch it, like any saved route.
+- Only the stops are stored, not the computed roads: legs are recomputed
+  on start (fresh traffic). A grey alternative you picked is not kept —
+  add a via stop to pin a specific road.
+- Name defaults to `First stop → Last stop` (or the destination for a
+  single stop); rename it in the route detail.
+- Hidden for a plan launched from a saved `.track` (already saved). The
+  icon fills once saved and re-arms when you change the stops.
+
 ## Editing a saved route
 
 The detail screen's **Edit** button (`EditButton`) reveals per-point

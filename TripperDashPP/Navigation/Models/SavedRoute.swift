@@ -156,6 +156,36 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+extension SavedRoute {
+    /// A `.waypoints` route built from the planner's stops — "plan it at
+    /// home, save it, just start it at the bike".
+    ///
+    /// The live-GPS origin is dropped: `beginPlanningFromSavedRoute`
+    /// re-prepends wherever the rider is when they start. Only the stops
+    /// are kept, not the computed `MKRoute`s (not Codable, and stale by
+    /// ride day) — legs are recomputed at start with fresh traffic, so a
+    /// hand-picked grey alternative is not remembered.
+    ///
+    /// `roadDistanceMeters` is the plan's routed total when computed
+    /// (includes the leg from where it was planned); otherwise the
+    /// straight-line length between the stops, like a GPX `<wpt>` import.
+    static func fromPlan(_ waypoints: [Waypoint],
+                         roadDistanceMeters: Double?,
+                         now: Date = .now) -> SavedRoute? {
+        let stops = waypoints.filter { !$0.isCurrentLocation }
+        guard let last = stops.last else { return nil }
+        let points = stops.map { RoutePoint(coordinate: $0.coordinate, name: $0.name) }
+        return SavedRoute(
+            name: stops.count == 1 ? last.name : "\(stops[0].name) → \(last.name)",
+            kind: .waypoints,
+            points: points,
+            totalDistanceMeters: roadDistanceMeters
+                ?? GPXGeometry.pathLength(points.map(\.coordinate)),
+            createdAt: now
+        )
+    }
+}
+
 extension RoutePoint {
     /// Hard cap on navigable via-points for a `.track` route. MKDirections
     /// is called once per leg (point→point), so this bounds the network /

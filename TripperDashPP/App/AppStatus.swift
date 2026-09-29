@@ -1121,6 +1121,19 @@ final class AppStatus {
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
 
+    /// Save the live plan's stops to Saved routes, so a route planned at
+    /// home can be started later from the library. Skipped for a `.track`
+    /// plan — that one was launched FROM the library already.
+    @discardableResult
+    func saveCurrentPlan() -> SavedRoute? {
+        guard let plan = plannedRoute, !plan.isTrack,
+              let route = SavedRoute.fromPlan(
+                  plan.waypoints,
+                  roadDistanceMeters: plan.isComputed ? plan.totalDistanceMeters : nil)
+        else { return nil }
+        return savedRoutesStore.add(route)
+    }
+
     /// Recompute the given dirty legs of `plan` (defaults to the live
     /// `plannedRoute`). Tracks `recomputingLegs` for the UI spinner and
     /// surfaces failures into `planError`.

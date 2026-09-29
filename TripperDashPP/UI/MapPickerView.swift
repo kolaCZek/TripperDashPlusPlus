@@ -101,6 +101,10 @@ struct MapPickerView: View {
     @State private var longPressCoord: CLLocationCoordinate2D?
     @State private var showLongPressDialog = false
     @State private var showRoutePreferences = false
+    /// Waypoint ids of the plan last saved via the planner's bookmark
+    /// button. The button shows "saved" only while the plan still has
+    /// exactly these stops — edit the plan and it can be saved again.
+    @State private var savedPlanStops: [UUID]?
 
     private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
     private var mode: DisplayMode {
@@ -615,6 +619,22 @@ struct MapPickerView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") { status.cancelPlanning() }
+            }
+            if !plan.isTrack {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if status.saveCurrentPlan() != nil {
+                            savedPlanStops = plan.waypoints.map(\.id)
+                        }
+                    } label: {
+                        Image(systemName: savedPlanStops == plan.waypoints.map(\.id)
+                              ? "bookmark.fill" : "bookmark")
+                    }
+                    .disabled(savedPlanStops == plan.waypoints.map(\.id))
+                    .accessibilityLabel(savedPlanStops == plan.waypoints.map(\.id)
+                                        ? "Route saved to Saved routes"
+                                        : "Save route to Saved routes")
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
