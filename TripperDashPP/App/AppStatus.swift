@@ -1262,6 +1262,9 @@ final class AppStatus {
             parkShare(resolution)
             return true
         }
+        // Latest wins: a share handled now supersedes one parked earlier
+        // (e.g. the ride ended under an open sheet, then the rider shared again).
+        pendingShare = nil
         switch resolution {
         case .empty:
             return false

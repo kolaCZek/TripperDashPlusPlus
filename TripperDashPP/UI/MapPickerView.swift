@@ -360,10 +360,11 @@ struct MapPickerView: View {
         }
         .onChange(of: status.pendingSearchHint) { _, _ in consumePendingShare() }
         .onChange(of: status.pendingShare) { _, _ in consumePendingShare() }
-        .onChange(of: shareGateOpen, initial: true) { _, open in
+        .onChange(of: [shareGateOpen, isPlanning], initial: true) { _, _ in
             // Let a just-dismissed sheet finish animating out first, or the
-            // Search sheet presented on top of it is dropped too.
-            guard open else { return }
+            // Search sheet presented on top of it is dropped too. Also
+            // re-checks when a plan is discarded or started (parked replay).
+            guard shareGateOpen else { return }
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(600))
                 consumePendingShare()
@@ -382,7 +383,9 @@ struct MapPickerView: View {
     /// the gate is open; otherwise it stays pending for the gate onChange.
     private func consumePendingShare() {
         guard shareGateOpen else { return }
-        if let share = status.pendingShare {
+        // A share parked during an earlier ride must not replace a plan the
+        // rider is building now; it waits until that plan is gone.
+        if !isPlanning, let share = status.pendingShare {
             status.pendingShare = nil
             Task { await status.beginPlanningFromShared(share) }
         } else if let hint = status.pendingSearchHint, !hint.isEmpty {

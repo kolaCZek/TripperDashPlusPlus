@@ -48,8 +48,13 @@ class SearchHintWaitsForGate(unittest.TestCase):
                       self.src)
 
     def test_rechecks_when_gate_opens(self):
-        handler = decl_body(self.src, ".onChange(of: shareGateOpen, initial: true)")
+        handler = decl_body(self.src, ".onChange(of: [shareGateOpen, isPlanning], initial: true)")
+        self.assertIn("guard shareGateOpen else { return }", handler)
         self.assertIn("consumePendingShare()", handler)
+
+    def test_parked_share_does_not_replace_a_plan_in_progress(self):
+        consume = decl_body(self.src, "private func consumePendingShare")
+        self.assertIn("if !isPlanning, let share = status.pendingShare", consume)
 
 
 class ShareParkedDuringRide(unittest.TestCase):
@@ -65,6 +70,14 @@ class ShareParkedDuringRide(unittest.TestCase):
         body = decl_body(self.src, "func beginPlanningFromShared")
         self.assertLess(body.index("rideActive"), body.index("switch resolution"))
         self.assertIn("parkShare(resolution)", body)
+
+    def test_newer_share_supersedes_a_parked_one(self):
+        # Latest wins: once not parking, the handled share clears the slot
+        # before it's staged, so an older parked share can't replay over it.
+        body = decl_body(self.src, "func beginPlanningFromShared")
+        park = body.index("parkShare(resolution)")
+        clear = body.index("pendingShare = nil", park)
+        self.assertLess(clear, body.index("switch resolution"))
 
     def test_stage_plan_rechecks_after_geocode(self):
         body = decl_body(self.src, "private func stagePlan")
