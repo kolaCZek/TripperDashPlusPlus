@@ -136,7 +136,7 @@ final class LiveActivityController {
         return false
     }
 
-    // MARK: - Formatting (mirrors DashPreviewPanel / RideStatsFormatting)
+    // MARK: - Formatting (also used by DashPreviewPanel; km/mi via RideStatsFormatting)
 
     /// Distance-to-next: fine metres/feet under 1 km (rounded to nearest 10,
     /// dash-parity close-in), km/mi above via the shared formatter.

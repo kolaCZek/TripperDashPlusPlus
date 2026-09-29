@@ -147,29 +147,17 @@ struct DashPreviewPanel: View {
         }
     }
 
-    /// Distance-to-next maneuver, formatted honouring the user's units. Under
-    /// 1 km we show fine metres/feet (dash-parity close-in), matching the
-    /// NavigationHUD's convention; at/above 1 km we hand off to the shared
-    /// km/mi formatter so the whole app agrees.
+    /// Distance-to-next maneuver, via the Live Activity formatter (fine
+    /// metres/feet under 1 km, shared km/mi above) so the preview, the Lock
+    /// Screen and the dash agree.
     private func distanceText(_ bubble: DemoNavBubble) -> String? {
         guard let m = bubble.distanceToNextMeters, m >= 0 else { return nil }
-        if m < 1000 {
-            if bubble.imperial {
-                let feet = m * 3.280839895013123
-                return String(format: "%.0f ft", (feet / 10).rounded() * 10)
-            }
-            return String(format: "%.0f m", (m / 10).rounded() * 10)
-        }
-        return RideStatsFormatting.distance(m, imperial: bubble.imperial)
+        return LiveActivityController.distanceText(meters: m, imperial: bubble.imperial)
     }
 
     /// ETA clock string, honouring the 24-hour vs 12-hour setting.
     private func etaText(_ bubble: DemoNavBubble) -> String? {
-        guard let eta = bubble.etaDate else { return nil }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: bubble.is24Hour ? "en_GB" : "en_US")
-        f.dateFormat = bubble.is24Hour ? "HH:mm" : "h:mm a"
-        return "ETA \(f.string(from: eta))"
+        LiveActivityController.etaText(date: bubble.etaDate, is24Hour: bubble.is24Hour)
     }
 
     // MARK: - DEMO badge

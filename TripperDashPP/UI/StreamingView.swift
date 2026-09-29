@@ -361,13 +361,18 @@ private struct MapCacheSection: View {
                  bytes: tiles.bytes + limits.bytes + cameras.bytes)
     }
 
-    private func formatStats(_ s: (count: Int, bytes: Int)) -> String {
-        if s.count == 0 { return "Empty" }
+    /// Built once, not per render (main-actor-isolated like the view).
+    private static let byteFormatter: ByteCountFormatter = {
         let fmt = ByteCountFormatter()
         fmt.allowedUnits = [.useKB, .useMB]
         fmt.countStyle = .file
+        return fmt
+    }()
+
+    private func formatStats(_ s: (count: Int, bytes: Int)) -> String {
+        if s.count == 0 { return "Empty" }
         let files = s.count == 1 ? "1 file" : "\(s.count) files"
-        return "\(files) • \(fmt.string(fromByteCount: Int64(s.bytes)))"
+        return "\(files) • \(Self.byteFormatter.string(fromByteCount: Int64(s.bytes)))"
     }
 }
 
