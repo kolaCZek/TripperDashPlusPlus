@@ -35,7 +35,11 @@
 //  checkpoint (~5 min) is for the ride history — arrival no longer tears
 //  the stream down, so a whole outing is often ONE leg, and a swipe-kill
 //  or jetsam mid-ride would otherwise lose all of it. A kill now loses at
-//  most the last ~5 minutes.
+//  most the last ~5 minutes. The checkpoint encodes and writes on the
+//  serial `RideHistoryStore.io` queue without waiting (a long track is
+//  tens of ms of JSON — the render loop shares the main actor); teardowns
+//  wait on the same queue, so they're on disk before iOS can suspend the
+//  app and always land after any checkpoint still in flight.
 //
 
 import Foundation
@@ -142,7 +146,7 @@ final class RideStatsService {
         stats = RideStats()
         state = .idle
         restoredFromDisk = false
-        defaults.removeObject(forKey: Self.storageKey)
+        removePersistedRide()
     }
 
     /// The rider dismissed the post-arrival summary panel (its close
@@ -157,7 +161,7 @@ final class RideStatsService {
     /// next `begin()` — clearing it here folded today's ride onto
     /// yesterday's (same `startedAt`, one merged history file).
     func acknowledgeSummary() {
-        defaults.removeObject(forKey: Self.storageKey)
+        removePersistedRide()
     }
 
     /// Streaming stopped — drop the subscription, keep totals on screen.
@@ -176,18 +180,39 @@ final class RideStatsService {
     /// Write the current `stats` to disk as the "last ride" summary. Called
     /// at each teardown (`end()`/`pause()`). Skips empty rides (no
     /// `startedAt`) so a stop before any fix doesn't leave a blank record.
-    private func persistLastRide() {
+    ///
+    /// `background: true` (mid-ride checkpoint) queues the encode + writes
+    /// on `RideHistoryStore.io` and returns at once; a teardown waits.
+    private func persistLastRide(background: Bool = false) {
         guard stats.startedAt != nil else { return }
-        do {
-            let data = try JSONEncoder().encode(stats)
-            defaults.set(data, forKey: Self.storageKey)
-            // A restored summary was recorded in its own session; an `end()`
-            // before the next `begin()` (link drop mid-connect) must not
-            // write it back — the rider may have deleted it since.
-            if !restoredFromDisk { history?.record(stats, encoded: data) }
-        } catch {
-            Self.log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
+        let snapshot = stats
+        // A restored summary was recorded in its own session; an `end()`
+        // before the next `begin()` (link drop mid-connect) must not write
+        // it back — the rider may have deleted it since.
+        let historyURL = restoredFromDisk ? nil : history?.accept(snapshot)
+        let defaults = self.defaults, key = Self.storageKey, log = Self.log
+        let write: @Sendable () -> Void = {
+            do {
+                let data = try JSONEncoder().encode(snapshot)   // once, for both
+                defaults.set(data, forKey: key)
+                if let historyURL { try data.write(to: historyURL, options: .atomic) }
+            } catch {
+                log.error("Failed to persist last ride: \(error.localizedDescription, privacy: .public)")
+            }
         }
+        if background {
+            RideHistoryStore.io.async(execute: write)
+        } else {
+            RideHistoryStore.io.sync(execute: write)
+        }
+    }
+
+    /// Drop the last-ride key — on `io`, after any checkpoint still queued,
+    /// so a late write can't bring it back.
+    private func removePersistedRide() {
+        let defaults = self.defaults, key = Self.storageKey
+        let remove: @Sendable () -> Void = { defaults.removeObject(forKey: key) }
+        RideHistoryStore.io.sync(execute: remove)
     }
 
     /// Rehydrate the last ride's summary from disk on launch. The restored
@@ -213,7 +238,7 @@ final class RideStatsService {
         let before = stats.trackPoints.count
         stats = stats.folding(fix)
         let count = stats.trackPoints.count
-        if count != before, count % Self.checkpointEveryFixes == 0 { persistLastRide() }
+        if count != before, count % Self.checkpointEveryFixes == 0 { persistLastRide(background: true) }
     }
 
     // MARK: - Save ride to the route library

@@ -29,15 +29,26 @@ final class RideHistoryStore {
 
     nonisolated static let retentionDays = 30
 
+    /// The one serial queue for every ride-history file write/remove AND
+    /// the last-ride UserDefaults write/remove (`RideStatsService`). Off the
+    /// main actor, so encoding + writing a long track never stalls the
+    /// render loop; serial, so writes land in order — a late mid-ride
+    /// checkpoint can't overwrite a newer teardown, resurrect a deleted
+    /// file, or re-add a last-ride key that `reset()` just removed.
+    nonisolated static let io = DispatchQueue(label: "eu.kolaczek.tripperdashpp.ridehistory", qos: .utility)
+
     /// Rides, newest first. Filled by `load()` (history sheet on appear)
     /// and kept in sync by `record` / `delete`.
     private(set) var rides: [RideStats] = []
 
     private let directory: URL
-    /// Files deleted by the rider this session. The live RideStatsService
-    /// still holds the same ride (same `startedAt`), so without this the
-    /// next teardown — bike off, another leg — would write it straight back.
-    private var deleted: Set<String> = []
+    /// Files deleted by the rider this session → the ride's track length at
+    /// deletion. The live RideStatsService still holds the same ride (same
+    /// `startedAt`), so without this the next teardown (bike off) would
+    /// write it straight back. Once the session rides on (the track grows
+    /// past that length) the ride is kept again — as the whole session,
+    /// deleted part included, like any multi-leg ride.
+    private var deleted: [String: Int] = [:]
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RideHistory")
 
     init(directory: URL = URL.applicationSupportDirectory
@@ -76,27 +87,37 @@ final class RideHistoryStore {
 
     // MARK: - CRUD
 
-    /// Write (or overwrite) the ride keyed by its start time. No-op for a
-    /// ride too short to keep, or one the rider deleted this session.
-    /// `encoded`: the caller's JSON of `stats`, if it already has it.
-    // ponytail: synchronous main-actor write (~0.7 MB for a 2 h ride), same
-    // cost as the existing last-ride UserDefaults write at teardown; move
-    // to a background task if teardown ever stutters.
-    func record(_ stats: RideStats, encoded: Data? = nil, now: Date = .now) {
-        guard Self.isWorthKeeping(stats), let start = stats.startedAt else { return }
+    /// Main-actor half of a history write: the minimum-ride and tombstone
+    /// checks plus the in-memory list. Returns the file to write on `io`,
+    /// or nil to skip (too short, or deleted and not ridden on since).
+    func accept(_ stats: RideStats, now: Date = .now) -> URL? {
+        guard Self.isWorthKeeping(stats), let start = stats.startedAt else { return nil }
         let name = Self.fileName(for: start)
-        guard !deleted.contains(name) else { return }
-        do {
-            try (encoded ?? JSONEncoder().encode(stats))
-                .write(to: directory.appending(path: name), options: .atomic)
-        } catch {
-            log.error("Failed to write ride \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return
+        if let lengthAtDeletion = deleted[name] {
+            guard stats.trackPoints.count > lengthAtDeletion else { return nil }
+            deleted[name] = nil
         }
         rides.removeAll { $0.startedAt.map { Self.fileName(for: $0) } == name }
         rides.append(stats)
         rides.sort { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
         prune(now: now)
+        return directory.appending(path: name)
+    }
+
+    /// Write (or overwrite) the ride keyed by its start time, waiting for
+    /// the write (session-end `reset()`). Mid-ride and teardown writes go
+    /// through `RideStatsService.persistLastRide` instead.
+    func record(_ stats: RideStats, now: Date = .now) {
+        guard let url = accept(stats, now: now) else { return }
+        let log = self.log
+        let write: @Sendable () -> Void = {
+            do {
+                try JSONEncoder().encode(stats).write(to: url, options: .atomic)
+            } catch {
+                log.error("Failed to write ride \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        Self.io.sync(execute: write)
     }
 
     /// Decode every stored ride OFF the main actor (a month can be tens of
@@ -119,8 +140,11 @@ final class RideHistoryStore {
     func delete(_ ride: RideStats) {
         guard let start = ride.startedAt else { return }
         let name = Self.fileName(for: start)
-        deleted.insert(name)
-        try? FileManager.default.removeItem(at: directory.appending(path: name))
+        deleted[name] = ride.trackPoints.count
+        let url = directory.appending(path: name)
+        // On `io`, after any write of this ride still queued.
+        let remove: @Sendable () -> Void = { try? FileManager.default.removeItem(at: url) }
+        Self.io.sync(execute: remove)
         rides.removeAll { $0.startedAt.map { Self.fileName(for: $0) } == name }
     }
 

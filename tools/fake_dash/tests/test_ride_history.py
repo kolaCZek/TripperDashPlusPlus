@@ -20,10 +20,12 @@ Contract pinned here, without Xcode (the Swift side is unit-tested in
   - Review of #152:
     * closing a RESTORED summary must not clear `restoredFromDisk` (the
       next ride would fold onto yesterday's and merge history files);
-    * a ride deleted this session is never written back by a teardown;
+    * a ride deleted this session is not written back by a teardown, but
+      comes back once the session rides on (track grows past its length);
     * a restored summary is never re-recorded by `end()` either;
     * sessions under 100 m / 2 track points aren't kept;
-    * the track is checkpointed every 300 accepted fixes (~5 min) so a
+    * the track is checkpointed every 300 accepted fixes (~5 min), off the
+      main actor on one serial queue shared with every other write, so a
       kill mid-ride loses minutes, not the whole outing;
     * the sheet decodes once per opening, off the main actor; the detail
       builds its SavedRoute lazily (not in init); "Save to routes" dedupes
@@ -77,20 +79,22 @@ class History:
 
     def __init__(self) -> None:
         self.files: dict[str, dict] = {}
-        self.deleted: set[str] = set()
+        self.deleted: dict[str, int] = {}   # name → track length at deletion
 
     def record(self, ride: dict, now: float) -> None:
         if ride.get("startedAt") is None or ride.get("distance", 1_000) < MIN_DISTANCE_M:
             return
         name = file_name(ride["startedAt"])
         if name in self.deleted:
-            return
+            if ride.get("legs", 0) <= self.deleted[name]:
+                return
+            del self.deleted[name]
         self.files[name] = ride
         self.prune(now)
 
     def delete(self, ride: dict) -> None:
         name = file_name(ride["startedAt"])
-        self.deleted.add(name)
+        self.deleted[name] = ride.get("legs", 0)   # `legs` stands in for track length
         self.files.pop(name, None)
 
     def prune(self, now: float) -> None:
@@ -191,6 +195,19 @@ def test_deleted_ride_is_not_written_back_by_a_later_teardown():
     assert h.load(T0 + 120) == []
 
 
+def test_deleted_ride_comes_back_once_the_session_rides_on():
+    # Review 2 of #152: delete a short test loop, then keep riding without
+    # disconnecting — the rest of the session must still reach the history.
+    h = History()
+    svc = Service(h)
+    svc.ride_leg(T0)
+    svc.end(T0 + 60)
+    h.delete(svc.stats)
+    svc.ride_leg(T0)                # next leg, same session (same startedAt)
+    svc.end(T0 + 3600)
+    assert [r["legs"] for r in h.load(T0 + 3600)] == [2]
+
+
 def test_restored_summary_is_not_rewritten_by_end():
     h = History()
     svc = Service(h)
@@ -256,31 +273,56 @@ def test_swift_reset_records_before_zeroing_unless_restored():
 def test_swift_every_teardown_snapshot_is_recorded_unless_restored():
     src = SERVICE.read_text()
     body = strip_comments(decl_body(src, "private func persistLastRide"))
-    assert "if !restoredFromDisk { history?.record(stats, encoded: data) }" in body
+    assert "let historyURL = restoredFromDisk ? nil : history?.accept(snapshot)" in body
     assert body.count("JSONEncoder()") == 1, "encode once for UserDefaults and the history file"
+    # encode + both writes happen inside the queued closure, not on main
+    closure = body[body.index("let write: @Sendable () -> Void = {"):body.index("if background {")]
+    assert "JSONEncoder().encode(snapshot)" in closure
+    assert "defaults.set(data, forKey: key)" in closure
+    assert "data.write(to: historyURL" in closure
+    assert "RideHistoryStore.io.async(execute: write)" in body
+    assert "RideHistoryStore.io.sync(execute: write)" in body
     assert "history" not in strip_comments(decl_body(src, "private func restoreLastRide"))
 
 
 def test_swift_acknowledge_keeps_the_restored_flag():
     body = strip_comments(decl_body(SERVICE.read_text(), "func acknowledgeSummary()"))
-    assert "removeObject(forKey: Self.storageKey)" in body
+    assert "removePersistedRide()" in body
     assert "restoredFromDisk" not in body
+
+
+def test_swift_last_ride_key_is_only_touched_on_the_io_queue():
+    # A late async checkpoint must not re-add a key reset()/acknowledge removed.
+    src = strip_comments(SERVICE.read_text())
+    assert "removePersistedRide()" in strip_comments(decl_body(SERVICE.read_text(), "func reset()"))
+    rm = strip_comments(decl_body(SERVICE.read_text(), "private func removePersistedRide"))
+    assert "RideHistoryStore.io.sync(execute: remove)" in rm
+    # the only direct UserDefaults writes are inside queued closures (+ the
+    # restore-failure cleanup at init, before any write can be queued)
+    assert src.count("defaults.set(") == 1
+    assert src.count("defaults.removeObject(") == 2
+    store = _store()
+    assert "nonisolated static let io = DispatchQueue(" in store
 
 
 def test_swift_mid_ride_checkpoint():
     src = strip_comments(SERVICE.read_text())
     assert "static let checkpointEveryFixes = 300" in src
     body = strip_comments(decl_body(SERVICE.read_text(), "private func ingest"))
-    assert "count % Self.checkpointEveryFixes == 0 { persistLastRide() }" in body
+    assert "count % Self.checkpointEveryFixes == 0 { persistLastRide(background: true) }" in body, \
+        "the checkpoint must not block the main actor (render loop)"
     assert "count != before" in body, "a rejected fix must not re-trigger the checkpoint"
 
 
 def test_swift_store_tombstones_deletes_and_skips_short_sessions():
     src = _store()
-    rec = strip_comments(decl_body(src, "func record("))
-    assert "guard Self.isWorthKeeping(stats)" in rec
-    assert "guard !deleted.contains(name) else { return }" in rec
-    assert "deleted.insert(name)" in strip_comments(decl_body(src, "func delete("))
+    acc = strip_comments(decl_body(src, "func accept("))
+    assert "guard Self.isWorthKeeping(stats)" in acc
+    assert "guard stats.trackPoints.count > lengthAtDeletion else { return nil }" in acc
+    assert "Self.io.sync(execute: write)" in strip_comments(decl_body(src, "func record("))
+    dele = strip_comments(decl_body(src, "func delete("))
+    assert "deleted[name] = ride.trackPoints.count" in dele
+    assert "Self.io.sync(execute: remove)" in dele
     keep = strip_comments(decl_body(src, "nonisolated static func isWorthKeeping"))
     assert "stats.trackPoints.count >= 2" in keep
     assert "stats.distanceMeters >= minimumDistanceMeters" in keep

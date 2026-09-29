@@ -119,11 +119,27 @@ struct RideHistoryStoreTests {
         let r = ride(start: 999_000)
         store.record(r, now: now)
         store.delete(r)
-        store.record(ride(start: 999_000, fixes: 4), now: now)   // next leg / reset()
+        store.record(r, now: now)                                 // bike off: same ride
         #expect(store.rides.isEmpty)
         let fresh = RideHistoryStore(directory: dir, now: now)
         await fresh.load(now: now)
         #expect(fresh.rides.isEmpty)
+    }
+
+    @Test func deletedRideComesBackOnceTheSessionRidesOn() async {
+        // Review 2 of #152: the tombstone must not swallow the rest of the
+        // session (delete a test loop, then ride 80 km without disconnecting).
+        let dir = tempDir()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let store = RideHistoryStore(directory: dir, now: now)
+        let r = ride(start: 999_000)
+        store.record(r, now: now)
+        store.delete(r)
+        store.record(ride(start: 999_000, fixes: 4), now: now)   // next leg, same session
+        #expect(store.rides.count == 1)
+        let fresh = RideHistoryStore(directory: dir, now: now)
+        await fresh.load(now: now)
+        #expect(fresh.rides.map(\.trackPoints.count) == [4])
     }
 
     /// A service whose persisted last ride started an hour ago.
