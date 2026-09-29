@@ -36,8 +36,11 @@ import Foundation
 
 /// Pure, `Sendable` ride accumulator. Fold each accepted `Fix` in with
 /// `folding(_:)`; every derived stat is a stored/computed property. No
-/// actor, no I/O — unit-tested in `RideStatsTests`.
-struct RideStats: Sendable, Equatable, Codable {
+/// actor, no I/O — unit-tested in `RideStatsTests`. `nonisolated` so the
+/// ride history can decode a month of tracks off the main actor (under
+/// default MainActor isolation its Codable conformance would otherwise be
+/// main-actor-only).
+nonisolated struct RideStats: Sendable, Equatable, Codable {
 
     /// One recorded point of the live ride track — the raw material a
     /// GPX `<trkpt>` is serialised from (`GPXExporter`). Captured for
@@ -47,7 +50,7 @@ struct RideStats: Sendable, Equatable, Codable {
     /// track is the raw path, not the distance-gated subset — but bad-
     /// accuracy / out-of-order fixes never enter either the totals or the
     /// track. Plain `Codable` value so `RideStats` stays `Sendable`.
-    struct TrackPoint: Sendable, Equatable, Codable {
+    nonisolated struct TrackPoint: Sendable, Equatable, Codable {
         let latitude: Double
         let longitude: Double
         let altitude: Double          // metres, GPS ellipsoidal (coarse)

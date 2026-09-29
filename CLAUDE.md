@@ -125,7 +125,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 TripperDashPP/TripperDashPP.xcodeproj/   # Xcode project (committed; xcuserdata gitignored)
 TripperDashPP/                           # App source
 ├── App/          # @main, AppStatus (shared observable state), LocationService, VoiceNavigator (offline spoken turn-by-turn), DemoDashModel (demo mode)
-├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, RideStatsPanel, InteractiveMapView, DashPreviewPanel, AddBikeSheet, PermissionsView)
+├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, RideStatsPanel, RideHistoryView, InteractiveMapView, DashPreviewPanel, AddBikeSheet, PermissionsView)
 │   └── Navigation/   # search / preview / favorites / saved-routes sheets, NavigationHUD, FreeRideHUD, PlanningMapView, WaypointListView, RouteProgressMap, QuickAccessTiles, PrerenderProgressView
 ├── Tripper/      # K1G control plane (BikeLink, DashSocket, K1GPacket, RsaHandshake, HeartbeatLoop, K1GConstants),
 │   #              plus DeviceTelemetry (phone status), CallStateObserver (OEM incoming-call mirror),
@@ -134,13 +134,13 @@ TripperDashPP/                           # App source
 ├── Map/          # OSM raster tile pipeline + BG-safe CGContext frame source
 │   #              (MapViewSource, OSMTileFetcher, RouteTileCache, TileDiskCache, WebMercator, SnapshotterPark, TileColorTransform, SolarClock, MapStyle, MapStyleResolver, DashNotice)
 ├── RideAlerts/   # keyless ride enrichment — WeatherAlertService (Open-Meteo, whole-route look-ahead), SpeedLimitService + MaxspeedParser (OSM maxspeed, map-matched posted-limit sign), SpeedCameraService (OSM/Overpass cameras + average-speed sections), SpeedCameraAnnouncer (spoken camera alerts), RouteProjection
-├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live session; last ride summary persisted to UserDefaults), GPXExporter. Phone-side only, no dash TLV
+├── RideStats/    # GPS-only trip computer — RideStats (pure accumulator), RideStatsFormatting, RideStatsService (live session; last ride summary persisted to UserDefaults), RideHistoryStore (every ride of the last 30 days, one JSON file each in Application Support), GPXExporter. Phone-side only, no dash TLV
 ├── Navigation/   # routing, search, active-nav loop, on-route geometry, GPX import, saved routes, recent destinations, voice-prompt phrasing/scheduling, share deep links (SharedDeepLink, SharedDestinationResolver)
 │   └── Models/   # Destination, Favorite, NavSettings, DashNavSettings, ManeuverIcon, RoundaboutInstructionParser, SavedRoute, MapStyleSettings, PlannedRoute, Waypoint, DrivingSide, ManeuverGeometry, ManeuverKeywords
 ├── LiveActivity/ # LiveActivityController + RideActivityAttributes (ActivityKit contract shared with the widget)
 ├── TripperDashShare/   # Share Extension target — "Share to TripperDash++" from Google / Apple Maps
 └── TripperDashWidgets/ # Widget extension target — Lock Screen + Dynamic Island Live Activity UI
-TripperDashPP/TripperDashPPTests/         # Swift Testing unit-test target (weather-along-route incl. cold/crosswind, ride stats + formatting + persistence, next-waypoint label, ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations, smoke, MapKit leg-tail probe)
+TripperDashPP/TripperDashPPTests/         # Swift Testing unit-test target (weather-along-route incl. cold/crosswind, ride stats + formatting + persistence + history, next-waypoint label, ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations, smoke, MapKit leg-tail probe)
 tools/
 ├── fake_dash/    # Python harness — simulates the Tripper for development on a laptop
 ├── stamp-git-sha.sh     # build phase: stamps the git SHA into Info.plist (Settings → About)

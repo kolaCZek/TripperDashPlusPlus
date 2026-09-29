@@ -38,6 +38,7 @@ struct MapPickerView: View {
     @State private var transitioning = false
     @State private var showSettings = false
     @State private var showSavedRoutes = false
+    @State private var showRideHistory = false
 
     /// Armed when the rider taps "Connect to dash to start" while a plan
     /// is laid out — i.e. they intend to ride, not just connect. When the
@@ -178,6 +179,12 @@ struct MapPickerView: View {
                     }
                     .accessibilityLabel("Saved routes")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showRideHistory = true } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                    }
+                    .accessibilityLabel("Ride history")
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: {
@@ -194,6 +201,10 @@ struct MapPickerView: View {
             SavedRoutesListView()
                 .environment(status)
                 .environment(status.savedRoutesStore)
+        }
+        .sheet(isPresented: $showRideHistory) {
+            RideHistoryView()
+                .environment(status)
         }
         .fullScreenCover(isPresented: $prerenderActive) {
             PrerenderProgressView(progress: prerenderProgress)

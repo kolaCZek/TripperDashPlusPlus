@@ -180,6 +180,10 @@ final class AppStatus {
     /// only — not wired to any K1G dash TLV.
     let rideStats: RideStatsService
 
+    /// Every ride of the last 30 days (feat/ride-history), fed by
+    /// `rideStats` at each teardown. Backs the picker's Ride history sheet.
+    let rideHistory = RideHistoryStore()
+
     /// The rider's garage — saved bikes (by Wi-Fi SSID), add/remove/select.
     /// Drives which SSID the connect flow targets; the dash IP is a global
     /// constant (192.168.1.1), never per-bike. Owned here as the single
@@ -213,7 +217,7 @@ final class AppStatus {
         // initialised as an inline stored property). Assigned here rather
         // than inline because a stored-property default can't reference
         // another property (`self` isn't available yet at that point).
-        rideStats = RideStatsService(location: locationService)
+        rideStats = RideStatsService(location: locationService, history: rideHistory)
 
         // Wire BikeLink → DashNavSettings so the wire-encoding helpers
         // (units, decimal separator, clock format, bottom-line mutex)
