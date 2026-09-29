@@ -40,6 +40,27 @@ struct RideStatsTests {
         #expect(s.distanceMeters == 0)
     }
 
+    @Test func stationaryWanderAddsNoDistance() {
+        // Poor signal while stopped: 5–15 m position steps, Doppler ~0.
+        var s = RideStats()
+        s = s.folding(fix(0, 0.00000, speed: 0,   acc: 30, t: 0))
+        s = s.folding(fix(0, 0.00010, speed: 0,   acc: 30, t: 1))  // ~11 m
+        s = s.folding(fix(0, 0.00005, speed: 0.3, acc: 30, t: 2))  // ~5.6 m
+        s = s.folding(fix(0, 0.00018, speed: 0,   acc: 30, t: 3))  // ~14 m
+        #expect(s.distanceMeters == 0)
+        #expect(s.trackPoints.count == 4)
+        // Riding off again counts, from the last wandered point.
+        s = s.folding(fix(0, 0.00118, speed: 10, t: 13))           // ~111 m
+        #expect(abs(s.distanceMeters - 111.32) < 1.5)
+    }
+
+    @Test func unknownSpeedStillCountsDistance() {
+        var s = RideStats()
+        s = s.folding(fix(0, 0.000, speed: -1, t: 0))
+        s = s.folding(fix(0, 0.001, speed: -1, t: 5))
+        #expect(abs(s.distanceMeters - 111.32) < 1.5)
+    }
+
     @Test func rejectsInaccurateFix() {
         var s = RideStats()
         s = s.folding(fix(0, 0, acc: 5, t: 0))

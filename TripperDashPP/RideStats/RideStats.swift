@@ -15,9 +15,11 @@
 //
 //    1. Distance   — great-circle sum between consecutive accepted fixes.
 //    2. Fix gating — reject accuracy < 0 or > 50 m, non-monotonic time,
-//                    sub-3 m jitter steps (0 distance), and teleport
-//                    glitches (implied speed > 90 m/s → skip distance,
-//                    still advance the clock).
+//                    sub-3 m jitter steps (0 distance), steps whose
+//                    Doppler speed says "stopped" (< 0.7 m/s → 0
+//                    distance: poor-signal wander in a garage or at a
+//                    light), and teleport glitches (implied speed >
+//                    90 m/s → skip distance, still advance the clock).
 //    3. Moving time — sum of dt while max(gpsSpeed, d/dt) ≥ 0.7 m/s, each
 //                    dt capped at 10 s (a longer gap = signal loss).
 //    4. Max speed  — max Doppler GPS speed (ignores -1 unknown).
@@ -134,8 +136,12 @@ struct RideStats: Sendable, Equatable, Codable {
         let impliedSpeed = d / dt
         let glitch = impliedSpeed > Self.teleportSpeedMps
 
-        // Distance (jitter floor + glitch guard).
-        if !glitch, d >= Self.jitterFloorMeters {
+        // Distance (jitter floor + glitch guard + Doppler "stopped").
+        // Under a roof the position wanders 3–15 m a step at 20–50 m
+        // accuracy while Doppler speed stays ~0; unknown speed (-1) keeps
+        // the old chord-only rule.
+        let stopped = fix.speed >= 0 && fix.speed < Self.movingThresholdMps
+        if !glitch, !stopped, d >= Self.jitterFloorMeters {
             s.distanceMeters += d
         }
 
