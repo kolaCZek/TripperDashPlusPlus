@@ -1067,11 +1067,11 @@ final class BikeLink {
     /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
     /// NOT stop an attempt that's already inside `runConnectFlow` at once —
     /// its receive loop only ends on cancellation, and the flow still has to
-    /// unwind and close its socket — so restarting the loop while one is live would open a
-    /// SECOND DashSocket on the same port and race the abandoned one for the
-    /// dash's replies, corrupting both (field-tested 8/2026: visible attempt-
-    /// counter reset + rx=0 timeouts on both flows while the dash itself
-    /// reported "iPhone connected"). If a wake signal arrives mid-attempt we
+    /// unwind and close its socket — so restarting the loop while one is
+    /// live would open a SECOND DashSocket on the same port and race the
+    /// abandoned one for the dash's replies, corrupting both (field-tested
+    /// 8/2026: visible attempt-counter reset + rx=0 timeouts on both flows
+    /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
     /// just let that attempt run to completion; the path-monitor / Connect-tap
     /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {

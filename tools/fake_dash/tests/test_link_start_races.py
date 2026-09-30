@@ -63,13 +63,42 @@ def test_start_streaming_rechecks_link_before_start(app_src):
         "the re-check must sit after the last await (post-z2 warm-up) and "
         "right before s.start()"
     )
-    # Nothing that installs ride state may run before the re-check.
+    # Nothing that installs ride state may run before the re-check. Only the
+    # non-demo path (after `guard streamer == nil`) — the demo branch has the
+    # same statements with no re-check.
+    live = body[body.index("guard streamer == nil") :]
+    lg = live.index(guard)
     for later in ("activeNavLoop = loop", "rideStats.begin()", "self.liveActivity = liveAct"):
-        assert body.rindex(later) > g, f"{later} must run only after the re-check"
+        assert later in live and live.index(later) > lg, (
+            f"{later} must run only after the re-check"
+        )
     bail = body[g : body.index("s.start()")]
-    assert "if streamer === s {" in bail and "streamer = nil" in bail, (
+    assert "if streamer === s { streamer = nil }" in bail, (
         "the bail path must drop its own not-yet-started streamer (and only "
         "its own — an overlapping resume may have installed a newer one)"
+    )
+    # Nav-start already went out: leave projection whenever no newer start
+    # owns the session — including after a Stop in the window, which nils
+    # `streamer` and sends its nav-stop BEFORE our nav-start.
+    assert "if self.streamer == nil { await link.sendNavStop() }" in bail, (
+        "the bail must send nav-stop whenever `streamer == nil`, not only "
+        "when the streamer was still ours — a Stop in the window otherwise "
+        "leaves the dash in projection with no video"
+    )
+
+
+def test_start_streaming_superseded_start_skips_nav_start(app_src):
+    body = _body(app_src, "func startStreaming() async")
+    live = body[body.index("guard streamer == nil") :]
+    guard = "guard streamer === s else { return }"
+    assert guard in live, (
+        "a start superseded during the route-card await must not send its "
+        "nav-start / keepalive into a newer session"
+    )
+    assert (
+        live.index("await bikeLink.sendRouteCard(")
+        < live.index(guard)
+        < live.index("await bikeLink.sendNavStart()")
     )
 
 
@@ -119,6 +148,11 @@ def test_report_join_failure_only_while_joining(link_src):
 
 def test_connect_flow_generic_catch_honours_cancellation(link_src):
     body = _body(link_src, "private func runConnectFlow")
+    # The explicit CancellationError branch closes only its own socket too.
+    cancel_catch = body[body.index("} catch is CancellationError {") : body.rindex("} catch {")]
+    assert "await flowSocket?.cancel()" in cancel_catch
+    assert "if self.socket === flowSocket { self.socket = nil }" in cancel_catch
+    assert "return .cancelled" in cancel_catch
     generic = body[body.rindex("} catch {") :]
     cancelled = generic.index("if Task.isCancelled {")
     assert cancelled < generic.index("self.lastError = msg"), (

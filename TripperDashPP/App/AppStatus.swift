@@ -536,6 +536,10 @@ final class AppStatus {
             title: activeNavigator.rideTitle ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
         )
+        // Superseded (Stop, or a newer start) while the card was going out:
+        // don't interleave nav-start into the newer session. Nav-start hasn't
+        // gone out yet and `stopStreaming()` already sent its nav-stop.
+        guard streamer === s else { return }
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
@@ -592,12 +596,12 @@ final class AppStatus {
         // `stopStreaming()` while the new streamer isn't running yet.
         let link = bikeLink
         guard streamer === s, link.state == .connected, hasStreamingIntent else {
-            if streamer === s {
-                streamer = nil
-                // Nav-start already went out; leave projection (no-op if the
-                // link is down).
-                Task { await link.sendNavStop() }
-            }
+            if streamer === s { streamer = nil }
+            // Nav-start already went out, so leave projection unless a newer
+            // start owns the session. Also after a Stop in the window: its
+            // nav-stop went out BEFORE our nav-start. Re-checked when the send
+            // runs, and a no-op if the link is down.
+            Task { if self.streamer == nil { await link.sendNavStop() } }
             applyKeepAwake()
             return
         }
