@@ -874,6 +874,9 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
+        // Scrolls so an over-tall HUD (demo preview + multi-stop pills + Edit
+        // route) can't push the Stop button and status banner off-screen.
+        ScrollView {
         VStack(spacing: 0) {
             // Demo mode: the interactive map is unmounted while streaming, so
             // the on-screen dash preview is the only place the rider sees the
@@ -916,6 +919,8 @@ struct MapPickerView: View {
                 }
             }
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     @ViewBuilder
@@ -940,6 +945,7 @@ struct MapPickerView: View {
     /// (surfaced in `browsingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
+        ScrollView {   // same overflow guard as navigatingBody
         VStack(spacing: 0) {
             if status.bikeLink.isDemo && status.isStreaming {
                 DashPreviewPanel(demoModel: status.demoDashModel)
@@ -954,6 +960,8 @@ struct MapPickerView: View {
             )
             .padding(.horizontal, 12)
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     // MARK: - Control button
