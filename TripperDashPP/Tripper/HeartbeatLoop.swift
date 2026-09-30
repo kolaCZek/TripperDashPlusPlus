@@ -63,10 +63,36 @@ nonisolated struct HeartbeatLoop: Sendable {
         category: "Heartbeat"
     )
 
+    /// Consecutive transient send failures tolerated before the loop stops
+    /// (and the caller treats it as a link drop).
+    static let maxTransientSendFailures = 3
+
+    /// True for `DashSocket.send` errnos that mean "buffer full, try later"
+    /// on the non-blocking socket, rather than "the link is gone".
+    static func isTransientSendError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == "DashSocket" else { return false }
+        return ns.code == Int(ENOBUFS) || ns.code == Int(EAGAIN) || ns.code == Int(EWOULDBLOCK)
+    }
+
+    /// Heartbeats the dash must have had the chance to ACK before its
+    /// silence counts. The dash only replies to what we send, so a stall on
+    /// OUR side (busy main actor at tick 0, process suspension) is not a
+    /// silent dash.
+    static let minSentTicksForSilence = 5
+
+    /// True when the dash has gone quiet: no RX for `K1G.rxSilenceTimeout`
+    /// AND enough heartbeats went out since the last RX.
+    static func isDashSilent(silence: TimeInterval, sentTicksWithoutRx: Int) -> Bool {
+        silence > K1G.rxSilenceTimeout && sentTicksWithoutRx >= minSentTicksForSilence
+    }
+
     /// Run until cancelled. Suspends on cancellation cleanly.
     @concurrent func run() async {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
+        var transientFailures = 0
+        var sentTicksWithoutRx = 0
         while !Task.isCancelled {
             // Phone status: mirrors the OEM 1 Hz `REForeGroundService` timer
             // which re-reads BatteryManager + cell info each fire. The
@@ -104,6 +130,8 @@ nonisolated struct HeartbeatLoop: Sendable {
             do {
                 try await socket.send(hb)
                 try await socket.send(md)
+                transientFailures = 0
+                sentTicksWithoutRx += 1
                 tick &+= 1
                 if tick == 1 {
                     Self.log.info("Heartbeat tick #1 sent (0044=\(hb.count)B + 0030=\(md.count)B)")
@@ -111,7 +139,25 @@ nonisolated struct HeartbeatLoop: Sendable {
                     Self.log.debug("Heartbeat tick #\(tick) sent")
                 }
             } catch {
-                Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
+                // The socket is non-blocking, so a full send buffer (RTP on the
+                // same interface, Wi-Fi power-save) is a normal hiccup, not a
+                // drop. Tolerate a few in a row; anything else stops as before.
+                if Self.isTransientSendError(error), transientFailures < Self.maxTransientSendFailures {
+                    transientFailures += 1
+                    Self.log.notice("Heartbeat send hiccup (\(transientFailures)/\(Self.maxTransientSendFailures)): \(error.localizedDescription, privacy: .public) — retrying next tick")
+                } else {
+                    Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
+                    return
+                }
+            }
+            // A dash that stopped talking is gone even if sends still succeed
+            // (the caller treats this return as a link drop, like a send error).
+            let silence = await socket.secondsSinceLastRx()
+            // 2× the interval: the check runs right after our send, before this
+            // tick's ACK, so an ACK-only dash reads just over 1 s every tick.
+            if silence < 2 * K1G.heartbeatInterval { sentTicksWithoutRx = 0 }
+            if Self.isDashSilent(silence: silence, sentTicksWithoutRx: sentTicksWithoutRx) {
+                Self.log.error("No RX from dash for \(Int(silence), privacy: .public) s — stopping loop")
                 return
             }
             try? await Task.sleep(nanoseconds: UInt64(K1G.heartbeatInterval * 1_000_000_000))

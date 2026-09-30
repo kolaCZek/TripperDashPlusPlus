@@ -38,6 +38,7 @@ from .protocol import (
     RollingSeq,
     Segment,
     build_envelope,
+    build_heartbeat_ack,
     decode_packet,
     is_valid_envelope,
     patch_seq,
@@ -77,6 +78,8 @@ class PhonePeer:
     # Set after the first empty K1G envelope (heartbeat) is logged at INFO.
     # Subsequent ones drop to DEBUG.
     empty_envelope_logged: bool = False
+    # Counter byte of the next heartbeat ACK (wraps at 0xFF).
+    hb_ack_counter: int = 0
 
 
 class FakeDashServer:
@@ -344,6 +347,11 @@ class FakeDashServer:
                     seg.sub,
                     len(seg.payload),
                 )
+            # `06 04` (battery) only rides in the phone's 1 Hz 0044
+            # heartbeat. ACK it like the real dash does; the phone drops the
+            # link after K1G.rxSilenceTimeout without RX.
+            if seg.sub == 0x04:
+                self._send_heartbeat_ack(peer)
             return
 
         log.info(
@@ -353,6 +361,17 @@ class FakeDashServer:
             seg.sub,
             len(seg.payload),
         )
+
+    def _send_heartbeat_ack(self, peer: PhonePeer) -> None:
+        if self._k1g_sock is None:
+            return
+        # Sent as-is: the ACK has no "K1G " magic for patch_seq to find.
+        pkt = build_heartbeat_ack(peer.hb_ack_counter)
+        peer.hb_ack_counter = (peer.hb_ack_counter + 1) & 0xFF
+        try:
+            self._k1g_sock.sendto(pkt, peer.addr)
+        except OSError as exc:
+            log.warning("sendto %s failed: %s", peer.addr, exc)
 
     def _handle_auth_request(self, peer: PhonePeer) -> None:
         log.info("AUTH ← %s: pubkey request, sending modulus + exponent", peer.addr)
