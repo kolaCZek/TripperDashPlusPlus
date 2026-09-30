@@ -3,7 +3,7 @@
 //  TripperDashPP
 //
 //  feat/saved-routes-gpx — actions for a single saved route: preview its
-//  shape on a map, rename, edit its points (reorder / delete), delete the
+//  shape on a map, rename, edit its points (add / reorder / delete), delete the
 //  route, and start navigation.
 //
 //  Start flow (rider-confirmed design):
@@ -45,6 +45,7 @@ struct SavedRouteDetailView: View {
     @State private var pendingDecision: RouteStartDecision?
     @State private var nameCommitted = false
     @State private var editMode: EditMode = .inactive
+    @State private var showAddStop = false
     /// GPX export temp-file URL, built on demand when the rider taps
     /// "Export as GPX". Nil until built / after a failed write.
     @State private var exportURL: URL?
@@ -150,6 +151,11 @@ struct SavedRouteDetailView: View {
             exportURL = nil
         }
         .onDisappear { commitName() }
+        .sheet(isPresented: $showAddStop) {
+            DestinationSearchSheet(onPick: { dest in addStop(dest) })
+                .environment(status)
+                .environment(status.navigationStore)
+        }
         .confirmationDialog("Delete this route?",
                             isPresented: $showDeleteConfirm,
                             titleVisibility: .visible) {
@@ -232,6 +238,21 @@ struct SavedRouteDetailView: View {
                      : "Swipe to delete a point. Recorded tracks can't be reordered (it would scramble the shape).")
             }
         }
+
+        // Stops are waypoints only; a track's points are its recorded shape.
+        // `- 1`: starting navigation prepends the live origin, and the planner's
+        // stop list / mid-ride Edit route only exist up to the threshold.
+        if route.kind == .waypoints && route.points.count < RoutePoint.editableListThreshold - 1 {
+            Section {
+                Button {
+                    showAddStop = true
+                } label: {
+                    Label("Add stop", systemImage: "plus.circle.fill")
+                }
+            } footer: {
+                Text("Search for a place; it's added before the end.")
+            }
+        }
     }
 
     @ViewBuilder
@@ -272,6 +293,16 @@ struct SavedRouteDetailView: View {
         for i in trimmed.sorted(by: >) where pts.indices.contains(i) {
             pts.remove(at: i)
         }
+        store.updatePoints(id: route.id, points: pts)
+    }
+
+    /// Insert a searched place as a new stop just before the end point, the
+    /// same spot the in-ride Edit route sheet uses.
+    private func addStop(_ dest: Destination) {
+        guard let route else { return }
+        var pts = route.points
+        pts.insert(RoutePoint(coordinate: dest.coordinate, name: dest.name.isEmpty ? nil : dest.name),
+                   at: max(pts.count - 1, 0))
         store.updatePoints(id: route.id, points: pts)
     }
 
