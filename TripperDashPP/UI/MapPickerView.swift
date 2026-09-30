@@ -260,7 +260,7 @@ struct MapPickerView: View {
             .environment(status.navigationStore)
         }
         .sheet(isPresented: $showFavoriteEditor) {
-            FavoriteEditorSheet(existing: nil, seed: favoriteEditorSeed)
+            FavoriteEditorSheet(seed: favoriteEditorSeed)
                 .environment(status.navigationStore)
         }
         .sheet(isPresented: $showRoutePreferences, onDismiss: {
@@ -652,11 +652,6 @@ struct MapPickerView: View {
                 onAddWaypoint: { coord in
                     longPressCoord = coord
                     showLongPressDialog = true
-                },
-                onTapWaypoint: { _ in
-                    // Tapping a pin currently just surfaces the list;
-                    // remove/reorder happen there. Hook reserved for a
-                    // future per-pin context menu.
                 }
             )
             .frame(maxHeight: .infinity)

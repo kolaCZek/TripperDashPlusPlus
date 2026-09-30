@@ -6,7 +6,7 @@ iOS app source (Swift 6 / SwiftUI, iOS 18.6+).
 
 ```
 App/         @main + AppStatus (shared observable state) + LocationService + VoiceNavigator (offline AVSpeechSynthesizer) + DemoDashModel
-UI/          SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, InteractiveMapView, RideStatsPanel,
+UI/          SwiftUI views (RootView, MapPickerView, StreamingView, InteractiveMapView, RideStatsPanel,
              DashPreviewPanel, AddBikeSheet, PermissionsView)
   Navigation/  destination search / route preview / favorite-editor / saved-routes sheets, NavigationHUD, FreeRideHUD,
              PlanningMapView, WaypointListView, QuickAccessTiles, RouteProgressMap, PrerenderProgressView
