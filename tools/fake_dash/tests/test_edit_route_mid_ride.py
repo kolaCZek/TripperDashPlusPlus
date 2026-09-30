@@ -82,9 +82,13 @@ def test_apply_installs_via_replace_plan_and_never_ends_the_ride():
     assert "PlannedRoute.replacementWaypoints(currentLocation:" in apply
     for forbidden in ("stopNavigation", "stopStreaming", "start(plan:", ".stop()"):
         assert forbidden not in sheet, f"the editor must not call {forbidden}"
-    # Stale edit (a stop reached while editing) is refused, before AND
-    # after the routing await; a failure keeps the old route.
-    assert apply.count("guard !isStale else") == 2
+    # Stale edit (a stop reached or skipped while editing) reloads the
+    # draft, before AND after the routing await; a failure keeps the old
+    # route.
+    assert apply.count("guard !isStale else {\n            reloadDraft()") == 1
+    assert apply.count("guard !isStale else {\n                reloadDraft()") == 1
+    # Round 2: Apply is capped like a reroute.
+    assert "timeout: ActiveNavigator.routeRequestTimeout," in apply
     assert apply.index("try await status.routingService.recompute(") < apply.index("nav.replacePlan(newPlan)")
     catch = apply[apply.index("} catch {"):]
     assert "return" in catch[: catch.index("guard !closed")]
@@ -100,7 +104,12 @@ def test_replace_plan_reseeds_fires_hook_and_keeps_the_ride():
     assert "guard isNavigating" in body
     assert "self.currentLegIndex = 0" in body
     assert "seed(route: route, destination: destWp.asDestination)" in body
-    assert "setProgressBaseline(plan: newPlan, fromLegIndex: 0)" in body
+    # Round 2: the progress bar keeps the distance already ridden — read
+    # against the OLD plan, before it is swapped.
+    assert "setProgressBaseline(plan: newPlan, fromLegIndex: 0, alreadyCovered: covered)" in body
+    covered = "let covered = plannedTotalDistance - finalDestinationRemainingDistance"
+    assert covered in body
+    assert body.index(covered) < body.index("self.plan = newPlan")
     assert "routeRecalculations += 1" in body
     assert body.index("seed(route:") < body.index("await onActiveRouteChanged?(route)")
     # Ride-level state a mid-ride swap must keep.
@@ -109,7 +118,65 @@ def test_replace_plan_reseeds_fires_hook_and_keeps_the_ride():
         assert kept not in body, f"replacePlan must not touch {kept}"
     # `start(plan:)` keeps its baseline through the shared helper.
     start = decl_body(nav, "func start(plan: PlannedRoute, fromLegIndex: Int = 0)")
-    assert "setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex)" in start
+    assert "setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex, alreadyCovered: 0)" in start
     helper = decl_body(nav, "private func setProgressBaseline")
-    assert "self.plannedTotalDistance = total" in helper
-    assert "self.plannedWaypointFractions = fractions" in helper
+    assert "Self.progressBaseline(alreadyCovered: alreadyCovered, legDistances: legDistances)" in helper
+    assert "self.plannedTotalDistance = baseline.total" in helper
+    assert "self.plannedWaypointFractions = baseline.fractions" in helper
+
+
+def test_sheet_reloads_when_the_route_moves_on_instead_of_refusing():
+    sheet = _src(SHEET)
+    body = decl_body(sheet, "var body: some View")
+    assert ".onChange(of: status.activeNavigator.currentLegIndex) { _, _ in reloadIfStale() }" in body
+    assert ".onChange(of: status.activeNavigator.plan.map { ObjectIdentifier($0) }) { _, _ in reloadIfStale() }" in body
+    reload_if = decl_body(sheet, "private func reloadIfStale()")
+    # Not mid-Apply (the post-await check owns that) nor after our own swap.
+    assert "guard !applying, !closed, draft != nil, isStale else { return }" in reload_if
+    reload = decl_body(sheet, "private func reloadDraft()")
+    assert reload.index("draft = nil") < reload.index("\n        loadDraft()")
+    assert "noticeText = Self.reloadedNotice" in reload
+    assert "The route moved on" in sheet
+    assert "You reached a stop while editing" not in sheet
+    assert "staleMessage" not in sheet
+    apply = decl_body(sheet, "private func apply()")
+    swap = apply[apply.index("if await nav.replacePlan(newPlan) {"):]
+    assert swap.index("closed = true") < swap.index("dismiss()")
+
+
+def test_recompute_threads_the_timeout_and_the_planner_keeps_none():
+    routing = _src(APP / "Navigation" / "RoutingService.swift")
+    sig = routing[routing.index("func recompute(_ plan: PlannedRoute,"):]
+    sig = sig[: sig.index("{")]
+    assert "timeout: TimeInterval? = nil," in sig
+    body = decl_body(routing, "func recompute(_ plan: PlannedRoute,")
+    assert "timeout: timeout)" in body
+    planner = decl_body(_src(APP / "App" / "AppStatus.swift"), "func recomputeDirtyLegs")
+    assert "timeout:" not in planner
+
+
+def test_live_activity_retitles_after_a_destination_edit():
+    attrs = _src(APP / "LiveActivity" / "RideActivityAttributes.swift")
+    state = decl_body(attrs, "public struct ContentState: Codable, Hashable")
+    assert "var destinationName: String?" in state
+    # The immutable attribute stays, after the ContentState block.
+    assert "var destinationName: String?" in attrs[attrs.index(state) + len(state):]
+    ctrl = _src(APP / "LiveActivity" / "LiveActivityController.swift")
+    push = decl_body(ctrl, "nonisolated static func shouldPush(")
+    assert "if old.destinationName != new.destinationName { return true }" in push
+    update = decl_body(ctrl, "func update(")
+    assert "destinationName: destinationName" in update
+    loop = _src(APP / "Navigation" / "ActiveNavLoop.swift")
+    assert "destinationName: nav.editedDestinationName," in loop
+    widget = _src(APP / "TripperDashWidgets" / "RideLiveActivity.swift")
+    fallback = "context.state.destinationName ?? context.attributes.destinationName"
+    assert widget.count(fallback) == 2
+    assert widget.count("context.attributes.destinationName") == 2   # no bare use left
+    nav = _src(NAV)
+    replace = decl_body(nav, "func replacePlan(_ newPlan: PlannedRoute) async -> Bool")
+    retitle = "self.editedDestinationName = newFinal.name"
+    assert retitle in replace
+    # Compared against the OLD final stop, so an unchanged one keeps the title.
+    assert replace.index(retitle) < replace.index("self.plan = newPlan")
+    start = decl_body(nav, "func start(plan: PlannedRoute, fromLegIndex: Int = 0)")
+    assert "self.editedDestinationName = nil" in start

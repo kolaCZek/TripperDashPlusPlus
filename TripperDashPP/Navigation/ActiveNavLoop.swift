@@ -473,6 +473,7 @@ final class ActiveNavLoop {
             remainingMeters: distTotal,
             progress: nav.rideProgressFraction,
             isRerouting: isRerouting,
+            destinationName: nav.editedDestinationName,
             imperial: settings.units == .imperial,
             is24Hour: settings.is24Hour
         )

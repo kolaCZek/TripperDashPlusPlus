@@ -24,8 +24,9 @@ struct EditRouteSheet: View {
     @State private var draft: PlannedRoute?
     /// The running plan + leg the draft was cut from. A leg advance (or a
     /// dash "remove waypoint") while editing makes the draft stale — it may
-    /// still hold the stop just reached — so Apply refuses it. A reroute
-    /// doesn't: the stops are the same and routing starts from here anyway.
+    /// still hold the stop just reached — so the list is reloaded from the
+    /// live plan (unsaved edits dropped). A reroute doesn't: the stops are
+    /// the same and routing starts from here anyway.
     @State private var basePlan: PlannedRoute?
     @State private var baseLegIndex = 0
     @State private var baseStopIds: [UUID] = []
@@ -33,6 +34,7 @@ struct EditRouteSheet: View {
     @State private var applyingLegs: Set<Int> = []
     @State private var applying = false
     @State private var errorText: String?
+    @State private var noticeText: String?
     /// Set on dismissal so a late Apply result never installs a route the
     /// rider walked away from.
     @State private var closed = false
@@ -57,6 +59,13 @@ struct EditRouteSheet: View {
                     Label(errorText, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
                         .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(.regularMaterial)
+                } else if let noticeText {
+                    Label(noticeText, systemImage: "arrow.clockwise")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                         .background(.regularMaterial)
@@ -87,6 +96,9 @@ struct EditRouteSheet: View {
         .onChange(of: status.activeNavigator.isNavigating) { _, navigating in
             if !navigating { dismiss() }
         }
+        // A stop reached (or skipped from the dash) while editing: reload.
+        .onChange(of: status.activeNavigator.currentLegIndex) { _, _ in reloadIfStale() }
+        .onChange(of: status.activeNavigator.plan.map { ObjectIdentifier($0) }) { _, _ in reloadIfStale() }
         .sheet(isPresented: $showSearch) {
             DestinationSearchSheet(onPick: { dest in
                 _ = draft?.insertBeforeDestination(Waypoint.from(destination: dest))
@@ -128,12 +140,28 @@ struct EditRouteSheet: View {
         draft = d
     }
 
+    /// The route moved on under the open sheet: re-cut the draft from the
+    /// live plan. The rider's unsaved edits are dropped — simpler and safer
+    /// than merging them onto a list that lost (or skipped) a stop. While
+    /// Apply is routing, the post-await check below does this instead.
+    private func reloadIfStale() {
+        guard !applying, !closed, draft != nil, isStale else { return }
+        reloadDraft()
+    }
+
+    private func reloadDraft() {
+        draft = nil
+        errorText = nil
+        loadDraft()
+        noticeText = Self.reloadedNotice
+    }
+
     private func apply() {
         guard let draft, let coord = currentCoordinate,
               let wps = PlannedRoute.replacementWaypoints(currentLocation: coord, stops: draft.waypoints)
         else { return }
         guard !isStale else {
-            errorText = Self.staleMessage
+            reloadDraft()
             return
         }
         let nav = status.activeNavigator
@@ -143,6 +171,7 @@ struct EditRouteSheet: View {
         Self.carryComputedLegs(from: draft, into: newPlan)
         let dirty = Set(newPlan.legs.indices.filter { !newPlan.legs[$0].isComputed })
         errorText = nil
+        noticeText = nil
         applying = true
         applyingLegs = dirty
         Task { @MainActor in
@@ -155,6 +184,9 @@ struct EditRouteSheet: View {
                     newPlan,
                     dirtyLegIndices: dirty,
                     preferences: status.navigationStore.routePreferences,
+                    // Same cap as a reroute: a dead cellular link shows an
+                    // error instead of spinning with the old route running.
+                    timeout: ActiveNavigator.routeRequestTimeout,
                     isStillLive: { !closed && nav.isNavigating }
                 )
             } catch {
@@ -164,10 +196,11 @@ struct EditRouteSheet: View {
             }
             guard !closed, newPlan.isComputed else { return }
             guard !isStale else {
-                errorText = Self.staleMessage
+                reloadDraft()
                 return
             }
             if await nav.replacePlan(newPlan) {
+                closed = true   // our own swap must not trigger a reload
                 dismiss()
             } else {
                 errorText = "Couldn't switch routes right now (rerouting?). Your current route is unchanged — try Apply again."
@@ -175,8 +208,7 @@ struct EditRouteSheet: View {
         }
     }
 
-    private static let staleMessage =
-        "You reached a stop while editing, so this edit is out of date. Your current route is unchanged — close and reopen Edit route."
+    private static let reloadedNotice = "The route moved on — the list was refreshed."
 
     /// Reuse the routes (and the rider's picked alternative) of legs whose
     /// two stops are unchanged, so Apply asks Apple only for what changed.

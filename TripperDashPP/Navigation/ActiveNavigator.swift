@@ -426,7 +426,9 @@ final class ActiveNavigator {
     /// single destination it's the route's own distance. Held for the
     /// whole ride (never reduced by a reroute — a reroute changes the
     /// road ahead, but progress is still measured against the trip the
-    /// rider set out on, so the bar doesn't jump backward mid-ride).
+    /// rider set out on, so the bar doesn't jump backward mid-ride). A
+    /// mid-ride edit (`replacePlan`) re-bases it to ridden-so-far + the
+    /// new legs, so the bar keeps the progress already made.
     private(set) var plannedTotalDistance: CLLocationDistance = 0
 
     /// Fractional positions (0…1) of the intermediate pass-through
@@ -441,6 +443,11 @@ final class ActiveNavigator {
     /// Fixed for the ride (a reroute doesn't shuffle the ticks), matching
     /// the fixed `plannedTotalDistance` denominator.
     private(set) var plannedWaypointFractions: [Double] = []
+
+    /// The new final destination's name after a mid-ride edit changed it
+    /// (`replacePlan`), for the Live Activity title — its attribute is
+    /// fixed at start. nil until then; cleared by `start(plan:)` / `stop()`.
+    private(set) var editedDestinationName: String?
 
     /// Fraction of the whole trip completed, 0…1, for the progress bar.
     /// Measured as travelled ÷ planned-total using the SAME
@@ -628,19 +635,21 @@ final class ActiveNavigator {
         }
         seed(route: route, destination: destWp.asDestination)
         self.isNavigating = true
-        setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex)
+        setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex, alreadyCovered: 0)
+        self.editedDestinationName = nil
         log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
         await onActiveRouteChanged?(route)
     }
 
     /// Progress gauge baseline: sum EVERY leg's selected distance (from
     /// `fromLegIndex` to the end) so the bar measures against the whole
-    /// remaining trip. Shared by `start(plan:)` and `replacePlan(_:)`.
-    private func setProgressBaseline(plan: PlannedRoute, fromLegIndex: Int) {
+    /// remaining trip. Shared by `start(plan:)` and `replacePlan(_:)`;
+    /// `alreadyCovered` is the distance ridden before a mid-ride edit.
+    private func setProgressBaseline(plan: PlannedRoute, fromLegIndex: Int, alreadyCovered: Double) {
         let plannedLegs = Array(plan.legs[fromLegIndex...])
         let legDistances = plannedLegs.map { $0.selected?.distanceMeters ?? 0 }
-        let total = legDistances.reduce(0.0, +)
-        self.plannedTotalDistance = total
+        let baseline = Self.progressBaseline(alreadyCovered: alreadyCovered, legDistances: legDistances)
+        self.plannedTotalDistance = baseline.total
         // Waypoint ticks: the boundary AFTER each leg except the last is a
         // pass-through via-point. Its bar position is the cumulative length
         // up to that boundary ÷ total. The final destination (the end of
@@ -650,17 +659,29 @@ final class ActiveNavigator {
         // planner's editable-list threshold the ticks would smear into an
         // unreadable comb, so we mirror that cutoff and draw none.
         let viaCount = legDistances.count - 1   // boundaries before the final dest
-        if total > 0, viaCount >= 1, viaCount <= RoutePoint.editableListThreshold {
-            var cumulative = 0.0
-            var fractions: [Double] = []
-            for dist in legDistances.dropLast() {
-                cumulative += dist
-                fractions.append(cumulative / total)
-            }
-            self.plannedWaypointFractions = fractions
+        if viaCount <= RoutePoint.editableListThreshold {
+            self.plannedWaypointFractions = baseline.fractions
         } else {
             self.plannedWaypointFractions = []
         }
+    }
+
+    /// Pure progress-bar math: total = `alreadyCovered` + Σ legs, and a
+    /// tick at each via-point boundary at (covered + cumulative) ÷ total.
+    /// A mid-ride edit passes the distance already ridden so the bar keeps
+    /// it instead of dropping to 0 %. No ticks when the total is 0.
+    nonisolated static func progressBaseline(alreadyCovered: Double,
+                                             legDistances: [Double]) -> (total: Double, fractions: [Double]) {
+        let covered = max(0, alreadyCovered)
+        let total = covered + legDistances.reduce(0.0, +)
+        guard total > 0 else { return (total, []) }
+        var cumulative = covered
+        var fractions: [Double] = []
+        for dist in legDistances.dropLast() {
+            cumulative += dist
+            fractions.append(cumulative / total)
+        }
+        return (total, fractions)
     }
 
     /// Seed all per-leg display + geometry state from a single route.
@@ -908,6 +929,7 @@ final class ActiveNavigator {
         // Progress gauge — drop the baseline so the next ride re-captures it.
         self.plannedTotalDistance = 0
         self.plannedWaypointFractions = []
+        self.editedDestinationName = nil
     }
 
     /// Reached the final destination. Flip into the `hasArrived` display
@@ -1335,6 +1357,14 @@ final class ActiveNavigator {
             return false
         }
         log.info("replacePlan: \(newPlan.legs.count) leg(s), now to \(destWp.name, privacy: .public)")
+        // Read against the OLD plan, before it's swapped: the progress bar
+        // keeps what was already ridden, and the Live Activity retitles
+        // only when the final stop actually changed.
+        let covered = plannedTotalDistance - finalDestinationRemainingDistance
+        if let newFinal = newPlan.waypoints.last,
+           newFinal.id != plan?.waypoints.last?.id {
+            self.editedDestinationName = newFinal.name
+        }
         self.plan = newPlan
         self.currentLegIndex = 0
         self.remainingWaypoints = newPlan.legs.count
@@ -1345,7 +1375,7 @@ final class ActiveNavigator {
         self.stationaryInRadiusSince = nil
         // Ends an average-speed section like any other recalculation.
         routeRecalculations += 1
-        setProgressBaseline(plan: newPlan, fromLegIndex: 0)
+        setProgressBaseline(plan: newPlan, fromLegIndex: 0, alreadyCovered: covered)
         seed(route: route, destination: destWp.asDestination)
         await onActiveRouteChanged?(route)
         return true

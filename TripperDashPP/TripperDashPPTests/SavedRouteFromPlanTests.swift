@@ -263,4 +263,29 @@ struct EditRouteMidRideTests {
         })
         #expect(!dense.isEditableMidRide)
     }
+
+    @Test func progressBaselineKeepsTheDistanceAlreadyRidden() {
+        // 30 km ridden, then an edit to two new legs of 20 + 50 km: the bar
+        // stays at 30/100, not 0, and the tick sits at (30 + 20)/100.
+        let edited = ActiveNavigator.progressBaseline(alreadyCovered: 30_000, legDistances: [20_000, 50_000])
+        #expect(edited.total == 100_000)
+        #expect(edited.fractions == [0.5])
+        // A fresh start is the plain sum; a negative "covered" is clamped.
+        let fresh = ActiveNavigator.progressBaseline(alreadyCovered: 0, legDistances: [20_000, 50_000])
+        #expect(fresh.total == 70_000)
+        #expect(fresh.fractions == [20_000.0 / 70_000.0])
+        #expect(ActiveNavigator.progressBaseline(alreadyCovered: -5, legDistances: [1_000]).total == 1_000)
+        #expect(ActiveNavigator.progressBaseline(alreadyCovered: 0, legDistances: [1_000]).fractions.isEmpty)
+    }
+
+    @Test func liveActivityPushesANewDestinationName() {
+        let old = RideActivityAttributes.ContentState(
+            maneuverSymbol: "arrow.up", distanceText: "300 m", maneuverText: nil,
+            etaText: "ETA 14:30", remainingText: "42 km left", progress: 0.4,
+            isRerouting: false, destinationName: nil)
+        var renamed = old
+        renamed.destinationName = "Doksy"
+        #expect(!LiveActivityController.shouldPush(old: old, new: old, imperial: false))
+        #expect(LiveActivityController.shouldPush(old: old, new: renamed, imperial: false))
+    }
 }
