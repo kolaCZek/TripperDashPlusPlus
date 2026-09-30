@@ -449,6 +449,15 @@ final class ActiveNavigator {
     /// fixed at start. nil until then; cleared by `start(plan:)` / `stop()`.
     private(set) var editedDestinationName: String?
 
+    /// The ride's title for the dash route card and the Live Activity: the
+    /// plan's FINAL stop (not the current leg's via-point, which is what
+    /// `destination` holds), so it also follows a mid-ride edit. nil when not
+    /// navigating; callers fall back to "Free ride" on the dash.
+    var rideTitle: String? {
+        guard isNavigating else { return nil }
+        return plan?.waypoints.last?.name ?? destination?.name
+    }
+
     /// Fraction of the whole trip completed, 0…1, for the progress bar.
     /// Measured as travelled ÷ planned-total using the SAME
     /// `finalDestinationRemainingDistance` the HUD counts down, so the
