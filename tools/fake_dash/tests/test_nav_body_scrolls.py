@@ -15,6 +15,10 @@ SRC = Path(__file__).resolve().parents[3] / "TripperDashPP/UI/MapPickerView.swif
 
 def test_ride_bodies_are_scrollable():
     src = strip_comments(SRC.read_text())
-    for name in ("navigatingBody", "freeRidingBody"):
-        body = decl_body(src, f"private var {name}: some View", include_signature=False)
-        assert body.lstrip("{ \n").startswith("ScrollView"), f"{name} must be wrapped in a ScrollView"
+    for name, hud in (("navigatingBody", "NavigationHUD("), ("freeRidingBody", "FreeRideHUD(")):
+        body = decl_body(src, f"private var {name}: some View")
+        scroll = decl_body(body, "ScrollView {")
+        assert hud in scroll, f"{name}: the HUD must sit inside the ScrollView"
+        # Fill the viewport when it fits, so the HUD panel still reaches the Stop bar.
+        assert ".frame(minHeight: geo.size.height" in scroll, name
+        assert ".scrollBounceBehavior(.basedOnSize)" in body, name
