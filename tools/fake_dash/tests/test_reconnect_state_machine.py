@@ -23,7 +23,10 @@ a retry immediately but does NOT extend the 10-min budget.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
+from tests.swift_source import decl_body, strip_comments
 
 
 # RECONNECT_INTERVAL matches K1GConstants.swift. RECONNECT_MAX_DURATION does
@@ -248,3 +251,35 @@ def test_first_connect_failure_is_not_a_reconnect():
     link.handle_link_dropped("heartbeat")
     assert link.state == LinkState.IDLE
     assert link.should_auto_reconnect is False
+
+
+# --- Swift-source drift guard: short-lived links carry the budget ------------
+
+
+def _bikelink_src() -> str:
+    root = Path(__file__).resolve().parents[3]
+    return (root / "TripperDashPP/Tripper/BikeLink.swift").read_text(encoding="utf-8")
+
+
+def test_swift_drop_carries_budget_over_a_short_lived_link():
+    """A dash that handshakes and then goes quiet used to loop connect →
+    drop forever, because `handleLinkDropped` reset `reconnectDeadline` on
+    every drop. It must now derive the deadline through
+    `dropEpisodeDeadline` (which keeps it for a link up < stableLinkDuration),
+    and a reconnect must not wipe the deadline it is meant to carry."""
+    src = _bikelink_src()
+    drop = strip_comments(decl_body(src, "private func handleLinkDropped"))
+    assert "dropEpisodeDeadline(" in drop, (
+        "handleLinkDropped must compute the deadline via dropEpisodeDeadline"
+    )
+    assert "reconnectDeadline = Date().addingTimeInterval" not in drop, (
+        "handleLinkDropped unconditionally resets the reconnect budget again"
+    )
+    flow = strip_comments(decl_body(src, "private func runConnectFlow"))
+    assert "connectedAt = Date()" in flow, (
+        "runConnectFlow must record when the link reached .connected"
+    )
+    assert "if !isReconnect { reconnectDeadline = nil }" in flow, (
+        "a successful reconnect must keep the episode deadline so a quick "
+        "re-drop can carry it over; only a fresh connect clears it"
+    )

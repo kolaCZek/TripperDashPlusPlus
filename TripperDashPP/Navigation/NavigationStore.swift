@@ -105,15 +105,6 @@ final class NavigationStore {
         return fav
     }
 
-    func updateFavorite(_ updated: Favorite) {
-        guard let idx = settings.favorites.firstIndex(where: { $0.id == updated.id }) else {
-            log.warning("updateFavorite: id not found \(updated.id)")
-            return
-        }
-        settings.favorites[idx] = updated
-        persist()
-    }
-
     func removeFavorite(id: UUID) {
         settings.favorites.removeAll { $0.id == id }
         // Clear any pin pointing at it.

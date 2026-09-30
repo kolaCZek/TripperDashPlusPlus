@@ -168,8 +168,13 @@ final class BikeLink {
     /// Absolute deadline for the CURRENT reconnect episode. Set once in
     /// `handleLinkDropped` and deliberately NOT reset by `wakeReconnect`,
     /// so toggling Wi-Fi can't extend the reconnect budget past the moment
-    /// the link first dropped.
+    /// the link first dropped. Also kept across a reconnect that drops again
+    /// within `K1G.stableLinkDuration` (see `dropEpisodeDeadline`).
     private var reconnectDeadline: Date?
+
+    /// When the current link reached `.connected`; how long it lasted
+    /// decides whether its drop carries the running reconnect budget over.
+    private var connectedAt: Date?
 
     /// Wi-Fi presence monitor. A dropped Wi-Fi path is a faster, cleaner
     /// drop signal than waiting for a heartbeat `sendto` to error, and
@@ -182,19 +187,22 @@ final class BikeLink {
     /// True while `runConnectFlow` is actively executing (socket open,
     /// handshake in progress). Guards `wakeReconnect()` against tearing down
     /// and restarting the reconnect loop while an attempt is already live.
-    /// Task cancellation is cooperative and NOT observed inside the
-    /// handshake's `for await packet in socket.inbound` receive loop, so
-    /// cancelling `reconnectTask` while a `runConnectFlow` call is mid-flight
-    /// does NOT stop it — the abandoned flow keeps its own DashSocket alive
-    /// on the same local port (:2002, allowed to coexist via SO_REUSEADDR),
-    /// racing the brand-new flow's socket for the dash's replies. Field-tested
+    /// Cancelling a flow does not stop it synchronously: the handshake's
+    /// `for await packet in socket.inbound` ends on cancellation (the stream
+    /// returns nil, it does not throw), and the flow still has to unwind
+    /// through its catch and close its socket. Until then the abandoned
+    /// flow's DashSocket stays alive on the same local port (:2002, allowed
+    /// to coexist via SO_REUSEADDR), racing a brand-new flow's socket for the
+    /// dash's replies. A count, not a flag, so a stale flow unwinding late
+    /// can't clear it while a newer flow is still live. Field-tested
     /// 8/2026 (bike switched off/on mid free-ride, Wi-Fi flapping while the
     /// dash's AP came back up): the reconnect attempt counter visibly reset
     /// mid-sequence — proof of a second overlapping loop — with rx=0
     /// handshake timeouts on both flows, while the dash itself reported
     /// "iPhone connected" (one of the racing flows DID complete a real
     /// pairing) and the app stayed stuck cycling through `.reconnecting`.
-    private var connectFlowInFlight = false
+    private var connectFlowsInFlight = 0
+    private var connectFlowInFlight: Bool { connectFlowsInFlight > 0 }
 
     // MARK: - Init
 
@@ -317,6 +325,11 @@ final class BikeLink {
         while true {
             attempt += 1
             let result = await runConnectFlow(isReconnect: false)
+            // Cancelled = superseded by disconnect() or a newer connect(),
+            // which already own `state` and `connectTask`. Touching either
+            // here would error-pill a cancelled attempt or nil the NEW flow's
+            // task.
+            guard !Task.isCancelled else { return }
             switch result {
             case .connected, .cancelled:
                 connectTask = nil
@@ -353,7 +366,15 @@ final class BikeLink {
     /// the phone couldn't associate with the bike's AP, so there's no point
     /// starting the handshake. Surface it as a normal link error so the UI
     /// shows the reason and offers a retry.
+    ///
+    /// No-op unless still in the pre-join state `beginWifiJoin()` set: after a
+    /// Cancel (`.idle`) or once a newer connect flow owns the link, a late
+    /// join failure must not flip it to `.error`.
     func reportJoinFailure(_ message: String) {
+        guard state == .connecting, connectTask == nil else {
+            log.info("Wi-Fi join failure ignored — attempt no longer current (state=\(String(describing: self.state), privacy: .public))")
+            return
+        }
         log.error("Wi-Fi join failed: \(message, privacy: .public)")
         lastError = message
         state = .error(message)
@@ -380,6 +401,7 @@ final class BikeLink {
         log.info("BikeLink disconnected (auto-reconnect cleared)")
         shouldAutoReconnect = false
         reconnectDeadline = nil
+        connectedAt = nil
         reconnectTask?.cancel(); reconnectTask = nil
         connectTask?.cancel(); connectTask = nil
         inboundTask?.cancel(); inboundTask = nil
@@ -713,10 +735,13 @@ final class BikeLink {
         // path (return / throw) below. See connectFlowInFlight's doc: this is
         // what lets wakeReconnect() refuse to overlap a second attempt on top
         // of one that's still mid-handshake.
-        connectFlowInFlight = true
-        defer { connectFlowInFlight = false }
+        connectFlowsInFlight += 1
+        defer { connectFlowsInFlight -= 1 }
         let t0 = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
+        // This attempt's own socket. The catches close THIS one, never
+        // whatever `self.socket` holds by then — a newer flow may own it.
+        var flowSocket: DashSocket?
         do {
             // On a fresh connect we own the `.connecting` → `.handshaking`
             // progression. During a reconnect the retry loop has already
@@ -813,11 +838,21 @@ final class BikeLink {
             // dash-subnet address, and the retry loop keeps re-entering this
             // flow for the full reconnect budget, so a late auto-join is
             // picked up as soon as it lands.
-            if isReconnect, !Self.wifiHasDashSubnetIPv4() {
-                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — waiting for iOS auto-join (no dialog)")
+            //
+            // Reconnect only: with no dash-subnet address there is no route to
+            // 192.168.1.1 over Wi-Fi (bike off / out of range), and the unpinned
+            // socket would send the burst over cellular instead. That rx=0
+            // then counted as a silent dash and tripped `dashUnresponsive`
+            // ("try the ignition") for a bike that is simply off. Skip the
+            // attempt as a non-silent failure. A fresh connect still proceeds
+            // (the probe can lag right after a join).
+            if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4() {
+                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — skipping attempt, waiting for iOS auto-join (no dialog)")
+                return .otherFailure("No dash Wi-Fi")
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
+            flowSocket = s
             try await s.start()
             try Task.checkCancellation()
             self.socket = s
@@ -829,10 +864,13 @@ final class BikeLink {
             self.aesKey = outcome.aesKey
 
             state = .connected
+            connectedAt = Date()
             // Arm auto-reconnect for any FUTURE unexpected drop now that we
             // have a real established link.
             shouldAutoReconnect = true
-            reconnectDeadline = nil
+            // A fresh connect always gets a full budget. A reconnect keeps
+            // the episode's deadline so a quick re-drop can carry it over.
+            if !isReconnect { reconnectDeadline = nil }
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
@@ -843,15 +881,25 @@ final class BikeLink {
             // there; just log and exit silently — no error pill.
             log.info("Connect flow cancelled by user")
             isWaitingForWifi = false
-            await self.socket?.cancel()
-            self.socket = nil
+            await flowSocket?.cancel()
+            if self.socket === flowSocket { self.socket = nil }
             return .cancelled
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            await flowSocket?.cancel()
+            // Cancellation ends the handshake's `for await` (AsyncStream
+            // returns nil) instead of throwing CancellationError, so a
+            // cancelled flow lands HERE with a "stream ended" error.
+            // disconnect()/connect() already own state, lastError and the
+            // socket, and may have started a newer flow — touch nothing.
+            if Task.isCancelled {
+                log.info("Connect flow cancelled (unwound via \(msg, privacy: .public))")
+                if self.socket === flowSocket { self.socket = nil }
+                return .cancelled
+            }
             log.error("Connect flow failed: \(msg, privacy: .public)")
             isWaitingForWifi = false
-            await self.socket?.cancel()
-            self.socket = nil
+            if self.socket === flowSocket { self.socket = nil }
             self.lastError = msg
             let isBootRace = (error as? HandshakeError).map {
                 switch $0 {
@@ -926,9 +974,32 @@ final class BikeLink {
         // episode's very first attempt.
         consecutiveSilentAttempts = 0
         // Absolute reconnect budget from the moment we dropped — survives
-        // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
-        reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
+        // `wakeReconnect` so repeated Wi-Fi toggles can't extend it, and a
+        // short-lived reconnect so a connect → drop cycle can't either.
+        let now = Date()
+        let deadline = Self.dropEpisodeDeadline(
+            now: now, connectedAt: connectedAt, carriedDeadline: reconnectDeadline)
+        if deadline == reconnectDeadline {
+            log.notice("Link was up < \(K1G.stableLinkDuration, privacy: .public)s — carrying the reconnect budget over")
+        }
+        reconnectDeadline = deadline
+        connectedAt = nil
         startReconnectLoop()
+    }
+
+    /// Deadline for the reconnect episode a drop at `now` starts: the
+    /// `carriedDeadline` if the link that just dropped was up for less than
+    /// `K1G.stableLinkDuration`, otherwise a fresh `reconnectMaxDuration`.
+    /// Without the carry-over, a dash that handshakes and then stops ACKing
+    /// reset the budget on every cycle and reconnected forever.
+    nonisolated static func dropEpisodeDeadline(
+        now: Date, connectedAt: Date?, carriedDeadline: Date?
+    ) -> Date {
+        if let carriedDeadline, let connectedAt,
+           now.timeIntervalSince(connectedAt) < K1G.stableLinkDuration {
+            return carriedDeadline
+        }
+        return now.addingTimeInterval(K1G.reconnectMaxDuration)
     }
 
     /// Retry `runConnectFlow(isReconnect:)` every `reconnectInterval`
@@ -1003,13 +1074,13 @@ final class BikeLink {
     /// `reconnectDeadline`, so the reconnect budget is not extended.
     ///
     /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
-    /// NOT stop an attempt that's already inside `runConnectFlow` — Swift task
-    /// cancellation is cooperative and the handshake's receive loop never
-    /// checks it — so restarting the loop while one is live would open a
-    /// SECOND DashSocket on the same port and race the abandoned one for the
-    /// dash's replies, corrupting both (field-tested 8/2026: visible attempt-
-    /// counter reset + rx=0 timeouts on both flows while the dash itself
-    /// reported "iPhone connected"). If a wake signal arrives mid-attempt we
+    /// NOT stop an attempt that's already inside `runConnectFlow` at once —
+    /// its receive loop only ends on cancellation, and the flow still has to
+    /// unwind and close its socket — so restarting the loop while one is
+    /// live would open a SECOND DashSocket on the same port and race the
+    /// abandoned one for the dash's replies, corrupting both (field-tested
+    /// 8/2026: visible attempt-counter reset + rx=0 timeouts on both flows
+    /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
     /// just let that attempt run to completion; the path-monitor / Connect-tap
     /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {
@@ -1218,26 +1289,50 @@ final class BikeLink {
         try await socket.send(q3cd)
         log.info("[\(ms(), privacy: .public)ms] TX q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B): \(q3cd.hexPreview, privacy: .public)")
 
-        // 3) Wait for auth-OK (07 01 01).
-        let okDeadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
-        var step3Rx = 0
-        for await packet in socket.inbound {
-            step3Rx += 1
-            let segs = K1GPacket.decode(packet)
-            let segSummary = segs.isEmpty
-                ? "no decodable segments"
-                : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
-            log.info("[\(ms(), privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
-            if RsaHandshake.isAuthOK(segs) {
-                log.info("[\(ms(), privacy: .public)ms] Got auth OK (07 01 01)")
-                return HandshakeOutcome(aesKey: aesKey, ssid: ssid)
+        // 3) Wait for auth-OK (07 01 01). Same wall-clock race as step 1:
+        //    if the dash goes silent after step 1 (ignition off, session
+        //    dropped) no packet ever arrives, an in-loop deadline check never
+        //    runs, and a reconnect would sit in `.reconnecting` forever.
+        //    The consumer stays on the MainActor for `log` / `isAuthOK`;
+        //    `step3RxBox` lets the timeout report the rx count.
+        let step3RxBox = RxCountBox()
+        return try await withThrowingTaskGroup(of: HandshakeOutcome.self) { group in
+            group.addTask { @MainActor [socket] in
+                var step3Rx = 0
+                for await packet in socket.inbound {
+                    try Task.checkCancellation()
+                    step3Rx += 1
+                    step3RxBox.value = step3Rx
+                    let segs = K1GPacket.decode(packet)
+                    let segSummary = segs.isEmpty
+                        ? "no decodable segments"
+                        : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
+                    let t = Int(Date().timeIntervalSince(t0) * 1000)
+                    self.log.info("[\(t, privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
+                    if RsaHandshake.isAuthOK(segs) {
+                        self.log.info("[\(t, privacy: .public)ms] Got auth OK (07 01 01)")
+                        return HandshakeOutcome(aesKey: aesKey, ssid: self.ssid)
+                    }
+                }
+                throw HandshakeError.authNotReady("auth-OK (stream ended)")
             }
-            if Date() > okDeadline {
-                log.error("[\(ms(), privacy: .public)ms] handshake step3 timed out — received \(step3Rx) packets, no auth-OK")
-                throw HandshakeError.authNotReady("auth-OK within \(K1G.handshakeStepTimeout)s (rx=\(step3Rx) other packets)")
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(K1G.handshakeStepTimeout * 1_000_000_000))
+                throw HandshakeError.authNotReady("auth-OK within \(K1G.handshakeStepTimeout)s (rx=\(step3RxBox.value) other packets)")
+            }
+            // First task to finish wins; cancel the other.
+            do {
+                guard let result = try await group.next() else {
+                    throw HandshakeError.authNotReady("auth-OK")
+                }
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                log.error("[\(ms(), privacy: .public)ms] handshake step3 failed (rx=\(step3RxBox.value) packets, no auth-OK): \(error.localizedDescription, privacy: .public)")
+                throw error
             }
         }
-        throw HandshakeError.authNotReady("auth-OK (stream ended)")
     }
 
     /// Build the hostname the dash will show on its pairing screen.

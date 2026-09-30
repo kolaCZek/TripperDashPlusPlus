@@ -91,16 +91,24 @@ final class AppStatus {
         savedBikes.select(id: bike.id)
         bikeLink.ssid = bike.ssid
 
+        // A newer connect supersedes a join still in flight.
+        joinTask?.cancel(); joinTask = nil
+
         if bikeLink.demoMode {
             bikeLink.connect()
             return
         }
 
-        Task { @MainActor in
+        joinTask = Task { @MainActor in
             // Flip to "Connecting…" up front so the UI reflects the several-
             // second Wi-Fi join+verify instead of sitting on "Connect to…".
             bikeLink.beginWifiJoin()
             let outcome = await wifiJoiner.ensureJoined(ssid: bike.ssid)
+            // The join can take ~15 s. If the rider hit Cancel meanwhile
+            // (`disconnect()` → `.idle`) or something else already moved the
+            // link on, the outcome is stale: don't bring the link up by
+            // itself or show an error pill for a cancelled attempt.
+            guard !Task.isCancelled, bikeLink.state == .connecting else { return }
             switch outcome {
             case .alreadyJoined, .joined:
                 bikeLink.connect()
@@ -109,6 +117,10 @@ final class AppStatus {
             }
         }
     }
+
+    /// The Wi-Fi join started by `connect(to:)`, so a newer connect can
+    /// cancel a stale one.
+    @ObservationIgnored private var joinTask: Task<Void, Never>?
 
     /// Add a bike to the garage AND register its Wi-Fi network with iOS, so
     /// the phone knows the AP (fixed WPA2 passphrase) and can auto-join it on
@@ -264,6 +276,12 @@ final class AppStatus {
             guard let self else { return }
             Task { @MainActor in
                 let state = self.bikeLink.state
+                // Re-arm BEFORE any await below: a resume awaits
+                // `startStreaming()` for ~2 s, and a drop inside that window
+                // must still be seen (and torn down). Re-entrancy is safe —
+                // `startStreaming` re-checks the link and its streamer right
+                // before `s.start()`, so a stale resume bails.
+                self.observeBikeLink()
                 // Session teardown detector: the link reached a terminal
                 // down-state. `.idle` = user disconnect; `.error` =
                 // auto-reconnect gave up after its reconnect budget (motorcycle
@@ -374,7 +392,6 @@ final class AppStatus {
                     // RTP, so the dash sits on its loading dots until it times out.
                     self.applyKeepAwake()
                 }
-                self.observeBikeLink()
             }
         }
     }
@@ -431,7 +448,7 @@ final class AppStatus {
             }
 
             let liveAct = LiveActivityController()
-            liveAct.start(destinationName: stagedDestination?.name)
+            liveAct.start(destinationName: activeNavigator.rideTitle)
             self.liveActivity = liveAct
 
             let loop = ActiveNavLoop(
@@ -508,13 +525,17 @@ final class AppStatus {
         // all — `ActiveNavLoop.tick()` only sends anything route-shaped
         // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
         // design, no route) announced no destination whatsoever. Use the
-        // staged destination's name when navigating; fall back to a
-        // generic "Free ride" title, as the reference implementation
-        // falls back to its own default ("Navigation").
+        // ride's final stop (`ActiveNavigator.rideTitle`) when navigating;
+        // fall back to a generic "Free ride" title, as the reference
+        // implementation falls back to its own default ("Navigation").
         await bikeLink.sendRouteCard(
-            title: stagedDestination?.name ?? "Free ride",
+            title: activeNavigator.rideTitle ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
         )
+        // Superseded (Stop, or a newer start) while the card was going out:
+        // don't interleave nav-start into the newer session. Nav-start hasn't
+        // gone out yet and `stopStreaming()` already sent its nav-stop.
+        guard streamer === s else { return }
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
@@ -550,7 +571,7 @@ final class AppStatus {
         // inside the window where the dash is actually setting the surface
         // up, which is exactly when its "is there still a destination?"
         // check runs.
-        await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
+        await bikeLink.sendRouteCardKeepalive(title: activeNavigator.rideTitle ?? "Free ride")
         // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
         // 450ms and why the ordering fix above wasn't sufficient on its
         // own): give the dash's firmware time to actually allocate its
@@ -561,12 +582,30 @@ final class AppStatus {
         // button on RE App!" idle screen on some reconnects — the decoder
         // surface plainly wasn't ready yet when the video hit the wire.
         try? await Task.sleep(nanoseconds: UInt64(K1G.postZ2Warmup * 1_000_000_000))
+        // The awaits above take ~2 s. In that window the link can drop, the
+        // rider can tap Stop, or an overlapping resume can install its own
+        // streamer. Starting anyway would stream into a dead link or leave an
+        // orphan nothing can stop, so bail before `s.start()` and before the
+        // nav loop / Live Activity / ride stats below. `isFreeRiding` is left
+        // as-is, like a mid-ride drop: a reconnect resumes the ride.
+        // `hasStreamingIntent` catches a nav Stop: `stopNavigation` skips
+        // `stopStreaming()` while the new streamer isn't running yet.
+        let link = bikeLink
+        guard streamer === s, link.state == .connected, hasStreamingIntent else {
+            if streamer === s { streamer = nil }
+            // Nav-start already went out, so leave projection unless a newer
+            // start owns the session. Also after a Stop in the window: its
+            // nav-stop went out BEFORE our nav-start. Re-checked when the send
+            // runs, and a no-op if the link is down.
+            Task { if self.streamer == nil { await link.sendNavStop() } }
+            applyKeepAwake()
+            return
+        }
         s.start()
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the
         // RTP UDP connection to reach .ready.
-        let link = bikeLink
         Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()
@@ -576,7 +615,7 @@ final class AppStatus {
         // + road name overlay onto the streamed map frames and sends
         // the K1G active-nav TLV bursts to the dash bubble.
         let liveAct = LiveActivityController()
-        liveAct.start(destinationName: stagedDestination?.name)
+        liveAct.start(destinationName: activeNavigator.rideTitle)
         self.liveActivity = liveAct
 
         let loop = ActiveNavLoop(
@@ -932,18 +971,28 @@ final class AppStatus {
         let shouldRun = keepAwakeWhileStreaming
             && (isStreaming || hasStreamingIntent)
             && linkWorthStayingAwakeFor
+        // The audio session follows the wakelock EDGES, not every call: a
+        // re-assert here would run `setCategory` without `.duckOthers` and
+        // un-duck music mid-prompt (e.g. the arrival prompt, spoken just
+        // before the intent observer lands here).
         if shouldRun {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)
+                voiceNavigator.startSession()
             }
-            voiceNavigator.startSession()
             UIApplication.shared.isIdleTimerDisabled = true
         } else {
             if let token = wakelockToken {
                 locationService.stop(token: token)
                 wakelockToken = nil
+                // Arriving mid-reconnect releases the wakelock right after
+                // `onArrived` started "You have arrived"; `stopSession()`
+                // would cut it. Let it finish — the idle session is harmless
+                // and the next ride's wakelock take re-asserts it.
+                if !activeNavigator.hasArrived {
+                    voiceNavigator.stopSession()
+                }
             }
-            voiceNavigator.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
     }
@@ -1033,11 +1082,6 @@ final class AppStatus {
     /// One-shot route calculator used by the route preview sheet and
     /// by the navigator's reroute callback.
     let routingService = RoutingService()
-
-    /// Currently-staged destination (chosen but not yet navigating).
-    /// The route preview sheet keys off this; clearing it dismisses
-    /// the preview.
-    var stagedDestination: Destination? = nil
 
     // MARK: - Multi-stop planning (feat/route-waypoints)
 
@@ -1229,6 +1273,21 @@ final class AppStatus {
     /// can finish the lookup manually. Cleared once consumed.
     var pendingSearchHint: String? = nil
 
+    /// A share that arrived mid-ride, parked (latest wins) until the picker
+    /// is back and replays it through `beginPlanningFromShared`. Staging
+    /// during a ride would be wiped by the next `stopNavigation()`.
+    var pendingShare: ShareResolution? = nil
+
+    private var rideActive: Bool { activeNavigator.isNavigating || isFreeRiding }
+
+    private func parkShare(_ resolution: ShareResolution) {
+        pendingShare = resolution
+        pendingSearchHint = nil   // older than this share
+        mapViewSource.showNotice(
+            DashNotice(text: "Share saved for after the ride", level: .info, duration: 5)
+        )
+    }
+
     /// Pre-fill the planner from a resolved shared payload (Google/Apple
     /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
     /// exactly like a saved-route import (origin = live location, shared
@@ -1238,7 +1297,16 @@ final class AppStatus {
     /// fall back to `pendingSearchHint` so the rider can finish by hand.
     /// Returns whether anything actionable was staged.
     @discardableResult
-    func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
+    func beginPlanningFromShared(_ resolution: ShareResolution, replay: Bool = false) async -> Bool {
+        // Nothing actionable: leave a parked share alone.
+        guard resolution != .empty else { return false }
+        if rideActive {
+            parkShare(resolution)
+            return true
+        }
+        // Latest wins: a share handled now supersedes one parked earlier
+        // (e.g. the ride ended under an open sheet, then the rider shared again).
+        pendingShare = nil
         switch resolution {
         case .empty:
             return false
@@ -1250,7 +1318,7 @@ final class AppStatus {
                 stagePlan(to: [Waypoint(name: dest.name,
                                         addressLine: dest.addressLine,
                                         coordinate: dest.coordinate,
-                                        isCurrentLocation: false)])
+                                        isCurrentLocation: false)], replay: replay)
                 return true
             }
             pendingSearchHint = hint
@@ -1301,7 +1369,7 @@ final class AppStatus {
                Self.isSameSpot(stops[0].coordinate, fix) {
                 stops.removeFirst()
             }
-            stagePlan(to: stops)
+            stagePlan(to: stops, replay: replay)
             return true
         }
     }
@@ -1325,7 +1393,19 @@ final class AppStatus {
     /// Stage a `PlannedRoute` from the live location through the given stops
     /// and kick off leg routing. Shared by the coordinate and geocoded-name
     /// paths so both behave identically.
-    private func stagePlan(to stops: [Waypoint]) {
+    private func stagePlan(to stops: [Waypoint], replay: Bool = false) {
+        let shared = ShareResolution.waypoints(stops.map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) })
+        // A ride may have started while the shared name was geocoding.
+        guard !rideActive else {
+            parkShare(shared)
+            return
+        }
+        // A replayed share must not replace a plan the rider started while
+        // it was geocoding; it waits again (already announced when parked).
+        guard !(replay && plannedRoute != nil) else {
+            pendingShare = shared
+            return
+        }
         let originCoord = locationService.lastFix?.coordinate
             ?? stops[0].coordinate
         let origin = Waypoint.currentLocation(originCoord)
@@ -1422,6 +1502,7 @@ final class AppStatus {
         activeNavigator.trafficRerouteEnabled = dashNavSettings.trafficRerouteEnabled
         activeNavigator.trafficRerouteSavingSeconds = dashNavSettings.trafficRerouteSavingSeconds
         observeTrafficRerouteSettings()
+        observeStreamingIntent()
 
         // Final-destination arrival: keep the stream UP so the dash never
         // blinks out of projection. We DON'T tear the stream down or drop the
@@ -1439,6 +1520,23 @@ final class AppStatus {
                 let lang = self.dashNavSettings.voiceLanguage
                 self.voiceNavigator.speak(VoicePhrase.arrived(lang),
                                           language: lang.rawValue, priority: .critical)
+            }
+        }
+    }
+
+    /// Re-evaluate the wakelock whenever the ride intent flips — navigation
+    /// stop, arrival, dash exit button. During `.reconnecting` `isStreaming`
+    /// is already false, so a stop path that only calls `stopStreaming()`
+    /// `if isStreaming` would otherwise leave the location wakelock held
+    /// until the next link-state change (up to the 30 min reconnect budget).
+    private func observeStreamingIntent() {
+        withObservationTracking {
+            _ = hasStreamingIntent
+        } onChange: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.applyKeepAwake()
+                self.observeStreamingIntent()
             }
         }
     }

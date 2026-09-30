@@ -107,6 +107,13 @@ nonisolated enum K1G {
     /// Heartbeat cadence once the link reaches `.connected`.
     static let heartbeatInterval: TimeInterval = 1.0
 
+    /// No datagram from the dash for this long while connected = the link is
+    /// dead even if `sendto` still succeeds (dash K1G task wedged, dash app
+    /// restarted with the AP up). Measured on a Guerrilla (1 h ride, 2026-09):
+    /// ~5 packets/s, the dash ACKs every heartbeat, median gap 161 ms,
+    /// p99.9 1 s, max 3.5 s. Raise it if another dash is quieter.
+    static let rxSilenceTimeout: TimeInterval = 10.0
+
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
     static let handshakeStepTimeout: TimeInterval = 5.0
 
@@ -163,6 +170,15 @@ nonisolated enum K1G {
     /// longer is cheap by comparison: the loop is one handshake attempt every
     /// few seconds, not a busy wait.
     static let reconnectMaxDuration: TimeInterval = 1800.0
+
+    /// How long a reconnected link must stay up before its next drop starts
+    /// a fresh `reconnectMaxDuration` budget. A shorter-lived link carries
+    /// the running episode's deadline over, so a dash that handshakes and
+    /// then goes quiet (or a heartbeat path that keeps failing) ends in the
+    /// out-of-budget error instead of cycling connect → drop forever.
+    /// 60 s is well past any handshake + nav-kick sequence (a few seconds)
+    /// and far shorter than a real ride segment between Wi-Fi drops.
+    static let stableLinkDuration: TimeInterval = 60.0
 
     /// How many times a FRESH connect (not an auto-reconnect) silently
     /// retries after a step-1 handshake timeout with ZERO reply packets

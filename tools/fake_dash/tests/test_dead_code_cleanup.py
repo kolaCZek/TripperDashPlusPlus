@@ -105,3 +105,79 @@ def test_empty_reconnect_branch_block_is_gone():
     # the comment now sits directly above applyKeepAwake().
     src = _src("App/AppStatus.swift")
     assert not re.search(r"if state == \.connected && !self\.isStreaming \{\s*\}", src)
+
+
+# ----------------------------------------------------------------------
+# Dead UI removed in chore/remove-dead-ui.
+#
+# - `MapPreviewView` was not mounted anywhere since Phase 7a.
+# - `FavoriteEditorSheet` was only ever opened with `existing: nil`, so its
+#   edit branch, Delete button and "Edit favorite" title were unreachable.
+# - `PlanningMapView.onTapWaypoint` was only ever passed a no-op closure.
+# - `DashPreviewPanel` duplicated the byte-identical `LiveActivityController`
+#   distance/ETA formatters; `NavigationHUD` had two copies of the
+#   "1h 23m" / "15 min" formatter.
+# ----------------------------------------------------------------------
+
+PBXPROJ = APP / "TripperDashPP.xcodeproj" / "project.pbxproj"
+
+
+def test_map_preview_view_is_gone():
+    assert not (APP / "UI" / "MapPreviewView.swift").exists()
+    assert "MapPreviewView" not in PBXPROJ.read_text(encoding="utf-8")
+    # Its snapshot-parking helper still has live users.
+    assert (APP / "Map" / "SnapshotterPark.swift").exists()
+    for rel in ("UI/Navigation/RouteProgressMap.swift",
+                "UI/Navigation/SavedRoutePreviewMap.swift"):
+        assert "SnapshotterPark.shared" in _src(rel), rel
+
+
+def test_favorite_editor_is_add_only():
+    src = _src("UI/Navigation/FavoriteEditorSheet.swift")
+    assert not re.search(r"\bexisting\b", src)
+    assert "Edit favorite" not in src
+    assert "Delete favorite" not in src
+    assert "removeFavorite" not in src
+    assert "updateFavorite" not in src
+    assert '.navigationTitle("New favorite")' in src
+    assert "store.addFavorite(fav)" in src
+    picker = _src("UI/MapPickerView.swift")
+    assert "FavoriteEditorSheet(seed: favoriteEditorSeed)" in picker
+    assert "FavoriteEditorSheet(existing:" not in picker
+    # Edit mode was its only caller.
+    assert "func updateFavorite" not in _src("Navigation/NavigationStore.swift")
+
+
+def test_planning_map_has_no_tap_waypoint_hook():
+    src = _src("UI/Navigation/PlanningMapView.swift")
+    assert not re.search(r"\bonTapWaypoint\b", src)
+    # Pins still deselect so they never stick in the selected state.
+    body = decl_body(src, "func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView)")
+    assert "deselectAnnotation" in body
+    assert not re.search(r"\bonTapWaypoint\b", _src("UI/MapPickerView.swift"))
+
+
+def test_dash_preview_reuses_live_activity_formatters():
+    src = _src("UI/DashPreviewPanel.swift")
+    dist = decl_body(src, "private func distanceText(")
+    assert "LiveActivityController.distanceText(meters: m, imperial: bubble.imperial)" in dist
+    eta = decl_body(src, "private func etaText(")
+    assert "LiveActivityController.etaText(date: bubble.etaDate, is24Hour: bubble.is24Hour)" in eta
+    assert "DateFormatter" not in src
+    assert "3.280839895013123" not in src
+
+
+def test_navigation_hud_has_one_hours_minutes_formatter():
+    src = _src("UI/Navigation/NavigationHUD.swift")
+    assert src.count("% 3600") == 1
+    assert "Self.hoursMinutes(etaCardSeconds)" in decl_body(src, "private var timeRemaining:")
+    assert "Self.hoursMinutes(nav.finalDestinationEtaSeconds)" in decl_body(
+        src, "private var finalTimeRemaining:")
+
+
+def test_cache_size_formatter_is_cached():
+    src = _src("UI/StreamingView.swift")
+    body = decl_body(src, "private func formatStats(")
+    assert "ByteCountFormatter()" not in body
+    assert "Self.byteFormatter.string(" in body
+    assert "private static let byteFormatter: ByteCountFormatter" in src
