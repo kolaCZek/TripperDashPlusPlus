@@ -153,7 +153,9 @@ nonisolated struct HeartbeatLoop: Sendable {
             // A dash that stopped talking is gone even if sends still succeed
             // (the caller treats this return as a link drop, like a send error).
             let silence = await socket.secondsSinceLastRx()
-            if silence < K1G.heartbeatInterval { sentTicksWithoutRx = 0 }
+            // 2× the interval: the check runs right after our send, before this
+            // tick's ACK, so an ACK-only dash reads just over 1 s every tick.
+            if silence < 2 * K1G.heartbeatInterval { sentTicksWithoutRx = 0 }
             if Self.isDashSilent(silence: silence, sentTicksWithoutRx: sentTicksWithoutRx) {
                 Self.log.error("No RX from dash for \(Int(silence), privacy: .public) s — stopping loop")
                 return

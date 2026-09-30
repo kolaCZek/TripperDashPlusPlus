@@ -94,7 +94,7 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     # phone-side stall isn't read as a silent dash.
     ok = run[run.index("try await socket.send(md)"):run.index("} catch {")]
     assert "sentTicksWithoutRx += 1" in ok
-    reset = "if silence < K1G.heartbeatInterval { sentTicksWithoutRx = 0 }"
+    reset = "if silence < 2 * K1G.heartbeatInterval { sentTicksWithoutRx = 0 }"
     assert check < run.index(reset) < run.index(decide)
     # The loop's uncancelled return is what turns into a link drop.
     link = strip_comments(decl_body(BIKE_LINK.read_text(encoding="utf-8"), "private func startHeartbeat"))
