@@ -1684,7 +1684,7 @@ private struct HoldToConfirmButton: View {
     let systemImage: String
     let action: () -> Void
 
-    static let holdDuration: Double = 2
+    static let holdDuration: Double = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var progress: CGFloat = 0
@@ -1700,7 +1700,7 @@ private struct HoldToConfirmButton: View {
                 }
             }
             .contentShape(Rectangle())
-            // perform fires once per press, so holding past 2 s can't
+            // perform fires once per press, so holding past 1 s can't
             // re-trigger. Generous maximumDistance: a gloved finger drifts.
             .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
                 action()
