@@ -14,6 +14,12 @@ Drift guards for "a reconnect must never hang forever" (connection audit, PR E).
 3. `DashSocket.cancel()` must invalidate `fd` before cancelling the read
    source, whose handler closes the descriptor asynchronously on ioQueue.
 
+4. With (2), `applyKeepAwake()` runs on every intent flip, including arrival,
+   right after `onArrived` spoke (and ducked for) "You have arrived". The
+   audio session must follow the wakelock edges only: re-running
+   `startSession()` (setCategory without `.duckOthers`) un-ducks the music
+   mid-prompt, and `stopSession()` on arrival mid-reconnect cuts it off.
+
 We can't run Swift here; these source guards are the standard substitute.
 """
 
@@ -62,3 +68,15 @@ def test_dashsocket_cancel_clears_fd_before_source_cancel() -> None:
     body = strip_comments(decl_body(DASHSOCKET.read_text(), "func cancel()"))
     assert "fd = -1" in body
     assert body.index("fd = -1") < body.index("src.cancel()")
+
+
+def test_audio_session_follows_wakelock_edges() -> None:
+    body = strip_comments(decl_body(APPSTATUS.read_text(), "private func applyKeepAwake"))
+    take = decl_body(body, "if wakelockToken == nil")
+    release = decl_body(body, "if let token = wakelockToken")
+    assert body.count("voiceNavigator.startSession()") == 1
+    assert "voiceNavigator.startSession()" in take
+    assert body.count("voiceNavigator.stopSession()") == 1
+    assert "voiceNavigator.stopSession()" in release
+    # Arrival mid-reconnect: keep the session so the prompt can finish.
+    assert "!activeNavigator.hasArrived" in release

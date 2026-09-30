@@ -936,18 +936,28 @@ final class AppStatus {
         let shouldRun = keepAwakeWhileStreaming
             && (isStreaming || hasStreamingIntent)
             && linkWorthStayingAwakeFor
+        // The audio session follows the wakelock EDGES, not every call: a
+        // re-assert here would run `setCategory` without `.duckOthers` and
+        // un-duck music mid-prompt (e.g. the arrival prompt, spoken just
+        // before the intent observer lands here).
         if shouldRun {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)
+                voiceNavigator.startSession()
             }
-            voiceNavigator.startSession()
             UIApplication.shared.isIdleTimerDisabled = true
         } else {
             if let token = wakelockToken {
                 locationService.stop(token: token)
                 wakelockToken = nil
+                // Arriving mid-reconnect releases the wakelock right after
+                // `onArrived` started "You have arrived"; `stopSession()`
+                // would cut it. Let it finish — the idle session is harmless
+                // and the next ride's wakelock take re-asserts it.
+                if !activeNavigator.hasArrived {
+                    voiceNavigator.stopSession()
+                }
             }
-            voiceNavigator.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
     }
@@ -1479,12 +1489,6 @@ final class AppStatus {
         }
     }
 
-    /// Keep the navigator's live-traffic-reroute knobs in sync with the
-    /// user settings while a ride is in progress. Same self-re-registering
-    /// `withObservationTracking` idiom as `observeCallStateToggle()`. Both
-    /// the enable flag and the saving threshold are mirrored, so flipping
-    /// the toggle or nudging the minutes stepper mid-ride takes effect on
-    /// the next periodic check without restarting navigation.
     /// Re-evaluate the wakelock whenever the ride intent flips — navigation
     /// stop, arrival, dash exit button. During `.reconnecting` `isStreaming`
     /// is already false, so a stop path that only calls `stopStreaming()`
@@ -1502,6 +1506,12 @@ final class AppStatus {
         }
     }
 
+    /// Keep the navigator's live-traffic-reroute knobs in sync with the
+    /// user settings while a ride is in progress. Same self-re-registering
+    /// `withObservationTracking` idiom as `observeCallStateToggle()`. Both
+    /// the enable flag and the saving threshold are mirrored, so flipping
+    /// the toggle or nudging the minutes stepper mid-ride takes effect on
+    /// the next periodic check without restarting navigation.
     private func observeTrafficRerouteSettings() {
         withObservationTracking {
             _ = dashNavSettings.trafficRerouteEnabled

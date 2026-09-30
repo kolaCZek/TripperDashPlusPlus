@@ -123,7 +123,7 @@ actor DashSocket {
     /// with the previous NWConnection-based implementation but is
     /// effectively unused for BSD sockets.
     func start(timeout: TimeInterval = 5.0) async throws {
-        guard fd < 0 else {
+        guard fd < 0, state != .cancelled else {
             log.notice("DashSocket.start called twice; ignoring")
             return
         }
