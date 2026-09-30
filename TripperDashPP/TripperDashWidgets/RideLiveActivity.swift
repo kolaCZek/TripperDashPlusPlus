@@ -21,7 +21,7 @@ struct RideLiveActivity: Widget {
             // ── Lock Screen / banner ────────────────────────────────────────
             LockScreenView(
                 state: context.state,
-                destination: context.attributes.destinationName
+                destination: context.state.destinationName ?? context.attributes.destinationName
             )
             .activityBackgroundTint(Color.black.opacity(0.85))
             .activitySystemActionForegroundColor(.white)
@@ -58,7 +58,7 @@ struct RideLiveActivity: Widget {
                         }
                         ProgressView(value: context.state.progress)
                             .tint(.green)
-                        if let dest = context.attributes.destinationName {
+                        if let dest = context.state.destinationName ?? context.attributes.destinationName {
                             Text(dest)
                                 .font(.system(.caption2, design: .rounded))
                                 .foregroundStyle(.secondary)

@@ -426,7 +426,9 @@ final class ActiveNavigator {
     /// single destination it's the route's own distance. Held for the
     /// whole ride (never reduced by a reroute — a reroute changes the
     /// road ahead, but progress is still measured against the trip the
-    /// rider set out on, so the bar doesn't jump backward mid-ride).
+    /// rider set out on, so the bar doesn't jump backward mid-ride). A
+    /// mid-ride edit (`replacePlan`) re-bases it to ridden-so-far + the
+    /// new legs, so the bar keeps the progress already made.
     private(set) var plannedTotalDistance: CLLocationDistance = 0
 
     /// Fractional positions (0…1) of the intermediate pass-through
@@ -442,13 +444,28 @@ final class ActiveNavigator {
     /// the fixed `plannedTotalDistance` denominator.
     private(set) var plannedWaypointFractions: [Double] = []
 
+    /// The new final destination's name after a mid-ride edit changed it
+    /// (`replacePlan`), for the Live Activity title — its attribute is
+    /// fixed at start. nil until then; cleared by `start(plan:)` / `stop()`.
+    private(set) var editedDestinationName: String?
+
+    /// The ride's title for the dash route card and the Live Activity: the
+    /// plan's FINAL stop (not the current leg's via-point, which is what
+    /// `destination` holds), so it also follows a mid-ride edit. nil when not
+    /// navigating; callers fall back to "Free ride" on the dash.
+    var rideTitle: String? {
+        guard isNavigating else { return nil }
+        return plan?.waypoints.last?.name ?? destination?.name
+    }
+
     /// Fraction of the whole trip completed, 0…1, for the progress bar.
     /// Measured as travelled ÷ planned-total using the SAME
     /// `finalDestinationRemainingDistance` the HUD counts down, so the
     /// bar and the distance readout can never disagree. Clamped and
     /// guarded against a zero/again-nil denominator (returns 0 before the
-    /// first route seeds). Monotonic in practice because
-    /// `plannedTotalDistance` is fixed for the ride.
+    /// first route seeds). Monotonic while the route is unchanged; a
+    /// mid-ride edit that lengthens the trip re-bases the total, so the
+    /// bar steps back by (covered ÷ new total), never to 0.
     var rideProgressFraction: Double {
         guard plannedTotalDistance > 0 else { return 0 }
         let done = plannedTotalDistance - finalDestinationRemainingDistance
@@ -628,13 +645,21 @@ final class ActiveNavigator {
         }
         seed(route: route, destination: destWp.asDestination)
         self.isNavigating = true
-        // Progress gauge baseline: sum EVERY leg's selected distance
-        // (from `fromLegIndex` to the end) so the bar measures against the
-        // whole remaining trip.
-        let plannedLegs = Array(plan.legs[self.currentLegIndex...])
+        setProgressBaseline(plan: plan, fromLegIndex: self.currentLegIndex, alreadyCovered: 0)
+        self.editedDestinationName = nil
+        log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
+        await onActiveRouteChanged?(route)
+    }
+
+    /// Progress gauge baseline: sum EVERY leg's selected distance (from
+    /// `fromLegIndex` to the end) so the bar measures against the whole
+    /// remaining trip. Shared by `start(plan:)` and `replacePlan(_:)`;
+    /// `alreadyCovered` is the distance ridden before a mid-ride edit.
+    private func setProgressBaseline(plan: PlannedRoute, fromLegIndex: Int, alreadyCovered: Double) {
+        let plannedLegs = Array(plan.legs[fromLegIndex...])
         let legDistances = plannedLegs.map { $0.selected?.distanceMeters ?? 0 }
-        let total = legDistances.reduce(0.0, +)
-        self.plannedTotalDistance = total
+        let baseline = Self.progressBaseline(alreadyCovered: alreadyCovered, legDistances: legDistances)
+        self.plannedTotalDistance = baseline.total
         // Waypoint ticks: the boundary AFTER each leg except the last is a
         // pass-through via-point. Its bar position is the cumulative length
         // up to that boundary ÷ total. The final destination (the end of
@@ -644,19 +669,29 @@ final class ActiveNavigator {
         // planner's editable-list threshold the ticks would smear into an
         // unreadable comb, so we mirror that cutoff and draw none.
         let viaCount = legDistances.count - 1   // boundaries before the final dest
-        if total > 0, viaCount >= 1, viaCount <= RoutePoint.editableListThreshold {
-            var cumulative = 0.0
-            var fractions: [Double] = []
-            for dist in legDistances.dropLast() {
-                cumulative += dist
-                fractions.append(cumulative / total)
-            }
-            self.plannedWaypointFractions = fractions
+        if viaCount <= RoutePoint.editableListThreshold {
+            self.plannedWaypointFractions = baseline.fractions
         } else {
             self.plannedWaypointFractions = []
         }
-        log.info("Multi-stop navigation started — leg \(self.currentLegIndex + 1)/\(plan.legs.count) to \(destWp.name, privacy: .public)")
-        await onActiveRouteChanged?(route)
+    }
+
+    /// Pure progress-bar math: total = `alreadyCovered` + Σ legs, and a
+    /// tick at each via-point boundary at (covered + cumulative) ÷ total.
+    /// A mid-ride edit passes the distance already ridden so the bar keeps
+    /// it instead of dropping to 0 %. No ticks when the total is 0.
+    nonisolated static func progressBaseline(alreadyCovered: Double,
+                                             legDistances: [Double]) -> (total: Double, fractions: [Double]) {
+        let covered = max(0, alreadyCovered)
+        let total = covered + legDistances.reduce(0.0, +)
+        guard total > 0 else { return (total, []) }
+        var cumulative = covered
+        var fractions: [Double] = []
+        for dist in legDistances.dropLast() {
+            cumulative += dist
+            fractions.append(cumulative / total)
+        }
+        return (total, fractions)
     }
 
     /// Seed all per-leg display + geometry state from a single route.
@@ -904,6 +939,7 @@ final class ActiveNavigator {
         // Progress gauge — drop the baseline so the next ride re-captures it.
         self.plannedTotalDistance = 0
         self.plannedWaypointFractions = []
+        self.editedDestinationName = nil
     }
 
     /// Reached the final destination. Flip into the `hasArrived` display
@@ -1304,6 +1340,57 @@ final class ActiveNavigator {
         return true
     }
 
+    // MARK: - Mid-ride route edit (phone "Edit route" sheet)
+
+    /// Swap the running navigation onto `newPlan` — the rider's edited
+    /// stops, with the live position as waypoint 0 — WITHOUT ending the
+    /// ride. Unlike `start(plan:)`, the ride-level state stays: the
+    /// breadcrumb, `hasBeenUnderway`, `rideStartCoordinate` and
+    /// `isNavigating`, so the stream, ride stats and the dash projection
+    /// carry on. Re-seeds from leg 0 and fires `onActiveRouteChanged` like
+    /// `advanceToNextLeg`, so polyline, tiles, full-route line, cameras and
+    /// limits follow as after a reroute; the ETA pump, alternatives and
+    /// overview restart in `seed`.
+    ///
+    /// Returns `false` (nothing changed) when not navigating, already
+    /// arrived, mid-reroute (its late result would be installed onto the
+    /// new plan's leg 0 with the OLD destination), or `newPlan` has no
+    /// route for leg 0.
+    @discardableResult
+    func replacePlan(_ newPlan: PlannedRoute) async -> Bool {
+        guard isNavigating, plan != nil, !hasArrived, !isRerouting,
+              newPlan.isComputed,
+              let leg = newPlan.legs.first,
+              let route = leg.selected?.route,
+              let destWp = newPlan.waypoint(id: leg.toWaypointId) else {
+            log.info("replacePlan: not applicable — ignored")
+            return false
+        }
+        log.info("replacePlan: \(newPlan.legs.count) leg(s), now to \(destWp.name, privacy: .public)")
+        // Read against the OLD plan, before it's swapped: the progress bar
+        // keeps what was already ridden, and the Live Activity retitles
+        // only when the final stop actually changed.
+        let covered = plannedTotalDistance - finalDestinationRemainingDistance
+        if let newFinal = newPlan.waypoints.last,
+           newFinal.id != plan?.waypoints.last?.id {
+            self.editedDestinationName = newFinal.name
+        }
+        self.plan = newPlan
+        self.currentLegIndex = 0
+        self.remainingWaypoints = newPlan.legs.count
+        // The final destination may have changed: re-arm its capture zone
+        // from scratch so a closest approach to the OLD one can't count.
+        self.arrivalArmed = false
+        self.minRemainingSinceArmed = .greatestFiniteMagnitude
+        self.stationaryInRadiusSince = nil
+        // Ends an average-speed section like any other recalculation.
+        routeRecalculations += 1
+        setProgressBaseline(plan: newPlan, fromLegIndex: 0, alreadyCovered: covered)
+        seed(route: route, destination: destWp.asDestination)
+        await onActiveRouteChanged?(route)
+        return true
+    }
+
     // MARK: - ETA refresh (F6 — periodic Apple re-fetch)
 
     /// (Re)start the periodic MKDirections re-fetch pump for the
@@ -1365,12 +1452,15 @@ final class ActiveNavigator {
             // may itself be the faster alternative.
             let remainingEta = etaSeconds
             let candidates = await traffic(coord, dest)
+            // `seed` (leg advance, replacePlan) cancelled this pump while
+            // Apple answered: these routes lead to the OLD destination.
+            guard !Task.isCancelled else { return }
             if let best = candidates.first {
                 self.legArrivalDate = Date(timeIntervalSinceNow: best.expectedTravelTime)
             }
             await checkLiveTrafficReroute(candidates: candidates, remainingEta: remainingEta)
         } else if let cb = onRerouteRequested,
-                  let route = await cb(coord, dest) {
+                  let route = await cb(coord, dest), !Task.isCancelled {
             self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
         }
     }

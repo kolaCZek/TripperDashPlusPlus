@@ -125,7 +125,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 TripperDashPP/TripperDashPP.xcodeproj/   # Xcode project (committed; xcuserdata gitignored)
 TripperDashPP/                           # App source
 ├── App/          # @main, AppStatus (shared observable state), LocationService, VoiceNavigator (offline spoken turn-by-turn), DemoDashModel (demo mode)
-├── UI/           # SwiftUI views (RootView, MapPickerView, MapPreviewView, StreamingView, RideStatsPanel, RideHistoryView, InteractiveMapView, DashPreviewPanel, AddBikeSheet, PermissionsView)
+├── UI/           # SwiftUI views (RootView, MapPickerView, StreamingView, RideStatsPanel, RideHistoryView, InteractiveMapView, DashPreviewPanel, AddBikeSheet, PermissionsView)
 │   └── Navigation/   # search / preview / favorites / saved-routes sheets, NavigationHUD, FreeRideHUD, PlanningMapView, WaypointListView, RouteProgressMap, QuickAccessTiles, PrerenderProgressView
 ├── Tripper/      # K1G control plane (BikeLink, DashSocket, K1GPacket, RsaHandshake, HeartbeatLoop, K1GConstants),
 │   #              plus DeviceTelemetry (phone status), CallStateObserver (OEM incoming-call mirror),

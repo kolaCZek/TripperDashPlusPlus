@@ -65,7 +65,7 @@ final class ShareViewController: UIViewController {
             deepLink = passthrough
         } else {
             log.warning("share resolved to nothing actionable")
-            finish()
+            showUnsupported(message: "Couldn't find a place in this share.")
             return
         }
         // Open the app, THEN finish after a short grace period. Finishing
@@ -166,13 +166,17 @@ final class ShareViewController: UIViewController {
     /// alert explaining only Google Maps / Apple Maps links are supported,
     /// then closes the extension when the rider taps OK. Runs on the main
     /// actor because it touches UIKit.
+    /// Also used for a supported share that resolved to nothing, so it
+    /// never closes without a word.
     @MainActor
-    private func showUnsupported() {
+    private func showUnsupported(
+        message: String = "TripperDash++ can only import places and routes shared "
+            + "from Google Maps or Apple Maps. Please share from one of "
+            + "those apps."
+    ) {
         let alert = UIAlertController(
             title: "Unsupported share",
-            message: "TripperDash++ can only import places and routes shared "
-                + "from Google Maps or Apple Maps. Please share from one of "
-                + "those apps.",
+            message: message,
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
             self?.finish()

@@ -33,12 +33,18 @@ struct WaypointListView: View {
     /// affected rows. Owner updates this around the async recompute.
     var recomputingLegs: Set<Int> = []
 
+    /// Keep row 0 (the live-position origin) first and undeletable — the
+    /// mid-ride editor, where it's where the rider IS, not a stop.
+    var pinsOrigin: Bool = false
+
     var body: some View {
         List {
             Section {
                 ForEach(plan.waypoints) { wp in
                     let index = plan.waypoints.firstIndex(of: wp) ?? 0
                     waypointRow(index: index, waypoint: wp)
+                        .moveDisabled(pinsOrigin && index == 0)
+                        .deleteDisabled(pinsOrigin && index == 0)
                 }
                 .onMove(perform: moveRows)
                 .onDelete(perform: deleteRows)
@@ -155,9 +161,10 @@ struct WaypointListView: View {
                 }
             }
         } else {
-            Text("No route yet")
+            // Mid-ride editor: legs are routed on Apply, not as you edit.
+            Text(pinsOrigin ? "Calculated on Apply" : "No route yet")
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(pinsOrigin ? Color.secondary : Color.orange)
         }
     }
 
@@ -169,6 +176,8 @@ struct WaypointListView: View {
         // slot; PlannedRoute.moveWaypoint expects the same semantics as
         // Array.move, so translate.
         let dest = destination > src ? destination - 1 : destination
+        // A stop dropped above the pinned origin would ride before "here".
+        if pinsOrigin && dest == 0 { return }
         let dirty = plan.moveWaypoint(from: src, to: dest)
         if !dirty.isEmpty { onRecompute(dirty) }
     }

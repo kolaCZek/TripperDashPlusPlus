@@ -192,9 +192,16 @@ def test_arrival_state_is_reset_with_underway_guard():
     """The new arrival state must be reset everywhere hasBeenUnderway is,
     or a stale closest-approach floor would leak into the next ride."""
     src = _active_navigator_src()
-    assert src.count("arrivalArmed = false") == src.count("hasBeenUnderway = false"), (
+    # +1: `replacePlan` (mid-ride route edit) re-arms the capture zone for a
+    # possibly new destination but keeps `hasBeenUnderway` — the ride goes on.
+    assert src.count("arrivalArmed = false") == src.count("hasBeenUnderway = false") + 1, (
         "arrivalArmed must be reset wherever hasBeenUnderway is reset"
     )
+    from tests.swift_source import decl_body
+    replace = decl_body(src, "func replacePlan(")
+    assert "self.arrivalArmed = false" in replace
+    assert "self.minRemainingSinceArmed = .greatestFiniteMagnitude" in replace
+    assert "hasBeenUnderway" not in replace
     assert src.count("minRemainingSinceArmed = .greatestFiniteMagnitude") >= 3, (
         "minRemainingSinceArmed must be reset on seed/leg-seed/stop"
     )
