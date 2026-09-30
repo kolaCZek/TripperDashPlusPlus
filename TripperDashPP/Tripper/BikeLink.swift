@@ -838,8 +838,17 @@ final class BikeLink {
             // dash-subnet address, and the retry loop keeps re-entering this
             // flow for the full reconnect budget, so a late auto-join is
             // picked up as soon as it lands.
-            if isReconnect, !Self.wifiHasDashSubnetIPv4() {
-                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — waiting for iOS auto-join (no dialog)")
+            //
+            // Reconnect only: with no dash-subnet address there is no route to
+            // 192.168.1.1 over Wi-Fi (bike off / out of range), and the unpinned
+            // socket would send the burst over cellular instead. That rx=0
+            // then counted as a silent dash and tripped `dashUnresponsive`
+            // ("try the ignition") for a bike that is simply off. Skip the
+            // attempt as a non-silent failure. A fresh connect still proceeds
+            // (the probe can lag right after a join).
+            if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4() {
+                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — skipping attempt, waiting for iOS auto-join (no dialog)")
+                return .otherFailure("No dash Wi-Fi")
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
@@ -1280,26 +1289,50 @@ final class BikeLink {
         try await socket.send(q3cd)
         log.info("[\(ms(), privacy: .public)ms] TX q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B): \(q3cd.hexPreview, privacy: .public)")
 
-        // 3) Wait for auth-OK (07 01 01).
-        let okDeadline = Date().addingTimeInterval(K1G.handshakeStepTimeout)
-        var step3Rx = 0
-        for await packet in socket.inbound {
-            step3Rx += 1
-            let segs = K1GPacket.decode(packet)
-            let segSummary = segs.isEmpty
-                ? "no decodable segments"
-                : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
-            log.info("[\(ms(), privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
-            if RsaHandshake.isAuthOK(segs) {
-                log.info("[\(ms(), privacy: .public)ms] Got auth OK (07 01 01)")
-                return HandshakeOutcome(aesKey: aesKey, ssid: ssid)
+        // 3) Wait for auth-OK (07 01 01). Same wall-clock race as step 1:
+        //    if the dash goes silent after step 1 (ignition off, session
+        //    dropped) no packet ever arrives, an in-loop deadline check never
+        //    runs, and a reconnect would sit in `.reconnecting` forever.
+        //    The consumer stays on the MainActor for `log` / `isAuthOK`;
+        //    `step3RxBox` lets the timeout report the rx count.
+        let step3RxBox = RxCountBox()
+        return try await withThrowingTaskGroup(of: HandshakeOutcome.self) { group in
+            group.addTask { @MainActor [socket] in
+                var step3Rx = 0
+                for await packet in socket.inbound {
+                    try Task.checkCancellation()
+                    step3Rx += 1
+                    step3RxBox.value = step3Rx
+                    let segs = K1GPacket.decode(packet)
+                    let segSummary = segs.isEmpty
+                        ? "no decodable segments"
+                        : segs.map { String(format: "%02X/%02X(\($0.payload.count)B)", $0.type, $0.sub) }.joined(separator: " ")
+                    let t = Int(Date().timeIntervalSince(t0) * 1000)
+                    self.log.info("[\(t, privacy: .public)ms] RX #\(step3Rx) handshake-step3 (\(packet.count) B): \(packet.hexPreview, privacy: .public) | segs=\(segSummary, privacy: .public)")
+                    if RsaHandshake.isAuthOK(segs) {
+                        self.log.info("[\(t, privacy: .public)ms] Got auth OK (07 01 01)")
+                        return HandshakeOutcome(aesKey: aesKey, ssid: self.ssid)
+                    }
+                }
+                throw HandshakeError.authNotReady("auth-OK (stream ended)")
             }
-            if Date() > okDeadline {
-                log.error("[\(ms(), privacy: .public)ms] handshake step3 timed out — received \(step3Rx) packets, no auth-OK")
-                throw HandshakeError.authNotReady("auth-OK within \(K1G.handshakeStepTimeout)s (rx=\(step3Rx) other packets)")
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(K1G.handshakeStepTimeout * 1_000_000_000))
+                throw HandshakeError.authNotReady("auth-OK within \(K1G.handshakeStepTimeout)s (rx=\(step3RxBox.value) other packets)")
+            }
+            // First task to finish wins; cancel the other.
+            do {
+                guard let result = try await group.next() else {
+                    throw HandshakeError.authNotReady("auth-OK")
+                }
+                group.cancelAll()
+                return result
+            } catch {
+                group.cancelAll()
+                log.error("[\(ms(), privacy: .public)ms] handshake step3 failed (rx=\(step3RxBox.value) packets, no auth-OK): \(error.localizedDescription, privacy: .public)")
+                throw error
             }
         }
-        throw HandshakeError.authNotReady("auth-OK (stream ended)")
     }
 
     /// Build the hostname the dash will show on its pairing screen.

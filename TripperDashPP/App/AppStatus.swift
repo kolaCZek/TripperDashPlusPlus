@@ -975,18 +975,28 @@ final class AppStatus {
         let shouldRun = keepAwakeWhileStreaming
             && (isStreaming || hasStreamingIntent)
             && linkWorthStayingAwakeFor
+        // The audio session follows the wakelock EDGES, not every call: a
+        // re-assert here would run `setCategory` without `.duckOthers` and
+        // un-duck music mid-prompt (e.g. the arrival prompt, spoken just
+        // before the intent observer lands here).
         if shouldRun {
             if wakelockToken == nil {
                 wakelockToken = locationService.start(mode: .wakelock)
+                voiceNavigator.startSession()
             }
-            voiceNavigator.startSession()
             UIApplication.shared.isIdleTimerDisabled = true
         } else {
             if let token = wakelockToken {
                 locationService.stop(token: token)
                 wakelockToken = nil
+                // Arriving mid-reconnect releases the wakelock right after
+                // `onArrived` started "You have arrived"; `stopSession()`
+                // would cut it. Let it finish — the idle session is harmless
+                // and the next ride's wakelock take re-asserts it.
+                if !activeNavigator.hasArrived {
+                    voiceNavigator.stopSession()
+                }
             }
-            voiceNavigator.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
     }
@@ -1496,6 +1506,7 @@ final class AppStatus {
         activeNavigator.trafficRerouteEnabled = dashNavSettings.trafficRerouteEnabled
         activeNavigator.trafficRerouteSavingSeconds = dashNavSettings.trafficRerouteSavingSeconds
         observeTrafficRerouteSettings()
+        observeStreamingIntent()
 
         // Final-destination arrival: keep the stream UP so the dash never
         // blinks out of projection. We DON'T tear the stream down or drop the
@@ -1513,6 +1524,23 @@ final class AppStatus {
                 let lang = self.dashNavSettings.voiceLanguage
                 self.voiceNavigator.speak(VoicePhrase.arrived(lang),
                                           language: lang.rawValue, priority: .critical)
+            }
+        }
+    }
+
+    /// Re-evaluate the wakelock whenever the ride intent flips — navigation
+    /// stop, arrival, dash exit button. During `.reconnecting` `isStreaming`
+    /// is already false, so a stop path that only calls `stopStreaming()`
+    /// `if isStreaming` would otherwise leave the location wakelock held
+    /// until the next link-state change (up to the 30 min reconnect budget).
+    private func observeStreamingIntent() {
+        withObservationTracking {
+            _ = hasStreamingIntent
+        } onChange: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.applyKeepAwake()
+                self.observeStreamingIntent()
             }
         }
     }

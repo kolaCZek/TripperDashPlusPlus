@@ -95,3 +95,25 @@ def test_handshake_end_to_end(server, tmp_path):
     assert _wait_for(lambda: any(p.authenticated for p in server.known_peers()), 1.0)
 
     phone_sock.close()
+
+
+def test_phone_heartbeat_gets_real_dash_ack(server):
+    # The phone's watchdog drops the link after 10 s without RX, so the
+    # harness must ACK each 0044 heartbeat like a real dash (ride log shape).
+    phone_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    phone_sock.settimeout(2.0)
+    hb = bytes.fromhex(
+        "0044000a00000000020100054b3147200906080001ff060300015506040001a2"
+        "060f0001aa0601000101054c000113052d00020000051b0001190521000132054d000132"
+    )
+    replies = []
+    for _ in range(2):
+        phone_sock.sendto(hb, ("127.0.0.1", server.k1g_port))
+        data, _ = phone_sock.recvfrom(4096)
+        replies.append(data)
+    phone_sock.close()
+
+    for data in replies:
+        assert len(data) == 17
+        assert data[:16] == bytes.fromhex("0011000100000000010100054b314700")
+    assert replies[1][16] == (replies[0][16] + 1) & 0xFF

@@ -65,6 +65,14 @@ actor DashSocket {
     /// (info level) and at cancel, so timeouts can be diagnosed without
     /// digging through debug spam.
     private var rxDatagramCount: UInt64 = 0
+    /// Uptime of the last datagram (socket creation until the first one),
+    /// for the heartbeat's RX-silence check.
+    private var lastRxUptime = ProcessInfo.processInfo.systemUptime
+
+    /// Seconds since the dash last sent anything on this socket.
+    func secondsSinceLastRx() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime - lastRxUptime
+    }
     /// IO queue for the DispatchSourceRead handler and any blocking
     /// `sendto` calls. Off-main, isolated per socket instance.
     private let ioQueue: DispatchQueue
@@ -123,7 +131,7 @@ actor DashSocket {
     /// with the previous NWConnection-based implementation but is
     /// effectively unused for BSD sockets.
     func start(timeout: TimeInterval = 5.0) async throws {
-        guard fd < 0 else {
+        guard fd < 0, state != .cancelled else {
             log.notice("DashSocket.start called twice; ignoring")
             return
         }
@@ -250,10 +258,13 @@ actor DashSocket {
                     }
                 }
                 if sent < 0 {
-                    let err = String(cString: strerror(errno))
+                    // Capture errno before anything else can clobber it:
+                    // HeartbeatLoop classifies the error by this code.
+                    let code = errno
+                    let err = String(cString: strerror(code))
                     cont.resume(throwing: NSError(
                         domain: "DashSocket",
-                        code: Int(errno),
+                        code: Int(code),
                         userInfo: [NSLocalizedDescriptionKey: "sendto(): \(err)"]
                     ))
                 } else if sent != data.count {
@@ -273,6 +284,11 @@ actor DashSocket {
     func cancel() {
         guard let src = readSource else { return }
         readSource = nil
+        // Invalidate `fd` now, not in didCancel(): the cancel handler closes
+        // the descriptor asynchronously on ioQueue, and until then `send` /
+        // a queued drain would still pass `fd >= 0` on a closed (or already
+        // reused) fd. The handler closes its own captured copy.
+        fd = -1
         // The cancel handler closes the fd and updates state via didCancel().
         src.cancel()
     }
@@ -312,6 +328,7 @@ actor DashSocket {
             }
             if n > 0 {
                 rxDatagramCount &+= 1
+                lastRxUptime = ProcessInfo.processInfo.systemUptime
                 let payload = Data(buf.prefix(Int(n)))
                 if rxDatagramCount == 1 {
                     // First-RX log uses .info so it shows up at default level —
