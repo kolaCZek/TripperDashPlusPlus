@@ -452,7 +452,7 @@ final class AppStatus {
             }
 
             let liveAct = LiveActivityController()
-            liveAct.start(destinationName: stagedDestination?.name)
+            liveAct.start(destinationName: activeNavigator.rideTitle)
             self.liveActivity = liveAct
 
             let loop = ActiveNavLoop(
@@ -529,11 +529,11 @@ final class AppStatus {
         // all — `ActiveNavLoop.tick()` only sends anything route-shaped
         // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
         // design, no route) announced no destination whatsoever. Use the
-        // staged destination's name when navigating; fall back to a
-        // generic "Free ride" title, as the reference implementation
-        // falls back to its own default ("Navigation").
+        // ride's final stop (`ActiveNavigator.rideTitle`) when navigating;
+        // fall back to a generic "Free ride" title, as the reference
+        // implementation falls back to its own default ("Navigation").
         await bikeLink.sendRouteCard(
-            title: stagedDestination?.name ?? "Free ride",
+            title: activeNavigator.rideTitle ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
         )
         // Kick the dash into nav projection BEFORE starting the RTP
@@ -571,7 +571,7 @@ final class AppStatus {
         // inside the window where the dash is actually setting the surface
         // up, which is exactly when its "is there still a destination?"
         // check runs.
-        await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
+        await bikeLink.sendRouteCardKeepalive(title: activeNavigator.rideTitle ?? "Free ride")
         // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
         // 450ms and why the ordering fix above wasn't sufficient on its
         // own): give the dash's firmware time to actually allocate its
@@ -615,7 +615,7 @@ final class AppStatus {
         // + road name overlay onto the streamed map frames and sends
         // the K1G active-nav TLV bursts to the dash bubble.
         let liveAct = LiveActivityController()
-        liveAct.start(destinationName: stagedDestination?.name)
+        liveAct.start(destinationName: activeNavigator.rideTitle)
         self.liveActivity = liveAct
 
         let loop = ActiveNavLoop(
@@ -1073,11 +1073,6 @@ final class AppStatus {
     /// by the navigator's reroute callback.
     let routingService = RoutingService()
 
-    /// Currently-staged destination (chosen but not yet navigating).
-    /// The route preview sheet keys off this; clearing it dismisses
-    /// the preview.
-    var stagedDestination: Destination? = nil
-
     // MARK: - Multi-stop planning (feat/route-waypoints)
 
     /// The live multi-stop plan being built in the picker's planning
@@ -1268,6 +1263,21 @@ final class AppStatus {
     /// can finish the lookup manually. Cleared once consumed.
     var pendingSearchHint: String? = nil
 
+    /// A share that arrived mid-ride, parked (latest wins) until the picker
+    /// is back and replays it through `beginPlanningFromShared`. Staging
+    /// during a ride would be wiped by the next `stopNavigation()`.
+    var pendingShare: ShareResolution? = nil
+
+    private var rideActive: Bool { activeNavigator.isNavigating || isFreeRiding }
+
+    private func parkShare(_ resolution: ShareResolution) {
+        pendingShare = resolution
+        pendingSearchHint = nil   // older than this share
+        mapViewSource.showNotice(
+            DashNotice(text: "Share saved for after the ride", level: .info, duration: 5)
+        )
+    }
+
     /// Pre-fill the planner from a resolved shared payload (Google/Apple
     /// Maps "Share to TripperDash++"). Coordinates → staged `PlannedRoute`
     /// exactly like a saved-route import (origin = live location, shared
@@ -1277,7 +1287,16 @@ final class AppStatus {
     /// fall back to `pendingSearchHint` so the rider can finish by hand.
     /// Returns whether anything actionable was staged.
     @discardableResult
-    func beginPlanningFromShared(_ resolution: ShareResolution) async -> Bool {
+    func beginPlanningFromShared(_ resolution: ShareResolution, replay: Bool = false) async -> Bool {
+        // Nothing actionable: leave a parked share alone.
+        guard resolution != .empty else { return false }
+        if rideActive {
+            parkShare(resolution)
+            return true
+        }
+        // Latest wins: a share handled now supersedes one parked earlier
+        // (e.g. the ride ended under an open sheet, then the rider shared again).
+        pendingShare = nil
         switch resolution {
         case .empty:
             return false
@@ -1289,7 +1308,7 @@ final class AppStatus {
                 stagePlan(to: [Waypoint(name: dest.name,
                                         addressLine: dest.addressLine,
                                         coordinate: dest.coordinate,
-                                        isCurrentLocation: false)])
+                                        isCurrentLocation: false)], replay: replay)
                 return true
             }
             pendingSearchHint = hint
@@ -1340,7 +1359,7 @@ final class AppStatus {
                Self.isSameSpot(stops[0].coordinate, fix) {
                 stops.removeFirst()
             }
-            stagePlan(to: stops)
+            stagePlan(to: stops, replay: replay)
             return true
         }
     }
@@ -1364,7 +1383,19 @@ final class AppStatus {
     /// Stage a `PlannedRoute` from the live location through the given stops
     /// and kick off leg routing. Shared by the coordinate and geocoded-name
     /// paths so both behave identically.
-    private func stagePlan(to stops: [Waypoint]) {
+    private func stagePlan(to stops: [Waypoint], replay: Bool = false) {
+        let shared = ShareResolution.waypoints(stops.map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) })
+        // A ride may have started while the shared name was geocoding.
+        guard !rideActive else {
+            parkShare(shared)
+            return
+        }
+        // A replayed share must not replace a plan the rider started while
+        // it was geocoding; it waits again (already announced when parked).
+        guard !(replay && plannedRoute != nil) else {
+            pendingShare = shared
+            return
+        }
         let originCoord = locationService.lastFix?.coordinate
             ?? stops[0].coordinate
         let origin = Waypoint.currentLocation(originCoord)

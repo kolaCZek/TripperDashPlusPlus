@@ -42,6 +42,10 @@ struct NavigationHUD: View {
     var useCommaDecimal: Bool = false
     var is24Hour: Bool = true
 
+    /// Opens the mid-ride route editor (MapPickerView owns the sheet). nil
+    /// hides the button.
+    var onEditRoute: (() -> Void)? = nil
+
     var body: some View {
         VStack(spacing: 16) {
             if isReconnecting { reconnectBanner }
@@ -57,6 +61,14 @@ struct NavigationHUD: View {
                     finalEtaPill
                 }
                 routeOverview
+                if let onEditRoute, nav.plan?.isEditableMidRide == true {
+                    Button(action: onEditRoute) {
+                        Label("Edit route", systemImage: "list.bullet")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
             }
             Spacer()
         }
@@ -303,11 +315,7 @@ struct NavigationHUD: View {
     }
 
     private var timeRemaining: String {
-        let total = Int(etaCardSeconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m) min"
+        Self.hoursMinutes(etaCardSeconds)
     }
 
     private var arrivalTime: String {
@@ -318,7 +326,12 @@ struct NavigationHUD: View {
     /// Same formatting as `timeRemaining`, but for the FINAL destination
     /// (`nav.finalDestinationEtaSeconds`) instead of the current leg.
     private var finalTimeRemaining: String {
-        let total = Int(nav.finalDestinationEtaSeconds)
+        Self.hoursMinutes(nav.finalDestinationEtaSeconds)
+    }
+
+    /// "1h 23m" / "15 min" (integer division, no clamping).
+    private static func hoursMinutes(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
         let h = total / 3600
         let m = (total % 3600) / 60
         if h > 0 { return "\(h)h \(m)m" }

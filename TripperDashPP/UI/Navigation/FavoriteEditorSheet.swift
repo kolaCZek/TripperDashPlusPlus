@@ -2,13 +2,14 @@
 //  FavoriteEditorSheet.swift
 //  TripperDashPP
 //
-//  Phase 7d — create or edit a custom favorite (Others list).
+//  Phase 7d — create a custom favorite (Others list). Add-only: the
+//  edit mode had no caller and was removed.
 //
 //  IMPORTANT (Phase 7g): this sheet is NO LONGER used to set the
 //  pinned Home/Work slots. Those use a fixed name + icon and are
 //  filled by `DestinationSearchSheet → store.setQuickAccess(slot,…)`
-//  directly from the empty-tile tap. This editor only ever creates or
-//  edits user-named entries that live in the "Others" list.
+//  directly from the empty-tile tap. This editor only ever creates
+//  user-named entries that live in the "Others" list.
 //
 //  Phase 7h (June 2026) — the icon is no longer typed as a raw SF
 //  Symbol string. It is a tappable glyph that sits *before* the name
@@ -24,9 +25,7 @@ struct FavoriteEditorSheet: View {
     @Environment(NavigationStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    /// Existing favorite to edit, or nil to create from `seed`.
-    let existing: Favorite?
-    /// Destination payload when adding a new favorite. nil if editing.
+    /// Destination payload for the new favorite.
     let seed: Destination?
 
     @State private var name: String = ""
@@ -59,9 +58,7 @@ struct FavoriteEditorSheet: View {
                          : "Tap the icon to change it, or choose Automatic to pick from the name.")
                 }
 
-                if let dest = seed ?? existing.map({
-                    Destination(id: $0.id, name: $0.name, addressLine: $0.addressLine, coordinate: $0.coordinate)
-                }) {
+                if let dest = seed {
                     Section("Location") {
                         Text(dest.addressLine ?? "—").font(.footnote)
                         Text(String(format: "%.5f, %.5f", dest.coordinate.latitude, dest.coordinate.longitude))
@@ -69,18 +66,8 @@ struct FavoriteEditorSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if existing != nil {
-                    Section {
-                        Button(role: .destructive) {
-                            if let existing { store.removeFavorite(id: existing.id) }
-                            dismiss()
-                        } label: {
-                            Label("Delete favorite", systemImage: "trash")
-                        }
-                    }
-                }
             }
-            .navigationTitle(existing == nil ? "New favorite" : "Edit favorite")
+            .navigationTitle("New favorite")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -92,10 +79,7 @@ struct FavoriteEditorSheet: View {
                 }
             }
             .onAppear {
-                if let existing {
-                    name = existing.name
-                    icon = existing.iconSymbol ?? ""
-                } else if let seed {
+                if let seed {
                     name = seed.name
                 }
             }
@@ -139,12 +123,7 @@ struct FavoriteEditorSheet: View {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedIcon = icon.trimmingCharacters(in: .whitespaces)
         let resolvedIcon = trimmedIcon.isEmpty ? nil : trimmedIcon
-        if let existing {
-            var updated = existing
-            updated.name = trimmedName
-            updated.iconSymbol = resolvedIcon
-            store.updateFavorite(updated)
-        } else if let seed {
+        if let seed {
             let fav = Favorite(name: trimmedName,
                                iconSymbol: resolvedIcon,
                                coordinate: seed.coordinate,

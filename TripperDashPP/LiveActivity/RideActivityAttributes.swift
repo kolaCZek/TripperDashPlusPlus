@@ -57,9 +57,15 @@ nonisolated struct RideActivityAttributes: ActivityAttributes {
         /// True while MKDirections is recalculating — lets the widget show a
         /// subtle "recalculating" treatment even though the glyph already swaps.
         var isRerouting: Bool
+
+        /// The final destination's name after a mid-ride route edit changed
+        /// it; the widget prefers it over the immutable attribute below.
+        /// Optional so a state encoded without it still decodes.
+        var destinationName: String?
     }
 
     /// Immutable for the life of the activity — the ride's destination name
     /// (shown as the activity's title). nil for a free-ride / unnamed target.
+    /// A mid-ride edit's new name travels in `ContentState.destinationName`.
     var destinationName: String?
 }

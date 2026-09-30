@@ -158,7 +158,7 @@ struct RouteProgressMap: View {
     /// Take the basemap-only snapshot (no overlay baked in — the overlay
     /// moves every fix and is drawn in `composite`). Parks the snapshotter
     /// so its Metal command buffer drains safely, exactly like
-    /// SavedRoutePreviewMap / MapPreviewView.
+    /// SavedRoutePreviewMap.
     private func takeSnapshot(span: (center: CLLocationCoordinate2D, latDelta: Double, lonDelta: Double),
                               size: CGSize, key: String) {
         guard !isSnapshotting else { return }

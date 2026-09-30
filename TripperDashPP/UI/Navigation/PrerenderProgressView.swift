@@ -5,14 +5,16 @@
 //  Full-screen progress sheet shown while the route tile cache bakes
 //  right after navigation starts (the stream is already live; see
 //  MapPickerView.prerenderRouteTiles). The bake takes ~10-20 s for a typical
-//  35 km route — long enough to need explicit progress feedback,
-//  short enough to not need a cancel button.
+//  35 km route — long enough to need explicit progress feedback. On a weak
+//  signal it can take much longer, so "Continue" dismisses the cover (the
+//  bake keeps running and the dash keeps its map) to uncover the HUD.
 //
 
 import SwiftUI
 
 struct PrerenderProgressView: View {
     let progress: Double  // 0.0…1.0
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
@@ -40,6 +42,10 @@ struct PrerenderProgressView: View {
                 Text(String(format: "%.0f %%", min(max(progress, 0), 1) * 100))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.6))
+
+                Button("Continue") { dismiss() }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
             }
         }
     }
