@@ -57,7 +57,8 @@ final class LiveActivityController {
             etaText: nil,
             remainingText: nil,
             progress: 0,
-            isRerouting: false
+            isRerouting: false,
+            destinationName: nil
         )
         do {
             activity = try Activity.request(
@@ -82,6 +83,7 @@ final class LiveActivityController {
         remainingMeters: Double?,
         progress: Double?,
         isRerouting: Bool,
+        destinationName: String?,
         imperial: Bool,
         is24Hour: Bool
     ) {
@@ -94,7 +96,8 @@ final class LiveActivityController {
             etaText: Self.etaText(date: etaDate, is24Hour: is24Hour),
             remainingText: Self.remainingText(meters: remainingMeters, imperial: imperial),
             progress: (progress ?? 0).clampedUnit(),
-            isRerouting: isRerouting
+            isRerouting: isRerouting,
+            destinationName: destinationName
         )
 
         guard Self.shouldPush(old: lastPushed, new: state, imperial: imperial) else { return }
@@ -151,6 +154,7 @@ final class LiveActivityController {
         if old.etaText != new.etaText { return true }             // minute-resolution
         if old.maneuverText != new.maneuverText { return true }
         if old.remainingText != new.remainingText { return true }
+        if old.destinationName != new.destinationName { return true }   // route edit retitle
         if abs(old.progress - new.progress) >= 0.01 { return true }
         return false
     }

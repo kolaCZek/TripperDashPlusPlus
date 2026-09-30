@@ -42,6 +42,10 @@ struct NavigationHUD: View {
     var useCommaDecimal: Bool = false
     var is24Hour: Bool = true
 
+    /// Opens the mid-ride route editor (MapPickerView owns the sheet). nil
+    /// hides the button.
+    var onEditRoute: (() -> Void)? = nil
+
     var body: some View {
         VStack(spacing: 16) {
             if isReconnecting { reconnectBanner }
@@ -57,6 +61,14 @@ struct NavigationHUD: View {
                     finalEtaPill
                 }
                 routeOverview
+                if let onEditRoute, nav.plan?.isEditableMidRide == true {
+                    Button(action: onEditRoute) {
+                        Label("Edit route", systemImage: "list.bullet")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
             }
             Spacer()
         }

@@ -119,6 +119,8 @@ struct MapPickerView: View {
     /// The built route awaiting a name in the "Save route" prompt.
     @State private var planSave: PlanSaveDraft?
     @State private var showPlanSaveAlert = false
+    /// Mid-ride "Edit route" sheet (NavigationHUD button).
+    @State private var showEditRoute = false
     @State private var planSaveName = ""
     @State private var showDiscardPlanDialog = false
 
@@ -136,6 +138,7 @@ struct MapPickerView: View {
         showSettings || showSavedRoutes || showRideHistory || prerenderActive
             || showSearch || showFavoriteEditor || showRoutePreferences
             || showLongPressDialog || showBikePicker || showDiscardPlanDialog
+            || showEditRoute
     }
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
@@ -885,14 +888,23 @@ struct MapPickerView: View {
                 dashUnresponsive: status.bikeLink.dashUnresponsive,
                 imperial: status.dashNavSettings.units == .imperial,
                 useCommaDecimal: status.dashNavSettings.decimalSeparator == .comma,
-                is24Hour: status.dashNavSettings.is24Hour
+                is24Hour: status.dashNavSettings.is24Hour,
+                onEditRoute: { showEditRoute = true }
             )
             .environment(status.activeNavigator)
+            .sheet(isPresented: $showEditRoute) {
+                EditRouteSheet()
+                    .environment(status)
+            }
+            // Stop / exit-nav unmount the HUD with the sheet; a flag left
+            // true would keep `anotherModalUp` stuck.
+            .onDisappear { showEditRoute = false }
             .onAppear {
                 forwardFixesToNavigator()
             }
             .onChange(of: status.activeNavigator.hasArrived) { _, arrived in
                 guard arrived else { return }
+                showEditRoute = false   // an edit to a finished ride is moot
                 // Rider confirmed: auto-dismiss the arrival card after a
                 // few seconds (both hands busy on the bike).
                 arrivalTask?.cancel()

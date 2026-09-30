@@ -333,6 +333,36 @@ final class PlannedRoute {
         waypoints[idx].addressLine = addressLine
     }
 
+    // MARK: - Mid-ride edit
+
+    /// Whether the "Edit route" sheet is offered for this running plan.
+    /// Not for a track (its via-points are shape, not stops) nor a dense
+    /// plan past the planner's editable-list cutoff — the same reason the
+    /// planner hides its stop list there: hundreds of rows aren't editable.
+    var isEditableMidRide: Bool {
+        !isTrack && waypoints.count <= RoutePoint.editableListThreshold
+    }
+
+    /// The stops still ahead while navigating leg `legIndex`: that leg's
+    /// destination through the final one. Stops already reached (and the
+    /// original origin) are gone.
+    static func remainingStops(of plan: PlannedRoute, fromLegIndex legIndex: Int) -> [Waypoint] {
+        let first = max(0, legIndex) + 1
+        guard first < plan.waypoints.count else { return [] }
+        return Array(plan.waypoints[first...])
+    }
+
+    /// Waypoints of the replacement plan: the live position as origin,
+    /// then the edited stops. Any live-origin row the rider dragged among
+    /// the stops is dropped. `nil` with no stop left — there'd be no
+    /// route to ride.
+    static func replacementWaypoints(currentLocation: CLLocationCoordinate2D,
+                                     stops: [Waypoint]) -> [Waypoint]? {
+        let real = stops.filter { !$0.isCurrentLocation }
+        guard !real.isEmpty else { return nil }
+        return [Waypoint.currentLocation(currentLocation)] + real
+    }
+
     // MARK: - Pair key
 
     private struct Pair: Hashable {
