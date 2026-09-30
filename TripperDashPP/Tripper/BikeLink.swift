@@ -168,8 +168,13 @@ final class BikeLink {
     /// Absolute deadline for the CURRENT reconnect episode. Set once in
     /// `handleLinkDropped` and deliberately NOT reset by `wakeReconnect`,
     /// so toggling Wi-Fi can't extend the reconnect budget past the moment
-    /// the link first dropped.
+    /// the link first dropped. Also kept across a reconnect that drops again
+    /// within `K1G.stableLinkDuration` (see `dropEpisodeDeadline`).
     private var reconnectDeadline: Date?
+
+    /// When the current link reached `.connected`; how long it lasted
+    /// decides whether its drop carries the running reconnect budget over.
+    private var connectedAt: Date?
 
     /// Wi-Fi presence monitor. A dropped Wi-Fi path is a faster, cleaner
     /// drop signal than waiting for a heartbeat `sendto` to error, and
@@ -380,6 +385,7 @@ final class BikeLink {
         log.info("BikeLink disconnected (auto-reconnect cleared)")
         shouldAutoReconnect = false
         reconnectDeadline = nil
+        connectedAt = nil
         reconnectTask?.cancel(); reconnectTask = nil
         connectTask?.cancel(); connectTask = nil
         inboundTask?.cancel(); inboundTask = nil
@@ -829,10 +835,13 @@ final class BikeLink {
             self.aesKey = outcome.aesKey
 
             state = .connected
+            connectedAt = Date()
             // Arm auto-reconnect for any FUTURE unexpected drop now that we
             // have a real established link.
             shouldAutoReconnect = true
-            reconnectDeadline = nil
+            // A fresh connect always gets a full budget. A reconnect keeps
+            // the episode's deadline so a quick re-drop can carry it over.
+            if !isReconnect { reconnectDeadline = nil }
             log.info("[\(ms(), privacy: .public)ms] BikeLink connected (ssid=\(self.ssid, privacy: .public))")
             startInboundLoop(socket: s)
             startHeartbeat(socket: s)
@@ -926,9 +935,32 @@ final class BikeLink {
         // episode's very first attempt.
         consecutiveSilentAttempts = 0
         // Absolute reconnect budget from the moment we dropped — survives
-        // `wakeReconnect` so repeated Wi-Fi toggles can't extend it.
-        reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
+        // `wakeReconnect` so repeated Wi-Fi toggles can't extend it, and a
+        // short-lived reconnect so a connect → drop cycle can't either.
+        let now = Date()
+        let deadline = Self.dropEpisodeDeadline(
+            now: now, connectedAt: connectedAt, carriedDeadline: reconnectDeadline)
+        if deadline == reconnectDeadline {
+            log.notice("Link was up < \(K1G.stableLinkDuration, privacy: .public)s — carrying the reconnect budget over")
+        }
+        reconnectDeadline = deadline
+        connectedAt = nil
         startReconnectLoop()
+    }
+
+    /// Deadline for the reconnect episode a drop at `now` starts: the
+    /// `carriedDeadline` if the link that just dropped was up for less than
+    /// `K1G.stableLinkDuration`, otherwise a fresh `reconnectMaxDuration`.
+    /// Without the carry-over, a dash that handshakes and then stops ACKing
+    /// reset the budget on every cycle and reconnected forever.
+    nonisolated static func dropEpisodeDeadline(
+        now: Date, connectedAt: Date?, carriedDeadline: Date?
+    ) -> Date {
+        if let carriedDeadline, let connectedAt,
+           now.timeIntervalSince(connectedAt) < K1G.stableLinkDuration {
+            return carriedDeadline
+        }
+        return now.addingTimeInterval(K1G.reconnectMaxDuration)
     }
 
     /// Retry `runConnectFlow(isReconnect:)` every `reconnectInterval`
