@@ -131,7 +131,7 @@ actor DashSocket {
     /// with the previous NWConnection-based implementation but is
     /// effectively unused for BSD sockets.
     func start(timeout: TimeInterval = 5.0) async throws {
-        guard fd < 0 else {
+        guard fd < 0, state != .cancelled else {
             log.notice("DashSocket.start called twice; ignoring")
             return
         }
@@ -284,6 +284,11 @@ actor DashSocket {
     func cancel() {
         guard let src = readSource else { return }
         readSource = nil
+        // Invalidate `fd` now, not in didCancel(): the cancel handler closes
+        // the descriptor asynchronously on ioQueue, and until then `send` /
+        // a queued drain would still pass `fd >= 0` on a closed (or already
+        // reused) fd. The handler closes its own captured copy.
+        fd = -1
         // The cancel handler closes the fd and updates state via didCancel().
         src.cancel()
     }
