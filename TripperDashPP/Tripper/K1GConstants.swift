@@ -167,6 +167,15 @@ nonisolated enum K1G {
     /// few seconds, not a busy wait.
     static let reconnectMaxDuration: TimeInterval = 1800.0
 
+    /// How long a reconnected link must stay up before its next drop starts
+    /// a fresh `reconnectMaxDuration` budget. A shorter-lived link carries
+    /// the running episode's deadline over, so a dash that handshakes and
+    /// then goes quiet (or a heartbeat path that keeps failing) ends in the
+    /// out-of-budget error instead of cycling connect → drop forever.
+    /// 60 s is well past any handshake + nav-kick sequence (a few seconds)
+    /// and far shorter than a real ride segment between Wi-Fi drops.
+    static let stableLinkDuration: TimeInterval = 60.0
+
     /// How many times a FRESH connect (not an auto-reconnect) silently
     /// retries after a step-1 handshake timeout with ZERO reply packets
     /// (the "dash still booting" race — see BikeLink.ConnectAttemptResult
