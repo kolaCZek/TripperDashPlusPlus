@@ -40,7 +40,7 @@ def _inbound(src: str | None = None) -> str:
 
 def test_reconnect_without_dash_subnet_skips_socket_as_non_silent() -> None:
     body = _flow()
-    guard = "if isReconnect, !Self.wifiHasDashSubnetIPv4() {"
+    guard = "if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4() {"
     assert guard in body
     branch = decl_body(body, guard)
     # Returns a non-silent failure, so consecutiveSilentAttempts can't grow.
@@ -53,9 +53,10 @@ def test_reconnect_without_dash_subnet_skips_socket_as_non_silent() -> None:
 
 def test_fresh_connect_still_opens_socket_without_subnet_check() -> None:
     body = _flow()
-    # The only subnet gate in the flow is the reconnect-only one.
+    # The only subnet gate in the flow is the reconnect-only one, and it only
+    # applies to the real dash address (a fake_dash laptop can sit elsewhere).
     assert body.count("wifiHasDashSubnetIPv4()") == 1
-    assert "if isReconnect, !Self.wifiHasDashSubnetIPv4()" in body
+    assert "if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4()" in body
 
 
 def test_other_failure_does_not_count_as_silent_attempt() -> None:
@@ -85,9 +86,21 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     assert "lastRxUptime = ProcessInfo.processInfo.systemUptime" in got[: got.index("continue")]
     run = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run")
     check = run.index("await socket.secondsSinceLastRx()")
-    assert "if silence > K1G.rxSilenceTimeout {" in run[check:]
-    after = run[run.index("if silence > K1G.rxSilenceTimeout {"):]
+    decide = "if Self.isDashSilent(silence: silence, sentTicksWithoutRx: sentTicksWithoutRx) {"
+    assert decide in run[check:]
+    after = run[run.index(decide):]
     assert "return" in after[: after.index("}")]
+    # Only ticks actually sent count, and a fresh RX resets them, so a
+    # phone-side stall isn't read as a silent dash.
+    ok = run[run.index("try await socket.send(md)"):run.index("} catch {")]
+    assert "sentTicksWithoutRx += 1" in ok
+    reset = "if silence < K1G.heartbeatInterval { sentTicksWithoutRx = 0 }"
+    assert check < run.index(reset) < run.index(decide)
+    # The loop's uncancelled return is what turns into a link drop.
+    link = strip_comments(decl_body(BIKE_LINK.read_text(encoding="utf-8"), "private func startHeartbeat"))
+    drop = link[link.index("await loop.run()"):]
+    guard = drop[drop.index("if !Task.isCancelled {"):]
+    assert 'handleLinkDropped(reason: "heartbeat")' in guard[: guard.index("}")]
     # Checked every tick, before the sleep.
     assert check < run.index("try? await Task.sleep")
     # The measurement-only minute log it replaced is gone.

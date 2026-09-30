@@ -827,7 +827,7 @@ final class BikeLink {
             // ("try the ignition") for a bike that is simply off. Skip the
             // attempt as a non-silent failure. A fresh connect still proceeds
             // (the probe can lag right after a join).
-            if isReconnect, !Self.wifiHasDashSubnetIPv4() {
+            if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4() {
                 log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — skipping attempt, waiting for iOS auto-join (no dialog)")
                 return .otherFailure("No dash Wi-Fi")
             }

@@ -33,6 +33,15 @@ struct LinkErrorMappingTests {
         #expect(!HeartbeatLoop.isTransientSendError(NSError(domain: "Other", code: Int(ENOBUFS))))
     }
 
+    @Test func silenceCountsOnlyAfterHeartbeatsWentOut() {
+        // A phone-side stall (nothing sent) is not a silent dash.
+        #expect(!HeartbeatLoop.isDashSilent(silence: 30, sentTicksWithoutRx: 0))
+        #expect(!HeartbeatLoop.isDashSilent(silence: 30, sentTicksWithoutRx: 4))
+        #expect(HeartbeatLoop.isDashSilent(silence: 30, sentTicksWithoutRx: 5))
+        // Enough sends, but not silent for long enough yet.
+        #expect(!HeartbeatLoop.isDashSilent(silence: K1G.rxSilenceTimeout, sentTicksWithoutRx: 12))
+    }
+
     private func joinError(_ code: NEHotspotConfigurationError) -> NSError {
         NSError(domain: NEHotspotConfigurationErrorDomain, code: code.rawValue)
     }
@@ -48,6 +57,10 @@ struct LinkErrorMappingTests {
     @Test func knownCodesGetReadableText() {
         #expect(WiFiJoiner.outcome(forApplyError: joinError(.userDenied)) == .failed("the join was declined"))
         #expect(WiFiJoiner.outcome(forApplyError: joinError(.invalidSSID)) == .failed("the Wi-Fi name looks wrong"))
+    }
+
+    @Test func foreignDomainErrorIsLowercase() {
+        #expect(WiFiJoiner.outcome(forApplyError: NSError(domain: "Other", code: 42)) == .failed("error 42"))
     }
 
     @Test func unknownCodeKeepsTheNumber() {

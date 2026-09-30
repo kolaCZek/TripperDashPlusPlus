@@ -224,6 +224,25 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
     return bytes(body)
 
 
+def build_heartbeat_ack(counter: int) -> bytes:
+    """
+    Bike → phone: the 17-byte packet a real dash sends about once a second
+    in reply to the phone's heartbeat (Guerrilla 450 ride log, 3543 of them):
+
+        00 11 | 00 01 | 00 00 00 00 | 01 01 00 05 | "K1G" 00 | <counter>
+
+    i.e. seg_count 1 and a single `01 01` segment whose 5-byte payload is
+    "K1G\\0" + a counter that increments per packet and wraps at 0xFF. It
+    has no "K1G " magic, so `build_envelope` / `patch_seq` don't apply.
+    """
+    seg = Segment(type=0x01, sub=0x01, payload=b"K1G\x00" + bytes([counter & 0xFF]))
+    body = bytearray(struct.pack(">HH", 0, 1))   # outer_len placeholder | seg_count = 1
+    body.extend(b"\x00\x00\x00\x00")              # pad
+    body.extend(bytes.fromhex(seg.hex))
+    struct.pack_into(">H", body, 0, len(body))
+    return bytes(body)
+
+
 def build_auth_modulus_segment(modulus_bytes: bytes) -> Segment:
     """Bike → phone: 07 00 + RSA public-key modulus (big-endian, typically 128 B for RSA-1024)."""
     return Segment(type=0x07, sub=0x00, payload=modulus_bytes)

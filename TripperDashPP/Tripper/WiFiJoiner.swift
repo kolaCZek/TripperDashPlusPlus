@@ -151,7 +151,7 @@ final class WiFiJoiner {
     /// "Couldn't join <bike>'s Wi-Fi: ".
     nonisolated static func outcome(forApplyError error: NSError) -> WiFiJoinOutcome? {
         guard error.domain == NEHotspotConfigurationErrorDomain else {
-            return .failed(error.localizedDescription)
+            return .failed("error \(error.code)")
         }
         typealias E = NEHotspotConfigurationError
         switch error.code {

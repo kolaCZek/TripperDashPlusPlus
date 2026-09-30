@@ -75,11 +75,24 @@ nonisolated struct HeartbeatLoop: Sendable {
         return ns.code == Int(ENOBUFS) || ns.code == Int(EAGAIN) || ns.code == Int(EWOULDBLOCK)
     }
 
+    /// Heartbeats the dash must have had the chance to ACK before its
+    /// silence counts. The dash only replies to what we send, so a stall on
+    /// OUR side (busy main actor at tick 0, process suspension) is not a
+    /// silent dash.
+    static let minSentTicksForSilence = 5
+
+    /// True when the dash has gone quiet: no RX for `K1G.rxSilenceTimeout`
+    /// AND enough heartbeats went out since the last RX.
+    static func isDashSilent(silence: TimeInterval, sentTicksWithoutRx: Int) -> Bool {
+        silence > K1G.rxSilenceTimeout && sentTicksWithoutRx >= minSentTicksForSilence
+    }
+
     /// Run until cancelled. Suspends on cancellation cleanly.
     @concurrent func run() async {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
         var transientFailures = 0
+        var sentTicksWithoutRx = 0
         while !Task.isCancelled {
             // Phone status: mirrors the OEM 1 Hz `REForeGroundService` timer
             // which re-reads BatteryManager + cell info each fire. The
@@ -118,6 +131,7 @@ nonisolated struct HeartbeatLoop: Sendable {
                 try await socket.send(hb)
                 try await socket.send(md)
                 transientFailures = 0
+                sentTicksWithoutRx += 1
                 tick &+= 1
                 if tick == 1 {
                     Self.log.info("Heartbeat tick #1 sent (0044=\(hb.count)B + 0030=\(md.count)B)")
@@ -139,7 +153,8 @@ nonisolated struct HeartbeatLoop: Sendable {
             // A dash that stopped talking is gone even if sends still succeed
             // (the caller treats this return as a link drop, like a send error).
             let silence = await socket.secondsSinceLastRx()
-            if silence > K1G.rxSilenceTimeout {
+            if silence < K1G.heartbeatInterval { sentTicksWithoutRx = 0 }
+            if Self.isDashSilent(silence: silence, sentTicksWithoutRx: sentTicksWithoutRx) {
                 Self.log.error("No RX from dash for \(Int(silence), privacy: .public) s — stopping loop")
                 return
             }
