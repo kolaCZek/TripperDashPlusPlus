@@ -119,6 +119,25 @@ final class LiveActivityController {
         log.info("Live Activity ended")
     }
 
+    /// End activities left by a previous process (crash / force-quit): the
+    /// `activity` handle died with it, so nothing would end them and the
+    /// card sits frozen on the Lock Screen for up to 8 h. Call once at app
+    /// launch — the list is read synchronously there, before any view can
+    /// start a ride, so it only ever holds orphans.
+    ///
+    /// No `staleDate` on the content instead: updates are change-driven
+    /// (see `shouldPush`), so a rider stopped at a red light sends none and
+    /// a stale date would grey out a perfectly live card.
+    static func endOrphanedActivities() {
+        let orphans = Activity<RideActivityAttributes>.activities
+        guard !orphans.isEmpty else { return }
+        Task {
+            for orphan in orphans {
+                await orphan.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
+
     // MARK: - Throttling
 
     /// Whether the new state differs enough from the last-pushed one to be worth
@@ -140,7 +159,7 @@ final class LiveActivityController {
         return false
     }
 
-    // MARK: - Formatting (mirrors DashPreviewPanel / RideStatsFormatting)
+    // MARK: - Formatting (also used by DashPreviewPanel; km/mi via RideStatsFormatting)
 
     /// Distance-to-next: fine metres/feet under 1 km (rounded to nearest 10,
     /// dash-parity close-in), km/mi above via the shared formatter.

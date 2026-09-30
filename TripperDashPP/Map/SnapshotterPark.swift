@@ -3,9 +3,11 @@
 //  TripperDashPP
 //
 //  Extracted from the now-deleted MapSnapshotSource on the catalog-complete
-//  refactor (commit e761d52). MapPreviewView still relies on it to drain
-//  MKMapSnapshotter Metal command buffers without freezing the app, so the
-//  helper survives even though its original owner doesn't.
+//  refactor (commit e761d52). RouteProgressMap and SavedRoutePreviewMap
+//  still rely on it to drain MKMapSnapshotter Metal command buffers
+//  without freezing the app (the recipe came from the since-deleted
+//  MapPreviewView), so the helper survives even though its original
+//  owner doesn't.
 //
 
 import MapKit

@@ -16,6 +16,10 @@ struct TripperDashPPApp: App {
     /// `.environment(_:)` on the root scene.
     @State private var status = AppStatus()
 
+    init() {
+        LiveActivityController.endOrphanedActivities()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

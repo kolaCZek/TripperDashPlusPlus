@@ -12,7 +12,6 @@
 //   - for each leg, the selected option as a thick blue line and the
 //     alternatives as thin gray lines,
 //   - tap a gray alternative -> onPickAlternative(leg, option),
-//   - tap a waypoint pin     -> onTapWaypoint(id),
 //   - long-press empty map   -> onAddWaypoint(coord).
 //
 //  Overlay sync (as in the since-removed RoutePreviewMap): MapKit caches
@@ -33,7 +32,6 @@ struct PlanningMapView: UIViewRepresentable {
 
     var onPickAlternative: (_ legIndex: Int, _ optionIndex: Int) -> Void
     var onAddWaypoint: (_ coord: CLLocationCoordinate2D) -> Void
-    var onTapWaypoint: (_ waypointId: UUID) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -269,10 +267,10 @@ struct PlanningMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
-            guard let wp = view.annotation as? WaypointAnnotation else { return }
-            // Deselect so a repeat tap fires again.
+            guard view.annotation is WaypointAnnotation else { return }
+            // Pins carry no tap action (remove/reorder live in the list);
+            // deselect so they never stay in the selected state.
             mapView.deselectAnnotation(view.annotation, animated: false)
-            parent.onTapWaypoint(wp.waypointId)
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {

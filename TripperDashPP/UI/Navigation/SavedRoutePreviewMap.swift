@@ -10,13 +10,15 @@
 //  live InteractiveMapView and (when streaming) MapViewSource are also
 //  competing for Apple's shared Metal pool. A live MKMapView here risks
 //  the MTLDebugDevice drain assertion on dismiss — the exact failure
-//  MapPreviewView was written to avoid. So we reuse that proven recipe:
+//  the (since-deleted) MapPreviewView was written to avoid. So we reuse
+//  that proven recipe:
 //  render the route into a UIImage via MKMapSnapshotter, draw the
 //  polyline + start/end pins on top in plain Core Graphics, and park the
 //  snapshotter in SnapshotterPark so its command buffer drains safely.
 //
-//  Unlike MapPreviewView this is a ONE-SHOT snapshot (routes don't move),
-//  re-taken only when the point set or the pixel size changes.
+//  Unlike the old 1 Hz MapPreviewView this is a ONE-SHOT snapshot
+//  (routes don't move), re-taken only when the point set or the pixel
+//  size changes.
 //
 
 import CoreLocation
@@ -96,8 +98,8 @@ struct SavedRoutePreviewMap: View {
     }
 
     /// Draw the route polyline + start/end markers onto the basemap
-    /// snapshot. Plain CG (no MKMapView), matching MapPreviewView's
-    /// user-pin approach.
+    /// snapshot. Plain CG (no MKMapView), matching the user-pin approach
+    /// of the since-deleted MapPreviewView.
     private func drawRoute(on snap: MKMapSnapshotter.Snapshot,
                            coords: [CLLocationCoordinate2D],
                            isDark: Bool) -> UIImage {

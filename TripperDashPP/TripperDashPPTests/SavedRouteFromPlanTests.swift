@@ -203,6 +203,15 @@ struct SavedRouteFromPlanTests {
         #expect(d.nearestIndex == 2)
         #expect(d.shouldPrompt == true)
     }
+
+    @Test func plannerCancelAsksOnlyForAnUnsavedMultiStopPlan() {
+        let three = ["a|Home", "b|Mělník", "c|Kokořín"]
+        #expect(MapPickerView.planHasUnsavedWork(stops: three, saved: nil))
+        #expect(MapPickerView.planHasUnsavedWork(stops: three, saved: ["a|Home", "c|Kokořín"]))
+        #expect(!MapPickerView.planHasUnsavedWork(stops: three, saved: three))
+        // A→B is one search away — cancel straight through, as before.
+        #expect(!MapPickerView.planHasUnsavedWork(stops: ["a|Home", "c|Kokořín"], saved: nil))
+    }
 }
 
 /// feat/edit-route-mid-ride — the pure half of the "Edit route" sheet: which
