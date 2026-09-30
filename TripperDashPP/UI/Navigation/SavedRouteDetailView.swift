@@ -221,15 +221,6 @@ struct SavedRouteDetailView: View {
             }
             .onDelete { offsets in deletePoints(route, at: offsets) }
             .onMove(perform: moveAction)
-            // Stops are waypoints only; a track's points are its recorded shape.
-            // Capped at the editable-list size so the list can't flip to the count-only view.
-            if route.kind == .waypoints && route.points.count < RoutePoint.editableListThreshold {
-                Button {
-                    showAddStop = true
-                } label: {
-                    Label("Add stop", systemImage: "plus.circle.fill")
-                }
-            }
         } header: {
             HStack {
                 Text("Points (\(route.points.count))")
@@ -243,8 +234,23 @@ struct SavedRouteDetailView: View {
         } footer: {
             if editMode == .active {
                 Text(route.kind == .waypoints
-                     ? "Swipe to delete a stop, or drag to reorder. New stops go before the end. A route keeps at least 2 points."
+                     ? "Swipe to delete a stop, or drag to reorder. A route keeps at least 2 points."
                      : "Swipe to delete a point. Recorded tracks can't be reordered (it would scramble the shape).")
+            }
+        }
+
+        // Stops are waypoints only; a track's points are its recorded shape.
+        // `- 1`: starting navigation prepends the live origin, and the planner's
+        // stop list / mid-ride Edit route only exist up to the threshold.
+        if route.kind == .waypoints && route.points.count < RoutePoint.editableListThreshold - 1 {
+            Section {
+                Button {
+                    showAddStop = true
+                } label: {
+                    Label("Add stop", systemImage: "plus.circle.fill")
+                }
+            } footer: {
+                Text("Search for a place; it's added before the end.")
             }
         }
     }
@@ -295,7 +301,7 @@ struct SavedRouteDetailView: View {
     private func addStop(_ dest: Destination) {
         guard let route else { return }
         var pts = route.points
-        pts.insert(RoutePoint(coordinate: dest.coordinate, name: dest.name),
+        pts.insert(RoutePoint(coordinate: dest.coordinate, name: dest.name.isEmpty ? nil : dest.name),
                    at: max(pts.count - 1, 0))
         store.updatePoints(id: route.id, points: pts)
     }

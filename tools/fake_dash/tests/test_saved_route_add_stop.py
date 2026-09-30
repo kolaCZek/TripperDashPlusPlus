@@ -17,11 +17,13 @@ def test_add_stop_inserts_before_the_end_and_persists():
     body = decl_body(src, "private func addStop")
     assert "at: max(pts.count - 1, 0)" in body          # before the finish, never after it
     assert "store.updatePoints(id: route.id, points: pts)" in body
+    assert "dest.name.isEmpty ? nil : dest.name" in body  # blank name -> nil, like SavedRoute.fromPlan
 
 
 def test_add_stop_is_offered_for_waypoint_routes_only():
     src = strip_comments(SRC.read_text())
     section = decl_body(src, "private func editablePointsSection")
-    assert "route.kind == .waypoints && route.points.count < RoutePoint.editableListThreshold" in section
+    # `- 1` leaves room for the live origin that starting navigation prepends.
+    assert "route.kind == .waypoints && route.points.count < RoutePoint.editableListThreshold - 1" in section
     assert "showAddStop = true" in section
     assert "DestinationSearchSheet(onPick: { dest in addStop(dest) })" in src
