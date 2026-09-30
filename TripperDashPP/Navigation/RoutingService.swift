@@ -205,6 +205,12 @@ final class RoutingService {
                 } else {
                     plan.setOptions(opts, forLegIndex: i)
                 }
+            } catch RoutingError.timedOut {
+                // No connectivity: fail the remaining legs now instead of
+                // waiting out one timeout per leg.
+                log.error("Leg \(i) recompute timed out — failing the remaining legs")
+                failed += dirty.drop(while: { $0 != i })
+                break
             } catch {
                 log.error("Leg \(i) recompute failed: \(error.localizedDescription, privacy: .public)")
                 failed.append(i)

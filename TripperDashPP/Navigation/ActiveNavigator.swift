@@ -454,8 +454,9 @@ final class ActiveNavigator {
     /// `finalDestinationRemainingDistance` the HUD counts down, so the
     /// bar and the distance readout can never disagree. Clamped and
     /// guarded against a zero/again-nil denominator (returns 0 before the
-    /// first route seeds). Monotonic in practice because
-    /// `plannedTotalDistance` is fixed for the ride.
+    /// first route seeds). Monotonic while the route is unchanged; a
+    /// mid-ride edit that lengthens the trip re-bases the total, so the
+    /// bar steps back by (covered ÷ new total), never to 0.
     var rideProgressFraction: Double {
         guard plannedTotalDistance > 0 else { return 0 }
         let done = plannedTotalDistance - finalDestinationRemainingDistance

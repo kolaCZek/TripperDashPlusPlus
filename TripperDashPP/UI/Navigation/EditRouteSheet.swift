@@ -191,6 +191,9 @@ struct EditRouteSheet: View {
                 )
             } catch {
                 let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                // A stop reached or skipped during the wait: show the fresh
+                // list now, not on the next Apply (which would drop the edit).
+                if !closed, isStale { reloadDraft() }
                 errorText = reason + " Your current route is unchanged."
                 return
             }

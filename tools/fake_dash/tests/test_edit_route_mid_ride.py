@@ -92,6 +92,10 @@ def test_apply_installs_via_replace_plan_and_never_ends_the_ride():
     assert apply.index("try await status.routingService.recompute(") < apply.index("nav.replacePlan(newPlan)")
     catch = apply[apply.index("} catch {"):]
     assert "return" in catch[: catch.index("guard !closed")]
+    # A stop passed during a failed Apply reloads the list right away.
+    failed = catch[: catch.index("return")]
+    assert "if !closed, isStale { reloadDraft() }" in failed
+    assert failed.index("reloadDraft()") < failed.index("errorText = reason")
     # Arrival / ride end while the sheet is up drops the edit.
     body = decl_body(sheet, "var body: some View")
     assert ".onChange(of: status.activeNavigator.hasArrived)" in body
@@ -151,6 +155,11 @@ def test_recompute_threads_the_timeout_and_the_planner_keeps_none():
     assert "timeout: TimeInterval? = nil," in sig
     body = decl_body(routing, "func recompute(_ plan: PlannedRoute,")
     assert "timeout: timeout)" in body
+    # A timeout fails the rest at once: one wait, not one per leg.
+    timed = body[body.index("} catch RoutingError.timedOut {"):]
+    timed = timed[: timed.index("} catch {")]
+    assert "failed += dirty.drop(while: { $0 != i })" in timed
+    assert "break" in timed
     planner = decl_body(_src(APP / "App" / "AppStatus.swift"), "func recomputeDirtyLegs")
     assert "timeout:" not in planner
 
