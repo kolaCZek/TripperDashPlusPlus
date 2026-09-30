@@ -7,9 +7,65 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5E5E00000000000000000190 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000C0 /* ShareViewController.swift */; };
+		5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
+		5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
+		5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000B0 /* TripperDashShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0A00000000000000000001 /* LinkErrorMappingTests.swift */; };
+		6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */; };
+		7E57000000000000000000A1 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A0 /* SmokeTests.swift */; };
+		7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */; };
+		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
+		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
+		7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A8 /* NextWaypointLabelTests.swift */; };
+		7E5700000000000000000A52 /* RideStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A51 /* RideStats.swift */; };
+		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
+		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
+		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
+		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
+		7E5700000000000000000A64 /* RideHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A63 /* RideHistoryStore.swift */; };
+		7E5700000000000000000A66 /* RideHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A65 /* RideHistoryView.swift */; };
+		7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A67 /* RideHistoryStoreTests.swift */; };
+		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
+		7E5700000000000000000B01 /* LegTailMapKitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */; };
+		7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */; };
+		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
+		7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */; };
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
-		A55E7000000000000A55E702 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E701 /* Assets.xcassets */; };
-		A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */; };
+		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
+		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
+		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
+		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
+		A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0602FE2DD0800AA36C3 /* DashSocket.swift */; };
+		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
+		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
+		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
+		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
+		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
+		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
+		A4C7000000000000000A1001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
+		A4C7000000000000000A2001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
+		A4C7000000000000000B1001 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000B0001 /* LiveActivityController.swift */; };
+		A4C7000000000000000C2001 /* RideLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000C0001 /* RideLiveActivity.swift */; };
+		A4C7000000000000000D2001 /* TripperDashWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */; };
+		A4C700000000000000101001 /* TripperDashWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000F0001 /* TripperDashWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F0 /* CallStateObserver.swift */; };
+		A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F2 /* DeviceTelemetry.swift */; };
+		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
+		A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
+		A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
+		A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A10001 /* SavedBikesStore.swift */; };
+		A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */; };
+		A4DE70000000000000B11001 /* AddBikeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000B10001 /* AddBikeSheet.swift */; };
+		A4DE70000000000000C11001 /* WiFiJoiner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000C10001 /* WiFiJoiner.swift */; };
+		A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D00001 /* DemoDashModel.swift */; };
+		A4DE70000000000000D11001 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D10001 /* PermissionsView.swift */; };
+		A4DE70000000000000E00101 /* DashPreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000E00001 /* DashPreviewPanel.swift */; };
+		A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */; };
+		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
+		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
+		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
+		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
 		A4F000000000000000000001 /* NavigationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000000 /* NavigationStore.swift */; };
 		A4F000000000000000000011 /* LocalSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000010 /* LocalSearchService.swift */; };
 		A4F000000000000000000021 /* RoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000020 /* RoutingService.swift */; };
@@ -18,254 +74,90 @@
 		A4F000000000000000000051 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000050 /* Destination.swift */; };
 		A4F000000000000000000061 /* Favorite.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000060 /* Favorite.swift */; };
 		A4F000000000000000000071 /* NavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000070 /* NavSettings.swift */; };
+		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
+		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
+		A4F0000000000000000000A1 /* DestinationPreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewCard.swift */; };
+		A4F0000000000000000000B1 /* UserPuckAnnotationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */; };
+		A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000C0 /* NavigationHUD.swift */; };
+		A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000D0 /* QuickAccessTiles.swift */; };
 		A4F000000000000000000E01 /* ActiveNavLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E00 /* ActiveNavLoop.swift */; };
 		A4F000000000000000000E11 /* DashNavSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E10 /* DashNavSettings.swift */; };
 		A4F000000000000000000E21 /* ManeuverIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E20 /* ManeuverIcon.swift */; };
 		A4F000000000000000000E31 /* RoundaboutInstructionParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */; };
 		A4F000000000000000000E41 /* ManeuverGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E40 /* ManeuverGeometry.swift */; };
 		A4F000000000000000000E51 /* ManeuverKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E50 /* ManeuverKeywords.swift */; };
+		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
 		A4F000000000000000000E81 /* DrivingSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E80 /* DrivingSide.swift */; };
-		A4F000000000000000000081 /* DestinationSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000080 /* DestinationSearchSheet.swift */; };
-		A4F000000000000000000091 /* FavoriteEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000090 /* FavoriteEditorSheet.swift */; };
-		A4F0000000000000000000A1 /* DestinationPreviewCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000A0 /* DestinationPreviewCard.swift */; };
-		A4F0000000000000000000B1 /* UserPuckAnnotationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */; };
-		A4F0000000000000000000C1 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000C0 /* NavigationHUD.swift */; };
 		A4F000000000000000000F01 /* Waypoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F00 /* Waypoint.swift */; };
 		A4F000000000000000000F11 /* PlannedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F10 /* PlannedRoute.swift */; };
 		A4F000000000000000000F21 /* RouteLegPolyline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F20 /* RouteLegPolyline.swift */; };
 		A4F000000000000000000F31 /* PlanningMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F30 /* PlanningMapView.swift */; };
 		A4F000000000000000000F41 /* WaypointListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F40 /* WaypointListView.swift */; };
-		ED17000000000000000000A1 /* EditRouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17000000000000000000A0 /* EditRouteSheet.swift */; };
 		A4F000000000000000000F51 /* RoutePreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000F50 /* RoutePreferencesView.swift */; };
-		A4F0000000000000000000D1 /* QuickAccessTiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0000000000000000000D0 /* QuickAccessTiles.swift */; };
-		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
-		6CEEF1E3E02E5B291694EB0C /* InteractiveMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */; };
-		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
-		A486F04B2FE2034700AA36C3 /* StreamingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0462FE2034700AA36C3 /* StreamingView.swift */; };
-		A4DE70000000000000D11001 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D10001 /* PermissionsView.swift */; };
-		A4DE70000000000000B11001 /* AddBikeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000B10001 /* AddBikeSheet.swift */; };
-		A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0452FE2034700AA36C3 /* RootView.swift */; };
-		A486F0662FE2DD0800AA36C3 /* DashSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0602FE2DD0800AA36C3 /* DashSocket.swift */; };
-		A486F0672FE2DD0800AA36C3 /* RsaHandshake.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */; };
-		A486F0682FE2DD0800AA36C3 /* HeartbeatLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */; };
-		A486F0692FE2DD0800AA36C3 /* BikeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */; };
-		A4DE70000000000000C11001 /* WiFiJoiner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000C10001 /* WiFiJoiner.swift */; };
-		A4DE70000000000000A11001 /* SavedBikesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A10001 /* SavedBikesStore.swift */; };
-		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
-		A4DA5A1E0000000000DA5A1E /* String+DashSafe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */; };
-		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
-		A4CA110000000000000000F1 /* CallStateObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F0 /* CallStateObserver.swift */; };
-		A4CA110000000000000000F3 /* DeviceTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CA110000000000000000F2 /* DeviceTelemetry.swift */; };
+		A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E001 /* VoiceNavigator.swift */; };
+		A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E002 /* VoicePhrase.swift */; };
+		A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */; };
+		A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */; };
+		A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */; };
+		A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */; };
+		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
+		A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */; };
+		A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */; };
+		A55E7000000000000A55E702 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E701 /* Assets.xcassets */; };
+		A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */; };
+		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
+		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
+		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
+		B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000E0 /* MaxspeedParser.swift */; };
+		B1DEA1E700000000000000F1 /* SpeedCameraAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */; };
+		B1DEA1E700000000000000F3 /* RouteProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F2 /* RouteProjection.swift */; };
 		B7DA00000000000000000001 /* DashMediaControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7DA00000000000000000002 /* DashMediaControl.swift */; };
-		A4E71CA22FE3128D00CFD473 /* RtpStreamer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */; };
+		ED17000000000000000000A1 /* EditRouteSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17000000000000000000A0 /* EditRouteSheet.swift */; };
+		EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEF1001000000000000A001 /* PrerenderProgressView.swift */; };
 		F00DBABE00000000DEADBEEF /* MapViewSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEEF /* MapViewSource.swift */; };
 		F00DBABE00000000DEADBEF1 /* RouteTileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */; };
+		F00DBABE00000000DEADBEF2 /* SnapshotterPark.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */; };
 		F00DBABE00000000DEADBEF7 /* TileDiskCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */; };
 		F00DBABE00000000DEADBEF8 /* WebMercator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF8 /* WebMercator.swift */; };
 		F00DBABE00000000DEADBEF9 /* OSMTileFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */; };
-		F00DBABE00000000DEADBEF2 /* SnapshotterPark.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */; };
-		EFEF1002000000000000A001 /* PrerenderProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEF1001000000000000A001 /* PrerenderProgressView.swift */; };
-		A4E71CA32FE3128D00CFD473 /* FrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */; };
-		A4E71CA42FE3128D00CFD473 /* RtpPacketizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */; };
-		A4E71CA52FE3128D00CFD473 /* H264Encoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */; };
-		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
-		B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000A0 /* WeatherAlertService.swift */; };
-		B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000B0 /* SpeedCameraService.swift */; };
-		B1DEA1E700000000000000F1 /* SpeedCameraAnnouncer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */; };
-		B1DEA1E700000000000000F3 /* RouteProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000F2 /* RouteProjection.swift */; };
-		B1DEA1E700000000000000D1 /* SpeedLimitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000D0 /* SpeedLimitService.swift */; };
-		B1DEA1E700000000000000E1 /* MaxspeedParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DEA1E700000000000000E0 /* MaxspeedParser.swift */; };
 		F00DBABE00000000DEADBF01 /* MapStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF01 /* MapStyle.swift */; };
-		F00DBABE00000000DEADC001 /* DashNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADC001 /* DashNotice.swift */; };
 		F00DBABE00000000DEADBF02 /* SolarClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF02 /* SolarClock.swift */; };
-		A4F000000000000000000E61 /* MapStyleSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F000000000000000000E60 /* MapStyleSettings.swift */; };
 		F00DBABE00000000DEADBF03 /* MapStyleResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */; };
 		F00DBABE00000000DEADBF04 /* TileColorTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */; };
-		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
+		F00DBABE00000000DEADC001 /* DashNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEFEED00000000DEADC001 /* DashNotice.swift */; };
 		FE70000000000000000000A1 /* GPXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000A0 /* GPXParser.swift */; };
-		A4DA5B130000000000DA5B13 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
-		A4DA5B110000000000DA5B11 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
 		FE70000000000000000000B1 /* SavedRoutesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B0 /* SavedRoutesStore.swift */; };
+		FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */; };
 		FE70000000000000000000C1 /* RouteStartPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000C0 /* RouteStartPlanner.swift */; };
 		FE70000000000000000000D1 /* SavedRoutesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000D0 /* SavedRoutesListView.swift */; };
 		FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000E0 /* SavedRouteDetailView.swift */; };
-		FE70000000000000000000B2 /* SavedRoutePreviewMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */; };
+		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
 		FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000000000000000000B0 /* RouteProgressMap.swift */; };
-		7E57000000000000000000A1 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A0 /* SmokeTests.swift */; };
-		7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */; };
-		7E5700000000000000000B01 /* LegTailMapKitProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */; };
-		7E5700000000000000000A52 /* RideStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A51 /* RideStats.swift */; };
-		7E57000000000000000000A5 /* RideStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A4 /* RideStatsTests.swift */; };
-		A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */; };
-		A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */; };
-		7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */; };
-		6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0A00000000000000000001 /* LinkErrorMappingTests.swift */; };
-		7E5700000000000000000A54 /* RideStatsFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A53 /* RideStatsFormatting.swift */; };
-		7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A6 /* RideStatsFormattingTests.swift */; };
-		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
-		7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */; };
-		7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E57000000000000000000A8 /* NextWaypointLabelTests.swift */; };
-		A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */; };
-		A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */; };
-		A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */; };
-		A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */; };
-		A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */; };
-		7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A67 /* RideHistoryStoreTests.swift */; };
-		7E5700000000000000000A56 /* RideStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A55 /* RideStatsService.swift */; };
-		7E5700000000000000000A58 /* RideStatsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A57 /* RideStatsPanel.swift */; };
-		7E5700000000000000000A66 /* RideHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A65 /* RideHistoryView.swift */; };
-		7E5700000000000000000A62 /* GPXExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A61 /* GPXExporter.swift */; };
-		7E5700000000000000000A64 /* RideHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A63 /* RideHistoryStore.swift */; };
-		7E5700000000000000000A72 /* FreeRideHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000A71 /* FreeRideHUD.swift */; };
-		A4F0FFFF000000000000E101 /* VoiceNavigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E001 /* VoiceNavigator.swift */; };
-		A4DE70000000000000D00101 /* DemoDashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000D00001 /* DemoDashModel.swift */; };
-		A4DE70000000000000E00101 /* DashPreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DE70000000000000E00001 /* DashPreviewPanel.swift */; };
-		A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E002 /* VoicePhrase.swift */; };
-		A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */; };
-		A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */; };
-		5E5E00000000000000000190 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000C0 /* ShareViewController.swift */; };
-		5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */; };
-		5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */; };
-		5E5E000000000000000001C0 /* TripperDashShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5E5E000000000000000000B0 /* TripperDashShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A4C7000000000000000A1001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
-		A4C7000000000000000A2001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
-		A4C7000000000000000B1001 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000B0001 /* LiveActivityController.swift */; };
-		A4C7000000000000000C2001 /* RideLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000C0001 /* RideLiveActivity.swift */; };
-		A4C7000000000000000D2001 /* TripperDashWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */; };
-		A4C700000000000000101001 /* TripperDashWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000F0001 /* TripperDashWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
-/* Begin PBXFileReference section */
-		A41A9C4D2FE20258009BF005 /* TripperDashPP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TripperDashPP.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A486F0412FE2034700AA36C3 /* AppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatus.swift; sourceTree = "<group>"; };
-		A4F000000000000000000000 /* NavigationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationStore.swift; sourceTree = "<group>"; };
-		A4F000000000000000000010 /* LocalSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSearchService.swift; sourceTree = "<group>"; };
-		A4F000000000000000000020 /* RoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingService.swift; sourceTree = "<group>"; };
-		A4F000000000000000000030 /* PolylineMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolylineMath.swift; sourceTree = "<group>"; };
-		A4F000000000000000000040 /* ActiveNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavigator.swift; sourceTree = "<group>"; };
-		A4F000000000000000000050 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
-		A4F000000000000000000060 /* Favorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorite.swift; sourceTree = "<group>"; };
-		A4F000000000000000000070 /* NavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavSettings.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E00 /* ActiveNavLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavLoop.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E10 /* DashNavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNavSettings.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E20 /* ManeuverIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverIcon.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundaboutInstructionParser.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E40 /* ManeuverGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverGeometry.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E50 /* ManeuverKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverKeywords.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E80 /* DrivingSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivingSide.swift; sourceTree = "<group>"; };
-		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
-		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
-		A4F0000000000000000000A0 /* DestinationPreviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewCard.swift; sourceTree = "<group>"; };
-		A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPuckAnnotationView.swift; sourceTree = "<group>"; };
-		A4F0000000000000000000C0 /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F00 /* Waypoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waypoint.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F10 /* PlannedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannedRoute.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F20 /* RouteLegPolyline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteLegPolyline.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F30 /* PlanningMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningMapView.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F40 /* WaypointListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaypointListView.swift; sourceTree = "<group>"; };
-		ED17000000000000000000A0 /* EditRouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditRouteSheet.swift; sourceTree = "<group>"; };
-		A4F000000000000000000F50 /* RoutePreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePreferencesView.swift; sourceTree = "<group>"; };
-		A4F0000000000000000000D0 /* QuickAccessTiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessTiles.swift; sourceTree = "<group>"; };
-		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
-		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
-		7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveMapView.swift; sourceTree = "<group>"; };
-		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
-		A4DE70000000000000D10001 /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
-		A4DE70000000000000B10001 /* AddBikeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBikeSheet.swift; sourceTree = "<group>"; };
-		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
-		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
-		A4DE70000000000000C10001 /* WiFiJoiner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiJoiner.swift; sourceTree = "<group>"; };
-		A4DE70000000000000C20001 /* TripperDashPP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TripperDashPP.entitlements; sourceTree = "<group>"; };
-		A4DE70000000000000A10001 /* SavedBikesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStore.swift; sourceTree = "<group>"; };
-		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
-		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
-		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
-		A4CA110000000000000000F0 /* CallStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallStateObserver.swift; sourceTree = "<group>"; };
-		A4CA110000000000000000F2 /* DeviceTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTelemetry.swift; sourceTree = "<group>"; };
-		B7DA00000000000000000002 /* DashMediaControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashMediaControl.swift; sourceTree = "<group>"; };
-		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
-		A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+DashSafe.swift"; sourceTree = "<group>"; };
-		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
-		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
-		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
-		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
-		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTileCache.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileDiskCache.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEF8 /* WebMercator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMercator.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSMTileFetcher.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotterPark.swift; sourceTree = "<group>"; };
-		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
-		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncer.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000F2 /* RouteProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjection.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
-		B1DEA1E700000000000000E0 /* MaxspeedParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxspeedParser.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADC001 /* DashNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNotice.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
-		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
-		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
-		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
-		FE70000000000000000000A0 /* GPXParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXParser.swift; sourceTree = "<group>"; };
-		A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDeepLink.swift"; sourceTree = "<group>"; };
-		A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedDestinationResolver.swift"; sourceTree = "<group>"; };
-		FE70000000000000000000B0 /* SavedRoutesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesStore.swift; sourceTree = "<group>"; };
-		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
-		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
-		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
-		FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutePreviewMap.swift; sourceTree = "<group>"; };
-		FEA0000000000000000000B0 /* RouteProgressMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProgressMap.swift; sourceTree = "<group>"; };
-		7E57000000000000000000A0 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
-		7E57000000000000000000B0 /* TripperDashPPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TripperDashPPTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlongRouteTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegTailMapKitProbeTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A51 /* RideStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStats.swift; sourceTree = "<group>"; };
-		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
-		A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPersistenceTests.swift; sourceTree = "<group>"; };
-		A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStoreTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteFromPlanTests.swift; sourceTree = "<group>"; };
-		6C0A00000000000000000001 /* LinkErrorMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkErrorMappingTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
-		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
-		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
-		7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectBudgetTests.swift; sourceTree = "<group>"; };
-		7E57000000000000000000A8 /* NextWaypointLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWaypointLabelTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhraseTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncerTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjectionTests.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStoreTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A67 /* RideHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStoreTests.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A65 /* RideHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryView.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A63 /* RideHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStore.swift; sourceTree = "<group>"; };
-		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E001 /* VoiceNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNavigator.swift; sourceTree = "<group>"; };
-		A4DE70000000000000D00001 /* DemoDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDashModel.swift; sourceTree = "<group>"; };
-		A4DE70000000000000E00001 /* DashPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPreviewPanel.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E002 /* VoicePhrase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhrase.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptScheduler.swift; sourceTree = "<group>"; };
-		A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStore.swift; sourceTree = "<group>"; };
-		5E5E000000000000000000B0 /* TripperDashShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		5E5E000000000000000000C0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		5E5E000000000000000000D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A4C7000000000000000A0001 /* RideActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideActivityAttributes.swift; sourceTree = "<group>"; };
-		A4C7000000000000000B0001 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
-		A4C7000000000000000C0001 /* RideLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideLiveActivity.swift; sourceTree = "<group>"; };
-		A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashWidgetsBundle.swift; sourceTree = "<group>"; };
-		A4C7000000000000000E0001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A4C7000000000000000F0001 /* TripperDashWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-/* End PBXFileReference section */
+/* Begin PBXContainerItemProxy section */
+		5E5E00000000000000000150 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5E5E00000000000000000120;
+			remoteInfo = TripperDashShare;
+		};
+		7E5700000000000000000102 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A41A9C4C2FE20258009BF005;
+			remoteInfo = TripperDashPP;
+		};
+		A4C700000000000000151000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A4C7000000000000000F1000;
+			remoteInfo = TripperDashWidgets;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		5E5E00000000000000000130 /* Embed Foundation Extensions */ = {
@@ -282,8 +174,140 @@
 		};
 /* End PBXCopyFilesBuildPhase section */
 
+/* Begin PBXFileReference section */
+		5E5E000000000000000000B0 /* TripperDashShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E5E000000000000000000C0 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		5E5E000000000000000000D0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		6C0A00000000000000000001 /* LinkErrorMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkErrorMappingTests.swift; sourceTree = "<group>"; };
+		7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveMapView.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A0 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlongRouteTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A4 /* RideStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A6 /* RideStatsFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormattingTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000A8 /* NextWaypointLabelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextWaypointLabelTests.swift; sourceTree = "<group>"; };
+		7E57000000000000000000B0 /* TripperDashPPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TripperDashPPTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7E5700000000000000000A51 /* RideStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStats.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A53 /* RideStatsFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsFormatting.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A55 /* RideStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsService.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A57 /* RideStatsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPanel.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A61 /* GPXExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXExporter.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A63 /* RideHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStore.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A65 /* RideHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryView.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A67 /* RideHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideHistoryStoreTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000A71 /* FreeRideHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreeRideHUD.swift; sourceTree = "<group>"; };
+		7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegTailMapKitProbeTests.swift; sourceTree = "<group>"; };
+		7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteFromPlanTests.swift; sourceTree = "<group>"; };
+		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
+		7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectBudgetTests.swift; sourceTree = "<group>"; };
+		A41A9C4D2FE20258009BF005 /* TripperDashPP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TripperDashPP.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A486F0412FE2034700AA36C3 /* AppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatus.swift; sourceTree = "<group>"; };
+		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
+		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
+		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
+		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
+		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
+		A486F0602FE2DD0800AA36C3 /* DashSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashSocket.swift; sourceTree = "<group>"; };
+		A486F0612FE2DD0800AA36C3 /* HeartbeatLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatLoop.swift; sourceTree = "<group>"; };
+		A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GConstants.swift; sourceTree = "<group>"; };
+		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
+		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
+		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		A4C7000000000000000A0001 /* RideActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideActivityAttributes.swift; sourceTree = "<group>"; };
+		A4C7000000000000000B0001 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
+		A4C7000000000000000C0001 /* RideLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideLiveActivity.swift; sourceTree = "<group>"; };
+		A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashWidgetsBundle.swift; sourceTree = "<group>"; };
+		A4C7000000000000000E0001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A4C7000000000000000F0001 /* TripperDashWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TripperDashWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A4CA110000000000000000F0 /* CallStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallStateObserver.swift; sourceTree = "<group>"; };
+		A4CA110000000000000000F2 /* DeviceTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTelemetry.swift; sourceTree = "<group>"; };
+		A4DA5A1F0000000000DA5A1F /* String+DashSafe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+DashSafe.swift"; sourceTree = "<group>"; };
+		A4DA5B100000000000DA5B10 /* SharedDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDestinationResolver.swift; sourceTree = "<group>"; };
+		A4DA5B120000000000DA5B12 /* SharedDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDeepLink.swift; sourceTree = "<group>"; };
+		A4DE70000000000000A10001 /* SavedBikesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStore.swift; sourceTree = "<group>"; };
+		A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedBikesStoreTests.swift; sourceTree = "<group>"; };
+		A4DE70000000000000B10001 /* AddBikeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddBikeSheet.swift; sourceTree = "<group>"; };
+		A4DE70000000000000C10001 /* WiFiJoiner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiJoiner.swift; sourceTree = "<group>"; };
+		A4DE70000000000000C20001 /* TripperDashPP.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TripperDashPP.entitlements; sourceTree = "<group>"; };
+		A4DE70000000000000D00001 /* DemoDashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDashModel.swift; sourceTree = "<group>"; };
+		A4DE70000000000000D10001 /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
+		A4DE70000000000000E00001 /* DashPreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPreviewPanel.swift; sourceTree = "<group>"; };
+		A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideStatsPersistenceTests.swift; sourceTree = "<group>"; };
+		A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSource.swift; sourceTree = "<group>"; };
+		A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = H264Encoder.swift; sourceTree = "<group>"; };
+		A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpPacketizer.swift; sourceTree = "<group>"; };
+		A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RtpStreamer.swift; sourceTree = "<group>"; };
+		A4F000000000000000000000 /* NavigationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationStore.swift; sourceTree = "<group>"; };
+		A4F000000000000000000010 /* LocalSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSearchService.swift; sourceTree = "<group>"; };
+		A4F000000000000000000020 /* RoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingService.swift; sourceTree = "<group>"; };
+		A4F000000000000000000030 /* PolylineMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolylineMath.swift; sourceTree = "<group>"; };
+		A4F000000000000000000040 /* ActiveNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavigator.swift; sourceTree = "<group>"; };
+		A4F000000000000000000050 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
+		A4F000000000000000000060 /* Favorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorite.swift; sourceTree = "<group>"; };
+		A4F000000000000000000070 /* NavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavSettings.swift; sourceTree = "<group>"; };
+		A4F000000000000000000080 /* DestinationSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationSearchSheet.swift; sourceTree = "<group>"; };
+		A4F000000000000000000090 /* FavoriteEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteEditorSheet.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000A0 /* DestinationPreviewCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestinationPreviewCard.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000B0 /* UserPuckAnnotationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPuckAnnotationView.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000C0 /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
+		A4F0000000000000000000D0 /* QuickAccessTiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessTiles.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E00 /* ActiveNavLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveNavLoop.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E10 /* DashNavSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNavSettings.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E20 /* ManeuverIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverIcon.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E30 /* RoundaboutInstructionParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundaboutInstructionParser.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E40 /* ManeuverGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverGeometry.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E50 /* ManeuverKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverKeywords.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E60 /* MapStyleSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleSettings.swift; sourceTree = "<group>"; };
+		A4F000000000000000000E80 /* DrivingSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrivingSide.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F00 /* Waypoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Waypoint.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F10 /* PlannedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannedRoute.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F20 /* RouteLegPolyline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteLegPolyline.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F30 /* PlanningMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningMapView.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F40 /* WaypointListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaypointListView.swift; sourceTree = "<group>"; };
+		A4F000000000000000000F50 /* RoutePreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutePreferencesView.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E001 /* VoiceNavigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNavigator.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E002 /* VoicePhrase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhrase.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E003 /* VoicePromptScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptScheduler.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePhraseTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicePromptSchedulerTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncerTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjectionTests.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E401 /* RecentDestinationsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStore.swift; sourceTree = "<group>"; };
+		A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentDestinationsStoreTests.swift; sourceTree = "<group>"; };
+		A55E7000000000000A55E701 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A55E7000000000000A55E703 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B1DEA1E700000000000000A0 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000B0 /* SpeedCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraService.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000D0 /* SpeedLimitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedLimitService.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000E0 /* MaxspeedParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaxspeedParser.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedCameraAnnouncer.swift; sourceTree = "<group>"; };
+		B1DEA1E700000000000000F2 /* RouteProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProjection.swift; sourceTree = "<group>"; };
+		B7DA00000000000000000002 /* DashMediaControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashMediaControl.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEEF /* MapViewSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapViewSource.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF1 /* RouteTileCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteTileCache.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF2 /* SnapshotterPark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotterPark.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF7 /* TileDiskCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileDiskCache.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF8 /* WebMercator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebMercator.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBEF9 /* OSMTileFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSMTileFetcher.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF01 /* MapStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyle.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF02 /* SolarClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolarClock.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapStyleResolver.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileColorTransform.swift; sourceTree = "<group>"; };
+		CAFEFEED00000000DEADC001 /* DashNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashNotice.swift; sourceTree = "<group>"; };
+		ED17000000000000000000A0 /* EditRouteSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditRouteSheet.swift; sourceTree = "<group>"; };
+		EFEF1001000000000000A001 /* PrerenderProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrerenderProgressView.swift; sourceTree = "<group>"; };
+		FE70000000000000000000A0 /* GPXParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXParser.swift; sourceTree = "<group>"; };
+		FE70000000000000000000B0 /* SavedRoutesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesStore.swift; sourceTree = "<group>"; };
+		FE70000000000000000000B3 /* SavedRoutePreviewMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutePreviewMap.swift; sourceTree = "<group>"; };
+		FE70000000000000000000C0 /* RouteStartPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStartPlanner.swift; sourceTree = "<group>"; };
+		FE70000000000000000000D0 /* SavedRoutesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoutesListView.swift; sourceTree = "<group>"; };
+		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
+		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
+		FEA0000000000000000000B0 /* RouteProgressMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProgressMap.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
 /* Begin PBXFrameworksBuildPhase section */
-		A41A9C4A2FE20258009BF005 /* Frameworks */ = {
+		5E5E00000000000000000100 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -297,7 +321,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5E5E00000000000000000100 /* Frameworks */ = {
+		A41A9C4A2FE20258009BF005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -314,6 +338,40 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		5E5E000000000000000000E0 /* TripperDashShare */ = {
+			isa = PBXGroup;
+			children = (
+				5E5E000000000000000000C0 /* ShareViewController.swift */,
+				5E5E000000000000000000D0 /* Info.plist */,
+			);
+			path = TripperDashShare;
+			sourceTree = "<group>";
+		};
+		7E57000000000000000000C0 /* TripperDashPPTests */ = {
+			isa = PBXGroup;
+			children = (
+				7E57000000000000000000A0 /* SmokeTests.swift */,
+				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
+				7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */,
+				7E57000000000000000000A4 /* RideStatsTests.swift */,
+				A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */,
+				A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */,
+				7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */,
+				6C0A00000000000000000001 /* LinkErrorMappingTests.swift */,
+				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
+				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
+				7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */,
+				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
+				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
+				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
+				A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */,
+				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
+				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
+				7E5700000000000000000A67 /* RideHistoryStoreTests.swift */,
+			);
+			path = TripperDashPPTests;
+			sourceTree = "<group>";
+		};
 		7E5700000000000000000A50 /* RideStats */ = {
 			isa = PBXGroup;
 			children = (
@@ -408,30 +466,6 @@
 			path = Tripper;
 			sourceTree = "<group>";
 		};
-		B1DEA1E700000000000000C0 /* RideAlerts */ = {
-			isa = PBXGroup;
-			children = (
-				B1DEA1E700000000000000A0 /* WeatherAlertService.swift */,
-				B1DEA1E700000000000000B0 /* SpeedCameraService.swift */,
-				B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */,
-				B1DEA1E700000000000000F2 /* RouteProjection.swift */,
-				B1DEA1E700000000000000E0 /* MaxspeedParser.swift */,
-				B1DEA1E700000000000000D0 /* SpeedLimitService.swift */,
-			);
-			path = RideAlerts;
-			sourceTree = "<group>";
-		};
-		A4E71CA12FE3128D00CFD473 /* Stream */ = {
-			isa = PBXGroup;
-			children = (
-				A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */,
-				A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */,
-				A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */,
-				A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */,
-			);
-			path = Stream;
-			sourceTree = "<group>";
-		};
 		A4B6F0062FE6500000AA36C3 /* Map */ = {
 			isa = PBXGroup;
 			children = (
@@ -448,6 +482,36 @@
 				CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */,
 			);
 			path = Map;
+			sourceTree = "<group>";
+		};
+		A4C7000000000000000A1000 /* LiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				A4C7000000000000000A0001 /* RideActivityAttributes.swift */,
+				A4C7000000000000000B0001 /* LiveActivityController.swift */,
+			);
+			path = LiveActivity;
+			sourceTree = "<group>";
+		};
+		A4C7000000000000000D1000 /* TripperDashWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				A4C7000000000000000C0001 /* RideLiveActivity.swift */,
+				A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */,
+				A4C7000000000000000E0001 /* Info.plist */,
+			);
+			path = TripperDashWidgets;
+			sourceTree = "<group>";
+		};
+		A4E71CA12FE3128D00CFD473 /* Stream */ = {
+			isa = PBXGroup;
+			children = (
+				A4E71C9D2FE3128D00CFD473 /* FrameSource.swift */,
+				A4E71C9E2FE3128D00CFD473 /* H264Encoder.swift */,
+				A4E71C9F2FE3128D00CFD473 /* RtpPacketizer.swift */,
+				A4E71CA02FE3128D00CFD473 /* RtpStreamer.swift */,
+			);
+			path = Stream;
 			sourceTree = "<group>";
 		};
 		A4F0FFFF000000000000A001 /* Navigation */ = {
@@ -516,84 +580,40 @@
 			path = Navigation;
 			sourceTree = "<group>";
 		};
-		7E57000000000000000000C0 /* TripperDashPPTests */ = {
+		B1DEA1E700000000000000C0 /* RideAlerts */ = {
 			isa = PBXGroup;
 			children = (
-				7E57000000000000000000A0 /* SmokeTests.swift */,
-				7E57000000000000000000A2 /* WeatherAlongRouteTests.swift */,
-				7E5700000000000000000B00 /* LegTailMapKitProbeTests.swift */,
-				7E57000000000000000000A4 /* RideStatsTests.swift */,
-				A4DE70000000000000F00001 /* RideStatsPersistenceTests.swift */,
-				A4DE70000000000000A20001 /* SavedBikesStoreTests.swift */,
-				7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */,
-				6C0A00000000000000000001 /* LinkErrorMappingTests.swift */,
-				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
-				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
-				7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */,
-				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
-				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
-				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
-				A4F0FFFF000000000000E210 /* SpeedCameraAnnouncerTests.swift */,
-				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
-				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
-				7E5700000000000000000A67 /* RideHistoryStoreTests.swift */,
+				B1DEA1E700000000000000A0 /* WeatherAlertService.swift */,
+				B1DEA1E700000000000000B0 /* SpeedCameraService.swift */,
+				B1DEA1E700000000000000F0 /* SpeedCameraAnnouncer.swift */,
+				B1DEA1E700000000000000F2 /* RouteProjection.swift */,
+				B1DEA1E700000000000000E0 /* MaxspeedParser.swift */,
+				B1DEA1E700000000000000D0 /* SpeedLimitService.swift */,
 			);
-			path = TripperDashPPTests;
-			sourceTree = "<group>";
-		};
-		5E5E000000000000000000E0 /* TripperDashShare */ = {
-			isa = PBXGroup;
-			children = (
-				5E5E000000000000000000C0 /* ShareViewController.swift */,
-				5E5E000000000000000000D0 /* Info.plist */,
-			);
-			path = TripperDashShare;
-			sourceTree = "<group>";
-		};
-		A4C7000000000000000A1000 /* LiveActivity */ = {
-			isa = PBXGroup;
-			children = (
-				A4C7000000000000000A0001 /* RideActivityAttributes.swift */,
-				A4C7000000000000000B0001 /* LiveActivityController.swift */,
-			);
-			path = LiveActivity;
-			sourceTree = "<group>";
-		};
-		A4C7000000000000000D1000 /* TripperDashWidgets */ = {
-			isa = PBXGroup;
-			children = (
-				A4C7000000000000000C0001 /* RideLiveActivity.swift */,
-				A4C7000000000000000D0001 /* TripperDashWidgetsBundle.swift */,
-				A4C7000000000000000E0001 /* Info.plist */,
-			);
-			path = TripperDashWidgets;
+			path = RideAlerts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A41A9C4C2FE20258009BF005 /* TripperDashPP */ = {
+		5E5E00000000000000000120 /* TripperDashShare */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A41A9C582FE2025A009BF005 /* Build configuration list for PBXNativeTarget "TripperDashPP" */;
+			buildConfigurationList = 5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */;
 			buildPhases = (
-				A41A9C492FE20258009BF005 /* Sources */,
-				A41A9C4A2FE20258009BF005 /* Frameworks */,
-				A41A9C4B2FE20258009BF005 /* Resources */,
-				5E5E00000000000000000130 /* Embed Foundation Extensions */,
-				A4C0DE5A000000000000DE01 /* Stamp git SHA */,
+				5E5E000000000000000000F0 /* Sources */,
+				5E5E00000000000000000100 /* Frameworks */,
+				5E5E00000000000000000110 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				5E5E00000000000000000140 /* PBXTargetDependency */,
-				A4C700000000000000141000 /* PBXTargetDependency */,
 			);
-			name = TripperDashPP;
+			name = TripperDashShare;
 			packageProductDependencies = (
 			);
-			productName = TripperDashPP;
-			productReference = A41A9C4D2FE20258009BF005 /* TripperDashPP.app */;
-			productType = "com.apple.product-type.application";
+			productName = TripperDashShare;
+			productReference = 5E5E000000000000000000B0 /* TripperDashShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		7E57000000000000000000D0 /* TripperDashPPTests */ = {
 			isa = PBXNativeTarget;
@@ -615,24 +635,28 @@
 			productReference = 7E57000000000000000000B0 /* TripperDashPPTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		5E5E00000000000000000120 /* TripperDashShare */ = {
+		A41A9C4C2FE20258009BF005 /* TripperDashPP */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */;
+			buildConfigurationList = A41A9C582FE2025A009BF005 /* Build configuration list for PBXNativeTarget "TripperDashPP" */;
 			buildPhases = (
-				5E5E000000000000000000F0 /* Sources */,
-				5E5E00000000000000000100 /* Frameworks */,
-				5E5E00000000000000000110 /* Resources */,
+				A41A9C492FE20258009BF005 /* Sources */,
+				A41A9C4A2FE20258009BF005 /* Frameworks */,
+				A41A9C4B2FE20258009BF005 /* Resources */,
+				5E5E00000000000000000130 /* Embed Foundation Extensions */,
+				A4C0DE5A000000000000DE01 /* Stamp git SHA into Info.plist */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5E5E00000000000000000140 /* PBXTargetDependency */,
+				A4C700000000000000141000 /* PBXTargetDependency */,
 			);
-			name = TripperDashShare;
+			name = TripperDashPP;
 			packageProductDependencies = (
 			);
-			productName = TripperDashShare;
-			productReference = 5E5E000000000000000000B0 /* TripperDashShare.appex */;
-			productType = "com.apple.product-type.app-extension";
+			productName = TripperDashPP;
+			productReference = A41A9C4D2FE20258009BF005 /* TripperDashPP.app */;
+			productType = "com.apple.product-type.application";
 		};
 		A4C7000000000000000F1000 /* TripperDashWidgets */ = {
 			isa = PBXNativeTarget;
@@ -663,14 +687,14 @@
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
-					A41A9C4C2FE20258009BF005 = {
+					5E5E00000000000000000120 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 					7E57000000000000000000D0 = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = A41A9C4C2FE20258009BF005;
 					};
-					5E5E00000000000000000120 = {
+					A41A9C4C2FE20258009BF005 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 					A4C7000000000000000F1000 = {
@@ -701,13 +725,12 @@
 			);
 		};
 /* End PBXProject section */
+
 /* Begin PBXResourcesBuildPhase section */
-		A41A9C4B2FE20258009BF005 /* Resources */ = {
+		5E5E00000000000000000110 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A55E7000000000000A55E702 /* Assets.xcassets in Resources */,
-				A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -718,10 +741,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5E5E00000000000000000110 /* Resources */ = {
+		A41A9C4B2FE20258009BF005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A55E7000000000000A55E702 /* Assets.xcassets in Resources */,
+				A55E7000000000000A55E704 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -735,7 +760,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A4C0DE5A000000000000DE01 /* Stamp git SHA */ = {
+		A4C0DE5A000000000000DE01 /* Stamp git SHA into Info.plist */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -754,6 +779,41 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		5E5E000000000000000000F0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E5E00000000000000000190 /* ShareViewController.swift in Sources */,
+				5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */,
+				5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7E57000000000000000000E0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E57000000000000000000A1 /* SmokeTests.swift in Sources */,
+				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
+				7E5700000000000000000B01 /* LegTailMapKitProbeTests.swift in Sources */,
+				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
+				A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */,
+				A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */,
+				7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */,
+				6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */,
+				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
+				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
+				7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */,
+				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
+				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
+				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
+				A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */,
+				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
+				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
+				7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A41A9C492FE20258009BF005 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -859,41 +919,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		7E57000000000000000000E0 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				7E57000000000000000000A1 /* SmokeTests.swift in Sources */,
-				7E57000000000000000000A3 /* WeatherAlongRouteTests.swift in Sources */,
-				7E5700000000000000000B01 /* LegTailMapKitProbeTests.swift in Sources */,
-				7E57000000000000000000A5 /* RideStatsTests.swift in Sources */,
-				A4DE70000000000000F00101 /* RideStatsPersistenceTests.swift in Sources */,
-				A4DE70000000000000A21101 /* SavedBikesStoreTests.swift in Sources */,
-				7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */,
-				6C0A00000000000000000002 /* LinkErrorMappingTests.swift in Sources */,
-				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
-				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
-				7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */,
-				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
-				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
-				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
-				A4F0FFFF000000000000E211 /* SpeedCameraAnnouncerTests.swift in Sources */,
-				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
-				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
-				7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5E5E000000000000000000F0 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				5E5E00000000000000000190 /* ShareViewController.swift in Sources */,
-				5E5E000000000000000001A0 /* SharedDestinationResolver.swift in Sources */,
-				5E5E000000000000000001B0 /* SharedDeepLink.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		A4C700000000000000120000 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -907,15 +932,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		7E5700000000000000000101 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A41A9C4C2FE20258009BF005 /* TripperDashPP */;
-			targetProxy = 7E5700000000000000000102 /* PBXContainerItemProxy */;
-		};
 		5E5E00000000000000000140 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 5E5E00000000000000000120 /* TripperDashShare */;
 			targetProxy = 5E5E00000000000000000150 /* PBXContainerItemProxy */;
+		};
+		7E5700000000000000000101 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A41A9C4C2FE20258009BF005 /* TripperDashPP */;
+			targetProxy = 7E5700000000000000000102 /* PBXContainerItemProxy */;
 		};
 		A4C700000000000000141000 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -924,37 +949,115 @@
 		};
 /* End PBXTargetDependency section */
 
-/* Begin PBXContainerItemProxy section */
-		7E5700000000000000000102 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A41A9C4C2FE20258009BF005;
-			remoteInfo = TripperDashPP;
-		};
-		5E5E00000000000000000150 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5E5E00000000000000000120;
-			remoteInfo = TripperDashShare;
-		};
-		A4C700000000000000151000 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A41A9C452FE20258009BF005 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A4C7000000000000000F1000;
-			remoteInfo = TripperDashWidgets;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin XCBuildConfiguration section */
+		5E5E00000000000000000170 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TripperDashShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		5E5E00000000000000000180 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TripperDashShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		7E57000000000000000000F1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
+			};
+			name = Debug;
+		};
+		7E57000000000000000000F2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KGL8J75LNN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MARKETING_VERSION = 1.0.4;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
+			};
+			name = Release;
+		};
 		A41A9C562FE2025A009BF005 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				GENERATE_STRING_CATALOG_SYMBOLS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -1003,12 +1106,14 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_STRING_CATALOG_SYMBOLS = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -1019,7 +1124,6 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				GENERATE_STRING_CATALOG_SYMBOLS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -1062,11 +1166,13 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_STRING_CATALOG_SYMBOLS = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -1077,19 +1183,19 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TripperDashPP.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = "TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1117,19 +1223,19 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = TripperDashPP.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				CODE_SIGN_ENTITLEMENTS = "TripperDashPP.entitlements";
 				INFOPLIST_FILE = "TripperDashPP-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "TripperDash++";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1152,118 +1258,16 @@
 			};
 			name = Release;
 		};
-		7E57000000000000000000F1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KGL8J75LNN;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				MARKETING_VERSION = 1.0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
-			};
-			name = Debug;
-		};
-		7E57000000000000000000F2 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KGL8J75LNN;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				MARKETING_VERSION = 1.0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TripperDashPP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TripperDashPP";
-			};
-			name = Release;
-		};
-		5E5E00000000000000000170 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_ANALYZER_NONNULL = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KGL8J75LNN;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "TripperDashShare/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-			};
-			name = Debug;
-		};
-		5E5E00000000000000000180 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CLANG_ANALYZER_NONNULL = YES;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = KGL8J75LNN;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "TripperDashShare/Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				SWIFT_COMPILATION_MODE = wholemodule;
-			};
-			name = Release;
-		};
 		A4C700000000000000170000 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CLANG_ANALYZER_NONNULL = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
+				INFOPLIST_FILE = TripperDashWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1275,14 +1279,13 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 			};
 			name = Debug;
 		};
@@ -1292,9 +1295,10 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "TripperDashWidgets/Info.plist";
+				INFOPLIST_FILE = TripperDashWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1307,18 +1311,35 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E5E00000000000000000170 /* Debug */,
+				5E5E00000000000000000180 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7E57000000000000000000F0 /* Build configuration list for PBXNativeTarget "TripperDashPPTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7E57000000000000000000F1 /* Debug */,
+				7E57000000000000000000F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A41A9C482FE20258009BF005 /* Build configuration list for PBXProject "TripperDashPP" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1337,24 +1358,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		7E57000000000000000000F0 /* Build configuration list for PBXNativeTarget "TripperDashPPTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				7E57000000000000000000F1 /* Debug */,
-				7E57000000000000000000F2 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		5E5E00000000000000000160 /* Build configuration list for PBXNativeTarget "TripperDashShare" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				5E5E00000000000000000170 /* Debug */,
-				5E5E00000000000000000180 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		A4C700000000000000160000 /* Build configuration list for PBXNativeTarget "TripperDashWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1365,7 +1368,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = A41A9C452FE20258009BF005 /* Project object */;
 }
