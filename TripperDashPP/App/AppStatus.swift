@@ -435,7 +435,7 @@ final class AppStatus {
             }
 
             let liveAct = LiveActivityController()
-            liveAct.start(destinationName: stagedDestination?.name)
+            liveAct.start(destinationName: activeNavigator.rideTitle)
             self.liveActivity = liveAct
 
             let loop = ActiveNavLoop(
@@ -512,11 +512,11 @@ final class AppStatus {
         // all — `ActiveNavLoop.tick()` only sends anything route-shaped
         // (`sendActiveNav`) while `nav.isNavigating`, so free-ride (by
         // design, no route) announced no destination whatsoever. Use the
-        // staged destination's name when navigating; fall back to a
-        // generic "Free ride" title, as the reference implementation
-        // falls back to its own default ("Navigation").
+        // ride's final stop (`ActiveNavigator.rideTitle`) when navigating;
+        // fall back to a generic "Free ride" title, as the reference
+        // implementation falls back to its own default ("Navigation").
         await bikeLink.sendRouteCard(
-            title: stagedDestination?.name ?? "Free ride",
+            title: activeNavigator.rideTitle ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
         )
         // Kick the dash into nav projection BEFORE starting the RTP
@@ -554,7 +554,7 @@ final class AppStatus {
         // inside the window where the dash is actually setting the surface
         // up, which is exactly when its "is there still a destination?"
         // check runs.
-        await bikeLink.sendRouteCardKeepalive(title: stagedDestination?.name ?? "Free ride")
+        await bikeLink.sendRouteCardKeepalive(title: activeNavigator.rideTitle ?? "Free ride")
         // Post-z2 warm-up (see K1G.postZ2Warmup's doc for the pcap-derived
         // 450ms and why the ordering fix above wasn't sufficient on its
         // own): give the dash's firmware time to actually allocate its
@@ -580,7 +580,7 @@ final class AppStatus {
         // + road name overlay onto the streamed map frames and sends
         // the K1G active-nav TLV bursts to the dash bubble.
         let liveAct = LiveActivityController()
-        liveAct.start(destinationName: stagedDestination?.name)
+        liveAct.start(destinationName: activeNavigator.rideTitle)
         self.liveActivity = liveAct
 
         let loop = ActiveNavLoop(
@@ -1037,11 +1037,6 @@ final class AppStatus {
     /// One-shot route calculator used by the route preview sheet and
     /// by the navigator's reroute callback.
     let routingService = RoutingService()
-
-    /// Currently-staged destination (chosen but not yet navigating).
-    /// The route preview sheet keys off this; clearing it dismisses
-    /// the preview.
-    var stagedDestination: Destination? = nil
 
     // MARK: - Multi-stop planning (feat/route-waypoints)
 

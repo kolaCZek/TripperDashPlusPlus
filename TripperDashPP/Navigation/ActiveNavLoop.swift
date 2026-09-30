@@ -204,9 +204,9 @@ final class ActiveNavLoop {
         // initial pre-z2 burst (see `AppStatus.startStreaming`) only gets
         // the surface allocated; keeping it alive is a separate, ongoing
         // obligation. Title matches what `startStreaming` announced:
-        // the destination name when navigating, generic for free-ride.
+        // the ride's final stop when navigating, generic for free-ride.
         await bikeLink.sendRouteCardKeepalive(
-            title: nav.destination?.name ?? "Free ride"
+            title: nav.rideTitle ?? "Free ride"
         )
 
         // Free-ride / no-route heartbeat: while streaming WITHOUT active

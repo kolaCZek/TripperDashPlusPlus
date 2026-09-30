@@ -1593,7 +1593,6 @@ struct MapPickerView: View {
         status.mapViewSource.setRoutePolyline(nil)
         status.mapViewSource.setFullRoute(coords: [], waypoints: [])
         status.mapViewSource.setAlternativeRoutes([])
-        status.stagedDestination = nil
         status.plannedRoute = nil
         selectedDestination = nil
         transitioning = true
@@ -1616,7 +1615,6 @@ struct MapPickerView: View {
         // below (the link-down one used to keep it current).
         status.mapViewSource.setCurrentRoute(nil)
         status.activeNavigator.onActiveRouteChanged = nil
-        status.stagedDestination = nil
         status.plannedRoute = nil
         selectedDestination = nil
         // Keep the live map up by transitioning the RUNNING stream into
