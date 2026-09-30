@@ -111,12 +111,16 @@ struct MapPickerView: View {
     /// exactly these stops — edit the plan, or let a "Pin …" get its
     /// reverse-geocoded name, and it can be saved again (overwrites).
     @State private var savedPlanStops: [String]?
+    /// Stops of a plan opened from Saved routes, as loaded — the baseline for
+    /// "Discard this plan?" (such a plan can't be saved from the planner).
+    @State private var libraryBaselineStops: [String]?
     /// A save is in flight (reverse-geocoding the current location).
     @State private var savingPlan = false
     /// The built route awaiting a name in the "Save route" prompt.
     @State private var planSave: PlanSaveDraft?
     @State private var showPlanSaveAlert = false
     @State private var planSaveName = ""
+    @State private var showDiscardPlanDialog = false
 
     private struct PlanSaveDraft {
         let plan: PlannedRoute
@@ -131,11 +135,17 @@ struct MapPickerView: View {
     private var anotherModalUp: Bool {
         showSettings || showSavedRoutes || showRideHistory || prerenderActive
             || showSearch || showFavoriteEditor || showRoutePreferences
-            || showLongPressDialog || showBikePicker
+            || showLongPressDialog || showBikePicker || showDiscardPlanDialog
     }
 
     private static func stopsSnapshot(_ plan: PlannedRoute) -> [String] {
         plan.waypoints.map { "\($0.id)|\($0.name)" }
+    }
+
+    /// Planner Cancel asks first only for a multi-stop plan that isn't
+    /// saved as-is; an A→B plan is one search away.
+    static func planHasUnsavedWork(stops: [String], saved: [String]?) -> Bool {
+        stops.count > 2 && stops != saved
     }
 
     private enum DisplayMode { case picking, navigating, freeRiding, transitioning }
@@ -348,9 +358,22 @@ struct MapPickerView: View {
             // connect doesn't unexpectedly launch into nothing.
             if !planning { pendingAutoStart = false }
         }
+        .onChange(of: status.plannedRoute.map(ObjectIdentifier.init), initial: true) { _, _ in
+            // "Discard this plan?" asked about the plan that is gone or was
+            // just replaced (e.g. by a share) — never let it discard the new
+            // one, nor a dropped write-back leave `anotherModalUp` stuck.
+            showDiscardPlanDialog = false
+            if let plan = status.plannedRoute, plan.isFromLibrary {
+                libraryBaselineStops = Self.stopsSnapshot(plan)
+            }
+        }
         .onChange(of: showPlanSaveAlert) { _, up in
             // Auto-start held while the rider names the route (below) —
             // fire it once the prompt is answered.
+            if !up { tryAutoStartNavigation() }
+        }
+        .onChange(of: showDiscardPlanDialog) { _, up in
+            // "Keep editing" → resume a held auto-start ("Discard" disarms it).
             if !up { tryAutoStartNavigation() }
         }
         .onChange(of: status.requestDismissSavedRoutes) { _, request in
@@ -431,7 +454,8 @@ struct MapPickerView: View {
         // presented over it, and the ride shouldn't start mid-typing. If
         // SwiftUI dropped that alert (flag stuck true), this holds auto-start
         // until the next bookmark tap resets it; "Start navigation" still works.
-        guard !showPlanSaveAlert else { return }
+        // Same for "Discard this plan?": don't launch the plan being discarded.
+        guard !showPlanSaveAlert, !showDiscardPlanDialog else { return }
         guard mode == .picking,
               let plan = status.plannedRoute,
               plan.isComputed else { return }
@@ -702,9 +726,27 @@ struct MapPickerView: View {
                 largePlanSummary(plan: plan)
             }
         }
+        .confirmationDialog("Discard this plan?", isPresented: $showDiscardPlanDialog,
+                            titleVisibility: .visible) {
+            Button("Discard", role: .destructive) {
+                pendingAutoStart = false
+                status.cancelPlanning()
+            }
+            Button("Keep editing", role: .cancel) {}
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { status.cancelPlanning() }
+                Button("Cancel") {
+                    // A library plan is compared with its stops as loaded: it
+                    // can't be saved from here, but edits made for this ride can
+                    // still be lost.
+                    let baseline = plan.isFromLibrary ? libraryBaselineStops : savedPlanStops
+                    if Self.planHasUnsavedWork(stops: Self.stopsSnapshot(plan), saved: baseline) {
+                        showDiscardPlanDialog = true
+                    } else {
+                        status.cancelPlanning()
+                    }
+                }
             }
             if !plan.isFromLibrary {
                 let saved = savedPlanStops == Self.stopsSnapshot(plan)
@@ -913,21 +955,15 @@ struct MapPickerView: View {
                 .padding()
                 .background(Color.gray.opacity(0.15))
 
+        // Hold-to-stop: a gloved or mount-bumped tap must not end the ride
+        // (no undo — re-plan, new MKDirections, new prerender).
         case (.navigating, _):
-            Button(role: .destructive) { stopNavigation() } label: {
-                Label("Stop navigation", systemImage: "stop.circle.fill")
-                    .frame(maxWidth: .infinity).padding()
-                    .background(Color.red.opacity(0.15))
-            }
-            .buttonStyle(.plain)
+            HoldToConfirmButton(title: "Hold to stop navigation", spokenTitle: "Stop navigation",
+                                systemImage: "stop.circle.fill") { stopNavigation() }
 
         case (.freeRiding, _):
-            Button(role: .destructive) { status.stopFreeRide() } label: {
-                Label("Stop free ride", systemImage: "stop.circle.fill")
-                    .frame(maxWidth: .infinity).padding()
-                    .background(Color.red.opacity(0.15))
-            }
-            .buttonStyle(.plain)
+            HoldToConfirmButton(title: "Hold to stop free ride", spokenTitle: "Stop free ride",
+                                systemImage: "stop.circle.fill") { status.stopFreeRide() }
 
         // Connection-in-progress takes precedence over the planning UI:
         // a rider who tapped "Connect to dash" from the plan screen must
@@ -1615,6 +1651,50 @@ struct MapPickerView: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Hold to confirm
+
+/// Bottom-bar destructive control that fires only after a continuous
+/// press of `holdDuration`; a fill sweeps leading→trailing while held and
+/// drops back on early release. VoiceOver double-tap acts directly.
+private struct HoldToConfirmButton: View {
+    let title: String
+    /// VoiceOver label: a double-tap acts directly, so no "Hold to".
+    let spokenTitle: String
+    let systemImage: String
+    let action: () -> Void
+
+    static let holdDuration: Double = 2
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .frame(maxWidth: .infinity).padding()
+            .background {
+                ZStack {
+                    Color.red.opacity(0.15)
+                    Color.red.opacity(0.45)
+                        .scaleEffect(x: progress, y: 1, anchor: .leading)
+                }
+            }
+            .contentShape(Rectangle())
+            // perform fires once per press, so holding past 2 s can't
+            // re-trigger. Generous maximumDistance: a gloved finger drifts.
+            .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
+                action()
+            } onPressingChanged: { pressing in
+                let anim: Animation? = pressing ? .linear(duration: Self.holdDuration)
+                    : (reduceMotion ? nil : .easeOut(duration: 0.15))
+                withAnimation(anim) { progress = pressing ? 1 : 0 }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spokenTitle)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
     }
 }
 
