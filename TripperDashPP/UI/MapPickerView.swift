@@ -874,6 +874,11 @@ struct MapPickerView: View {
 
     @ViewBuilder
     private var navigatingBody: some View {
+        // Scrolls so an over-tall HUD (demo preview + multi-stop pills + Edit
+        // route) can't push the Stop button and status banner off-screen.
+        // minHeight keeps the HUD panel filling the space when it fits.
+        GeometryReader { geo in
+        ScrollView {
         VStack(spacing: 0) {
             // Demo mode: the interactive map is unmounted while streaming, so
             // the on-screen dash preview is the only place the rider sees the
@@ -916,6 +921,10 @@ struct MapPickerView: View {
                 }
             }
         }
+        .frame(minHeight: geo.size.height, alignment: .top)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        }
     }
 
     @ViewBuilder
@@ -940,6 +949,8 @@ struct MapPickerView: View {
     /// (surfaced in `browsingBody` after `stopFreeRide()`).
     @ViewBuilder
     private var freeRidingBody: some View {
+        GeometryReader { geo in   // same overflow guard as navigatingBody
+        ScrollView {
         VStack(spacing: 0) {
             if status.bikeLink.isDemo && status.isStreaming {
                 DashPreviewPanel(demoModel: status.demoDashModel)
@@ -953,6 +964,10 @@ struct MapPickerView: View {
                 position: status.locationService.lastFix?.coordinate
             )
             .padding(.horizontal, 12)
+        }
+        .frame(minHeight: geo.size.height, alignment: .top)
+        }
+        .scrollBounceBehavior(.basedOnSize)
         }
     }
 
@@ -1676,7 +1691,7 @@ private struct HoldToConfirmButton: View {
     let systemImage: String
     let action: () -> Void
 
-    static let holdDuration: Double = 2
+    static let holdDuration: Double = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var progress: CGFloat = 0
@@ -1692,7 +1707,7 @@ private struct HoldToConfirmButton: View {
                 }
             }
             .contentShape(Rectangle())
-            // perform fires once per press, so holding past 2 s can't
+            // perform fires once per press, so holding past 1 s can't
             // re-trigger. Generous maximumDistance: a gloved finger drifts.
             .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
                 action()

@@ -1,12 +1,12 @@
 """
-Ride-ending phone buttons need a 2 s hold; planner Cancel asks before
+Ride-ending phone buttons need a 1 s hold; planner Cancel asks before
 discarding an unsaved multi-stop plan.
 
   - With gloves, or with the phone on a handlebar mount, one stray tap on
     "Stop navigation" / "Stop free ride" ended the ride and the dash
     projection. There's no undo: getting back means re-planning, a new
     MKDirections call and a new prerender. Both buttons now go through
-    `HoldToConfirmButton` (minimum duration 2 s). The dash exit button and
+    `HoldToConfirmButton` (minimum duration 1 s). The dash exit button and
     programmatic stops (arrival, disconnect) still stop immediately.
   - Planner Cancel threw away a multi-stop plan on one tap. It now shows
     "Discard this plan?" when `planHasUnsavedWork` (more than 2 stops that
@@ -59,9 +59,9 @@ def test_no_plain_button_stops_a_ride():
     assert len(re.findall(r"\{\s*stopNavigation\(\)\s*\}", src)) == 1
 
 
-def test_hold_component_needs_two_seconds_and_fires_once():
+def test_hold_component_needs_one_second_and_fires_once():
     body = decl_body(_src(), "private struct HoldToConfirmButton")
-    assert re.search(r"static let holdDuration(?::\s*\w+)?\s*=\s*2(?:\.0)?\b", body)
+    assert re.search(r"static let holdDuration(?::\s*\w+)?\s*=\s*1(?:\.0)?\b", body)
     assert ".onLongPressGesture(minimumDuration: Self.holdDuration" in body
     assert "onPressingChanged:" in body
     assert ".linear(duration: Self.holdDuration)" in body
