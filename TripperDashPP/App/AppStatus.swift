@@ -91,16 +91,24 @@ final class AppStatus {
         savedBikes.select(id: bike.id)
         bikeLink.ssid = bike.ssid
 
+        // A newer connect supersedes a join still in flight.
+        joinTask?.cancel(); joinTask = nil
+
         if bikeLink.demoMode {
             bikeLink.connect()
             return
         }
 
-        Task { @MainActor in
+        joinTask = Task { @MainActor in
             // Flip to "Connecting…" up front so the UI reflects the several-
             // second Wi-Fi join+verify instead of sitting on "Connect to…".
             bikeLink.beginWifiJoin()
             let outcome = await wifiJoiner.ensureJoined(ssid: bike.ssid)
+            // The join can take ~15 s. If the rider hit Cancel meanwhile
+            // (`disconnect()` → `.idle`) or something else already moved the
+            // link on, the outcome is stale: don't bring the link up by
+            // itself or show an error pill for a cancelled attempt.
+            guard !Task.isCancelled, bikeLink.state == .connecting else { return }
             switch outcome {
             case .alreadyJoined, .joined:
                 bikeLink.connect()
@@ -109,6 +117,10 @@ final class AppStatus {
             }
         }
     }
+
+    /// The Wi-Fi join started by `connect(to:)`, so a newer connect can
+    /// cancel a stale one.
+    @ObservationIgnored private var joinTask: Task<Void, Never>?
 
     /// Add a bike to the garage AND register its Wi-Fi network with iOS, so
     /// the phone knows the AP (fixed WPA2 passphrase) and can auto-join it on
@@ -264,6 +276,12 @@ final class AppStatus {
             guard let self else { return }
             Task { @MainActor in
                 let state = self.bikeLink.state
+                // Re-arm BEFORE any await below: a resume awaits
+                // `startStreaming()` for ~2 s, and a drop inside that window
+                // must still be seen (and torn down). Re-entrancy is safe —
+                // `startStreaming` re-checks the link and its streamer right
+                // before `s.start()`, so a stale resume bails.
+                self.observeBikeLink()
                 // Session teardown detector: the link reached a terminal
                 // down-state. `.idle` = user disconnect; `.error` =
                 // auto-reconnect gave up after its reconnect budget (motorcycle
@@ -378,7 +396,6 @@ final class AppStatus {
                     }
                     self.applyKeepAwake()
                 }
-                self.observeBikeLink()
             }
         }
     }
@@ -519,6 +536,10 @@ final class AppStatus {
             title: activeNavigator.rideTitle ?? "Free ride",
             includeManeuverPlaceholders: !isFreeRiding
         )
+        // Superseded (Stop, or a newer start) while the card was going out:
+        // don't interleave nav-start into the newer session. Nav-start hasn't
+        // gone out yet and `stopStreaming()` already sent its nav-stop.
+        guard streamer === s else { return }
         // Kick the dash into nav projection BEFORE starting the RTP
         // stream — without q3c.z2 + q3c.q the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
@@ -565,12 +586,30 @@ final class AppStatus {
         // button on RE App!" idle screen on some reconnects — the decoder
         // surface plainly wasn't ready yet when the video hit the wire.
         try? await Task.sleep(nanoseconds: UInt64(K1G.postZ2Warmup * 1_000_000_000))
+        // The awaits above take ~2 s. In that window the link can drop, the
+        // rider can tap Stop, or an overlapping resume can install its own
+        // streamer. Starting anyway would stream into a dead link or leave an
+        // orphan nothing can stop, so bail before `s.start()` and before the
+        // nav loop / Live Activity / ride stats below. `isFreeRiding` is left
+        // as-is, like a mid-ride drop: a reconnect resumes the ride.
+        // `hasStreamingIntent` catches a nav Stop: `stopNavigation` skips
+        // `stopStreaming()` while the new streamer isn't running yet.
+        let link = bikeLink
+        guard streamer === s, link.state == .connected, hasStreamingIntent else {
+            if streamer === s { streamer = nil }
+            // Nav-start already went out, so leave projection unless a newer
+            // start owns the session. Also after a Stop in the window: its
+            // nav-stop went out BEFORE our nav-start. Re-checked when the send
+            // runs, and a no-op if the link is down.
+            Task { if self.streamer == nil { await link.sendNavStop() } }
+            applyKeepAwake()
+            return
+        }
         s.start()
         // Latch the "projection on" flag shortly after start so the
         // dash has the q3c.w hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the
         // RTP UDP connection to reach .ready.
-        let link = bikeLink
         Task {
             try? await Task.sleep(nanoseconds: 250_000_000)
             await link.sendProjectionOn()

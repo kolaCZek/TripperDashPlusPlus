@@ -187,19 +187,22 @@ final class BikeLink {
     /// True while `runConnectFlow` is actively executing (socket open,
     /// handshake in progress). Guards `wakeReconnect()` against tearing down
     /// and restarting the reconnect loop while an attempt is already live.
-    /// Task cancellation is cooperative and NOT observed inside the
-    /// handshake's `for await packet in socket.inbound` receive loop, so
-    /// cancelling `reconnectTask` while a `runConnectFlow` call is mid-flight
-    /// does NOT stop it — the abandoned flow keeps its own DashSocket alive
-    /// on the same local port (:2002, allowed to coexist via SO_REUSEADDR),
-    /// racing the brand-new flow's socket for the dash's replies. Field-tested
+    /// Cancelling a flow does not stop it synchronously: the handshake's
+    /// `for await packet in socket.inbound` ends on cancellation (the stream
+    /// returns nil, it does not throw), and the flow still has to unwind
+    /// through its catch and close its socket. Until then the abandoned
+    /// flow's DashSocket stays alive on the same local port (:2002, allowed
+    /// to coexist via SO_REUSEADDR), racing a brand-new flow's socket for the
+    /// dash's replies. A count, not a flag, so a stale flow unwinding late
+    /// can't clear it while a newer flow is still live. Field-tested
     /// 8/2026 (bike switched off/on mid free-ride, Wi-Fi flapping while the
     /// dash's AP came back up): the reconnect attempt counter visibly reset
     /// mid-sequence — proof of a second overlapping loop — with rx=0
     /// handshake timeouts on both flows, while the dash itself reported
     /// "iPhone connected" (one of the racing flows DID complete a real
     /// pairing) and the app stayed stuck cycling through `.reconnecting`.
-    private var connectFlowInFlight = false
+    private var connectFlowsInFlight = 0
+    private var connectFlowInFlight: Bool { connectFlowsInFlight > 0 }
 
     // MARK: - Init
 
@@ -322,6 +325,11 @@ final class BikeLink {
         while true {
             attempt += 1
             let result = await runConnectFlow(isReconnect: false)
+            // Cancelled = superseded by disconnect() or a newer connect(),
+            // which already own `state` and `connectTask`. Touching either
+            // here would error-pill a cancelled attempt or nil the NEW flow's
+            // task.
+            guard !Task.isCancelled else { return }
             switch result {
             case .connected, .cancelled:
                 connectTask = nil
@@ -358,7 +366,15 @@ final class BikeLink {
     /// the phone couldn't associate with the bike's AP, so there's no point
     /// starting the handshake. Surface it as a normal link error so the UI
     /// shows the reason and offers a retry.
+    ///
+    /// No-op unless still in the pre-join state `beginWifiJoin()` set: after a
+    /// Cancel (`.idle`) or once a newer connect flow owns the link, a late
+    /// join failure must not flip it to `.error`.
     func reportJoinFailure(_ message: String) {
+        guard state == .connecting, connectTask == nil else {
+            log.info("Wi-Fi join failure ignored — attempt no longer current (state=\(String(describing: self.state), privacy: .public))")
+            return
+        }
         log.error("Wi-Fi join failed: \(message, privacy: .public)")
         lastError = message
         state = .error(message)
@@ -719,10 +735,13 @@ final class BikeLink {
         // path (return / throw) below. See connectFlowInFlight's doc: this is
         // what lets wakeReconnect() refuse to overlap a second attempt on top
         // of one that's still mid-handshake.
-        connectFlowInFlight = true
-        defer { connectFlowInFlight = false }
+        connectFlowsInFlight += 1
+        defer { connectFlowsInFlight -= 1 }
         let t0 = Date()
         func ms() -> Int { Int(Date().timeIntervalSince(t0) * 1000) }
+        // This attempt's own socket. The catches close THIS one, never
+        // whatever `self.socket` holds by then — a newer flow may own it.
+        var flowSocket: DashSocket?
         do {
             // On a fresh connect we own the `.connecting` → `.handshaking`
             // progression. During a reconnect the retry loop has already
@@ -833,6 +852,7 @@ final class BikeLink {
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
+            flowSocket = s
             try await s.start(timeout: 5.0)
             try Task.checkCancellation()
             self.socket = s
@@ -861,15 +881,25 @@ final class BikeLink {
             // there; just log and exit silently — no error pill.
             log.info("Connect flow cancelled by user")
             isWaitingForWifi = false
-            await self.socket?.cancel()
-            self.socket = nil
+            await flowSocket?.cancel()
+            if self.socket === flowSocket { self.socket = nil }
             return .cancelled
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            await flowSocket?.cancel()
+            // Cancellation ends the handshake's `for await` (AsyncStream
+            // returns nil) instead of throwing CancellationError, so a
+            // cancelled flow lands HERE with a "stream ended" error.
+            // disconnect()/connect() already own state, lastError and the
+            // socket, and may have started a newer flow — touch nothing.
+            if Task.isCancelled {
+                log.info("Connect flow cancelled (unwound via \(msg, privacy: .public))")
+                if self.socket === flowSocket { self.socket = nil }
+                return .cancelled
+            }
             log.error("Connect flow failed: \(msg, privacy: .public)")
             isWaitingForWifi = false
-            await self.socket?.cancel()
-            self.socket = nil
+            if self.socket === flowSocket { self.socket = nil }
             self.lastError = msg
             let isBootRace = (error as? HandshakeError).map {
                 switch $0 {
@@ -1044,13 +1074,13 @@ final class BikeLink {
     /// `reconnectDeadline`, so the reconnect budget is not extended.
     ///
     /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
-    /// NOT stop an attempt that's already inside `runConnectFlow` — Swift task
-    /// cancellation is cooperative and the handshake's receive loop never
-    /// checks it — so restarting the loop while one is live would open a
-    /// SECOND DashSocket on the same port and race the abandoned one for the
-    /// dash's replies, corrupting both (field-tested 8/2026: visible attempt-
-    /// counter reset + rx=0 timeouts on both flows while the dash itself
-    /// reported "iPhone connected"). If a wake signal arrives mid-attempt we
+    /// NOT stop an attempt that's already inside `runConnectFlow` at once —
+    /// its receive loop only ends on cancellation, and the flow still has to
+    /// unwind and close its socket — so restarting the loop while one is
+    /// live would open a SECOND DashSocket on the same port and race the
+    /// abandoned one for the dash's replies, corrupting both (field-tested
+    /// 8/2026: visible attempt-counter reset + rx=0 timeouts on both flows
+    /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
     /// just let that attempt run to completion; the path-monitor / Connect-tap
     /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {
