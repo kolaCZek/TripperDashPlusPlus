@@ -1,4 +1,4 @@
-"""Reconnect without dash Wi-Fi, and the RX-cadence measurement line.
+"""Reconnect without dash Wi-Fi, the RX-silence watchdog, transient send errors.
 
 1. With the bike off / out of range, en0 has no 192.168.1.x address, so the
    unpinned socket would send the reconnect burst over cellular. The rx=0
@@ -8,8 +8,13 @@
    `bootRaceMissingReply`. A fresh connect still proceeds (the probe can lag
    right after a join).
 
-2. `startInboundLoop` logs one RX max-gap summary per minute (measurement
-   only, to decide later whether an RX watchdog is safe) — never per packet.
+2. A dash that stops talking while `sendto` still succeeds (K1G task wedged,
+   dash app restarted with the AP up) used to stay "Connected" forever. The
+   heartbeat now stops (= link drop) after `K1G.rxSilenceTimeout` without RX.
+   The 10 s value comes from a 1 h ride log: max gap 3.5 s, p99.9 1 s.
+
+3. The heartbeat tolerates a few transient send errors in a row, resets the
+   count on a good tick, and still stops on anything else.
 """
 
 from __future__ import annotations
@@ -63,14 +68,38 @@ def test_other_failure_does_not_count_as_silent_attempt() -> None:
     assert "consecutiveSilentAttempts += 1" not in case
 
 
-def test_inbound_loop_logs_rx_gap_once_per_minute() -> None:
-    body = _inbound()
-    loop = decl_body(body, "for await packet in socket.inbound")
-    assert "max-gap=" in loop
-    assert "if now - windowStart >= 60 {" in loop
-    # The summary line sits inside the per-minute branch, not per packet.
-    minute = decl_body(loop, "if now - windowStart >= 60 {")
-    assert "max-gap=" in minute
-    assert loop.count("max-gap=") == 1
-    # Visible in Release: not .debug, not DEBUG-only.
-    assert "self.log.notice(\"RX cadence: max-gap=" in minute
+ROOT = BIKE_LINK.parents[1]
+
+
+def _src(rel: str) -> str:
+    return strip_comments((ROOT / rel).read_text(encoding="utf-8"))
+
+
+def test_rx_silence_stops_the_heartbeat() -> None:
+    k1g = _src("Tripper/K1GConstants.swift")
+    assert "static let rxSilenceTimeout: TimeInterval = 10.0" in k1g
+    sock = _src("Tripper/DashSocket.swift")
+    assert "func secondsSinceLastRx() -> TimeInterval" in sock
+    drain = decl_body(sock, "private func drainAllPendingOnActor")
+    got = drain[drain.index("if n > 0 {"):]
+    assert "lastRxUptime = ProcessInfo.processInfo.systemUptime" in got[: got.index("continue")]
+    run = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run")
+    check = run.index("await socket.secondsSinceLastRx()")
+    assert "if silence > K1G.rxSilenceTimeout {" in run[check:]
+    after = run[run.index("if silence > K1G.rxSilenceTimeout {"):]
+    assert "return" in after[: after.index("}")]
+    # Checked every tick, before the sleep.
+    assert check < run.index("try? await Task.sleep")
+    # The measurement-only minute log it replaced is gone.
+    assert "RX cadence" not in _inbound()
+
+
+def test_heartbeat_tolerates_transient_send_errors_only() -> None:
+    run = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run")
+    ok = run[run.index("try await socket.send(md)"):run.index("} catch {")]
+    assert "transientFailures = 0" in ok
+    catch = run[run.index("} catch {"):run.index("await socket.secondsSinceLastRx()")]
+    assert "Self.isTransientSendError(error), transientFailures < Self.maxTransientSendFailures" in catch
+    assert "transientFailures += 1" in catch
+    tail = catch[catch.index("} else {"):]
+    assert "return" in tail

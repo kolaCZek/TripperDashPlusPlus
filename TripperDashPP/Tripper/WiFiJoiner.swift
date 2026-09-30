@@ -147,6 +147,8 @@ final class WiFiJoiner {
     /// "The operation couldn't be completed. (… error 7.)". Returns nil for
     /// `.pending` (keep polling). "Already associated" is success: iOS returns
     /// it when the phone is already on the network.
+    /// Failure texts are lowercase fragments: the UI shows them after
+    /// "Couldn't join <bike>'s Wi-Fi: ".
     nonisolated static func outcome(forApplyError error: NSError) -> WiFiJoinOutcome? {
         guard error.domain == NEHotspotConfigurationErrorDomain else {
             return .failed(error.localizedDescription)
@@ -155,12 +157,12 @@ final class WiFiJoiner {
         switch error.code {
         case E.alreadyAssociated.rawValue: return .alreadyJoined
         case E.pending.rawValue: return nil
-        case E.userDenied.rawValue: return .failed("Wi-Fi join was declined")
+        case E.userDenied.rawValue: return .failed("the join was declined")
         case E.invalidSSID.rawValue, E.invalidSSIDPrefix.rawValue:
-            return .failed("The bike's Wi-Fi name looks wrong")
-        case E.invalidWPAPassphrase.rawValue: return .failed("The bike's Wi-Fi password was rejected")
-        case E.applicationIsNotInForeground.rawValue: return .failed("Open the app to join the bike's Wi-Fi")
-        default: return .failed("Wi-Fi join failed (error \(error.code))")
+            return .failed("the Wi-Fi name looks wrong")
+        case E.invalidWPAPassphrase.rawValue: return .failed("the Wi-Fi password was rejected")
+        case E.applicationIsNotInForeground.rawValue: return .failed("open the app and try again")
+        default: return .failed("error \(error.code)")
         }
     }
 

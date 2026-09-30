@@ -136,6 +136,13 @@ nonisolated struct HeartbeatLoop: Sendable {
                     return
                 }
             }
+            // A dash that stopped talking is gone even if sends still succeed
+            // (the caller treats this return as a link drop, like a send error).
+            let silence = await socket.secondsSinceLastRx()
+            if silence > K1G.rxSilenceTimeout {
+                Self.log.error("No RX from dash for \(Int(silence), privacy: .public) s — stopping loop")
+                return
+            }
             try? await Task.sleep(nanoseconds: UInt64(K1G.heartbeatInterval * 1_000_000_000))
         }
         Self.log.info("Heartbeat loop cancelled (sent \(tick) ticks)")

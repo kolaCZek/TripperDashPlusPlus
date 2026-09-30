@@ -46,11 +46,11 @@ struct LinkErrorMappingTests {
     }
 
     @Test func knownCodesGetReadableText() {
-        #expect(WiFiJoiner.outcome(forApplyError: joinError(.userDenied)) == .failed("Wi-Fi join was declined"))
-        #expect(WiFiJoiner.outcome(forApplyError: joinError(.invalidSSID)) == .failed("The bike's Wi-Fi name looks wrong"))
+        #expect(WiFiJoiner.outcome(forApplyError: joinError(.userDenied)) == .failed("the join was declined"))
+        #expect(WiFiJoiner.outcome(forApplyError: joinError(.invalidSSID)) == .failed("the Wi-Fi name looks wrong"))
     }
 
     @Test func unknownCodeKeepsTheNumber() {
-        #expect(WiFiJoiner.outcome(forApplyError: joinError(.internal)) == .failed("Wi-Fi join failed (error \(NEHotspotConfigurationError.internal.rawValue))"))
+        #expect(WiFiJoiner.outcome(forApplyError: joinError(.internal)) == .failed("error \(NEHotspotConfigurationError.internal.rawValue)"))
     }
 }

@@ -1268,24 +1268,8 @@ final class BikeLink {
             guard let self else { return }
             self.log.info("Inbound loop started — waiting for bike → phone segments")
             var packetCount: UInt64 = 0
-            // RX cadence measurement only (no watchdog): does the dash send
-            // steadily while connected? One summary line per minute.
-            var lastRx = ProcessInfo.processInfo.systemUptime
-            var windowStart = lastRx
-            var windowMaxGap: TimeInterval = 0
-            var windowPackets = 0
             for await packet in socket.inbound {
                 packetCount &+= 1
-                let now = ProcessInfo.processInfo.systemUptime
-                windowMaxGap = max(windowMaxGap, now - lastRx)
-                lastRx = now
-                windowPackets += 1
-                if now - windowStart >= 60 {
-                    self.log.notice("RX cadence: max-gap=\(Int(windowMaxGap * 1000), privacy: .public) ms packets=\(windowPackets, privacy: .public) in \(Int(now - windowStart), privacy: .public) s")
-                    windowStart = now
-                    windowMaxGap = 0
-                    windowPackets = 0
-                }
                 #if DEBUG
                 let rawPreview = packet.prefix(64).hexString
                 self.log.info("RX raw #\(packetCount, privacy: .public): \(packet.count, privacy: .public) B  \(rawPreview, privacy: .public)\(packet.count > 64 ? " …" : "", privacy: .public)")
