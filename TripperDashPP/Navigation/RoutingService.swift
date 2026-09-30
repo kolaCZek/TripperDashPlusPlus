@@ -171,9 +171,13 @@ final class RoutingService {
     /// Bailing out here stops the writes at the source rather than only at
     /// the caller. `nil` means "always live", so existing callers and tests
     /// keep the old behaviour.
+    ///
+    /// `timeout` caps each leg's request as in `calculateLeg` (a timed-out
+    /// leg counts as failed). nil — the planner — waits as long as MapKit.
     func recompute(_ plan: PlannedRoute,
                    dirtyLegIndices: Set<Int>,
                    preferences: RoutePreferences,
+                   timeout: TimeInterval? = nil,
                    isStillLive: (@MainActor () -> Bool)? = nil) async throws {
         let dirty = dirtyLegIndices.filter { plan.legs.indices.contains($0) }.sorted()
         guard !dirty.isEmpty else { return }
@@ -189,7 +193,8 @@ final class RoutingService {
                 continue
             }
             do {
-                let opts = try await calculateLeg(from: fromWp, to: toWp, preferences: preferences)
+                let opts = try await calculateLeg(from: fromWp, to: toWp, preferences: preferences,
+                                                  timeout: timeout)
                 // Re-check AFTER the await — this is the window the crash
                 // lands in. Returning without throwing is deliberate: the
                 // work was abandoned, not failed, so no error is surfaced
@@ -200,6 +205,12 @@ final class RoutingService {
                 } else {
                     plan.setOptions(opts, forLegIndex: i)
                 }
+            } catch RoutingError.timedOut {
+                // No connectivity: fail the remaining legs now instead of
+                // waiting out one timeout per leg.
+                log.error("Leg \(i) recompute timed out — failing the remaining legs")
+                failed += dirty.drop(while: { $0 != i })
+                break
             } catch {
                 log.error("Leg \(i) recompute failed: \(error.localizedDescription, privacy: .public)")
                 failed.append(i)

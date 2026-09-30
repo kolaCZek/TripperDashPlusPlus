@@ -293,7 +293,10 @@ def test_section_panel_hides_on_every_route_recalculation():
     assert bump not in decl_body(nav, "private func seed(")
     # New route-swap path? Decide whether it bumps routeRecalculations,
     # then update this count.
-    assert nav.count("await onActiveRouteChanged?(") == 5
+    assert nav.count("await onActiveRouteChanged?(") == 6
+    # Mid-ride route edit: a new road ahead, so it IS a recalculation.
+    edit = decl_body(nav, "func replacePlan(")
+    assert bump in edit and edit.index(bump) < edit.index("await onActiveRouteChanged?(route)")
     alt = decl_body(nav, "private func maybeSwitchToAlternative(")
     assert bump in alt and alt.index(bump) < alt.index("await onActiveRouteChanged?(newRoute)")
     # Live-traffic swap goes through installSwappedRoute.
