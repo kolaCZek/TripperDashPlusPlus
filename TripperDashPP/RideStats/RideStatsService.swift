@@ -190,7 +190,9 @@ final class RideStatsService {
         // before the next `begin()` (link drop mid-connect) must not write
         // it back — the rider may have deleted it since.
         let historyURL = restoredFromDisk ? nil : history?.accept(snapshot)
-        let defaults = self.defaults, key = Self.storageKey, log = Self.log
+        // UserDefaults is documented thread-safe but not marked Sendable.
+        nonisolated(unsafe) let defaults = self.defaults
+        let key = Self.storageKey, log = Self.log
         let write: @Sendable () -> Void = {
             do {
                 let data = try JSONEncoder().encode(snapshot)   // once, for both
@@ -210,7 +212,9 @@ final class RideStatsService {
     /// Drop the last-ride key — on `io`, after any checkpoint still queued,
     /// so a late write can't bring it back.
     private func removePersistedRide() {
-        let defaults = self.defaults, key = Self.storageKey
+        // UserDefaults is documented thread-safe but not marked Sendable.
+        nonisolated(unsafe) let defaults = self.defaults
+        let key = Self.storageKey
         let remove: @Sendable () -> Void = { defaults.removeObject(forKey: key) }
         RideHistoryStore.io.sync(execute: remove)
     }
