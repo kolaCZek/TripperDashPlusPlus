@@ -29,8 +29,8 @@
 //  `AsyncStream<Data>` for the rest of the app to consume.
 //
 //  We keep the public API (`init(host:port:localPort:)`,
-//  `start(timeout:)`, `send(_:)`, `cancel()`, `inbound`) identical to
-//  the old NWConnection implementation so callers don't have to change.
+//  `start()`, `send(_:)`, `cancel()`, `inbound`) close to the old
+//  NWConnection implementation so callers barely had to change.
 //
 
 import Foundation
@@ -127,10 +127,8 @@ actor DashSocket {
 
     /// Create the BSD socket, bind to `localPort`, configure the
     /// destination address. Returns synchronously on success — UDP has
-    /// no "ready" handshake. `timeout` is kept for API compatibility
-    /// with the previous NWConnection-based implementation but is
-    /// effectively unused for BSD sockets.
-    func start(timeout: TimeInterval = 5.0) async throws {
+    /// no "ready" handshake, so there is nothing to time out.
+    func start() async throws {
         guard fd < 0, state != .cancelled else {
             log.notice("DashSocket.start called twice; ignoring")
             return
@@ -377,10 +375,11 @@ actor DashSocket {
                 // line seen ~1.5 s after this exact storm in a live
                 // capture. Calling `cancel()` here closes the fd and
                 // removes the dispatch source, so a broken socket now
-                // fails ONCE and stops — `BikeLink`'s existing state
-                // machine (which already reacts to `inbound` finishing)
-                // picks up the disconnect and can reconnect cleanly
-                // instead of the io queue spinning forever.
+                // fails ONCE and stops instead of the io queue spinning
+                // forever. `BikeLink` does not react to `inbound`
+                // finishing (its inbound loop just logs and exits); the
+                // drop is caught when the heartbeat's next `send` fails
+                // on the closed fd, which triggers the reconnect.
                 cancel()
                 return
             }

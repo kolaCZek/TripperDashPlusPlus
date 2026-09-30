@@ -388,12 +388,8 @@ final class AppStatus {
                     // 8/2026: reconnect after the bike was switched off).
                     await self.resumeFreeRideAfterReconnect()
                 } else {
-                    if state == .connected && !self.isStreaming {
-                        // Reconnected but NEITHER resume branch fired, so no
-                        // RTP will be started and the dash will sit on its
-                        // loading dots until it times out. (A diagnostic log
-                        // of the inputs used to live here; since removed.)
-                    }
+                    // A reconnect where NEITHER resume branch fired starts no
+                    // RTP, so the dash sits on its loading dots until it times out.
                     self.applyKeepAwake()
                 }
             }
