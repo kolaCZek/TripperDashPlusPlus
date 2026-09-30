@@ -65,6 +65,14 @@ actor DashSocket {
     /// (info level) and at cancel, so timeouts can be diagnosed without
     /// digging through debug spam.
     private var rxDatagramCount: UInt64 = 0
+    /// Uptime of the last datagram (socket creation until the first one),
+    /// for the heartbeat's RX-silence check.
+    private var lastRxUptime = ProcessInfo.processInfo.systemUptime
+
+    /// Seconds since the dash last sent anything on this socket.
+    func secondsSinceLastRx() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime - lastRxUptime
+    }
     /// IO queue for the DispatchSourceRead handler and any blocking
     /// `sendto` calls. Off-main, isolated per socket instance.
     private let ioQueue: DispatchQueue
@@ -250,10 +258,13 @@ actor DashSocket {
                     }
                 }
                 if sent < 0 {
-                    let err = String(cString: strerror(errno))
+                    // Capture errno before anything else can clobber it:
+                    // HeartbeatLoop classifies the error by this code.
+                    let code = errno
+                    let err = String(cString: strerror(code))
                     cont.resume(throwing: NSError(
                         domain: "DashSocket",
-                        code: Int(errno),
+                        code: Int(code),
                         userInfo: [NSLocalizedDescriptionKey: "sendto(): \(err)"]
                     ))
                 } else if sent != data.count {
@@ -317,6 +328,7 @@ actor DashSocket {
             }
             if n > 0 {
                 rxDatagramCount &+= 1
+                lastRxUptime = ProcessInfo.processInfo.systemUptime
                 let payload = Data(buf.prefix(Int(n)))
                 if rxDatagramCount == 1 {
                     // First-RX log uses .info so it shows up at default level —

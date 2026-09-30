@@ -819,8 +819,17 @@ final class BikeLink {
             // dash-subnet address, and the retry loop keeps re-entering this
             // flow for the full reconnect budget, so a late auto-join is
             // picked up as soon as it lands.
-            if isReconnect, !Self.wifiHasDashSubnetIPv4() {
-                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — waiting for iOS auto-join (no dialog)")
+            //
+            // Reconnect only: with no dash-subnet address there is no route to
+            // 192.168.1.1 over Wi-Fi (bike off / out of range), and the unpinned
+            // socket would send the burst over cellular instead. That rx=0
+            // then counted as a silent dash and tripped `dashUnresponsive`
+            // ("try the ignition") for a bike that is simply off. Skip the
+            // attempt as a non-silent failure. A fresh connect still proceeds
+            // (the probe can lag right after a join).
+            if isReconnect, bikeHost == K1G.bikeIPv4, !Self.wifiHasDashSubnetIPv4() {
+                log.notice("[\(ms(), privacy: .public)ms] No dash-subnet IPv4 — skipping attempt, waiting for iOS auto-join (no dialog)")
+                return .otherFailure("No dash Wi-Fi")
             }
             log.info("[\(ms(), privacy: .public)ms] Opening UDP socket to \(self.bikeHost, privacy: .public):\(K1G.txPort) (local-bind :\(K1G.rxPort)) on Wi-Fi (reconnect=\(isReconnect, privacy: .public))")
             let s = DashSocket(host: bikeHost, port: K1G.txPort, localPort: K1G.rxPort)
