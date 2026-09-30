@@ -93,8 +93,9 @@ def test_pbxproj_has_shell_script_phase_wired():
     txt = _pbxproj_path().read_text()
     assert "PBXShellScriptBuildPhase" in txt, "no shell script build phase in pbxproj"
     assert txt.count("stamp-git-sha.sh") >= 1, "pbxproj does not reference the stamp script"
-    # the phase UUID must appear twice: its definition + the buildPhases ref
-    assert "Stamp git SHA */" in txt, "shell script phase comment/registration missing"
+    # the phase UUID must appear twice: its definition + the buildPhases ref.
+    # Match the UUID, not the /* comment */ — Xcode rewrites comments from `name`.
+    assert txt.count("A4C0DE5A000000000000DE01") >= 2, "shell script phase not registered in buildPhases"
 
 
 def test_user_script_sandboxing_disabled():
