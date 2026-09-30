@@ -362,15 +362,40 @@ struct MapPickerView: View {
                 status.requestDismissSavedRoutes = false
             }
         }
-        .onChange(of: status.pendingSearchHint) { _, hint in
-            // "Share to TripperDash++" couldn't geocode the shared link but
-            // recovered a place/road label → open Search pre-filled with it
-            // so the rider finishes the lookup manually. One-shot: consume.
-            if let hint, !hint.isEmpty {
-                sharedSearchSeed = hint
-                showSearch = true
-                status.pendingSearchHint = nil
+        .onChange(of: status.pendingSearchHint) { _, _ in consumePendingShare() }
+        .onChange(of: status.pendingShare) { _, _ in consumePendingShare() }
+        .onChange(of: [shareGateOpen, isPlanning], initial: true) { _, _ in
+            // Let a just-dismissed sheet finish animating out first, or the
+            // Search sheet presented on top of it is dropped too. Also
+            // re-checks when a plan is discarded or started (parked replay).
+            guard shareGateOpen else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(600))
+                consumePendingShare()
             }
+        }
+    }
+
+    /// Search can only be presented from the idle picker with nothing else
+    /// on screen — SwiftUI drops a sheet presented over another modal.
+    private var shareGateOpen: Bool {
+        mode == .picking && !anotherModalUp && !showPlanSaveAlert
+    }
+
+    /// Replay a share parked during a ride, or open Search pre-filled with a
+    /// label "Share to TripperDash++" couldn't geocode. Consumed only once
+    /// the gate is open; otherwise it stays pending for the gate onChange.
+    private func consumePendingShare() {
+        guard shareGateOpen else { return }
+        // A share parked during an earlier ride must not replace a plan the
+        // rider is building now; it waits until that plan is gone.
+        if !isPlanning, let share = status.pendingShare {
+            status.pendingShare = nil
+            Task { await status.beginPlanningFromShared(share, replay: true) }
+        } else if let hint = status.pendingSearchHint, !hint.isEmpty {
+            sharedSearchSeed = hint
+            showSearch = true
+            status.pendingSearchHint = nil
         }
     }
 
@@ -1456,6 +1481,9 @@ struct MapPickerView: View {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
+            // The rider chose this plan over a share parked during an
+            // earlier ride — don't replay a stale destination after it.
+            status.pendingShare = nil
             installRouteChangedHook()
             // Resolve Light/Dark/Auto for the current position+time before
             // the first bake, so the ride opens in the right palette.
