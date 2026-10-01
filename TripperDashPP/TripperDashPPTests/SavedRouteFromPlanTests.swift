@@ -6,7 +6,7 @@
 //  `SavedRoutesStore.replace` and `RouteStartPlanner.analyze` (the Python
 //  suite only mirrors them): every point kept (live origin as a named
 //  fixed point), route name rules, empty names, distance fallback, re-save
-//  overwrites (under the rider's name), and the start rules — a loop started at home skips home
+//  overwrites (under the rider's name), road-distance writes, and the start rules — a loop started at home skips home
 //  without a prompt; a one-way route joined near its end still prompts.
 //
 
@@ -80,6 +80,25 @@ struct SavedRouteFromPlanTests {
         #expect(out.id == first.id && out.createdAt == first.createdAt)
         #expect(out.name == "Mělník → Kokořín")
         #expect(store.replace(id: UUID(), with: edited) == nil)
+    }
+
+    @Test func roadDistanceIsWrittenOnlyForTheRoutedPoints() throws {
+        let store = SavedRoutesStore(defaults: UserDefaults(suiteName: "test.routes.\(UUID().uuidString)")!)
+        let route = try #require(SavedRoute.fromPlan(
+            [stop("Mělník", 50.3505, 14.4741), stop("Kokořín", 50.4330, 14.5780)],
+            roadDistanceMeters: nil))
+        store.add(route)
+        let routed = route.points
+        store.setRoadDistance(id: route.id, meters: 21_500, forPoints: routed)
+        #expect(store.route(id: route.id)?.totalDistanceMeters == 21_500)
+        // A later edit changed the points: the late result is dropped.
+        store.updatePoints(id: route.id, points: routed.reversed())
+        let straight = try #require(store.route(id: route.id)?.totalDistanceMeters)
+        store.setRoadDistance(id: route.id, meters: 99_000, forPoints: routed)
+        #expect(store.route(id: route.id)?.totalDistanceMeters == straight)
+        // Unknown id: no-op.
+        store.setRoadDistance(id: UUID(), meters: 1, forPoints: routed)
+        #expect(store.routes.count == 1)
     }
 
     @Test func plannerSaveUsesTheRidersNameOrFallsBack() throws {

@@ -23,13 +23,15 @@
 //       for the staged route.
 //
 //  Editing: points are mutated through `SavedRoutesStore.updatePoints`,
-//  which recomputes the stored distance and refuses to drop below 2
+//  which writes a straight-line distance at once (the view then replaces it
+//  with the routed distance for waypoint routes) and refuses to drop below 2
 //  points. Reorder is offered only for `.waypoints` routes — reordering a
 //  `.track` would scramble its recorded shape — while delete is allowed
 //  for both (prune a stray via). The preview map reflects edits live.
 //
 
 import CoreLocation
+import MapKit
 import SwiftUI
 
 struct SavedRouteDetailView: View {
@@ -294,6 +296,7 @@ struct SavedRouteDetailView: View {
             pts.remove(at: i)
         }
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
     }
 
     /// Insert a searched place as a new stop just before the end point, the
@@ -304,12 +307,40 @@ struct SavedRouteDetailView: View {
         pts.insert(RoutePoint(coordinate: dest.coordinate, name: dest.name.isEmpty ? nil : dest.name),
                    at: max(pts.count - 1, 0))
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
+    }
+
+    /// `updatePoints` writes a straight-line distance at once; for a waypoint
+    /// route, replace it with the road distance (best route per leg, the same
+    /// MKDirections call the planner uses) so an edited route keeps a figure
+    /// comparable to the one it was saved with. Tracks keep their trace length.
+    /// ponytail: offline or a failed leg keeps the straight-line figure.
+    private func refreshRoadDistance(_ id: UUID, kind: RouteKind, points: [RoutePoint]) {
+        guard kind == .waypoints, points.count >= 2 else { return }
+        let routing = status.routingService
+        let prefs = status.navigationStore.routePreferences
+        Task {
+            var total = 0.0
+            for (from, to) in zip(points, points.dropFirst()) {
+                // Superseded by a later edit: stop before spending more of
+                // MapKit's per-app quota (Start would hit the throttle).
+                guard store.route(id: id)?.points == points else { return }
+                let opts = try? await routing.calculateLeg(
+                    from: Waypoint(name: from.name ?? "", coordinate: from.coordinate),
+                    to: Waypoint(name: to.name ?? "", coordinate: to.coordinate),
+                    preferences: prefs, timeout: 15)  // alternates on: same leg as the planner under an avoid filter
+                guard let leg = opts?.first else { return }
+                total += leg.route.distance
+            }
+            store.setRoadDistance(id: id, meters: total, forPoints: points)
+        }
     }
 
     private func movePoints(_ route: SavedRoute, from source: IndexSet, to destination: Int) {
         var pts = route.points
         pts.move(fromOffsets: source, toOffset: destination)
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
     }
 
     // MARK: - Name editing
