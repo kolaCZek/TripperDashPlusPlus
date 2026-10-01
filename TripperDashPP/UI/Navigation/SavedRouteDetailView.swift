@@ -23,7 +23,8 @@
 //       for the staged route.
 //
 //  Editing: points are mutated through `SavedRoutesStore.updatePoints`,
-//  which recomputes the stored distance and refuses to drop below 2
+//  which writes a straight-line distance at once (the view then replaces it
+//  with the routed distance for waypoint routes) and refuses to drop below 2
 //  points. Reorder is offered only for `.waypoints` routes — reordering a
 //  `.track` would scramble its recorded shape — while delete is allowed
 //  for both (prune a stray via). The preview map reflects edits live.
@@ -321,10 +322,13 @@ struct SavedRouteDetailView: View {
         Task {
             var total = 0.0
             for (from, to) in zip(points, points.dropFirst()) {
+                // Superseded by a later edit: stop before spending more of
+                // MapKit's per-app quota (Start would hit the throttle).
+                guard store.route(id: id)?.points == points else { return }
                 let opts = try? await routing.calculateLeg(
                     from: Waypoint(name: from.name ?? "", coordinate: from.coordinate),
                     to: Waypoint(name: to.name ?? "", coordinate: to.coordinate),
-                    preferences: prefs, alternates: false, timeout: 15)
+                    preferences: prefs, timeout: 15)  // alternates on: same leg as the planner under an avoid filter
                 guard let leg = opts?.first else { return }
                 total += leg.route.distance
             }

@@ -143,8 +143,9 @@ final class SavedRoutesStore {
     }
 
     /// Replace a route's ordered points (used by the detail editor:
-    /// reorder / delete individual points). Recomputes the stored
-    /// distance from the new geometry and no-ops if the id is gone or the
+    /// add / reorder / delete individual points). Writes the straight-line
+    /// distance of the new geometry (the detail view then replaces it with the
+    /// routed distance for waypoint routes) and no-ops if the id is gone or the
     /// edit would leave fewer than 2 points (a route needs a start + end).
     func updatePoints(id: UUID, points: [RoutePoint]) {
         guard let idx = routes.firstIndex(where: { $0.id == id }) else {
