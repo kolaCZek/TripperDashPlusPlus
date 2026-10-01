@@ -161,6 +161,15 @@ final class SavedRoutesStore {
         persist()
     }
 
+    /// Store a routed (road) distance for a route, but only if its points are
+    /// still `points`: a later edit already wrote its own straight-line figure.
+    func setRoadDistance(id: UUID, meters: Double, forPoints points: [RoutePoint]) {
+        guard let idx = routes.firstIndex(where: { $0.id == id }),
+              routes[idx].points == points else { return }
+        routes[idx].totalDistanceMeters = meters
+        persist()
+    }
+
     func route(id: UUID) -> SavedRoute? {
         routes.first { $0.id == id }
     }

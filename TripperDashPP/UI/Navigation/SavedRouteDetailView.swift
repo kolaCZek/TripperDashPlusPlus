@@ -294,6 +294,7 @@ struct SavedRouteDetailView: View {
             pts.remove(at: i)
         }
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
     }
 
     /// Insert a searched place as a new stop just before the end point, the
@@ -304,12 +305,37 @@ struct SavedRouteDetailView: View {
         pts.insert(RoutePoint(coordinate: dest.coordinate, name: dest.name.isEmpty ? nil : dest.name),
                    at: max(pts.count - 1, 0))
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
+    }
+
+    /// `updatePoints` writes a straight-line distance at once; for a waypoint
+    /// route, replace it with the road distance (best route per leg, the same
+    /// MKDirections call the planner uses) so an edited route keeps a figure
+    /// comparable to the one it was saved with. Tracks keep their trace length.
+    /// ponytail: offline or a failed leg keeps the straight-line figure.
+    private func refreshRoadDistance(_ id: UUID, kind: RouteKind, points: [RoutePoint]) {
+        guard kind == .waypoints, points.count >= 2 else { return }
+        let routing = status.routingService
+        let prefs = status.navigationStore.routePreferences
+        Task {
+            var total = 0.0
+            for (from, to) in zip(points, points.dropFirst()) {
+                let opts = try? await routing.calculateLeg(
+                    from: Waypoint(name: from.name ?? "", coordinate: from.coordinate),
+                    to: Waypoint(name: to.name ?? "", coordinate: to.coordinate),
+                    preferences: prefs, alternates: false, timeout: 15)
+                guard let leg = opts?.first else { return }
+                total += leg.route.distance
+            }
+            store.setRoadDistance(id: id, meters: total, forPoints: points)
+        }
     }
 
     private func movePoints(_ route: SavedRoute, from source: IndexSet, to destination: Int) {
         var pts = route.points
         pts.move(fromOffsets: source, toOffset: destination)
         store.updatePoints(id: route.id, points: pts)
+        refreshRoadDistance(route.id, kind: route.kind, points: pts)
     }
 
     // MARK: - Name editing
