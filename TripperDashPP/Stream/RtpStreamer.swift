@@ -230,8 +230,8 @@ final class RtpStreamer {
 /// fragments that was dozens of main-actor jobs a second, and any of them
 /// queued behind a tile bake delayed the stream.
 ///
-/// `@unchecked Sendable`: `connection`, `onFrame` and `counters` are only
-/// touched under `lock`; `packetizer` is not locked and is only used from
+/// `@unchecked Sendable`: `connection`, `onFrame`, `counters` and
+/// `lastFrameUptime` are only touched under `lock`; `packetizer` is not locked and is only used from
 /// `handle`, which runs on the one serial `sendQueue`.
 nonisolated final class RtpSendPipe: @unchecked Sendable {
 
@@ -277,9 +277,15 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
 
     /// Stop sending: later NALs are packetized and counted as dropped.
     func end() {
-        lock.withLock {
+        let pending: TimeInterval? = lock.withLock {
             connection = nil
             onFrame = nil
+            return lastFrameUptime.map { ProcessInfo.processInfo.systemUptime - $0 }
+        }
+        // A stage that never recovered (e.g. the encoder silently stopped
+        // emitting) never reaches `handle`, so its gap is only visible here.
+        if let pending, pending > Self.rtpGapLogSeconds {
+            log.notice("rtp gap \(Int(pending * 1000), privacy: .public) ms (at stop)")
         }
     }
 

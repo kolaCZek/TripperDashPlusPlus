@@ -82,6 +82,8 @@ final class MapViewSource: NSObject, FrameSource {
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
     private var renderTask: Task<Void, Never>?
     private var frameIndex: UInt64 = 0
+    /// Consecutive ticks that produced no frame (stall diagnostics).
+    private var framesMissed = 0
     private var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
     // MARK: - Fixed frame cadence
@@ -1097,6 +1099,9 @@ extension MapViewSource {
 // MARK: - Render tick
 
 extension MapViewSource {
+    /// Tick-to-tick gap that counts as a render stall (2 frame slots).
+    static let renderStallLogMs = 500
+
     /// Render loop via Swift Concurrency Task + Task.sleep, on
     /// `SuspendingClock` — in practice the same uptime base as
     /// HeartbeatLoop's `Task.sleep(nanoseconds:)` (confirmed to keep ticking
@@ -1119,9 +1124,6 @@ extension MapViewSource {
     ///   ~12 fps). A slow or late tick is delayed, not dropped, so the rate
     ///   degrades gradually under load; with ordinary few-ms jitter neither
     ///   guard trips and the average is exactly targetFps.
-    /// Tick-to-tick gap that counts as a render stall (2 frame slots).
-    static let renderStallLogMs = 500
-
     private func startTimer() {
         renderTask?.cancel()
         let interval = Duration.seconds(1) / targetFps
@@ -1177,9 +1179,17 @@ extension MapViewSource {
 
         guard let buffer = renderMapViewToPixelBuffer() else {
             // Otherwise a missing frame would show up only as an
-            // unexplained `rtp gap` and be blamed on the encoder.
-            log.error("render produced no frame #\(self.frameIndex, privacy: .public)")
+            // unexplained `rtp gap` and be blamed on the encoder. Once per
+            // run of failures, not 4× a second for the rest of the ride.
+            if framesMissed == 0 {
+                log.error("render produced no frame #\(self.frameIndex, privacy: .public)")
+            }
+            framesMissed += 1
             return
+        }
+        if framesMissed > 0 {
+            log.notice("render frames back after \(self.framesMissed, privacy: .public) missed")
+            framesMissed = 0
         }
 
         // Real-time PTS from the monotonic clock (NOT frameIndex / fps) so

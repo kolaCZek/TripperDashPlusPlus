@@ -33,23 +33,34 @@ def test_render_stall_logged_in_render_loop():
     src = _src("Map/MapViewSource.swift")
     loop = decl_body(src, "private func startTimer()")
     assert 'log.notice("render stall' in loop
-    assert "Self.renderStallLogMs" in loop
+    assert "if gapMs > Self.renderStallLogMs {" in loop
+    # The previous tick time must be recorded after the check, or the
+    # line never fires (nil) / always measures 0.
+    assert loop.index("if let lastTickAt {") < loop.index("lastTickAt = tickAt") < loop.index("await self?.tickOnMain()")
     ms = int(re.search(r"static let renderStallLogMs = (\d+)", src).group(1))
     # Two frame slots: one late tick is jitter, two is a stall.
     assert ms == 2 * 1000 // _fps(), ms
 
 
-def test_missing_frame_is_logged():
+def test_missing_frame_is_logged_once_per_run():
     tick = decl_body(_src("Map/MapViewSource.swift"), "private func tickOnMain()")
-    assert 'log.error("render produced no frame' in tick
+    miss = tick[tick.index("guard let buffer = renderMapViewToPixelBuffer() else {"):]
+    assert re.search(r'if framesMissed == 0 \{\s*log\.error\("render produced no frame', miss)
+    assert "framesMissed += 1" in miss[: miss.index("return")]
+    assert "framesMissed = 0" in miss[miss.index("return"):]
 
 
 def test_rtp_gap_logged_per_frame():
     src = _src("Stream/RtpStreamer.swift")
     handle = decl_body(src, "func handle(_ nal: EncodedNAL)")
     assert 'log.notice("rtp gap' in handle
+    assert "if let frameGap, frameGap > Self.rtpGapLogSeconds {" in handle
     # Measured between frames only — SPS/PPS NALs ride with an IDR.
-    assert "if isFrame {" in handle
+    assert re.search(r"if isFrame \{\s*if let last = lastFrameUptime \{ gap = now - last \}\s*lastFrameUptime = now", handle)
+    # A send path that never recovers is reported when the stream stops.
+    end = decl_body(src, "func end()")
+    assert 'log.notice("rtp gap' in end and "(at stop)" in end
+    assert "pending > Self.rtpGapLogSeconds" in end
     secs = float(re.search(r"static let rtpGapLogSeconds: TimeInterval = ([\d.]+)", src).group(1))
     assert secs > 1.0 / _fps() * 2, secs  # above the render-stall slot
     # Reset per stream, or the first frame after a restart logs the pause.

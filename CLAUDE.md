@@ -205,7 +205,13 @@ When asked to add tests, **also add a fake-dash test** that exercises the same c
 
 - **K1G byte-level question** → re-read the Python in `better-dash`, then capture a real packet with the harness and diff. Load the `royal-enfield-tripper-dash` skill's `references/k1g-wire-protocol.md`.
 - **Background / lock-screen rendering question** → the answer is almost certainly already in the skill's "Sustained background nav" section. `MKMapSnapshotter`, `MKMapView`, Metal, and `CADisplayLink` are all known BG dead-ends — don't re-derive them. The working path is `Task + Task.sleep + CGContext on pre-rendered raster`.
-- **Dash picture froze / jumped on a ride** → export the Debug build's log (Streaming → Diagnostics) and look at what was logged at that moment. Each stage logs one line, only when it stalls: `fix gap` (GPS, `LocationService`), `render stall` (render loop / main actor, `MapViewSource`), `rtp gap` (encoder or send path, `RtpStreamer`; without a `render stall` it isn't the renderer), `dash rx gap` / `Link dropped` (Wi-Fi / dash, `DashSocket` / `BikeLink`). Nothing logged usually means the dash lost RTP packets: a freeze or smear until the next keyframe.
+- **Dash picture froze / jumped on a ride** → export the Debug build's log (Streaming → Diagnostics). Each stage logs one line when it **resumes** after a pause over its threshold: the line's time is the END of the gap and N is how long it lasted (`rtp gap … (at stop)` covers a stream that never recovered).
+  - `fix gap` (> 1.5 s): GPS, `LocationService`.
+  - `render stall` (> 500 ms): render loop / main actor, `MapViewSource`.
+  - `render produced no frame`: a tick ran but rendered nothing; any `rtp gap` then is the renderer's.
+  - `rtp gap` (> 750 ms): encoder or send path, `RtpStreamer`, when there's neither of the two above.
+  - `dash rx gap` (> 2 s) / `Link dropped`: Wi-Fi / dash, `DashSocket` / `BikeLink`. A lone `dash rx gap` of 2–3.5 s also happens on healthy rides (measured max 3.5 s, `K1GConstants`).
+  - Nothing logged: no stage paused past its threshold. Lost RTP packets on the dash side (a smear until the next keyframe) are likely, but not proven; shorter pauses and a failed per-frame `q3c.g` kick don't log either.
 - **iOS API question** → Apple's WWDC sessions on Network framework, VideoToolbox, MapKit, and CoreLocation Background.
 - **Anything else** → ask the user via an issue or PR comment.
 
