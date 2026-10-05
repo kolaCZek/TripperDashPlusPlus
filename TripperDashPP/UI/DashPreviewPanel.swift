@@ -26,7 +26,7 @@ import SwiftUI
 
 struct DashPreviewPanel: View {
     /// The shared demo presentation model — frame + native-bubble snapshot.
-    /// Observed, so the panel redraws as new frames (6 Hz) and bubbles (1 Hz)
+    /// Observed, so the panel redraws as new frames (4 Hz) and bubbles (1 Hz)
     /// land.
     let demoModel: DemoDashModel
 

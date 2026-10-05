@@ -1,5 +1,5 @@
 """
-The dash render loop must hold exactly `targetFps` (6) regardless of how long
+The dash render loop must hold exactly `targetFps` (4) regardless of how long
 a tick takes to render.
 
 Field log 2026-09-28 21:41: 60 frames every ~11.6 s = 5.18 fps. The loop slept
@@ -9,7 +9,8 @@ fixed grid (SuspendingClock, same uptime clock as HeartbeatLoop and the PTS).
 A tick that overruns its slot skips the missed slots rather than bursting, and
 a tick that STARTS late (main actor busy when the sleep fired) skips the next
 slot if it would land closer than half an interval — so no two frames are ever
-closer than 83 ms (≤ 12 fps even for one pair; the decoder blinks above ~12).
+closer than 125 ms (≤ 8 fps even for one pair; the decoder blinks above ~12).
+The field log was taken at the old 6 fps; the rate is now 4 fps.
 """
 
 from __future__ import annotations
@@ -18,8 +19,12 @@ from pathlib import Path
 
 from tests.swift_source import decl_body, strip_comments
 
-FPS = 6
+FPS = 4
 INTERVAL = 1.0 / FPS
+# The overrun / lateness scenarios below were written for the old 1/6 s
+# interval; S keeps each one the same fraction of an interval at FPS.
+# The 26 ms render time is real work, so it is not scaled.
+S = 6 / FPS
 
 
 def _start_timer() -> str:
@@ -38,7 +43,7 @@ def _deadline_loop(work, seconds=60.0, late=lambda _: 0.0, min_gap=True, skip=Tr
     t = deadline = 0.0
     out = []
     i = 0
-    while t < seconds - 1e-9:  # float grid: 360 × (1/6) lands a hair under 60
+    while t < seconds - 1e-9:  # float grid: N × (1/fps) can land a hair under 60
         t += late(i)
         t += work(i)
         out.append(t)            # onFrame fires at the END of the tick
@@ -55,12 +60,12 @@ def _gaps(ticks):
     return [b - a for a, b in zip(ticks, ticks[1:])]
 
 
-def _relative_loop(work, seconds=60.0):
-    """The old loop: tick, then sleep a fixed interval."""
+def _relative_loop(work, seconds=60.0, interval=1.0 / 6):
+    """The old loop: tick, then sleep a fixed interval (6 fps in the field log)."""
     t, ticks, i = 0.0, [], 0
     while t < seconds - 1e-9:  # float grid: 360 × (1/6) lands a hair under 60
         ticks.append(t)
-        t += work(i) + INTERVAL
+        t += work(i) + interval
         i += 1
     return ticks
 
@@ -75,7 +80,7 @@ def test_deadline_loop_holds_exact_fps_under_render_load():
 
 
 def _every_10th(ms, base=0.0):
-    return lambda i: ms / 1000 if i % 10 == 9 else base
+    return lambda i: ms * S / 1000 if i % 10 == 9 else base
 
 
 def _short_runs(out):
@@ -88,7 +93,7 @@ def _short_runs(out):
 
 
 def test_overrun_skips_slots_instead_of_bursting():
-    # Every 10th tick renders 400 ms: afterwards ONE short gap at most, not
+    # Every 10th tick renders 400 ms (×S): afterwards ONE short gap at most, not
     # a catch-up burst of back-to-back frames.
     work = _every_10th(400, 0.026)
     assert _short_runs(_deadline_loop(work)) <= 1
@@ -98,27 +103,27 @@ def test_overrun_skips_slots_instead_of_bursting():
 def test_slow_or_overrunning_tick_never_bunches_frames():
     # Review 2 of #150: the gap must hold between frames SENT (tick end),
     # not tick starts — a 150 ms render inside its slot used to leave the
-    # next frame 42.7 ms behind it, a 490 ms overrun ~36 ms.
+    # next frame 42.7 ms behind it, a 490 ms overrun ~36 ms (at 6 fps; ×S now).
     for ms in (150, 490):
         work = _every_10th(ms, 0.026)
         assert min(_gaps(_deadline_loop(work))) >= INTERVAL / 2 - 1e-9, ms
-        assert min(_gaps(_deadline_loop(work, min_gap=False))) < 0.05, ms
+        assert min(_gaps(_deadline_loop(work, min_gap=False))) < 0.05 * S, ms
 
 
 def test_late_start_never_puts_two_frames_closer_than_half_an_interval():
     for ms in (50, 100, 140, 160):
         out = _deadline_loop(lambda _: 0.026, late=_every_10th(ms))
-        assert min(_gaps(out)) >= INTERVAL / 2 - 1e-9, ms  # never above 12 fps
+        assert min(_gaps(out)) >= INTERVAL / 2 - 1e-9, ms  # never above 2 × FPS
         assert len(out) >= 60 * FPS * 0.9 - 1, ms
     no_guard = _deadline_loop(lambda _: 0.026, late=_every_10th(140), min_gap=False)
-    assert min(_gaps(no_guard)) < 0.03  # ~27 ms pair without the guard
+    assert min(_gaps(no_guard)) < 0.03 * S  # ~27 ms (×S) pair without the guard
 
 
 def test_steady_lateness_degrades_gradually():
     # Review 2 of #150: skipping a slot on every late start halved the rate
-    # at 85 ms steady lateness (6 → 3 fps). Delaying instead degrades softly.
-    fps = len(_deadline_loop(lambda _: 0.026, late=lambda _: 0.085)) / 60.0
-    assert fps > 4.0, fps
+    # at 85 ms (×S) steady lateness (6 → 3 fps). Delaying instead degrades softly.
+    fps = len(_deadline_loop(lambda _: 0.026, late=lambda _: 0.085 * S)) / 60.0
+    assert fps > FPS * 2 / 3, fps
 
 
 def test_ordinary_jitter_keeps_exact_fps():

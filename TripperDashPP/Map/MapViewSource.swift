@@ -23,7 +23,7 @@
 //
 //  Output:
 //  -------
-//  526×300 BGRA pixel buffer at 6 fps emitted to the encoder. The
+//  526×300 BGRA pixel buffer at 4 fps emitted to the encoder. The
 //  CoreLocation `Always` wakelock keeps the encoder pipeline
 //  + Swift Concurrency executor alive on lock screen; the tile cache
 //  supplies the visual content. (PiP was the old keep-alive; removed in
@@ -44,7 +44,7 @@ final class MapViewSource: NSObject, FrameSource {
     // MARK: - FrameSource contract
 
     let frameSize = CGSize(width: 526, height: 300)
-    let targetFps = 6
+    let targetFps = 4
 
     // MARK: - State
 
@@ -86,13 +86,14 @@ final class MapViewSource: NSObject, FrameSource {
 
     // MARK: - Fixed frame cadence
     //
-    // The render Task ticks at `targetFps` (6 Hz) and emits EVERY tick —
+    // The render Task ticks at `targetFps` (4 Hz) and emits EVERY tick —
     // CGContext composite → VideoToolbox encode → RTP send, plus the
     // per-frame projection kick — including at a standstill. An earlier
     // adaptive scheme (drop to 1 Hz + skip identical frames when parked)
-    // was removed on rider request: at 526×300 / ~1 Mbps the idle battery
-    // saving was negligible and the dropped cadence occasionally read as a
-    // frozen picture. Fixed 6 fps is simpler and looks consistently live.
+    // was removed on rider request: at 526×300 the idle battery saving was
+    // negligible and the dropped cadence occasionally read as a frozen
+    // picture. A fixed 4 fps (the stock app's rate) is simpler and looks
+    // consistently live; GPS position only moves ~1 Hz anyway.
 
     /// Stream start on the same monotonic clock — PTS base so RTP 90 kHz
     /// timestamps stay real-time-correct.
@@ -171,7 +172,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// the posted limit for the current road. Fed by `AppStatus` after a
     /// route install (same prefetch lifecycle as the cameras). Empty → no
     /// sign. The map-match runs in `handleFix`, not per frame, so the
-    /// geometry loop happens at ~1 Hz GPS cadence, not 6 fps.
+    /// geometry loop happens at ~1 Hz GPS cadence, not 4 fps.
     private var speedLimitWays: [SpeedLimitWay] = []
 
     /// Bare drivable-road geometry (tagged or not) for the shadow guard:
@@ -422,8 +423,11 @@ final class MapViewSource: NSObject, FrameSource {
     private let zoomBiasRange: ClosedRange<CGFloat> = 0.15...2.5
     /// Idle time before the bias starts easing back to neutral.
     private let zoomBiasHoldSeconds: TimeInterval = 15
-    /// Once easing starts, fraction of the way back to 1.0 per frame.
-    private let zoomBiasRevertFactor: CGFloat = 0.04
+    /// Once easing starts, fraction of the way back to 1.0 per frame
+    /// (4 fps). Tuned per frame, so it must be rescaled if `targetFps`
+    /// changes: 0.06 at 4 fps ≈ the old 0.04 at 6 fps (~22% of the gap
+    /// closed per second either way).
+    private let zoomBiasRevertFactor: CGFloat = 0.06
 
     /// A transient on-screen zoom indicator ("＋" / "－"), shown for a
     /// moment after a manual nudge so the rider gets feedback that the
@@ -813,7 +817,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// normal navigation. The cache's `ensurePositionFallback` is itself
     /// idempotent (no-op when a covering tile already exists) and coalesces
     /// concurrent bakes; this throttle just caps how often we re-evaluate
-    /// so a stuck-off-route rider at 6 fps doesn't spin up the check
+    /// so a stuck-off-route rider at 4 fps doesn't spin up the check
     /// every frame. BG-safe (URLSession + CGContext), fire-and-forget.
     func ensurePositionFallbackTile(near coord: CLLocationCoordinate2D) {
         guard let cache = routeTileCache else { return }
@@ -1017,8 +1021,8 @@ extension MapViewSource {
         // The rider marker uses this fix directly.
         //
         // A MotionInterpolator used to sit here, dead-reckoning the displayed
-        // position between the ~1 Hz fixes so the marker moved at the 6 fps
-        // render rate. It was removed after the 2026-09-02 ride log showed it
+        // position between the ~1 Hz fixes so the marker moved at the
+        // render rate (then 6 fps). It was removed after the 2026-09-02 ride log showed it
         // was the source of the map desyncing kilometres from the rider:
         //
         //   14:05:44  drift 1769 m      14:23:50  drift 3275 m
@@ -1110,8 +1114,8 @@ extension MapViewSource {
     ///   catching up;
     /// - the next tick never starts less than half an interval after the
     ///   previous one ENDED (the frame goes to the encoder at the end of the
-    ///   tick), so two frames never reach the dash less than 83 ms apart
-    ///   (≤ 12 fps even for a single pair — the decoder blinks above
+    ///   tick), so two frames never reach the dash less than 125 ms apart
+    ///   (≤ 8 fps even for a single pair — the decoder blinks above
     ///   ~12 fps). A slow or late tick is delayed, not dropped, so the rate
     ///   degrades gradually under load; with ordinary few-ms jitter neither
     ///   guard trips and the average is exactly targetFps.
@@ -1122,7 +1126,7 @@ extension MapViewSource {
             let clock = SuspendingClock()
             var deadline = clock.now
             // `self != nil`: [weak self] alone would keep a loop whose
-            // source was freed ticking at 6 Hz (deinit can't cancel it).
+            // source was freed ticking at 4 Hz (deinit can't cancel it).
             while !Task.isCancelled, self != nil {
                 await self?.tickOnMain()
                 deadline += interval
@@ -1138,22 +1142,22 @@ extension MapViewSource {
 
         // The rider marker follows raw GPS fixes directly. There used to be a
         // MotionInterpolator here that dead-reckoned between the ~1 Hz fixes
-        // to give a 6 fps marker; it was removed because it accumulated a
+        // to give a per-frame marker; it was removed because it accumulated a
         // one-way error that eventually had to be corrected with a visible
         // hard-snap. See `handleFix` for the field evidence.
         //
         // Tradeoff, stated plainly: the marker now steps at GPS rate (~1 Hz)
-        // instead of gliding at 6 fps. The map still renders at 6 fps, and
+        // instead of gliding per frame. The map still renders at 4 fps, and
         // heading/zoom still animate per tick below — only the position is
         // no longer extrapolated between fixes.
 
         // 1. Advance the per-tick animation state (heading + zoom lerps)
-        //    every tick (6 Hz) so an in-progress rotation/zoom dribbles
+        //    every tick (4 Hz) so an in-progress rotation/zoom dribbles
         //    forward smoothly before we render.
         updateHeading()
         updateZoom()
 
-        // 2. Render + emit this tick unconditionally (fixed 6 fps).
+        // 2. Render + emit this tick unconditionally (fixed 4 fps).
         let now = CACurrentMediaTime()
 
         guard let buffer = renderMapViewToPixelBuffer() else { return }
@@ -1911,32 +1915,37 @@ extension MapViewSource {
         return 1.0 + (maxManeuverBoost - 1.0) * t
     }
 
-    /// Lerp `currentZoom` toward the target by 5%/frame. At 6 fps this
+    /// Lerp `currentZoom` toward the target by 7.5%/frame. At 4 fps this
     /// gives roughly 10 seconds for a full city→highway transition
-    /// (95% completion in ~58 frames). Slow enough that the rider
+    /// (95% completion in ~38 frames). Slow enough that the rider
     /// doesn't see the map "breathing" on small speed wobbles.
     ///
     /// Exception: the maneuver-approach boost needs to land BEFORE the
     /// turn, not 10 s later, so when we're zooming IN (target > current)
-    /// we lerp ~3× faster. Zooming back out after the turn stays slow so
-    /// the map doesn't lurch.
+    /// we lerp ~3× faster (22%/frame). Zooming back out after the turn
+    /// stays slow so the map doesn't lurch.
+    ///
+    /// The factors are per frame, so they were rescaled when the stream
+    /// went from 6 to 4 fps (0.05 → 0.075, 0.15 → 0.22) to keep the same
+    /// per-second feel.
     private func updateZoom() {
         decayZoomBias()
         let target = targetZoom(forSpeedMPS: lastFix?.speed ?? -1)
         let zoomingIn = target > currentZoom
-        let factor: CGFloat = zoomingIn ? 0.15 : 0.05
+        let factor: CGFloat = zoomingIn ? 0.22 : 0.075
         currentZoom += (target - currentZoom) * factor
     }
 
-    /// Lerp `lastHeading` toward `targetHeading` by 15%/frame, taking
+    /// Lerp `lastHeading` toward `targetHeading` by 22%/frame, taking
     /// the short way around the compass circle (handles the 359°→1°
     /// wrap without the map spinning the long way).
     ///
-    /// At 6 fps, 15%/frame ≈ 95% completion in ~3 s — fast enough
+    /// At 4 fps, 22%/frame ≈ 95% completion in ~3 s — fast enough
     /// that the rider feels the map track the turn, slow enough that
-    /// a single noisy fix doesn't yank the view.
+    /// a single noisy fix doesn't yank the view. (Was 15%/frame at
+    /// 6 fps — same per-second rate.)
     private func updateHeading() {
-        let factor: Double = 0.15
+        let factor: Double = 0.22
         var delta = targetHeading - lastHeading
         // Wrap delta into [-180, +180] so we turn the short way.
         while delta > 180 { delta -= 360 }

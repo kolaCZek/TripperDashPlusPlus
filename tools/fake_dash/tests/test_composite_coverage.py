@@ -535,12 +535,12 @@ def _select_layer(layer: str, z: float, bias: float) -> str:
 
 
 def _ride(kmh: float, presses: dict[int, bool], seconds: int = 120):
-    """Replay the per-frame zoom loop at 6 fps (decayZoomBias -> targetZoom
+    """Replay the per-frame zoom loop at 4 fps (decayZoomBias -> targetZoom
     -> lerp in updateZoom, then selectLayer at draw) at a constant speed.
     `presses` maps frame -> zoom_in. Yields (layer, z, bias) per frame."""
     from tests.zoom_bias_mirror import ZoomBias
 
-    zb, fps = ZoomBias(), 6
+    zb, fps = ZoomBias(), 4
     speed_zoom = min(max(2.0 - kmh * 0.00923, 0.8), 2.0)
     z, layer = speed_zoom, "base"
     for f in range(seconds * fps):
@@ -549,7 +549,7 @@ def _ride(kmh: float, presses: dict[int, bool], seconds: int = 120):
             zb.nudge(presses[f], now)
         zb.decay(now)
         target = speed_zoom * zb.bias
-        z += (target - z) * (0.15 if target > z else 0.05)
+        z += (target - z) * (0.22 if target > z else 0.075)
         layer = _select_layer(layer, z, zb.bias)
         yield layer, z, zb.bias
 
@@ -572,7 +572,7 @@ def test_neutral_bias_exit_never_uses_base_below_its_coverage():
     the zoom is still far out; base must not be picked until z is back in
     the band it fully covers (>= COARSE_EDGE - margin), or the rider sees
     black corners for the ~2 s the zoom takes to climb back."""
-    for layer, z, _ in _ride(130, {0: False, 12: True}, seconds=60):
+    for layer, z, _ in _ride(130, {0: False, 8: True}, seconds=60):  # RIGHT 2 s later
         assert layer != "base" or z >= COARSE_EDGE - LAYER_MARGIN, z
 
 

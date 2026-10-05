@@ -36,7 +36,7 @@ iPhone ──(Cellular)──► tile.openstreetmap.org   OSM Carto raster tiles
 iPhone ──(Cellular)──► Apple MapKit             MKDirections routes + MKLocalSearch
 iPhone ──(Wi-Fi)─────► 192.168.1.1:2000         K1G control TX (RSA, heartbeat, nav kicks)
 iPhone ◄─(Wi-Fi)────── 192.168.1.1 → :2002      K1G control RX (auth, acks, button events)
-iPhone ──(Wi-Fi)─────► 192.168.1.1:5000         RTP H.264 video stream (6 fps, 526×300)
+iPhone ──(Wi-Fi)─────► 192.168.1.1:5000         RTP H.264 video stream (4 fps, 526×300, 512 kbps)
 ```
 
 **Two simultaneous networks** are essential: cellular for internet (tiles, routing, search), Wi-Fi for the Tripper AP which has no internet. The dash sockets are not pinned to an interface — `DashSocket` binds `0.0.0.0` and reaches `192.168.1.1` because only the bike's AP routes that subnet; `URLSession` tile/route fetches go via cellular because the AP has no internet.
@@ -170,7 +170,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 6. **Background execution: background CoreLocation updates are the single wakelock.** `allowsBackgroundLocationUpdates = true` + `pausesLocationUpdatesAutomatically = false` keep the render loop alive with the screen locked — including stationary periods (red lights), since we don't let iOS auto-pause. Two earlier belt-and-braces wakelocks are gone and must NOT be reintroduced: the AVKit PiP anchor (removed Phase 8d) and the `SilentAudioKeeper` silent-audio loop (removed pre-submission — a silent loop just to stay alive is an App Review red flag). The `audio` background mode stays, but only because `VoiceNavigator` (spoken guidance) is a real audio feature; the tile-cache + CGContext path is BG-safe on location alone. Background updates are enabled on Always and While Using alike (see `LocationService.startUpdates`).
 
-7. **Frame rate is 6 fps, not 12 or 30.** For static map/nav content, 6 fps at 1024 kbps spends double the bits per frame vs 12 fps — noticeably sharper road labels after H.264. The dash decoder blinks above ~12 fps anyway. Don't bump it.
+7. **Stream shape is 4 fps / 512 kbps / keyframe every 1 s / no bursts.** It matches the stock RE app's frame rate, GOP and `maxrate = bitrate` cap (better-dash `DASH_*`), at 2.5× its bitrate for legible labels. The earlier 6 fps / 1024 kbps / 2-s GOP / 3× burst setup froze and broke the picture into fragments until the next keyframe — lost RTP packets. Fewer bits per second and no bursts means smaller frames and fewer packets to lose. The dash decoder blinks above ~12 fps. Per-frame lerp factors in `MapViewSource` (heading, zoom, zoom-bias revert) are tuned to `targetFps` — rescale them if it ever changes. Don't raise fps or bitrate without a ride test.
 
 8. **Resolution is exactly 526×300.** This is the dash's native panel resolution. Other resolutions get scaled internally and blur the text.
 

@@ -496,7 +496,7 @@ final class RouteTileCache {
     private(set) var positionFallbackTile: RouteTile?
 
     /// Decoded image for `positionFallbackTile`, memoised so the
-    /// off-corridor render path (which runs at 6 fps while it's active)
+    /// off-corridor render path (which runs at 4 fps while it's active)
     /// doesn't re-decode a 300-500 KB PNG every frame. Invalidated (set
     /// to nil) whenever a fresh position tile is installed — the standalone
     /// slot can't use the index-keyed `imageCache` (it has no array

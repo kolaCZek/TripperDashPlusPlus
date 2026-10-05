@@ -15,7 +15,7 @@
 //  sends without touching the main actor. The pipe's counters sit behind
 //  a lock; the main actor reads them once a second (`flushMetrics`). The
 //  only main-actor hop left on the path is the once-per-frame q3c.g kick
-//  to BikeLink (6 Hz).
+//  to BikeLink (4 Hz).
 //
 
 import Foundation
@@ -226,7 +226,7 @@ final class RtpStreamer {
 
 /// Encoded NAL → RTP datagrams → UDP, entirely on the streamer's
 /// `sendQueue`. Replaces the old per-NAL hop onto the main actor (and the
-/// per-datagram completion hop back to it): at 6 fps × several FU-A
+/// per-datagram completion hop back to it): at the frame rate × several FU-A
 /// fragments that was dozens of main-actor jobs a second, and any of them
 /// queued behind a tile bake delayed the stream.
 ///

@@ -140,7 +140,7 @@ def test_swift_zoom_in_lerps_faster_than_out():
     """The approach boost must land before the turn — zooming in uses a
     bigger lerp factor than zooming out."""
     src = _map_source_src()
-    assert "zoomingIn ? 0.15 : 0.05" in src, "asymmetric zoom lerp drifted"
+    assert "zoomingIn ? 0.22 : 0.075" in src, "asymmetric zoom lerp drifted"
 
 
 # ----------------------------------------------------------------------
