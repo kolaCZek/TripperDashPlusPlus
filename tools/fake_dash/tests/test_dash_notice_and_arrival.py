@@ -250,3 +250,24 @@ def test_proximity_fallback_for_stationary_close_destination():
 
 
 
+
+
+def test_draw_text_resets_the_text_matrix():
+    """The notice text was drawn upside down after arrival (Martin, 10/2026).
+
+    `drawText` is the Core Text path for the notice card (text and the "i" /
+    "!" glyphs). The text matrix isn't part of the graphics state, and the
+    speed-limit sign / average-speed panel draw earlier in the same frame
+    through UIKit (`NSString.draw`), which leaves the matrix flipped. So
+    `drawText` must reset it itself, before `CTLineDraw`.
+    """
+    from tests.swift_source import decl_body, strip_comments
+    body = strip_comments(decl_body(_map_source_src(), "private static func drawText("))
+    reset = body.find("ctx.textMatrix = .identity")
+    assert reset != -1, "drawText must reset ctx.textMatrix before drawing"
+    assert reset < body.find("CTLineDraw(line, ctx)")
+    # The UIKit draws that dirty the matrix really do run before the notice.
+    src = _map_source_src()
+    order = [src.find(f"{f}(into: ctx)\n") for f in
+             ("drawSpeedLimitSign", "drawSpeedSectionPanel", "drawNotice")]
+    assert -1 not in order and order == sorted(order)
