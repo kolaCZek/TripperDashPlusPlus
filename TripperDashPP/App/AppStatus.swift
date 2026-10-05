@@ -220,7 +220,7 @@ final class AppStatus {
 
     /// Reused Core Image context for converting demo-mirror CVPixelBuffers
     /// (BGRA) into CGImages. Creating a CIContext is expensive, so we cache a
-    /// single instance and reuse it for every 6 Hz frame. `@ObservationIgnored`
+    /// single instance and reuse it for every 4 Hz frame. `@ObservationIgnored`
     /// — it's plumbing, never observed by the UI.
     @ObservationIgnored private lazy var demoCIContext = CIContext(options: nil)
 

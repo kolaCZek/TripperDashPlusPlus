@@ -20,7 +20,7 @@ ZOOM_BIAS_STEP = 2.0
 ZOOM_BIAS_MIN = 0.15
 ZOOM_BIAS_MAX = 2.5
 ZOOM_BIAS_HOLD_SECONDS = 15.0
-ZOOM_BIAS_REVERT_FACTOR = 0.04
+ZOOM_BIAS_REVERT_FACTOR = 0.06
 # Autozoom clamps the raw speed curve to this band before the bias is
 # applied (targetZoom: `min(max(raw, 0.8), 2.0)`).
 SPEED_ZOOM_MIN = 0.8

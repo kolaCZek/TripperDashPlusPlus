@@ -11,9 +11,9 @@
 
 ## What is this?
 
-The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Himalayan 450**, **Guerrilla 450**, and **Bear 650** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy map-via-RTP to it, and the moment you lock your phone the stream dies.
+The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Himalayan 450**, **Guerrilla 450**, and **Bear 650** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes a low-bitrate, hard-to-read map-via-RTP to it, and the moment you lock your phone the stream dies.
 
-This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **6 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
+This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **4 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
 
 **What it does today:** open app → search a destination (or pick a favorite, or import a GPX) → preview alternative routes → start nav → put the phone in your pocket → ride. The dash shows the moving map, the route polyline, the next-maneuver glyph, distance/ETA, a whole-route progress overview, plus live phone status, a mirrored incoming-call card, a weather pill, a posted speed-limit sign, speed-camera marks, and an average-speed section panel. Native turn-by-turn (TLV maneuver stream + burned-in glyph) is implemented and **validated on a Guerrilla 450 (June 2026).** On the phone itself, a live trip panel tracks the ride (distance, moving time, average/max speed, elevation gain).
 
@@ -21,14 +21,14 @@ This project replaces that pipeline with a proper one. We render a real turn-by-
 
 ## Why?
 
-Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it 4 fps of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
+Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it a ~200 kbps stream of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
 
 Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[kolaCZek/better-dash](https://github.com/kolaCZek/better-dash)** — the byte-level source of truth for the K1G protocol.
 
 ## Highlights
 
 - **Streams to the dash with the screen off.** A real turn-by-turn map keeps flowing to the TFT with the phone locked in a tank bag or jacket pocket — pre-rendered OSM tiles + CPU CGContext composition, kept awake by background CoreLocation updates (Always or While Using).
-- **6 fps / 526×300 H.264** vs. the stock app's ~4 fps of arrow icons — double the bits per frame, so road labels stay readable after encoding. Streamed as RTP over the bike's Wi-Fi; the bike never touches the internet.
+- **4 fps / 526×300 H.264** at 2.5× the stock app's bitrate — the stock app's frame rate and keyframe cadence, which the dash decoder is tuned for, with enough bits per frame that road labels stay readable after encoding. Streamed as RTP over the bike's Wi-Fi; the bike never touches the internet.
 - **Native turn-by-turn**, validated on a Guerrilla 450: maneuver-TLV stream plus a burned-in next-turn glyph drawn from a [field-verified catalog of every dash glyph](docs/maneuver-glyphs/) (`0x00–0x59`), heading-up rider chevron, and route polyline.
 - **Spoken turn-by-turn (optional).** Offline `AVSpeechSynthesizer` voice prompts in 8 languages (cs/sk/en/de/pl/fr/es/it), announcing each maneuver at far (~1 km) / near (~300 m) / now (~40 m) tiers, plus optional spoken speed-camera alerts. Off by default; when on it ducks your music (never cutting it) through the shared `AVAudioSession` that backs the `audio` background mode.
 - **Light / Dark / Auto map.** One OSM Carto basemap, two palettes; dark is a CPU recolour of the *same* tile (water stays blue, not orange), so both share one cache. Auto follows sunrise/sunset from your GPS fix.
@@ -53,7 +53,7 @@ Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`]
 
 ## Architecture (one paragraph)
 
-The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for OSM map tiles and MapKit routing). During foreground the app pre-renders the OSM tiles it will need along the route and PNG-caches them in memory; in the background it does CPU-only CGContext composition (crop the tile around the current GPS fix, rotate heading-up, draw the route polyline, draw the maneuver glyph and rider chevron, plus the weather pill, posted speed-limit sign, average-speed section panel, and speed-camera marks) into a 526×300 pixel buffer at 6 fps, encodes it via VideoToolbox H.264 baseline @ ~1 Mbps (1024 kbps), packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + live phone status + incoming-call card + nav kicks + button events) runs over UDP: the phone **sends to :2000** and **binds locally to :2002** for the dash's replies, over a single BSD POSIX socket. Background execution is kept alive via `CoreLocation` Always updates, so the stream survives the lock screen with the phone in a tank bag or jacket pocket.
+The iPhone joins two networks at once: the Tripper Dash's Wi-Fi AP (no internet, used only for UDP to `192.168.1.1`) and your cellular data (used for OSM map tiles and MapKit routing). During foreground the app pre-renders the OSM tiles it will need along the route and PNG-caches them in memory; in the background it does CPU-only CGContext composition (crop the tile around the current GPS fix, rotate heading-up, draw the route polyline, draw the maneuver glyph and rider chevron, plus the weather pill, posted speed-limit sign, average-speed section panel, and speed-camera marks) into a 526×300 pixel buffer at 4 fps, encodes it via VideoToolbox H.264 baseline @ 512 kbps (a keyframe every second, no bursts above the average rate), packetizes into RTP FU-A units, and sends UDP to `192.168.1.1:5000`. The K1G control plane (RSA handshake + 1 Hz heartbeats + live phone status + incoming-call card + nav kicks + button events) runs over UDP: the phone **sends to :2000** and **binds locally to :2002** for the dash's replies, over a single BSD POSIX socket. Background execution is kept alive via `CoreLocation` Always updates, so the stream survives the lock screen with the phone in a tank bag or jacket pocket.
 
 ## Building
 
