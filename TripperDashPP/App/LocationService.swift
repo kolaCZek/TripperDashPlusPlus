@@ -119,7 +119,7 @@ final class LocationSubscription {
 /// highest required accuracy.
 enum LocationMode: Int, Comparable {
     case wakelock = 0      // 100 m accuracy, 50 m distance filter — battery-friendly
-    case mapping = 1       // best accuracy, no distance filter — for live map / nav
+    case mapping = 1       // navigation accuracy, no distance filter — for live map / nav
 
     static func < (lhs: LocationMode, rhs: LocationMode) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -243,10 +243,22 @@ final class LocationService: NSObject {
     private func applyMode(_ mode: LocationMode) {
         switch mode {
         case .wakelock:
+            manager.activityType = .other
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = 50
         case .mapping:
-            manager.desiredAccuracy = kCLLocationAccuracyBest
+            // Experiment for the "dash freezes > 1 s, then jumps" report:
+            // the map only moves on a fix, so a missed fix freezes it.
+            // Apple documents BestForNavigation as using "additional
+            // sensor data" and .automotiveNavigation as "following a road
+            // network"; the hope is that this bridges short GPS dropouts.
+            // That part is undocumented — check the `fix gap` log lines
+            // from a ride before and after. The fix rate stays ~1 Hz.
+            // ponytail: road matching can pull a gravel / off-road track
+            // onto a nearby road — switch to `.otherNavigation` for those
+            // if it shows up on a ride.
+            manager.activityType = .automotiveNavigation
+            manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
             manager.distanceFilter = kCLDistanceFilterNone
         }
     }
@@ -350,6 +362,13 @@ extension LocationService: CLLocationManagerDelegate {
         guard let latest = locations.last else { return }
         let fix = Fix(latest)
         Task { @MainActor in
+            // Field evidence for the GPS-dropout experiment (see applyMode).
+            if let prev = self.lastFix {
+                let gap = fix.timestamp.timeIntervalSince(prev.timestamp)
+                if gap > 1.5 {
+                    self.log.info("fix gap \(gap, format: .fixed(precision: 1), privacy: .public) s (acc \(fix.horizontalAccuracy, format: .fixed(precision: 0), privacy: .public) m)")
+                }
+            }
             self.lastFix = fix
             for handler in self.fixSubscribers.values { handler(fix) }
         }
