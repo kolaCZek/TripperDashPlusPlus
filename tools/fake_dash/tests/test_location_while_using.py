@@ -200,3 +200,12 @@ def test_each_callback_start_is_consumer_gated(src: str, case_label: str):
         f"{case_label} has more than one startUpdates() call — the extra "
         "one is likely ungated"
     )
+
+
+def test_auto_pause_stays_off(src: str):
+    """Background location is the app's only wakelock. With
+    `.automotiveNavigation` iOS "might pause location updates when the
+    vehicle doesn't move" — only `pausesLocationUpdatesAutomatically =
+    false` stops that at a long red light with the screen locked."""
+    assert "manager.pausesLocationUpdatesAutomatically = false" in src
+    assert "pausesLocationUpdatesAutomatically = true" not in src

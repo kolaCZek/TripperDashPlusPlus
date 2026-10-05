@@ -247,12 +247,13 @@ final class LocationService: NSObject {
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = 50
         case .mapping:
-            // Tell iOS this is road navigation in a vehicle: it may then
-            // fuse the motion sensors in and match fixes to roads, which
-            // should cover short GPS dropouts (tree cover, town canyons,
-            // phone in a pocket) — the map only moves on a fix, so a
-            // missed fix freezes the dash picture and then jumps. Still
-            // ~1 Hz; this does not raise the fix rate.
+            // Experiment for the "dash freezes > 1 s, then jumps" report:
+            // the map only moves on a fix, so a missed fix freezes it.
+            // Apple documents BestForNavigation as using "additional
+            // sensor data" and .automotiveNavigation as "following a road
+            // network"; the hope is that this bridges short GPS dropouts.
+            // That part is undocumented — check the `fix gap` log lines
+            // from a ride before and after. The fix rate stays ~1 Hz.
             // ponytail: road matching can pull a gravel / off-road track
             // onto a nearby road — switch to `.otherNavigation` for those
             // if it shows up on a ride.
@@ -361,6 +362,13 @@ extension LocationService: CLLocationManagerDelegate {
         guard let latest = locations.last else { return }
         let fix = Fix(latest)
         Task { @MainActor in
+            // Field evidence for the GPS-dropout experiment (see applyMode).
+            if let prev = self.lastFix {
+                let gap = fix.timestamp.timeIntervalSince(prev.timestamp)
+                if gap > 1.5 {
+                    self.log.info("fix gap \(gap, format: .fixed(precision: 1), privacy: .public) s (acc \(fix.horizontalAccuracy, format: .fixed(precision: 0), privacy: .public) m)")
+                }
+            }
             self.lastFix = fix
             for handler in self.fixSubscribers.values { handler(fix) }
         }
