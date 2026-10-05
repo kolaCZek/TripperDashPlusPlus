@@ -119,7 +119,7 @@ final class LocationSubscription {
 /// highest required accuracy.
 enum LocationMode: Int, Comparable {
     case wakelock = 0      // 100 m accuracy, 50 m distance filter — battery-friendly
-    case mapping = 1       // best accuracy, no distance filter — for live map / nav
+    case mapping = 1       // navigation accuracy, no distance filter — for live map / nav
 
     static func < (lhs: LocationMode, rhs: LocationMode) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -243,10 +243,21 @@ final class LocationService: NSObject {
     private func applyMode(_ mode: LocationMode) {
         switch mode {
         case .wakelock:
+            manager.activityType = .other
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = 50
         case .mapping:
-            manager.desiredAccuracy = kCLLocationAccuracyBest
+            // Tell iOS this is road navigation in a vehicle: it may then
+            // fuse the motion sensors in and match fixes to roads, which
+            // should cover short GPS dropouts (tree cover, town canyons,
+            // phone in a pocket) — the map only moves on a fix, so a
+            // missed fix freezes the dash picture and then jumps. Still
+            // ~1 Hz; this does not raise the fix rate.
+            // ponytail: road matching can pull a gravel / off-road track
+            // onto a nearby road — switch to `.otherNavigation` for those
+            // if it shows up on a ride.
+            manager.activityType = .automotiveNavigation
+            manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
             manager.distanceFilter = kCLDistanceFilterNone
         }
     }
