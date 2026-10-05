@@ -1119,15 +1119,30 @@ extension MapViewSource {
     ///   ~12 fps). A slow or late tick is delayed, not dropped, so the rate
     ///   degrades gradually under load; with ordinary few-ms jitter neither
     ///   guard trips and the average is exactly targetFps.
+    /// Tick-to-tick gap that counts as a render stall (2 frame slots).
+    static let renderStallLogMs = 500
+
     private func startTimer() {
         renderTask?.cancel()
         let interval = Duration.seconds(1) / targetFps
         renderTask = Task { [weak self] in
             let clock = SuspendingClock()
             var deadline = clock.now
+            var lastTickAt: SuspendingClock.Instant?
             // `self != nil`: [weak self] alone would keep a loop whose
             // source was freed ticking at 4 Hz (deinit can't cancel it).
             while !Task.isCancelled, self != nil {
+                // Stall diagnostics: ticks start every 250 ms; > 500 ms
+                // means the render side itself froze (a long tick, or the
+                // main actor busy elsewhere), not GPS / encoder / the dash.
+                let tickAt = clock.now
+                if let lastTickAt {
+                    let gapMs = Int((tickAt - lastTickAt) / .milliseconds(1))
+                    if gapMs > Self.renderStallLogMs {
+                        self?.log.notice("render stall \(gapMs, privacy: .public) ms")
+                    }
+                }
+                lastTickAt = tickAt
                 await self?.tickOnMain()
                 deadline += interval
                 let now = clock.now
@@ -1160,7 +1175,12 @@ extension MapViewSource {
         // 2. Render + emit this tick unconditionally (fixed 4 fps).
         let now = CACurrentMediaTime()
 
-        guard let buffer = renderMapViewToPixelBuffer() else { return }
+        guard let buffer = renderMapViewToPixelBuffer() else {
+            // Otherwise a missing frame would show up only as an
+            // unexplained `rtp gap` and be blamed on the encoder.
+            log.error("render produced no frame #\(self.frameIndex, privacy: .public)")
+            return
+        }
 
         // Real-time PTS from the monotonic clock (NOT frameIndex / fps) so
         // the RTP 90 kHz timestamps stay wall-clock-correct — robust even

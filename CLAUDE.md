@@ -205,6 +205,7 @@ When asked to add tests, **also add a fake-dash test** that exercises the same c
 
 - **K1G byte-level question** → re-read the Python in `better-dash`, then capture a real packet with the harness and diff. Load the `royal-enfield-tripper-dash` skill's `references/k1g-wire-protocol.md`.
 - **Background / lock-screen rendering question** → the answer is almost certainly already in the skill's "Sustained background nav" section. `MKMapSnapshotter`, `MKMapView`, Metal, and `CADisplayLink` are all known BG dead-ends — don't re-derive them. The working path is `Task + Task.sleep + CGContext on pre-rendered raster`.
+- **Dash picture froze / jumped on a ride** → export the Debug build's log (Streaming → Diagnostics) and look at what was logged at that moment. Each stage logs one line, only when it stalls: `fix gap` (GPS, `LocationService`), `render stall` (render loop / main actor, `MapViewSource`), `rtp gap` (encoder or send path, `RtpStreamer`; without a `render stall` it isn't the renderer), `dash rx gap` / `Link dropped` (Wi-Fi / dash, `DashSocket` / `BikeLink`). Nothing logged usually means the dash lost RTP packets: a freeze or smear until the next keyframe.
 - **iOS API question** → Apple's WWDC sessions on Network framework, VideoToolbox, MapKit, and CoreLocation Background.
 - **Anything else** → ask the user via an issue or PR comment.
 

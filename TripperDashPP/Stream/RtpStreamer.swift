@@ -252,6 +252,12 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
     private var connection: NWConnection?
     private var onFrame: (@Sendable () -> Void)?
     private var counters = Counters()
+    /// Uptime of the last coded frame sent, for the `rtp gap` log.
+    private var lastFrameUptime: TimeInterval?
+    /// Frame-to-frame gap that counts as an outbound stall (3 frame slots
+    /// at 4 fps). Without a matching `render stall` it points at the
+    /// encoder or the send path.
+    static let rtpGapLogSeconds: TimeInterval = 0.75
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
 
     init(packetizer: RtpPacketizer, timestampBase: UInt32) {
@@ -265,6 +271,7 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
             self.connection = connection
             self.onFrame = onFrame
             counters = Counters()
+            lastFrameUptime = nil
         }
     }
 
@@ -316,11 +323,20 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
             nal: nal.bytes, timestamp90kHz: rtpTs, markerOnLast: markerOnLast
         )
 
-        let link: (connection: NWConnection?, onFrame: (@Sendable () -> Void)?) = lock.withLock {
+        let now = ProcessInfo.processInfo.systemUptime
+        let (link, frameGap): ((connection: NWConnection?, onFrame: (@Sendable () -> Void)?), TimeInterval?) = lock.withLock {
             counters.windowNALs += 1
             if isIDR { counters.idrCount += 1 }
             counters.nalsEmitted += 1
-            return (connection: connection, onFrame: onFrame)
+            var gap: TimeInterval?
+            if isFrame {
+                if let last = lastFrameUptime { gap = now - last }
+                lastFrameUptime = now
+            }
+            return ((connection: connection, onFrame: onFrame), gap)
+        }
+        if let frameGap, frameGap > Self.rtpGapLogSeconds {
+            log.notice("rtp gap \(Int(frameGap * 1000), privacy: .public) ms")
         }
 
         for datagram in datagrams {

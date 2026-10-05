@@ -326,7 +326,16 @@ actor DashSocket {
             }
             if n > 0 {
                 rxDatagramCount &+= 1
-                lastRxUptime = ProcessInfo.processInfo.systemUptime
+                let now = ProcessInfo.processInfo.systemUptime
+                // The dash answers the 1 Hz heartbeat, so a quiet spell
+                // over 2 s means the link (or the dash) stalled. The
+                // heartbeat drops the link only after 10 s; this catches
+                // the short ones that freeze the picture and recover.
+                let rxGap = now - lastRxUptime
+                if rxDatagramCount > 1, rxGap > 2 * K1G.heartbeatInterval {
+                    log.notice("dash rx gap \(Int(rxGap * 1000), privacy: .public) ms")
+                }
+                lastRxUptime = now
                 let payload = Data(buf.prefix(Int(n)))
                 if rxDatagramCount == 1 {
                     // First-RX log uses .info so it shows up at default level —
