@@ -11,7 +11,7 @@
 
 ## What is this?
 
-The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Himalayan 450**, **Guerrilla 450**, and **Bear 650** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes **~4 fps** of choppy map-via-RTP to it, and the moment you lock your phone the stream dies.
+The factory **Royal Enfield Tripper Dash** — the round TFT fitted to the **Himalayan 450**, **Guerrilla 450**, and **Bear 650** — runs a full color, map-capable display. But the stock Royal Enfield app only pushes a low-bitrate, hard-to-read map-via-RTP to it, and the moment you lock your phone the stream dies.
 
 This project replaces that pipeline with a proper one. We render a real turn-by-turn navigation map on the iPhone, encode it as H.264 baseline @ **4 fps / 526×300** and stream it over the bike's Wi-Fi to the dash as RTP. Map tiles and route calculation flow over cellular in parallel, so the dash gets a full-color map with the route, a burned-in maneuver arrow, and a heading-up rider chevron — without the bike ever touching the internet.
 
@@ -21,7 +21,7 @@ This project replaces that pipeline with a proper one. We render a real turn-by-
 
 ## Why?
 
-Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it 4 fps of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
+Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it a ~200 kbps stream of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
 
 Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[kolaCZek/better-dash](https://github.com/kolaCZek/better-dash)** — the byte-level source of truth for the K1G protocol.
 

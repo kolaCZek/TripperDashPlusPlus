@@ -27,9 +27,9 @@
 //  lost RTP packet. Every frame leaves as a back-to-back run of 1200-byte
 //  packets, and one lost packet corrupts that frame and every P-frame
 //  after it until the next IDR. At 512 kbps / 4 fps the average frame is
-//  ~16 KB (~13 packets, was ~21 KB / ~18), the cap stops the encoder from
-//  sending up to 3× that in one go, and the 1-s GOP halves the worst-case
-//  time a corrupted picture stays on the dash.
+//  ~16 KB (~13 packets, was ~21 KB / ~18), the cap no longer lets a 1-s
+//  window run to 3× the average bitrate, and the 1-s GOP halves the
+//  worst-case time a corrupted picture stays on the dash.
 //  Above ~12 fps the dash decoder blinks. High profile + B-frames break
 //  the firmware decoder, so those stay off.
 //
@@ -92,13 +92,13 @@ final class H264Encoder {
         height: Int32 = 300,
         fps: Int32 = 4,
         bitrate: Int32 = 512_000,
-        keyframeInterval: Int32 = 4
+        keyframeInterval: Int32? = nil   // nil = fps → one IDR per second
     ) {
         self.width = width
         self.height = height
         self.fps = fps
         self.bitrate = bitrate
-        self.keyframeInterval = keyframeInterval
+        self.keyframeInterval = keyframeInterval ?? fps
     }
 
     deinit { stop() }
@@ -154,7 +154,7 @@ final class H264Encoder {
             (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: bitrate)),
             (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: fps)),
             (kVTCompressionPropertyKey_MaxKeyFrameInterval, NSNumber(value: keyframeInterval)),
-            (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: keyframeInterval / fps)),
+            (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, NSNumber(value: Double(keyframeInterval) / Double(fps))),
             // Data-rate limit: no more than one second's average worth of
             // bytes in any 1 s window — no burst headroom, like the stock
             // app (better-dash: `-maxrate` = `-b:v`). It used to allow 3×

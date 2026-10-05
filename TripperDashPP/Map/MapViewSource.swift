@@ -1352,9 +1352,9 @@ extension MapViewSource {
 
 
         // DIAG (issue #south-shift): log distance from fix to tile centre
-        // every ~5 s so we can see in the OS log whether the renderer is
+        // every 5 s (20 frames at 4 fps) so we can see in the OS log whether the renderer is
         // picking a wing tile (~1.5 km off-route) instead of the main row.
-        if frameIndex % 30 == 0 {
+        if frameIndex % 20 == 0 {
             let dMeters = PolylineMath.haversine(fix.coordinate, refTile.center)
             let dLat = (refTile.center.latitude - fix.coordinate.latitude) * 111_111
             let dLon = (refTile.center.longitude - fix.coordinate.longitude) * 111_111 * cos(fix.coordinate.latitude * .pi / 180)
