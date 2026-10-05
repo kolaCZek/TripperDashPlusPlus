@@ -83,7 +83,9 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     assert "func secondsSinceLastRx() -> TimeInterval" in sock
     drain = decl_body(sock, "private func drainAllPendingOnActor")
     got = drain[drain.index("if n > 0 {"):]
-    assert "lastRxUptime = ProcessInfo.processInfo.systemUptime" in got[: got.index("continue")]
+    rx = got[: got.index("continue")]
+    assert "let now = ProcessInfo.processInfo.systemUptime" in rx
+    assert "lastRxUptime = now" in rx
     run = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run")
     check = run.index("await socket.secondsSinceLastRx()")
     decide = "if Self.isDashSilent(silence: silence, sentTicksWithoutRx: sentTicksWithoutRx) {"

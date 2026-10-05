@@ -230,8 +230,8 @@ final class RtpStreamer {
 /// fragments that was dozens of main-actor jobs a second, and any of them
 /// queued behind a tile bake delayed the stream.
 ///
-/// `@unchecked Sendable`: `connection`, `onFrame` and `counters` are only
-/// touched under `lock`; `packetizer` is not locked and is only used from
+/// `@unchecked Sendable`: `connection`, `onFrame`, `counters` and
+/// `lastFrameUptime` are only touched under `lock`; `packetizer` is not locked and is only used from
 /// `handle`, which runs on the one serial `sendQueue`.
 nonisolated final class RtpSendPipe: @unchecked Sendable {
 
@@ -252,6 +252,12 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
     private var connection: NWConnection?
     private var onFrame: (@Sendable () -> Void)?
     private var counters = Counters()
+    /// Uptime of the last coded frame sent, for the `rtp gap` log.
+    private var lastFrameUptime: TimeInterval?
+    /// Frame-to-frame gap that counts as an outbound stall (3 frame slots
+    /// at 4 fps). Without a matching `render stall` it points at the
+    /// encoder or the send path.
+    static let rtpGapLogSeconds: TimeInterval = 0.75
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "RtpStreamer")
 
     init(packetizer: RtpPacketizer, timestampBase: UInt32) {
@@ -265,14 +271,21 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
             self.connection = connection
             self.onFrame = onFrame
             counters = Counters()
+            lastFrameUptime = nil
         }
     }
 
     /// Stop sending: later NALs are packetized and counted as dropped.
     func end() {
-        lock.withLock {
+        let pending: TimeInterval? = lock.withLock {
             connection = nil
             onFrame = nil
+            return lastFrameUptime.map { ProcessInfo.processInfo.systemUptime - $0 }
+        }
+        // A stage that never recovered (e.g. the encoder silently stopped
+        // emitting) never reaches `handle`, so its gap is only visible here.
+        if let pending, pending > Self.rtpGapLogSeconds {
+            log.notice("rtp gap \(Int(pending * 1000), privacy: .public) ms (at stop)")
         }
     }
 
@@ -316,11 +329,20 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
             nal: nal.bytes, timestamp90kHz: rtpTs, markerOnLast: markerOnLast
         )
 
-        let link: (connection: NWConnection?, onFrame: (@Sendable () -> Void)?) = lock.withLock {
+        let now = ProcessInfo.processInfo.systemUptime
+        let (link, frameGap): ((connection: NWConnection?, onFrame: (@Sendable () -> Void)?), TimeInterval?) = lock.withLock {
             counters.windowNALs += 1
             if isIDR { counters.idrCount += 1 }
             counters.nalsEmitted += 1
-            return (connection: connection, onFrame: onFrame)
+            var gap: TimeInterval?
+            if isFrame {
+                if let last = lastFrameUptime { gap = now - last }
+                lastFrameUptime = now
+            }
+            return ((connection: connection, onFrame: onFrame), gap)
+        }
+        if let frameGap, frameGap > Self.rtpGapLogSeconds {
+            log.notice("rtp gap \(Int(frameGap * 1000), privacy: .public) ms")
         }
 
         for datagram in datagrams {
