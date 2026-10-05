@@ -2345,6 +2345,12 @@ extension MapViewSource {
         // Core Text draws Y-up; our outer ctx is Y-down post-flip.
         // We flip locally so the text isn't upside-down.
         ctx.saveGState()
+        // The text matrix is NOT part of the graphics state, and UIKit
+        // string drawing (`NSString.draw` in the speed-limit sign and the
+        // average-speed panel, both drawn earlier in the same frame) leaves
+        // it flipped — which turned everything drawn here afterwards upside
+        // down, e.g. the "You've arrived" notice. Reset it before every draw.
+        ctx.textMatrix = .identity
         ctx.translateBy(x: origin.x, y: origin.y + fontSize)
         ctx.scaleBy(x: 1, y: -1)
         ctx.textPosition = .zero
