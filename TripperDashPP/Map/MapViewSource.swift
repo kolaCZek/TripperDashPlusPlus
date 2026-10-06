@@ -1242,6 +1242,11 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
+        if Self.drawsTestPattern {
+            drawTestPattern(into: ctx)
+            return buffer
+        }
+
         // Unified FG + BG path: always composite from the pre-rendered
         // tile cache (built when navigation starts) — works FG and BG
         // since it's pure CGContext, no MapKit live render.
@@ -3432,6 +3437,97 @@ extension MapViewSource {
         ctx.setFillColor(CGColor(red: 0.91, green: 0.20, blue: 0.17, alpha: 1.0))
         ctx.fillPath()
 
+        ctx.restoreGState()
+    }
+}
+
+// MARK: - Dash test pattern (diag/dash-test-pattern branch only — not for main)
+
+extension MapViewSource {
+    /// Replace every streamed frame with a calibration pattern, so a photo of
+    /// the real (round) dash shows which part of the 526×300 frame is
+    /// visible, and where the dash's own nav card covers it.
+    static let drawsTestPattern = true
+
+    fileprivate func drawTestPattern(into ctx: CGContext) {
+        let w = frameSize.width, h = frameSize.height       // 526 × 300
+        let cx = (w / 2).rounded(.down), cy = (h / 2).rounded(.down)   // 263, 150
+        let wi = Int(w), hi = Int(h)
+
+        ctx.saveGState()
+        ctx.setFillColor(CGColor(gray: 0.10, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+
+        // Grid on exact pixels (no AA): 1 px every 10 px, 2 px every 50 px.
+        ctx.setShouldAntialias(false)
+        for i in 0...(wi / 10) {
+            let major = i % 5 == 0
+            ctx.setFillColor(CGColor(gray: major ? 0.75 : 0.32, alpha: 1))
+            ctx.fill(CGRect(x: CGFloat(i * 10), y: 0, width: major ? 2 : 1, height: h))
+        }
+        for i in 0...(hi / 10) {
+            let major = i % 5 == 0
+            ctx.setFillColor(CGColor(gray: major ? 0.75 : 0.32, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: CGFloat(i * 10), width: w, height: major ? 2 : 1))
+        }
+        // Outermost pixel rows/columns in red: visible in the photo only if
+        // that edge of the frame is.
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: 1))
+        ctx.fill(CGRect(x: 0, y: h - 1, width: w, height: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 1, height: h))
+        ctx.fill(CGRect(x: w - 1, y: 0, width: 1, height: h))
+        ctx.setShouldAntialias(true)
+
+        // Concentric circles around the frame centre, every 25 px: shows the
+        // visible radius directly, and an ellipse would reveal non-uniform
+        // scaling on the dash.
+        let colors: [CGColor] = [
+            CGColor(red: 1, green: 0.2, blue: 0.2, alpha: 1),
+            CGColor(red: 1, green: 0.9, blue: 0.1, alpha: 1),
+            CGColor(red: 0.2, green: 1, blue: 0.3, alpha: 1),
+            CGColor(red: 0.1, green: 0.9, blue: 1, alpha: 1),
+            CGColor(red: 1, green: 0.3, blue: 1, alpha: 1),
+            CGColor(red: 1, green: 0.6, blue: 0.1, alpha: 1),
+            CGColor(red: 0.4, green: 0.5, blue: 1, alpha: 1),
+            CGColor(gray: 1, alpha: 1),
+        ]
+        ctx.setLineWidth(2)
+        for (k, r) in stride(from: CGFloat(100), through: 275, by: 25).enumerated() {
+            ctx.setStrokeColor(colors[k % colors.count])
+            ctx.strokeEllipse(in: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+            // Radius label just inside the circle on the horizontal axis,
+            // both sides.
+            Self.drawText("r\(Int(r))", in: ctx, at: CGPoint(x: cx + r - 34, y: cy + 3),
+                          width: 40, fontSize: 11, bold: true)
+            Self.drawText("r\(Int(r))", in: ctx, at: CGPoint(x: cx - r + 4, y: cy + 3),
+                          width: 40, fontSize: 11, bold: true)
+        }
+
+        // Centre crosshair.
+        ctx.setStrokeColor(CGColor(red: 0.2, green: 1, blue: 0.3, alpha: 1))
+        ctx.move(to: CGPoint(x: cx - 12, y: cy + 0.5)); ctx.addLine(to: CGPoint(x: cx + 12, y: cy + 0.5))
+        ctx.move(to: CGPoint(x: cx + 0.5, y: cy - 12)); ctx.addLine(to: CGPoint(x: cx + 0.5, y: cy + 12))
+        ctx.strokePath()
+        Self.drawText("\(Int(cx)),\(Int(cy))", in: ctx, at: CGPoint(x: cx + 4, y: cy - 18),
+                      width: 60, fontSize: 11, bold: true)
+        Self.drawText("TEST 526x300", in: ctx, at: CGPoint(x: cx - 48, y: cy + 22),
+                      width: 120, fontSize: 14, bold: true)
+
+        // Coordinate labels on every 50-px line, repeated in several rows /
+        // columns so some survive wherever the edges are cut off.
+        for x in stride(from: 50, to: wi, by: 50) {
+            for y in [2, Int(cy) - 62, Int(cy) + 46, hi - 16] {
+                Self.drawText("\(x)", in: ctx, at: CGPoint(x: CGFloat(x + 4), y: CGFloat(y)),
+                              width: 30, fontSize: 11, bold: true)
+            }
+        }
+        for y in stride(from: 50, to: hi, by: 50) {
+            for x in [4, Int(cx) - 120, Int(cx) + 96, wi - 28] {
+                Self.drawText("\(y)", in: ctx, at: CGPoint(x: CGFloat(x), y: CGFloat(y + 3)),
+                              width: 30, fontSize: 11, bold: true)
+            }
+        }
         ctx.restoreGState()
     }
 }
