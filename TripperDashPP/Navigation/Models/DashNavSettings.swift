@@ -352,10 +352,10 @@ final class DashNavSettings {
     /// metric bucket (e.g. 400 m → 1312 ft). The imperial feet↔miles
     /// threshold mirrors `primaryUnitWireByte`'s 160 m crossover so the
     /// bucket and the unit byte can never disagree.
-    func bucketedManeuverDistance(meters m: Double) -> Double {
+    nonisolated static func bucketedManeuverDistance(meters m: Double, imperial: Bool) -> Double {
         guard m.isFinite, m > 0 else { return 0 }
-        switch units {
-        case .metric:
+        switch imperial {
+        case false:
             let step: Double
             if m < 50 {
                 step = 1
@@ -365,7 +365,7 @@ final class DashNavSettings {
                 step = 100
             }
             return (m / step).rounded() * step
-        case .imperial:
+        case true:
             // Bucket in the rider's actual display unit, then convert the
             // rounded value back to metres (the wire/unit-byte helpers
             // re-derive feet/miles from it). Thresholds match the unit
@@ -382,6 +382,23 @@ final class DashNavSettings {
                 return (m / stepM).rounded() * stepM
             }
         }
+    }
+
+    func bucketedManeuverDistance(meters m: Double) -> Double {
+        Self.bucketedManeuverDistance(meters: m, imperial: units == .imperial)
+    }
+
+    /// Distance to a maneuver as the dash's turn card shows it: bucketed
+    /// as above, plain metres / feet below the unit byte's crossover
+    /// (1000 m / 160 m), tenths of km / mi above. Every in-app readout of
+    /// the distance to the next turn uses this, so the phone never shows
+    /// "24 m" while the dash shows "20 m".
+    nonisolated static func maneuverDistanceText(meters m: Double, imperial: Bool,
+                                                 useCommaDecimal: Bool = false) -> String {
+        let b = bucketedManeuverDistance(meters: m, imperial: imperial)
+        if imperial, b < 160 { return String(format: "%.0f ft", b * 3.280839895) }
+        if !imperial, b < 1000 { return String(format: "%.0f m", b) }
+        return RideStatsFormatting.distance(b, imperial: imperial, useCommaDecimal: useCommaDecimal)
     }
 
     /// Wire byte for the primary distance TLV (`05 06`).

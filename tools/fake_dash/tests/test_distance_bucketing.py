@@ -299,3 +299,19 @@ def test_swift_uses_round_half_away_not_banker():
         "bucketing switched to banker's rounding — the mirror uses "
         "round-half-away-from-zero, they will disagree on .5 boundaries."
     )
+
+
+def test_phone_distance_to_next_uses_the_dash_rounding():
+    """The HUD and the Live Activity (also the demo preview) show the
+    distance to the next turn through the same bucketing the dash gets,
+    so the phone never reads "24 m" while the dash reads "20 m"."""
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    hud = (app / "UI" / "Navigation" / "NavigationHUD.swift").read_text()
+    body = hud[hud.index("private var distanceToNext: String {"):]
+    body = body[:body.index("\n    }")]
+    assert "DashNavSettings.maneuverDistanceText(meters: nav.distanceToNextStep" in body
+    la = (app / "LiveActivity" / "LiveActivityController.swift").read_text()
+    assert "return DashNavSettings.maneuverDistanceText(meters: m, imperial: imperial)" in la
+    src = _swift_settings_source()
+    text = src[src.index("static func maneuverDistanceText("):]
+    assert "let b = bucketedManeuverDistance(meters: m, imperial: imperial)" in text[:600]
