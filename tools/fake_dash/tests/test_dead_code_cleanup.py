@@ -115,7 +115,8 @@ def test_empty_reconnect_branch_block_is_gone():
 #   edit branch, Delete button and "Edit favorite" title were unreachable.
 # - `PlanningMapView.onTapWaypoint` was only ever passed a no-op closure.
 # - `DashPreviewPanel` duplicated the byte-identical `LiveActivityController`
-#   distance/ETA formatters; `NavigationHUD` had two copies of the
+#   distance formatter (its ETA now comes from the dash's ETA TLV);
+#   `NavigationHUD` had two copies of the
 #   "1h 23m" / "15 min" formatter.
 # ----------------------------------------------------------------------
 
@@ -157,12 +158,14 @@ def test_planning_map_has_no_tap_waypoint_hook():
     assert not re.search(r"\bonTapWaypoint\b", _src("UI/MapPickerView.swift"))
 
 
-def test_dash_preview_reuses_live_activity_formatters():
+def test_dash_preview_reuses_shared_formatters():
     src = _src("UI/DashPreviewPanel.swift")
     dist = decl_body(src, "private func distanceText(")
     assert "LiveActivityController.distanceText(meters: m, imperial: bubble.imperial)" in dist
+    # The ETA is the HHMM the dash's ETA TLV carries, not the Live Activity's
+    # "ETA 14:05" / "2:05 PM" string: the dash has no AM/PM.
     eta = decl_body(src, "private func etaText(")
-    assert "LiveActivityController.etaText(date: bubble.etaDate, is24Hour: bubble.is24Hour)" in eta
+    assert "let hhmm = String(decoding: K1GPacket.tlvEta(date: date, is24Hour: bubble.is24Hour).payload," in eta
     assert "DateFormatter" not in src
     assert "3.280839895013123" not in src
 

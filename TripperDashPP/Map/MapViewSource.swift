@@ -3371,12 +3371,12 @@ extension MapViewSource {
     // MARK: Dash geometry (docs/dash-visible-area.md, measured ±3 px)
 
     /// The dash's round glass shows only this circle of the 526×300 frame.
-    fileprivate static let visibleCenter = CGPoint(x: 262, y: 263)
-    fileprivate static let visibleRadius: CGFloat = 264
+    static let visibleCenter = CGPoint(x: 262, y: 263)
+    static let visibleRadius: CGFloat = 264
     /// While navigating, the dash draws its own turn card (glyph +
     /// distance) over the stream as this disc.
-    fileprivate static let navCardCenter = CGPoint(x: 79, y: 228)
-    fileprivate static let navCardRadius: CGFloat = 68
+    static let navCardCenter = CGPoint(x: 79, y: 228)
+    static let navCardRadius: CGFloat = 68
     /// Gap (px) fixed overlays keep from the glass edge, the turn card and
     /// the heading puck — covers the ±3 px measurement error.
     fileprivate static let overlayClearance: CGFloat = 4
