@@ -292,13 +292,11 @@ struct NavigationHUD: View {
                                              useCommaDecimal: useCommaDecimal)
     }
 
+    /// Same units as the dash's distance TLVs: feet only below 160 m.
     private var distanceRemaining: String {
         let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance
-        if m < 1000 {
-            return imperial ? String(format: "%.0f ft", m * 3.280839895013123)
-                            : String(format: "%.0f m", m)
-        }
-        return RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: useCommaDecimal)
+        return DashNavSettings.wireDistanceText(meters: m, imperial: imperial,
+                                                useCommaDecimal: useCommaDecimal)
     }
 
     /// Seconds the ETA card should display: final-destination ETA when the

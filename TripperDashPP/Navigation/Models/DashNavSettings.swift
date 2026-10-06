@@ -395,11 +395,21 @@ final class DashNavSettings {
     /// "24 m" while the dash shows "20 m".
     nonisolated static func maneuverDistanceText(meters m: Double, imperial: Bool,
                                                  useCommaDecimal: Bool = false) -> String {
-        let b = bucketedManeuverDistance(meters: m, imperial: imperial)
-        if imperial, b < 160 { return String(format: "%.0f ft", b * 3.280839895) }
-        if !imperial, b < 1000 { return String(format: "%.0f m", b) }
-        let s = imperial ? String(format: "%.1f mi", b / 1609.344)
-                         : String(format: "%.1f km", b / 1000)
+        wireDistanceText(meters: bucketedManeuverDistance(meters: m, imperial: imperial),
+                         imperial: imperial, useCommaDecimal: useCommaDecimal)
+    }
+
+    /// A distance in the unit the distance TLVs pick (`primaryUnitWireByte`):
+    /// plain metres / feet below 1000 m / 160 m, tenths of km / mi above.
+    /// The HUD's distance to the destination uses it unbucketed, like the
+    /// total-distance TLV.
+    nonisolated static func wireDistanceText(meters m: Double, imperial: Bool,
+                                             useCommaDecimal: Bool = false) -> String {
+        let m = m.isFinite ? max(0, m) : 0
+        if imperial, m < 160 { return String(format: "%.0f ft", m * 3.280839895) }
+        if !imperial, m < 1000 { return String(format: "%.0f m", m) }
+        let s = imperial ? String(format: "%.1f mi", m / 1609.344)
+                         : String(format: "%.1f km", m / 1000)
         return useCommaDecimal ? s.replacingOccurrences(of: ".", with: ",") : s
     }
 

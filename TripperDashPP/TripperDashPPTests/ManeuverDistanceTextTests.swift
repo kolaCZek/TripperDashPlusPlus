@@ -34,6 +34,20 @@ struct ManeuverDistanceTextTests {
         #expect(DashNavSettings.maneuverDistanceText(meters: meters, imperial: true) == text)
     }
 
+    /// Distance to the destination: not bucketed, but in the same units as
+    /// the wire, so 800 m reads "0.5 mi", not "2625 ft".
+    @Test(arguments: [
+        (800.0, false, "800 m"),
+        (1449.0, false, "1.4 km"),
+        (123_456.0, false, "123.5 km"),
+        (100.0, true, "328 ft"),
+        (800.0, true, "0.5 mi"),
+        (-5.0, false, "0 m"),
+    ])
+    func remaining(meters: Double, imperial: Bool, text: String) {
+        #expect(DashNavSettings.wireDistanceText(meters: meters, imperial: imperial) == text)
+    }
+
     @Test func commaDecimal() {
         #expect(DashNavSettings.maneuverDistanceText(meters: 1449, imperial: false,
                                                      useCommaDecimal: true) == "1,4 km")
