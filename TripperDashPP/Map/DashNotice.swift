@@ -19,8 +19,9 @@
 //      same constraint as every other burned-in overlay — see
 //      MapViewSource.drawText).
 //    - Rendered in the flat outer CGContext (transform-independent) so it
-//      sits dead-centre regardless of map rotation/zoom, like the weather
-//      pill and speed-limit sign.
+//      stays put regardless of map rotation/zoom, like the weather pill and
+//      speed-limit sign: centred on the round glass, just above the dash's
+//      turn card.
 //    - Auto-dismiss is time-based off the render clock, not a timer: the
 //      notice carries an expiry set when it's shown, and the draw path skips
 //      it once expired. No background timers, nothing to cancel on teardown.

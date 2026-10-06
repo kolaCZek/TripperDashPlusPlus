@@ -318,7 +318,9 @@ def test_weather_pill_collision_bump():
     assert "shouldDrawSpeedLimit" in src
     assert "speedLimitSignDiameter" in src
     # The bump is applied to the weather pill's vertical origin.
-    assert re.search(r"originY\s*=\s*frameSize\.height\s*-\s*margin\s*-\s*pillH\s*-\s*signBump", src)
+    # (Also by the progress-bar zone — whichever is taller; see
+    # test_overlay_layout.py.)
+    assert re.search(r"originY\s*=\s*frameSize\.height\s*-\s*margin\s*-\s*pillH\s*-\s*max\(signBump, barBump\)", src)
 
 
 def test_section_panel_lifts_weather_pill_even_without_sign():

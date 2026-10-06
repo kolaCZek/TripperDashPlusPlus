@@ -1284,7 +1284,7 @@ final class AppStatus {
         pendingShare = resolution
         pendingSearchHint = nil   // older than this share
         mapViewSource.showNotice(
-            DashNotice(text: "Share saved for after the ride", level: .info, duration: 5)
+            DashNotice(text: "Share saved for later", level: .info, duration: 5)
         )
     }
 

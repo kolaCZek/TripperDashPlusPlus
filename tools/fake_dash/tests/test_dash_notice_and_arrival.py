@@ -81,8 +81,9 @@ def test_notice_is_drawn_in_composite_path():
     assert "drawNotice(into: ctx)" in src, "composite path must call drawNotice"
     # Ordering: drawNotice must come after drawProgressBar (drawn last of the
     # map overlays) so the notice is on top.
-    prog = src.index("drawProgressBar(into: ctx)\n\n        // Centred dash notice")
-    assert prog != -1, "drawNotice must be sequenced right after drawProgressBar"
+    prog = src.index("        drawProgressBar(into: ctx)\n")
+    assert src.index("        drawNotice(into: ctx)\n") > prog, (
+        "drawNotice must be sequenced after drawProgressBar")
 
 
 def test_notice_auto_expires():
