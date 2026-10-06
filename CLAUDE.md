@@ -172,7 +172,7 @@ GitHub token, iCloud password, Home Assistant token, etc. — **never put these 
 
 7. **Stream shape is 4 fps / 512 kbps / keyframe every 1 s / no bursts.** It matches the stock RE app's frame rate, GOP and `maxrate = bitrate` cap (better-dash `DASH_*`), at 2.5× its bitrate for legible labels. The earlier 6 fps / 1024 kbps / 2-s GOP / 3× burst setup froze and broke the picture into fragments until the next keyframe — lost RTP packets. Fewer bits per second and no bursts means smaller frames and fewer packets to lose. The dash decoder blinks above ~12 fps. Per-frame lerp factors in `MapViewSource` (heading, zoom, zoom-bias revert) are tuned to `targetFps` — rescale them if it ever changes. Don't raise fps or bitrate without a ride test.
 
-8. **Resolution is exactly 526×300.** This is the dash's native panel resolution. Other resolutions get scaled internally and blur the text.
+8. **Resolution is exactly 526×300.** This is the dash's native panel resolution. Other resolutions get scaled internally and blur the text. Not all of it is visible: the round glass shows a circle (centre 262,263, r 264) and while navigating the dash draws its own turn card over a disc at (79,228) r 68. Place overlays against [`docs/dash-visible-area.md`](docs/dash-visible-area.md), not by trial and error.
 
 9. **H.264 baseline profile only.** No B-frames (`AllowFrameReordering=false`), no High profile. The Tripper decoder breaks on both.
 
