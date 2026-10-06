@@ -2261,14 +2261,12 @@ extension MapViewSource {
         guard let s = navOverlayState else { return }
 
         // 1. Glyph in a 70×70 box at top-left, 12 px margin.
-        // Solid dark backdrop so the white arrow reads over bright map
-        // backgrounds. Solid, not translucent: a map moving under the glyph
-        // makes the encoder re-code it every frame, which smears it at
-        // 512 kbps; on solid black it is static and costs ~nothing.
+        // Add a soft dark backdrop so the white arrow + text reads
+        // over bright map backgrounds.
         let pad: CGFloat = 12
         let backdrop = CGRect(x: pad - 6, y: pad - 6, width: 70 + 12, height: 70 + 12)
         ctx.saveGState()
-        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1)
+        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.55)
         let path = CGPath(
             roundedRect: backdrop,
             cornerWidth: 10,
@@ -2674,10 +2672,11 @@ extension MapViewSource {
         let originY = frameSize.height - margin - pillH - max(signBump, barBump)
         let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
 
-        // Backdrop: solid black, 1.5 px coloured border. Solid, not translucent: a
-        // map moving under the text makes the encoder re-code it every
-        // frame, which smears it at 512 kbps (rider: "Dense fog" hard to
-        // read); on solid black the text is static and costs ~nothing.
+        // Backdrop: solid black, 1.5 px coloured border. Solid, not
+        // translucent: a map moving under the text makes the encoder re-code
+        // it every frame at 512 kbps (rider: "Dense fog" hard to read). On
+        // solid black the text macroblocks are mostly static between
+        // keyframes; edge blocks still straddle the map.
         ctx.saveGState()
         let path = CGPath(roundedRect: pill, cornerWidth: 9, cornerHeight: 9, transform: nil)
         ctx.addPath(path)
@@ -2751,10 +2750,8 @@ extension MapViewSource {
         let originY = (frameSize.height - cardH) / 2 - 4
         let card = CGRect(x: originX, y: originY, width: cardW, height: cardH)
 
-        // Backdrop: solid black, 2 px accent border. Solid, not translucent: a
-        // map moving under the text makes the encoder re-code it every
-        // frame, which smears it at 512 kbps (rider: "Dense fog" hard to
-        // read); on solid black the text is static and costs ~nothing.
+        // Backdrop: solid black, 2 px accent border — solid for the same
+        // encoder reason as the weather pill.
         ctx.saveGState()
         let path = CGPath(roundedRect: card, cornerWidth: 12, cornerHeight: 12, transform: nil)
         ctx.addPath(path)

@@ -22,7 +22,6 @@ FILL = re.compile(r"setFillColor\((?:CGColor\()?red: 0, green: 0, blue: 0, alpha
 
 
 @pytest.mark.parametrize("fn", [
-    "fileprivate func drawNavOverlay(into ctx: CGContext)",
     "fileprivate func drawWeatherAlert(into ctx: CGContext)",
     "fileprivate func drawNotice(into ctx: CGContext)",
     "fileprivate func drawSpeedSectionPanel(into ctx: CGContext)",
@@ -32,3 +31,8 @@ def test_text_backdrop_is_solid_black(fn):
     alphas = FILL.findall(body)
     assert alphas, f"{fn}: black backdrop fill not found"
     assert all(float(a) == 1 for a in alphas), f"{fn}: translucent backdrop {alphas}"
+    # No translucency sneaking in another way before the backdrop is filled.
+    m = FILL.search(body)
+    seg = body[m.start(): body.index("fillPath()", m.start())]
+    for bad in ("setAlpha(", "withAlphaComponent(", "copy(alpha:"):
+        assert bad not in seg, f"{fn}: {bad} before the backdrop fill"
