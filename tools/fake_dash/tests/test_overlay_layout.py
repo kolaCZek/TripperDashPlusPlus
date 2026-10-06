@@ -62,7 +62,6 @@ ZOOM = "private func drawZoomOsd(into ctx: CGContext)"
 VIS_C, VIS_R = point("visibleCenter"), const("visibleRadius")
 NAV_C, NAV_R = point("navCardCenter"), const("navCardRadius")
 CLEAR = const("overlayClearance")
-NAV_MAX_X = NAV_C[0] + NAV_R + CLEAR
 SIGN_D, SIGN_M = const("speedLimitSignDiameter"), const("speedLimitSignMargin")
 SEC_W, SEC_H = (float(v) for v in re.search(
     r"sectionPanelSize = CGSize\(width: ([0-9.]+), height: ([0-9.]+)\)", SRC).groups())
@@ -112,9 +111,7 @@ def pill_room(sign: bool, section: bool, bar: bool):
     bar_bump = BAR_ZONE + 4 - m if bar else 0
     y = H - m - PILL_H - max(sign_bump, bar_bump)
     max_x = min(W - m, visible_span(y, y + PILL_H)[1])
-    beside = y + PILL_H > PUCK[1] - CLEAR and y < PUCK[3] + CLEAR
-    min_x = PUCK[2] + CLEAR if beside else NAV_MAX_X
-    return chrome, y, max_x, max_x - min_x - chrome
+    return chrome, y, max_x, max_x - (PUCK[2] + CLEAR) - chrome
 
 
 def pill_rect(sign: bool, section: bool, bar: bool, text_w: float):
@@ -137,8 +134,9 @@ def notice_rect(text_w: float):
 
 def zoom_rect():
     r = local(ZOOM, "r")
-    cy = H - BAR_ZONE - CLEAR - r
-    reach = NAV_R + CLEAR + r
+    ring = local(ZOOM, "ringHalf")
+    cy = H - BAR_ZONE - CLEAR - r - ring
+    reach = NAV_R + CLEAR + r + ring
     cx = NAV_C[0] + math.sqrt(reach * reach - (cy - NAV_C[1]) ** 2)
     return (cx - r, cy - r, cx + r, cy + r)
 
@@ -160,7 +158,7 @@ def rects(sign, section, bar, notice, pill_w, notice_w) -> dict:
     return out
 
 
-PILL_WIDTHS = range(20, 420, 5)      # real labels ~110-230 px at 20 pt
+PILL_WIDTHS = range(20, 420, 5)      # real labels ~110-210 px at 18 pt
 NOTICE_WIDTHS = range(40, 520, 20)
 
 
@@ -178,11 +176,8 @@ def test_layout_math_matches_source():
     assert "Self.progressBarZoneHeight + 4 - margin" in pill
     assert "Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound" in pill
     assert "let originY = frameSize.height - margin - pillH - max(signBump, barBump)" in pill
-    assert "originY + pillH > puck.minY - Self.overlayClearance" in pill
-    assert "&& originY < puck.maxY + Self.overlayClearance" in pill
-    assert ("let minX = besidePuck ? puck.maxX + Self.overlayClearance"
-            " : Self.navCardClearMaxX") in pill
-    assert "let maxTextW = maxX - minX - chromeW" in pill
+    assert ("let maxTextW = maxX - (puckRect.maxX + Self.overlayClearance)"
+            " - chromeW") in pill
     assert "label = Self.weatherShortTitle(alert.title) + distText" in pill
     assert "fontSize *= maxTextW / textW" in pill
     # Short name first, font shrink only after it.
@@ -198,11 +193,16 @@ def test_layout_math_matches_source():
     assert "let originX = Self.visibleCenter.x - cardW / 2" in card
     zoom = strip_comments(decl_body(SRC, ZOOM))
     assert ("let cy = frameSize.height - Self.progressBarZoneHeight"
-            " - Self.overlayClearance - r") in zoom
-    assert "let reach = Self.navCardRadius + Self.overlayClearance + r" in zoom
+            " - Self.overlayClearance - r - ringHalf") in zoom
+    assert "let reach = Self.navCardRadius + Self.overlayClearance + r + ringHalf" in zoom
+    assert "ctx.setLineWidth(2.6)" in zoom and local(ZOOM, "ringHalf") >= 1.3
     assert "let dy = cy - Self.navCardCenter.y" in zoom
     assert "let cx = Self.navCardCenter.x + (reach * reach - dy * dy).squareRoot()" in zoom
     assert "let r = 14 * puckScale" in SRC
+    # ...which is the white ring drawHeadingArrow fills (scaled by puckScale).
+    arrow = decl_body(SRC, "private func drawHeadingArrow(")
+    assert "ctx.scaleBy(x: puckScale, y: puckScale)" in arrow
+    assert "fillEllipse(in: CGRect(x: -14, y: -14, width: 28, height: 28))" in arrow
     assert "let cy = frameSize.height / 2 + frameSize.height * forwardBiasFraction" in SRC
     span = strip_comments(decl_body(SRC, "fileprivate static func visibleSpan("))
     assert "max(abs(minY - visibleCenter.y), abs(maxY - visibleCenter.y))" in span
@@ -218,12 +218,8 @@ def test_overlays_on_glass_off_card_and_not_overlapping():
                 for name, rect in r.items():
                     assert on_glass(rect), (combo, pw, nw, name, rect)
                     assert off_nav_card(rect, name == "zoom_osd"), (combo, pw, nw, name, rect)
-                for mover in ("pill", "notice", "zoom_osd"):
-                    if mover not in r:
-                        continue
-                    for other, rect in r.items():
-                        if other != mover:
-                            assert not overlaps(r[mover], rect), (combo, pw, nw, mover, other)
+                for a, b in itertools.combinations(r, 2):
+                    assert not overlaps(r[a], r[b]), (combo, pw, nw, a, b)
 
 
 TITLES = re.findall(r'WeatherAlert\(title: "([^"]+)"', (
@@ -246,19 +242,29 @@ def test_every_long_title_has_a_short_name():
 
 def test_short_weather_labels_keep_full_size():
     # The pill never sits over the route ahead: it stays beside the puck.
-    # The widest short label, "Storm 100 km", is ~158 px at 20 pt in DejaVu
-    # Sans Bold (a stand-in that runs wider than SF Heavy); every short
+    # The widest short label, "Storm 100 km", is ~142 px at 18 pt in DejaVu
+    # Sans Bold (a stand-in that runs wider than SF Bold); every short
     # label must fit there at full size in every sign / section / bar combo.
     for sign, section, bar in itertools.product([False, True], repeat=3):
         _, y, _, room = pill_room(sign, section, bar)
         assert y + PILL_H > PUCK[1] - CLEAR, "pill expected beside the puck"
-        assert room >= 158, (sign, section, bar, room)
+        assert room >= 142, (sign, section, bar, room)
 
 
-def test_overlay_text_is_bigger_and_heavier():
-    assert local(PILL, "fontSize") >= 20
-    assert local(CARD, "fontSize") >= 24
-    assert "overlayTextWeight: UIFont.Weight = .heavy" in SRC
+def test_draw_text_clip_keeps_the_full_glyph_height():
+    # drawText flips to Y-up with the baseline at y 0. The clip must reach
+    # well above the cap height (~0.7 em) and below the descenders, or the
+    # tops of capitals, digits and the "i" dot are cut off.
+    body = strip_comments(decl_body(SRC, "private static func drawText("))
+    m = re.search(r"ctx\.clip\(to: CGRect\(x: 0, y: (-?[0-9.]*) \* fontSize, "
+                  r"width: width, height: fontSize \* ([0-9.]+)\)\)", body)
+    below, height = -float(m.group(1)), float(m.group(2))
+    assert below >= 0.3, below
+    assert height - below >= 1.0, height - below
+    assert "ctx.translateBy(x: origin.x, y: origin.y + fontSize)" in body
+
+
+def test_overlay_text_weight_is_shared():
     # Measured with the weight drawText draws, or the clip eats a glyph.
     for fn in (PILL, CARD):
         assert "weight: Self.overlayTextWeight" in decl_body(SRC, fn)
