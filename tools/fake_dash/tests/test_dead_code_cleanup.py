@@ -161,8 +161,10 @@ def test_dash_preview_reuses_live_activity_formatters():
     src = _src("UI/DashPreviewPanel.swift")
     dist = decl_body(src, "private func distanceText(")
     assert "LiveActivityController.distanceText(meters: m, imperial: bubble.imperial)" in dist
+    # The ETA is the HHMM the dash's ETA TLV carries, not the Live Activity's
+    # "ETA 14:05" / "2:05 PM" string: the dash has no AM/PM.
     eta = decl_body(src, "private func etaText(")
-    assert "LiveActivityController.etaText(date: bubble.etaDate, is24Hour: bubble.is24Hour)" in eta
+    assert "K1GPacket.tlvEta(date: date, is24Hour: bubble.is24Hour)" in eta
     assert "DateFormatter" not in src
     assert "3.280839895013123" not in src
 

@@ -269,3 +269,17 @@ def test_overlay_text_weight_is_shared():
     for fn in (PILL, CARD):
         assert "weight: Self.overlayTextWeight" in decl_body(SRC, fn)
     assert "weight: overlayTextWeight" in decl_body(SRC, "private static func drawText(")
+
+
+def test_demo_preview_uses_the_measured_dash_geometry():
+    # The demo dash preview clips to the same glass and puts the turn card
+    # on the same disc the overlays are laid out against.
+    src = (ROOT / "TripperDashPP" / "UI" / "DashPreviewPanel.swift").read_text()
+    glass = strip_comments(decl_body(src, "private static var glass: Path"))
+    assert "let c = MapViewSource.visibleCenter, r = MapViewSource.visibleRadius" in glass
+    assert ".clipShape(Self.glass)" in src
+    card = strip_comments(decl_body(src, "private func turnCard("))
+    assert "let r = MapViewSource.navCardRadius" in card
+    assert ".position(MapViewSource.navCardCenter)" in card
+    assert "private static let width: CGFloat = 526" in src
+    assert "private static let frameHeight: CGFloat = 300" in src
