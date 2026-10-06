@@ -19,6 +19,7 @@ struct ManeuverDistanceTextTests {
         (437.0, "400 m"),   // ≥ 200 m: nearest 100 m
         (985.0, "1.0 km"),  // buckets to 1000 m → km, like the unit byte
         (1449.0, "1.4 km"),
+        (123_456.0, "123.5 km"), // still tenths past 100 km, like the wire
     ])
     func metric(meters: Double, text: String) {
         #expect(DashNavSettings.maneuverDistanceText(meters: meters, imperial: false) == text)

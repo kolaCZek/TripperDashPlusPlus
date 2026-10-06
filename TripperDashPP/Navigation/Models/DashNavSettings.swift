@@ -354,8 +354,7 @@ final class DashNavSettings {
     /// bucket and the unit byte can never disagree.
     nonisolated static func bucketedManeuverDistance(meters m: Double, imperial: Bool) -> Double {
         guard m.isFinite, m > 0 else { return 0 }
-        switch imperial {
-        case false:
+        if !imperial {
             let step: Double
             if m < 50 {
                 step = 1
@@ -365,7 +364,7 @@ final class DashNavSettings {
                 step = 100
             }
             return (m / step).rounded() * step
-        case true:
+        } else {
             // Bucket in the rider's actual display unit, then convert the
             // rounded value back to metres (the wire/unit-byte helpers
             // re-derive feet/miles from it). Thresholds match the unit
@@ -390,7 +389,8 @@ final class DashNavSettings {
 
     /// Distance to a maneuver as the dash's turn card shows it: bucketed
     /// as above, plain metres / feet below the unit byte's crossover
-    /// (1000 m / 160 m), tenths of km / mi above. Every in-app readout of
+    /// (1000 m / 160 m), tenths of km / mi above (also past 100 km / mi:
+    /// the wire still carries tenths there). Every in-app readout of
     /// the distance to the next turn uses this, so the phone never shows
     /// "24 m" while the dash shows "20 m".
     nonisolated static func maneuverDistanceText(meters m: Double, imperial: Bool,
@@ -398,7 +398,9 @@ final class DashNavSettings {
         let b = bucketedManeuverDistance(meters: m, imperial: imperial)
         if imperial, b < 160 { return String(format: "%.0f ft", b * 3.280839895) }
         if !imperial, b < 1000 { return String(format: "%.0f m", b) }
-        return RideStatsFormatting.distance(b, imperial: imperial, useCommaDecimal: useCommaDecimal)
+        let s = imperial ? String(format: "%.1f mi", b / 1609.344)
+                         : String(format: "%.1f km", b / 1000)
+        return useCommaDecimal ? s.replacingOccurrences(of: ".", with: ",") : s
     }
 
     /// Wire byte for the primary distance TLV (`05 06`).

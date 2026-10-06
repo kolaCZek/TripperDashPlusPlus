@@ -34,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.swift_source import decl_body, strip_comments
+
 
 def _swift_settings_source() -> str:
     here = Path(__file__).resolve()
@@ -306,12 +308,13 @@ def test_phone_distance_to_next_uses_the_dash_rounding():
     distance to the next turn through the same bucketing the dash gets,
     so the phone never reads "24 m" while the dash reads "20 m"."""
     app = Path(__file__).resolve().parents[3] / "TripperDashPP"
-    hud = (app / "UI" / "Navigation" / "NavigationHUD.swift").read_text()
-    body = hud[hud.index("private var distanceToNext: String {"):]
-    body = body[:body.index("\n    }")]
-    assert "DashNavSettings.maneuverDistanceText(meters: nav.distanceToNextStep" in body
-    la = (app / "LiveActivity" / "LiveActivityController.swift").read_text()
-    assert "return DashNavSettings.maneuverDistanceText(meters: m, imperial: imperial)" in la
-    src = _swift_settings_source()
-    text = src[src.index("static func maneuverDistanceText("):]
-    assert "let b = bucketedManeuverDistance(meters: m, imperial: imperial)" in text[:600]
+    def body(path, decl):
+        return strip_comments(decl_body(path.read_text(), decl, include_signature=False)).strip(" \n{}")
+    hud = body(app / "UI" / "Navigation" / "NavigationHUD.swift",
+               "private var distanceToNext: String {")
+    assert hud.startswith("DashNavSettings.maneuverDistanceText(meters: nav.distanceToNextStep"), hud
+    la = body(app / "LiveActivity" / "LiveActivityController.swift",
+              "nonisolated static func distanceText(")
+    assert la.endswith("return DashNavSettings.maneuverDistanceText(meters: m, imperial: imperial)"), la
+    text = strip_comments(decl_body(_swift_settings_source(), "nonisolated static func maneuverDistanceText("))
+    assert "let b = bucketedManeuverDistance(meters: m, imperial: imperial)" in text
