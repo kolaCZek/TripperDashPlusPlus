@@ -2261,12 +2261,14 @@ extension MapViewSource {
         guard let s = navOverlayState else { return }
 
         // 1. Glyph in a 70×70 box at top-left, 12 px margin.
-        // Add a soft dark backdrop so the white arrow + text reads
-        // over bright map backgrounds.
+        // Solid dark backdrop so the white arrow reads over bright map
+        // backgrounds. Solid, not translucent: a map moving under the glyph
+        // makes the encoder re-code it every frame, which smears it at
+        // 512 kbps; on solid black it is static and costs ~nothing.
         let pad: CGFloat = 12
         let backdrop = CGRect(x: pad - 6, y: pad - 6, width: 70 + 12, height: 70 + 12)
         ctx.saveGState()
-        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 0.55)
+        ctx.setFillColor(red: 0, green: 0, blue: 0, alpha: 1)
         let path = CGPath(
             roundedRect: backdrop,
             cornerWidth: 10,
@@ -2648,11 +2650,14 @@ extension MapViewSource {
         let originY = frameSize.height - margin - pillH - signBump
         let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
 
-        // Backdrop: 78% black, 1.5 px coloured border.
+        // Backdrop: solid black, 1.5 px coloured border. Solid, not translucent: a
+        // map moving under the text makes the encoder re-code it every
+        // frame, which smears it at 512 kbps (rider: "Dense fog" hard to
+        // read); on solid black the text is static and costs ~nothing.
         ctx.saveGState()
         let path = CGPath(roundedRect: pill, cornerWidth: 9, cornerHeight: 9, transform: nil)
         ctx.addPath(path)
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.78))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fillPath()
         ctx.addPath(path)
         ctx.setStrokeColor(accent)
@@ -2708,11 +2713,14 @@ extension MapViewSource {
         let originY = (frameSize.height - cardH) / 2
         let card = CGRect(x: originX, y: originY, width: cardW, height: cardH)
 
-        // Backdrop: 82% black, 2 px accent border.
+        // Backdrop: solid black, 2 px accent border. Solid, not translucent: a
+        // map moving under the text makes the encoder re-code it every
+        // frame, which smears it at 512 kbps (rider: "Dense fog" hard to
+        // read); on solid black the text is static and costs ~nothing.
         ctx.saveGState()
         let path = CGPath(roundedRect: card, cornerWidth: 12, cornerHeight: 12, transform: nil)
         ctx.addPath(path)
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.82))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fillPath()
         ctx.addPath(path)
         ctx.setStrokeColor(accent)
@@ -3177,11 +3185,11 @@ extension MapViewSource {
         let grey = CGColor(red: 0.62, green: 0.64, blue: 0.67, alpha: 1)
         let accent = over ? red : grey
 
-        // Backdrop — same look as the weather pill.
+        // Backdrop — same look as the weather pill (solid, see there).
         ctx.saveGState()
         let path = CGPath(roundedRect: panel, cornerWidth: 9, cornerHeight: 9, transform: nil)
         ctx.addPath(path)
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.78))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         ctx.fillPath()
         ctx.addPath(path)
         ctx.setStrokeColor(accent)
