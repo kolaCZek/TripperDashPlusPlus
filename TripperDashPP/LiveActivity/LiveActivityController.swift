@@ -159,7 +159,7 @@ final class LiveActivityController {
         return false
     }
 
-    // MARK: - Formatting (also used by DashPreviewPanel; km/mi via RideStatsFormatting)
+    // MARK: - Formatting (also used by DashPreviewPanel; turn distance via DashNavSettings, remaining via RideStatsFormatting)
 
     /// Distance-to-next, rounded exactly like the dash's turn card.
     nonisolated static func distanceText(meters m: Double, imperial: Bool) -> String {

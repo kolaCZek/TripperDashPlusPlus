@@ -321,6 +321,7 @@ def test_phone_distance_to_next_uses_the_dash_rounding():
     # Distance to the destination: same unit crossover as the wire
     # (`primaryUnitWireByte`: feet below 160 m), so 800 m is not "2625 ft".
     rem = body(app / "UI" / "Navigation" / "NavigationHUD.swift", "private var distanceRemaining: String {")
-    assert "DashNavSettings.wireDistanceText(meters: m, imperial: imperial," in rem, rem
+    assert rem.startswith("let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance\n"), rem
+    assert rem.split("\n", 1)[1].strip().startswith("return DashNavSettings.wireDistanceText(meters: m, imperial: imperial,"), rem
     wire = strip_comments(decl_body(_swift_settings_source(), "nonisolated static func wireDistanceText("))
     assert "if imperial, m < 160" in wire and "if !imperial, m < 1000" in wire
