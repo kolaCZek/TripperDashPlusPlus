@@ -352,10 +352,9 @@ final class DashNavSettings {
     /// metric bucket (e.g. 400 m → 1312 ft). The imperial feet↔miles
     /// threshold mirrors `primaryUnitWireByte`'s 160 m crossover so the
     /// bucket and the unit byte can never disagree.
-    func bucketedManeuverDistance(meters m: Double) -> Double {
+    nonisolated static func bucketedManeuverDistance(meters m: Double, imperial: Bool) -> Double {
         guard m.isFinite, m > 0 else { return 0 }
-        switch units {
-        case .metric:
+        if !imperial {
             let step: Double
             if m < 50 {
                 step = 1
@@ -365,7 +364,7 @@ final class DashNavSettings {
                 step = 100
             }
             return (m / step).rounded() * step
-        case .imperial:
+        } else {
             // Bucket in the rider's actual display unit, then convert the
             // rounded value back to metres (the wire/unit-byte helpers
             // re-derive feet/miles from it). Thresholds match the unit
@@ -382,6 +381,36 @@ final class DashNavSettings {
                 return (m / stepM).rounded() * stepM
             }
         }
+    }
+
+    func bucketedManeuverDistance(meters m: Double) -> Double {
+        Self.bucketedManeuverDistance(meters: m, imperial: units == .imperial)
+    }
+
+    /// Distance to a maneuver as the dash's turn card shows it: bucketed
+    /// as above, plain metres / feet below the unit byte's crossover
+    /// (1000 m / 160 m), tenths of km / mi above (also past 100 km / mi:
+    /// the wire still carries tenths there). Every in-app readout of
+    /// the distance to the next turn uses this, so the phone never shows
+    /// "24 m" while the dash shows "20 m".
+    nonisolated static func maneuverDistanceText(meters m: Double, imperial: Bool,
+                                                 useCommaDecimal: Bool = false) -> String {
+        wireDistanceText(meters: bucketedManeuverDistance(meters: m, imperial: imperial),
+                         imperial: imperial, useCommaDecimal: useCommaDecimal)
+    }
+
+    /// A distance in the unit the distance TLVs pick (`primaryUnitWireByte`):
+    /// plain metres / feet below 1000 m / 160 m, tenths of km / mi above.
+    /// The HUD's distance to the destination uses it unbucketed, like the
+    /// total-distance TLV.
+    nonisolated static func wireDistanceText(meters m: Double, imperial: Bool,
+                                             useCommaDecimal: Bool = false) -> String {
+        let m = m.isFinite ? max(0, m) : 0
+        if imperial, m < 160 { return String(format: "%.0f ft", m * 3.280839895) }
+        if !imperial, m < 1000 { return String(format: "%.0f m", m) }
+        let s = imperial ? String(format: "%.1f mi", m / 1609.344)
+                         : String(format: "%.1f km", m / 1000)
+        return useCommaDecimal ? s.replacingOccurrences(of: ".", with: ",") : s
     }
 
     /// Wire byte for the primary distance TLV (`05 06`).

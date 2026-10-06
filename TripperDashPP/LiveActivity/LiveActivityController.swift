@@ -159,20 +159,12 @@ final class LiveActivityController {
         return false
     }
 
-    // MARK: - Formatting (also used by DashPreviewPanel; km/mi via RideStatsFormatting)
+    // MARK: - Formatting (also used by DashPreviewPanel; turn distance via DashNavSettings, remaining via RideStatsFormatting)
 
-    /// Distance-to-next: fine metres/feet under 1 km (rounded to nearest 10,
-    /// dash-parity close-in), km/mi above via the shared formatter.
+    /// Distance-to-next, rounded exactly like the dash's turn card.
     nonisolated static func distanceText(meters m: Double, imperial: Bool) -> String {
         guard m >= 0 else { return "—" }
-        if m < 1000 {
-            if imperial {
-                let feet = m * 3.280839895013123
-                return String(format: "%.0f ft", (feet / 10).rounded() * 10)
-            }
-            return String(format: "%.0f m", (m / 10).rounded() * 10)
-        }
-        return RideStatsFormatting.distance(m, imperial: imperial)
+        return DashNavSettings.maneuverDistanceText(meters: m, imperial: imperial)
     }
 
     nonisolated static func etaText(date: Date?, is24Hour: Bool) -> String? {

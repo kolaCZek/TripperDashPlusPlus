@@ -34,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.swift_source import decl_body, strip_comments
+
 
 def _swift_settings_source() -> str:
     here = Path(__file__).resolve()
@@ -299,3 +301,27 @@ def test_swift_uses_round_half_away_not_banker():
         "bucketing switched to banker's rounding — the mirror uses "
         "round-half-away-from-zero, they will disagree on .5 boundaries."
     )
+
+
+def test_phone_distance_to_next_uses_the_dash_rounding():
+    """The HUD and the Live Activity (also the demo preview) show the
+    distance to the next turn through the same bucketing the dash gets,
+    so the phone never reads "24 m" while the dash reads "20 m"."""
+    app = Path(__file__).resolve().parents[3] / "TripperDashPP"
+    def body(path, decl):
+        return strip_comments(decl_body(path.read_text(), decl, include_signature=False)).strip(" \n{}")
+    hud = body(app / "UI" / "Navigation" / "NavigationHUD.swift",
+               "private var distanceToNext: String {")
+    assert hud.startswith("DashNavSettings.maneuverDistanceText(meters: nav.distanceToNextStep"), hud
+    la = body(app / "LiveActivity" / "LiveActivityController.swift",
+              "nonisolated static func distanceText(")
+    assert la.endswith("return DashNavSettings.maneuverDistanceText(meters: m, imperial: imperial)"), la
+    text = strip_comments(decl_body(_swift_settings_source(), "nonisolated static func maneuverDistanceText("))
+    assert "wireDistanceText(meters: bucketedManeuverDistance(meters: m, imperial: imperial)," in text
+    # Distance to the destination: same unit crossover as the wire
+    # (`primaryUnitWireByte`: feet below 160 m), so 800 m is not "2625 ft".
+    rem = body(app / "UI" / "Navigation" / "NavigationHUD.swift", "private var distanceRemaining: String {")
+    assert rem.startswith("let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance\n"), rem
+    assert rem.split("\n", 1)[1].strip().startswith("return DashNavSettings.wireDistanceText(meters: m, imperial: imperial,"), rem
+    wire = strip_comments(decl_body(_swift_settings_source(), "nonisolated static func wireDistanceText("))
+    assert "if imperial, m < 160" in wire and "if !imperial, m < 1000" in wire

@@ -285,26 +285,18 @@ struct NavigationHUD: View {
 
     // MARK: - Display helpers
 
+    /// Rounded exactly like the dash's turn card, so phone and dash agree.
     private var distanceToNext: String {
-        let m = nav.distanceToNextStep
-        // Sub-km: show fine metres/feet (dash-parity close-in). ≥1 km: hand
-        // off to the shared km/mi formatter so units + decimal separator match
-        // the rest of the app.
-        if m < 1000 {
-            let rounded = m < 100 ? m : (m / 10).rounded() * 10
-            return imperial ? String(format: "%.0f ft", rounded * 3.280839895013123)
-                            : String(format: "%.0f m", rounded)
-        }
-        return RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: useCommaDecimal)
+        DashNavSettings.maneuverDistanceText(meters: nav.distanceToNextStep,
+                                             imperial: imperial,
+                                             useCommaDecimal: useCommaDecimal)
     }
 
+    /// Same units as the dash's distance TLVs: feet only below 160 m.
     private var distanceRemaining: String {
         let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance
-        if m < 1000 {
-            return imperial ? String(format: "%.0f ft", m * 3.280839895013123)
-                            : String(format: "%.0f m", m)
-        }
-        return RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: useCommaDecimal)
+        return DashNavSettings.wireDistanceText(meters: m, imperial: imperial,
+                                                useCommaDecimal: useCommaDecimal)
     }
 
     /// Seconds the ETA card should display: final-destination ETA when the
