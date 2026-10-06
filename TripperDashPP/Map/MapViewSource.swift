@@ -2360,6 +2360,13 @@ extension MapViewSource {
         }
     }
 
+    /// Weight of the bold overlay text (weather pill, notice card, notice
+    /// glyph letters). Heavy rather than bold: thicker strokes survive the
+    /// 512 kbps stream better. Callers that measure text for layout must use
+    /// this same weight, or the pill/card is sized for a narrower font and
+    /// `drawText`'s clip cuts the last glyph.
+    fileprivate static let overlayTextWeight: UIFont.Weight = .heavy
+
     private static func drawText(
         _ text: String,
         in ctx: CGContext,
@@ -2370,7 +2377,7 @@ extension MapViewSource {
     ) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: bold
-                ? UIFont.systemFont(ofSize: fontSize, weight: .bold)
+                ? UIFont.systemFont(ofSize: fontSize, weight: overlayTextWeight)
                 : UIFont.systemFont(ofSize: fontSize, weight: .regular),
             .foregroundColor: UIColor.white,
             .strokeColor: UIColor.black,
@@ -2615,7 +2622,7 @@ extension MapViewSource {
         let padX: CGFloat = 9
         let glyphSize: CGFloat = 26
         let gap: CGFloat = 7
-        let fontSize: CGFloat = 18
+        var fontSize: CGFloat = 20
         let pillH: CGFloat = 40
 
         // Compose the pill text: bare hazard noun, plus the along-route
@@ -2628,11 +2635,21 @@ extension MapViewSource {
             label = alert.title
         }
 
-        // Measure the composed label so the pill hugs the text.
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+        // Measure the composed label so the pill hugs the text — with the
+        // weight `drawText` actually draws.
+        let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
         let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
-        let textW = (label as NSString)
+        var textW = (label as NSString)
             .size(withAttributes: textAttrs).width.rounded(.up)
+        // Width-fit: stay right of the dash's own turn card and the zoom OSD
+        // (`overlayLeftClearance`). Real labels ("Strong wind 100 km") fit
+        // with room to spare; this is a backstop, not the normal path.
+        let maxTextW = frameSize.width - margin - Self.overlayLeftClearance
+            - (padX + glyphSize + gap + padX)
+        if textW > maxTextW {
+            fontSize *= maxTextW / textW
+            textW = maxTextW
+        }
 
         let pillW = padX + glyphSize + gap + textW + padX
         // Bottom-right anchor (Y-DOWN: bottom = large y).
@@ -2647,7 +2664,14 @@ extension MapViewSource {
         let signBump: CGFloat = (shouldDrawSpeedLimit || speedSection != nil)
             ? Self.speedLimitSignDiameter + 8
             : 0
-        let originY = frameSize.height - margin - pillH - signBump
+        // The route progress bar runs along the bottom edge up to x = 436,
+        // under the pill's left part, and its position chevron overhangs it.
+        // Lift the pill above that zone too, or the bar paints over the
+        // pill's bottom and the chevron over the text.
+        let barBump: CGFloat = rideProgress != nil
+            ? Self.progressBarZoneHeight + 4 - margin
+            : 0
+        let originY = frameSize.height - margin - pillH - max(signBump, barBump)
         let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
 
         // Backdrop: solid black, 1.5 px coloured border. Solid, not translucent: a
@@ -2700,17 +2724,31 @@ extension MapViewSource {
         let gap: CGFloat = 10
         let padX: CGFloat = 16
         let padY: CGFloat = 14
-        let fontSize: CGFloat = 22
+        var fontSize: CGFloat = 24
+        let margin: CGFloat = 12
 
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
-        let textW = (notice.text as NSString)
+        let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
+        var textW = (notice.text as NSString)
             .size(withAttributes: [.font: font]).width.rounded(.up)
+        // Laid out right of the dash's own turn card (left third, see
+        // `overlayLeftClearance`), which would otherwise cover the card's
+        // left end. Width-fit so a long notice ("Share saved for later")
+        // shrinks instead of running off the frame.
+        let freeMinX = Self.overlayLeftClearance
+        let freeW = frameSize.width - margin - freeMinX
+        let maxTextW = freeW - (padX + glyphSize + gap + padX)
+        if textW > maxTextW {
+            fontSize *= maxTextW / textW
+            textW = maxTextW
+        }
 
         let cardW = padX + glyphSize + gap + textW + padX
         let cardH = padY + max(glyphSize, fontSize) + padY
-        // Dead-centre on the frame.
-        let originX = (frameSize.width - cardW) / 2
-        let originY = (frameSize.height - cardH) / 2
+        // Centred in the free area, nudged 4 px up so the card clears a
+        // weather pill lifted above the speed-limit sign (pill top y = 178;
+        // a centred card's bottom would be 179).
+        let originX = freeMinX + (freeW - cardW) / 2
+        let originY = (frameSize.height - cardH) / 2 - 4
         let card = CGRect(x: originX, y: originY, width: cardW, height: cardH)
 
         // Backdrop: solid black, 2 px accent border. Solid, not translucent: a
@@ -3286,6 +3324,24 @@ extension MapViewSource {
     /// weather / speed-limit pills.
     fileprivate static let progressBarRightInset: CGFloat = 90
 
+    /// Gap (px) between the bar and the bottom edge, so the marker fits.
+    fileprivate static let progressBarBottomMargin: CGFloat = 12
+
+    /// Half-height (px) of the position chevron; it overhangs the bar.
+    fileprivate static let progressMarkerHalfHeight: CGFloat = 9
+
+    /// Height (px) from the bottom edge that the bar + chevron (+ its 2-px
+    /// stroke) occupy. Bottom-row overlays (weather pill) sit above it.
+    fileprivate static var progressBarZoneHeight: CGFloat {
+        progressBarBottomMargin + progressBarHeight / 2 + progressMarkerHalfHeight + 1
+    }
+
+    /// Left strip (px) the fixed text overlays (weather pill, notice card)
+    /// stay out of: the dash burns its own turn card into the left third
+    /// (same zone as `progressBarLeftInset`), and the zoom OSD disc sits in
+    /// the bottom-left corner.
+    fileprivate static let overlayLeftClearance: CGFloat = progressBarLeftInset
+
     /// Draw the ride-progress bar along the BOTTOM EDGE between the left/
     /// right insets (centred 66% fallback). DONE portion (left) is grey; the REMAINING
     /// portion (right) is blue; a downward arrow marker sits above the
@@ -3311,8 +3367,7 @@ extension MapViewSource {
         }
         x0 = x0.rounded()
         barW = barW.rounded()
-        let bottomMargin: CGFloat = 12       // lift off the edge so the marker fits
-        let y = frameSize.height - h - bottomMargin          // Y-DOWN
+        let y = frameSize.height - h - Self.progressBarBottomMargin   // Y-DOWN
         let frac = CGFloat(max(0, min(1, p.fraction)))
         let splitX = x0 + (barW * frac).rounded()
 
@@ -3420,7 +3475,7 @@ extension MapViewSource {
         let markX = min(max(x0, splitX), x0 + barW)
         let midY = y + h / 2
         let arrowW: CGFloat = 11           // depth from back edge to tip
-        let arrowHalfH: CGFloat = 9        // half-height (overhangs the bar)
+        let arrowHalfH = Self.progressMarkerHalfHeight   // overhangs the bar
         let notch: CGFloat = 5             // how deep the back notch bites in
         let chevron = CGMutablePath()
         chevron.move(to: CGPoint(x: markX + arrowW, y: midY))                 // tip (points right)
