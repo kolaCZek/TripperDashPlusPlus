@@ -419,6 +419,29 @@ final class ActiveNavLoop {
         }
 
         // 1. Push to wire.
+        if MapViewSource.drawsTestPattern {
+            // diag/dash-test-pattern: a fixed worst-case nav card — both
+            // maneuver slots, 4-digit distances, a long road name, ETA — so a
+            // photo shows the most the dash's own card can cover.
+            let u1 = settings.primaryUnitWireByte(forMeters: 888)
+            let uT = settings.totalDistanceUnitWireByte(forMeters: 888_000)
+            await bikeLink.sendActiveNav(
+                primaryManeuver: ManeuverKind.right.wireByte,
+                primaryDistanceMeters: settings.distanceWireValue(meters: 888, unitByte: u1),
+                primaryUnit: u1,
+                secondaryManeuver: ManeuverKind.roundabout(exit: 3, clockwise: false).wireByte,
+                secondaryDistanceMeters: settings.distanceWireValue(meters: 888, unitByte: u1),
+                secondaryUnit: u1,
+                totalDistanceMeters: settings.distanceWireValue(meters: 888_000, unitByte: uT),
+                totalDistanceUnit: uT,
+                useCommaDecimal: settings.useCommaDecimal,
+                decimalFmtOn: true,
+                roadName: "Nabrezi Kapitana Jarose 8888 WWWW",
+                eta: Date(timeIntervalSinceNow: 8 * 3600 + 88 * 60),
+                is24Hour: settings.is24Hour,
+                remainingSeconds: 8 * 3600 + 88 * 60
+            )
+        } else {
         await bikeLink.sendActiveNav(
             primaryManeuver: kind.wireByte,
             primaryDistanceMeters: primaryDist,
@@ -435,6 +458,7 @@ final class ActiveNavLoop {
             is24Hour: settings.is24Hour,
             remainingSeconds: remainingSecs
         )
+        }
 
         // 2. Push to video compositor.
         let overlay = MapViewSource.NavOverlayState(
