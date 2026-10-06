@@ -1255,7 +1255,8 @@ extension MapViewSource {
         // Weather alert pill — bottom-right, transform-independent (drawn in
         // the flat outer ctx so it sits in a fixed screen spot regardless of
         // map rotation/zoom). Placed AFTER the map branch so it overlays the
-        // tiles; a pill too wide to clear the heading puck moves above it.
+        // tiles; a label too wide to fit beside the heading puck switches to
+        // its short hazard name.
         // No-op when `weatherAlert == nil` (clear weather).
         drawWeatherAlert(into: ctx)
 
@@ -1780,10 +1781,13 @@ extension MapViewSource {
         let isPlus = osd.symbol == "＋"
         let atLimit = osd.atLimit
         let r: CGFloat = 15
-        // Just left of the heading puck: the old bottom-left corner sits
-        // under the dash's own turn card while navigating.
-        let cx = puckRect.minX - Self.overlayClearance - r
-        let cy = puckRect.midY
+        // Bottom-left, tucked against the dash's own turn card (bottom-right
+        // of it) and just above the progress bar, with the usual clearance.
+        // Same spot in free ride, so it doesn't jump between modes.
+        let cy = frameSize.height - Self.progressBarZoneHeight - Self.overlayClearance - r
+        let reach = Self.navCardRadius + Self.overlayClearance + r
+        let dy = cy - Self.navCardCenter.y
+        let cx = Self.navCardCenter.x + (reach * reach - dy * dy).squareRoot()
 
         // Dark translucent disc, same on both states so the badge keeps its
         // place and palette. The white ring + white glyph match the normal
@@ -2637,19 +2641,17 @@ extension MapViewSource {
         // Compose the pill text: bare hazard noun, plus the along-route
         // distance when the hazard is ahead (not at the rider). e.g.
         // "Rain 15 km"; at the rider it's just "Rain". Decision #4.
-        let label: String
-        if let dist = alert.distanceAhead {
-            label = "\(alert.title) \(Self.formatAheadDistance(meters: dist, imperial: weatherImperial))"
-        } else {
-            label = alert.title
-        }
+        let distText = alert.distanceAhead
+            .map { " " + Self.formatAheadDistance(meters: $0, imperial: weatherImperial) } ?? ""
+        var label = alert.title + distText
 
-        // Measure the composed label so the pill hugs the text — with the
-        // weight `drawText` actually draws.
+        // Measure with the weight `drawText` actually draws, so the pill
+        // hugs the text.
         let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
-        let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
-        var textW = (label as NSString)
-            .size(withAttributes: textAttrs).width.rounded(.up)
+        func measure(_ s: String) -> CGFloat {
+            (s as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        }
+        var textW = measure(label)
         let chromeW = padX + glyphSize + gap + padX
 
         // Bottom-right anchor (Y-DOWN: bottom = large y).
@@ -2670,23 +2672,26 @@ extension MapViewSource {
         let barBump: CGFloat = rideProgress != nil
             ? Self.progressBarZoneHeight + 4 - margin
             : 0
-        var originY = frameSize.height - margin - pillH - max(signBump, barBump)
+        let originY = frameSize.height - margin - pillH - max(signBump, barBump)
         // Right edge: the frame margin, or the round glass where it cuts in
         // (a lifted pill's top-right corner would be hidden).
-        var maxX = min(frameSize.width - margin,
+        let maxX = min(frameSize.width - margin,
                        Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound)
-        // A long label would run left over the heading puck. Move the pill
-        // above the puck instead of shrinking the text.
+        // Left limit: the heading puck when the pill shares its rows (it
+        // always does today), else the dash's own turn card. The pill never
+        // moves above the puck: that's the route ahead.
         let puck = puckRect
-        if maxX - chromeW - textW < puck.maxX + Self.overlayClearance,
-           originY + pillH > puck.minY - Self.overlayClearance {
-            originY = puck.minY - Self.overlayClearance - pillH
-            maxX = min(frameSize.width - margin,
-                       Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound)
+        let besidePuck = originY + pillH > puck.minY - Self.overlayClearance
+            && originY < puck.maxY + Self.overlayClearance
+        let minX = besidePuck ? puck.maxX + Self.overlayClearance : Self.navCardClearMaxX
+        let maxTextW = maxX - minX - chromeW
+        // Too long ("Strong wind 100 km"): use the short hazard name
+        // ("Wind 100 km"); the glyph and colour still tell the kind.
+        if textW > maxTextW {
+            label = Self.weatherShortTitle(alert.title) + distText
+            textW = measure(label)
         }
-        // Width-fit: stay right of the dash's own turn card. Real labels fit
-        // with room to spare; this is a backstop, not the normal path.
-        let maxTextW = maxX - Self.navCardClearMaxX - chromeW
+        // Backstop: shrink the font. Short names fit at full size.
         if textW > maxTextW {
             fontSize *= maxTextW / textW
             textW = maxTextW
@@ -2726,6 +2731,20 @@ extension MapViewSource {
                       width: textW + 4, fontSize: fontSize, bold: true)
     }
 
+    /// One-word hazard name for a weather pill too long to fit beside the
+    /// heading puck. Titles from `WeatherAlertService`; unknown ones pass
+    /// through.
+    fileprivate static func weatherShortTitle(_ title: String) -> String {
+        switch title {
+        case "Heavy rain": return "Rain"
+        case "Heavy snow": return "Snow"
+        case "Strong wind", "Gusty wind", "Crosswind": return "Wind"
+        case "Dense fog": return "Fog"
+        case "Frost risk": return "Frost"
+        default: return title
+        }
+    }
+
     /// Draw the active notice ("You've arrived", warnings, etc.). No-op when
     /// none is active or the current one has expired (time-based
     /// auto-dismiss — clears the stored notice on the way out). Rendered in
@@ -2751,8 +2770,8 @@ extension MapViewSource {
         let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
         var textW = (notice.text as NSString)
             .size(withAttributes: [.font: font]).width.rounded(.up)
-        // Sits just above the dash's own turn card (and so above a weather
-        // pill lifted over the puck), centred on the round glass.
+        // Sits just above the dash's own turn card, centred on the round
+        // glass — clear of the weather pill, which stays beside the puck.
         let cardH = padY + max(glyphSize, fontSize) + padY
         let originY = Self.navCardCenter.y - Self.navCardRadius - Self.overlayClearance - cardH
         // Width-fit to the glass at that height, so a long notice shrinks

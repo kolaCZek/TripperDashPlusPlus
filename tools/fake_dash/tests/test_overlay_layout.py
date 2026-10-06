@@ -14,12 +14,14 @@ width up to past the width-fit cap, that:
   spare (corners included),
 - nothing reaches into the turn card (plus clearance),
 - the weather pill, notice card and zoom OSD overlap nothing else,
-  including the heading puck.
+  including the heading puck (the pill stays beside it, never above it:
+  that's the route ahead; a long label switches to a short hazard name).
 
 Text widths can't be measured here (no UIFont), so the widths are swept.
 """
 from __future__ import annotations
 
+import functools
 import itertools
 import math
 import pathlib
@@ -42,6 +44,7 @@ def point(name: str) -> tuple[float, float]:
     return float(m.group(1)), float(m.group(2))
 
 
+@functools.cache
 def local(fn: str, name: str) -> float:
     body = strip_comments(decl_body(SRC, fn))
     return float(re.search(rf"(?:let|var) {name}: CGFloat = ([0-9.]+)", body).group(1))
@@ -92,23 +95,31 @@ def on_glass(r) -> bool:
                for x in (r[0], r[2]) for y in (r[1], r[3]))
 
 
-def off_nav_card(r) -> bool:
+def off_nav_card(r, disc: bool = False) -> bool:
+    if disc:    # the zoom OSD is a disc: centre distance, not its box corner
+        cx, cy, rr = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2, (r[2] - r[0]) / 2
+        return math.hypot(cx - NAV_C[0], cy - NAV_C[1]) >= NAV_R + CLEAR + rr - 1e-6
     px = min(max(NAV_C[0], r[0]), r[2])
     py = min(max(NAV_C[1], r[1]), r[3])
     return math.hypot(px - NAV_C[0], py - NAV_C[1]) >= NAV_R + CLEAR - 1e-6
 
 
-def pill_rect(sign: bool, section: bool, bar: bool, text_w: float):
+def pill_room(sign: bool, section: bool, bar: bool):
+    """(rect without the text, text room) for the weather pill."""
     m = local(PILL, "margin")
     chrome = 2 * local(PILL, "padX") + local(PILL, "glyphSize") + local(PILL, "gap")
     sign_bump = SIGN_D + 8 if (sign or section) else 0
     bar_bump = BAR_ZONE + 4 - m if bar else 0
     y = H - m - PILL_H - max(sign_bump, bar_bump)
     max_x = min(W - m, visible_span(y, y + PILL_H)[1])
-    if max_x - chrome - text_w < PUCK[2] + CLEAR and y + PILL_H > PUCK[1] - CLEAR:
-        y = PUCK[1] - CLEAR - PILL_H
-        max_x = min(W - m, visible_span(y, y + PILL_H)[1])
-    text_w = min(text_w, max_x - NAV_MAX_X - chrome)
+    beside = y + PILL_H > PUCK[1] - CLEAR and y < PUCK[3] + CLEAR
+    min_x = PUCK[2] + CLEAR if beside else NAV_MAX_X
+    return chrome, y, max_x, max_x - min_x - chrome
+
+
+def pill_rect(sign: bool, section: bool, bar: bool, text_w: float):
+    chrome, y, max_x, room = pill_room(sign, section, bar)
+    text_w = min(text_w, room)
     return (max_x - chrome - text_w, y, max_x, y + PILL_H)
 
 
@@ -125,9 +136,10 @@ def notice_rect(text_w: float):
 
 
 def zoom_rect():
-    r = 15
-    cx = PUCK[0] - CLEAR - r
-    cy = PUCK_C[1]
+    r = local(ZOOM, "r")
+    cy = H - BAR_ZONE - CLEAR - r
+    reach = NAV_R + CLEAR + r
+    cx = NAV_C[0] + math.sqrt(reach * reach - (cy - NAV_C[1]) ** 2)
     return (cx - r, cy - r, cx + r, cy + r)
 
 
@@ -164,12 +176,17 @@ def test_layout_math_matches_source():
     pill = strip_comments(decl_body(SRC, PILL))
     assert "max(signBump, barBump)" in pill
     assert "Self.progressBarZoneHeight + 4 - margin" in pill
-    assert pill.count("Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound") == 2
-    assert "if maxX - chromeW - textW < puck.maxX + Self.overlayClearance," in pill
-    assert "originY + pillH > puck.minY - Self.overlayClearance {" in pill
-    assert "originY = puck.minY - Self.overlayClearance - pillH" in pill
-    assert "let maxTextW = maxX - Self.navCardClearMaxX - chromeW" in pill
+    assert "Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound" in pill
+    assert "let originY = frameSize.height - margin - pillH - max(signBump, barBump)" in pill
+    assert "originY + pillH > puck.minY - Self.overlayClearance" in pill
+    assert "&& originY < puck.maxY + Self.overlayClearance" in pill
+    assert ("let minX = besidePuck ? puck.maxX + Self.overlayClearance"
+            " : Self.navCardClearMaxX") in pill
+    assert "let maxTextW = maxX - minX - chromeW" in pill
+    assert "label = Self.weatherShortTitle(alert.title) + distText" in pill
     assert "fontSize *= maxTextW / textW" in pill
+    # Short name first, font shrink only after it.
+    assert pill.index("weatherShortTitle(") < pill.index("fontSize *= maxTextW / textW")
     assert "let pill = CGRect(x: maxX - pillW, y: originY, width: pillW, height: pillH)" in pill
     card = strip_comments(decl_body(SRC, CARD))
     assert ("let originY = Self.navCardCenter.y - Self.navCardRadius"
@@ -180,8 +197,11 @@ def test_layout_math_matches_source():
     assert "fontSize *= maxTextW / textW" in card
     assert "let originX = Self.visibleCenter.x - cardW / 2" in card
     zoom = strip_comments(decl_body(SRC, ZOOM))
-    assert "let cx = puckRect.minX - Self.overlayClearance - r" in zoom
-    assert "let cy = puckRect.midY" in zoom
+    assert ("let cy = frameSize.height - Self.progressBarZoneHeight"
+            " - Self.overlayClearance - r") in zoom
+    assert "let reach = Self.navCardRadius + Self.overlayClearance + r" in zoom
+    assert "let dy = cy - Self.navCardCenter.y" in zoom
+    assert "let cx = Self.navCardCenter.x + (reach * reach - dy * dy).squareRoot()" in zoom
     assert "let r = 14 * puckScale" in SRC
     assert "let cy = frameSize.height / 2 + frameSize.height * forwardBiasFraction" in SRC
     span = strip_comments(decl_body(SRC, "fileprivate static func visibleSpan("))
@@ -197,7 +217,7 @@ def test_overlays_on_glass_off_card_and_not_overlapping():
                 r = rects(*combo, pw, nw)
                 for name, rect in r.items():
                     assert on_glass(rect), (combo, pw, nw, name, rect)
-                    assert off_nav_card(rect), (combo, pw, nw, name, rect)
+                    assert off_nav_card(rect, name == "zoom_osd"), (combo, pw, nw, name, rect)
                 for mover in ("pill", "notice", "zoom_osd"):
                     if mover not in r:
                         continue
@@ -206,13 +226,33 @@ def test_overlays_on_glass_off_card_and_not_overlapping():
                             assert not overlaps(r[mover], rect), (combo, pw, nw, mover, other)
 
 
-def test_real_weather_labels_keep_full_size():
-    # 230 px ≈ "Strong wind 100 km" at 20 pt in DejaVu Sans Bold, which runs
-    # wider than SF Heavy: the longest real label must not be shrunk.
-    chrome = 2 * local(PILL, "padX") + local(PILL, "glyphSize") + local(PILL, "gap")
+TITLES = re.findall(r'WeatherAlert\(title: "([^"]+)"', (
+    ROOT / "TripperDashPP" / "RideAlerts" / "WeatherAlertService.swift").read_text())
+
+
+def short_title(title: str) -> str:
+    body = strip_comments(decl_body(SRC, "fileprivate static func weatherShortTitle("))
+    for case, short in re.findall(r'case ([^:]+): return "([^"]+)"', body):
+        if title in re.findall(r'"([^"]+)"', case):
+            return short
+    return title
+
+
+def test_every_long_title_has_a_short_name():
+    assert len(set(TITLES)) >= 12
+    for t in set(TITLES):
+        assert short_title(t) in {"Rain", "Snow", "Wind", "Fog", "Frost", "Ice", "Storm"}, t
+
+
+def test_short_weather_labels_keep_full_size():
+    # The pill never sits over the route ahead: it stays beside the puck.
+    # The widest short label, "Storm 100 km", is ~158 px at 20 pt in DejaVu
+    # Sans Bold (a stand-in that runs wider than SF Heavy); every short
+    # label must fit there at full size in every sign / section / bar combo.
     for sign, section, bar in itertools.product([False, True], repeat=3):
-        x0, _, x1, _ = pill_rect(sign, section, bar, 230)
-        assert x1 - x0 == chrome + 230, (sign, section, bar)
+        _, y, _, room = pill_room(sign, section, bar)
+        assert y + PILL_H > PUCK[1] - CLEAR, "pill expected beside the puck"
+        assert room >= 158, (sign, section, bar, room)
 
 
 def test_overlay_text_is_bigger_and_heavier():
