@@ -1252,11 +1252,10 @@ extension MapViewSource {
             drawVectorOnlyFrame(into: ctx)
         }
 
-        // Weather alert pill — bottom-right corner, transform-independent
-        // (drawn in the flat outer ctx so it sits in a fixed screen spot
-        // regardless of map rotation/zoom). Placed AFTER the map branch so
-        // it overlays the tiles, and it deliberately lives in the bottom-
-        // right where neither the forward-biased puck nor the route runs.
+        // Weather alert pill — bottom-right, transform-independent (drawn in
+        // the flat outer ctx so it sits in a fixed screen spot regardless of
+        // map rotation/zoom). Placed AFTER the map branch so it overlays the
+        // tiles; a pill too wide to clear the heading puck moves above it.
         // No-op when `weatherAlert == nil` (clear weather).
         drawWeatherAlert(into: ctx)
 
@@ -1278,8 +1277,8 @@ extension MapViewSource {
         // pump hasn't pushed a `rideProgress` (feature off / not nav).
         drawProgressBar(into: ctx)
 
-        // Centred dash notice ("You've arrived" and friends) — drawn LAST so
-        // it sits above every map overlay, dead-centre, transform-independent.
+        // Dash notice ("You've arrived" and friends) — drawn LAST so it sits
+        // above every map overlay, upper middle, transform-independent.
         // Self-expiring (time-based); no-op when no notice is active.
         drawNotice(into: ctx)
 
@@ -1711,6 +1710,16 @@ extension MapViewSource {
     /// chevron arrow inside. The map is rotated heading-up, so the
     /// chevron always points toward the top of the frame
     /// (= direction of travel).
+    /// Bounding box of the heading puck (outer white ring, radius
+    /// 14 × `puckScale`, at the forward-bias anchor), in the outer Y-DOWN
+    /// ctx. Fixed overlays keep `overlayClearance` off it.
+    private var puckRect: CGRect {
+        let r = 14 * puckScale
+        let cx = frameSize.width / 2
+        let cy = frameSize.height / 2 + frameSize.height * forwardBiasFraction
+        return CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r)
+    }
+
     private func drawHeadingArrow(into ctx: CGContext) {
         let cx = frameSize.width / 2
         // Match the forward-bias anchor used in drawTileCacheFrame /
@@ -1771,8 +1780,10 @@ extension MapViewSource {
         let isPlus = osd.symbol == "＋"
         let atLimit = osd.atLimit
         let r: CGFloat = 15
-        let cx: CGFloat = r + 10
-        let cy: CGFloat = frameSize.height - r - 10   // bottom-left (Y-DOWN)
+        // Just left of the heading puck: the old bottom-left corner sits
+        // under the dash's own turn card while navigating.
+        let cx = puckRect.minX - Self.overlayClearance - r
+        let cy = puckRect.midY
 
         // Dark translucent disc, same on both states so the badge keeps its
         // place and palette. The white ring + white glyph match the normal
@@ -2440,10 +2451,10 @@ extension MapViewSource {
         self.weatherImperial = imperial
     }
 
-    /// Raise a centred notice on the dash for `notice.duration` seconds. The
+    /// Raise a notice on the dash for `notice.duration` seconds. The
     /// universal "tell the rider something" entry point — any caller (arrival,
     /// warnings, connection loss, future info) hands in a `DashNotice` and the
-    /// render loop burns it into the video, dead-centre, then clears it once
+    /// render loop burns it into the video (upper middle), then clears it once
     /// the duration elapses. Duration is clamped to a sane 1…15 s band.
     /// Passing `nil` clears any active notice immediately.
     func showNotice(_ notice: DashNotice?) {
@@ -2621,7 +2632,7 @@ extension MapViewSource {
         let glyphSize: CGFloat = 26
         let gap: CGFloat = 7
         var fontSize: CGFloat = 20
-        let pillH: CGFloat = 40
+        let pillH = Self.weatherPillHeight
 
         // Compose the pill text: bare hazard noun, plus the along-route
         // distance when the hazard is ahead (not at the rider). e.g.
@@ -2639,19 +2650,9 @@ extension MapViewSource {
         let textAttrs: [NSAttributedString.Key: Any] = [.font: font]
         var textW = (label as NSString)
             .size(withAttributes: textAttrs).width.rounded(.up)
-        // Width-fit: stay right of the dash's own turn card and the zoom OSD
-        // (`overlayLeftClearance`). Real labels ("Strong wind 100 km") fit
-        // with room to spare; this is a backstop, not the normal path.
-        let maxTextW = frameSize.width - margin - Self.overlayLeftClearance
-            - (padX + glyphSize + gap + padX)
-        if textW > maxTextW {
-            fontSize *= maxTextW / textW
-            textW = maxTextW
-        }
+        let chromeW = padX + glyphSize + gap + padX
 
-        let pillW = padX + glyphSize + gap + textW + padX
         // Bottom-right anchor (Y-DOWN: bottom = large y).
-        let originX = frameSize.width - margin - pillW
         // Collision avoidance: the speed-limit sign owns the bottom-right
         // corner (it's the more persistent element). When it's showing,
         // lift the weather pill to sit ABOVE the sign instead of on top of
@@ -2669,8 +2670,29 @@ extension MapViewSource {
         let barBump: CGFloat = rideProgress != nil
             ? Self.progressBarZoneHeight + 4 - margin
             : 0
-        let originY = frameSize.height - margin - pillH - max(signBump, barBump)
-        let pill = CGRect(x: originX, y: originY, width: pillW, height: pillH)
+        var originY = frameSize.height - margin - pillH - max(signBump, barBump)
+        // Right edge: the frame margin, or the round glass where it cuts in
+        // (a lifted pill's top-right corner would be hidden).
+        var maxX = min(frameSize.width - margin,
+                       Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound)
+        // A long label would run left over the heading puck. Move the pill
+        // above the puck instead of shrinking the text.
+        let puck = puckRect
+        if maxX - chromeW - textW < puck.maxX + Self.overlayClearance,
+           originY + pillH > puck.minY - Self.overlayClearance {
+            originY = puck.minY - Self.overlayClearance - pillH
+            maxX = min(frameSize.width - margin,
+                       Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound)
+        }
+        // Width-fit: stay right of the dash's own turn card. Real labels fit
+        // with room to spare; this is a backstop, not the normal path.
+        let maxTextW = maxX - Self.navCardClearMaxX - chromeW
+        if textW > maxTextW {
+            fontSize *= maxTextW / textW
+            textW = maxTextW
+        }
+        let pillW = chromeW + textW
+        let pill = CGRect(x: maxX - pillW, y: originY, width: pillW, height: pillH)
 
         // Backdrop: solid black, 1.5 px coloured border. Solid, not
         // translucent: a map moving under the text makes the encoder re-code
@@ -2704,11 +2726,12 @@ extension MapViewSource {
                       width: textW + 4, fontSize: fontSize, bold: true)
     }
 
-    /// Draw the active centred notice ("You've arrived", warnings, etc.).
-    /// No-op when none is active or the current one has expired (time-based
+    /// Draw the active notice ("You've arrived", warnings, etc.). No-op when
+    /// none is active or the current one has expired (time-based
     /// auto-dismiss — clears the stored notice on the way out). Rendered in
-    /// the flat outer ctx (Y-DOWN, top-left origin), dead-centre, so it's
-    /// independent of map rotation/zoom like the other overlays.
+    /// the flat outer ctx (Y-DOWN, top-left origin), centred above the
+    /// dash's turn card, so it's independent of map rotation/zoom like the
+    /// other overlays.
     fileprivate func drawNotice(into ctx: CGContext) {
         guard let active = activeNotice else { return }
         guard Date() < active.expiresAt else {
@@ -2724,30 +2747,25 @@ extension MapViewSource {
         let padX: CGFloat = 16
         let padY: CGFloat = 14
         var fontSize: CGFloat = 24
-        let margin: CGFloat = 12
 
         let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
         var textW = (notice.text as NSString)
             .size(withAttributes: [.font: font]).width.rounded(.up)
-        // Laid out right of the dash's own turn card (left third, see
-        // `overlayLeftClearance`), which would otherwise cover the card's
-        // left end. Width-fit so a long notice ("Share saved for later")
-        // shrinks instead of running off the frame.
-        let freeMinX = Self.overlayLeftClearance
-        let freeW = frameSize.width - margin - freeMinX
-        let maxTextW = freeW - (padX + glyphSize + gap + padX)
+        // Sits just above the dash's own turn card (and so above a weather
+        // pill lifted over the puck), centred on the round glass.
+        let cardH = padY + max(glyphSize, fontSize) + padY
+        let originY = Self.navCardCenter.y - Self.navCardRadius - Self.overlayClearance - cardH
+        // Width-fit to the glass at that height, so a long notice shrinks
+        // instead of running off the visible area.
+        let span = Self.visibleSpan(minY: originY, maxY: originY + cardH)
+        let maxTextW = span.upperBound - span.lowerBound - (padX + glyphSize + gap + padX)
         if textW > maxTextW {
             fontSize *= maxTextW / textW
             textW = maxTextW
         }
 
         let cardW = padX + glyphSize + gap + textW + padX
-        let cardH = padY + max(glyphSize, fontSize) + padY
-        // Centred in the free area, nudged 4 px up so the card clears a
-        // weather pill lifted above the speed-limit sign (pill top y = 178;
-        // a centred card's bottom would be 179).
-        let originX = freeMinX + (freeW - cardW) / 2
-        let originY = (frameSize.height - cardH) / 2 - 4
+        let originX = Self.visibleCenter.x - cardW / 2
         let card = CGRect(x: originX, y: originY, width: cardW, height: cardH)
 
         // Backdrop: solid black, 2 px accent border — solid for the same
@@ -3309,12 +3327,13 @@ extension MapViewSource {
     /// start of a centred bar (rider photo, 8/2026).
     fileprivate static let progressBarWidthFraction: CGFloat = 0.66
 
-    /// Left inset (px) of the progress bar. The Tripper dash burns its own
-    /// maneuver glyph + distance card into the LEFT third of the screen
-    /// (~30% of 526 px ≈ 158 px, plus the "75 m" text below it). Start the
-    /// bar to the RIGHT of that zone so the done/grey end is never hidden
-    /// under the turn card.
-    fileprivate static let progressBarLeftInset: CGFloat = 170
+    /// Left inset (px) of the progress bar. The Tripper dash draws its own
+    /// turn card over the bottom-left (`navCardCenter` / `navCardRadius`).
+    /// At the bar's height (y 275–295) that disc plus `overlayClearance`
+    /// reaches x ≈ 134; the position chevron overhangs the bar's start by
+    /// 12 px, so the bar starts at 146 and the done/grey end is never
+    /// hidden under the card.
+    fileprivate static let progressBarLeftInset: CGFloat = 146
 
     /// Right inset (px) of the progress bar — matches the old centred bar's
     /// right margin so the ahead/blue end still clears the bottom-right
@@ -3333,11 +3352,34 @@ extension MapViewSource {
         progressBarBottomMargin + progressBarHeight / 2 + progressMarkerHalfHeight + 1
     }
 
-    /// Left strip (px) the fixed text overlays (weather pill, notice card)
-    /// stay out of: the dash burns its own turn card into the left third
-    /// (same zone as `progressBarLeftInset`), and the zoom OSD disc sits in
-    /// the bottom-left corner.
-    fileprivate static let overlayLeftClearance: CGFloat = progressBarLeftInset
+    // MARK: Dash geometry (docs/dash-visible-area.md, measured ±3 px)
+
+    /// The dash's round glass shows only this circle of the 526×300 frame.
+    fileprivate static let visibleCenter = CGPoint(x: 262, y: 263)
+    fileprivate static let visibleRadius: CGFloat = 264
+    /// While navigating, the dash draws its own turn card (glyph +
+    /// distance) over the stream as this disc.
+    fileprivate static let navCardCenter = CGPoint(x: 79, y: 228)
+    fileprivate static let navCardRadius: CGFloat = 68
+    /// Gap (px) fixed overlays keep from the glass edge, the turn card and
+    /// the heading puck — covers the ±3 px measurement error.
+    fileprivate static let overlayClearance: CGFloat = 4
+    /// Left limit for overlays beside the turn card.
+    fileprivate static var navCardClearMaxX: CGFloat {
+        navCardCenter.x + navCardRadius + overlayClearance
+    }
+    /// Height (px) of the weather pill; the notice card stacks above it.
+    fileprivate static let weatherPillHeight: CGFloat = 40
+
+    /// Visible x range, inset by `overlayClearance`, that holds for every
+    /// row in `minY...maxY` — i.e. at the row farthest from the circle's
+    /// centre. A rect inside it is fully on the glass.
+    fileprivate static func visibleSpan(minY: CGFloat, maxY: CGFloat) -> ClosedRange<CGFloat> {
+        let dy = max(abs(minY - visibleCenter.y), abs(maxY - visibleCenter.y))
+        let r = visibleRadius - overlayClearance
+        let half = max(0, r * r - dy * dy).squareRoot()
+        return (visibleCenter.x - half)...(visibleCenter.x + half)
+    }
 
     /// Draw the ride-progress bar along the BOTTOM EDGE between the left/
     /// right insets (centred 66% fallback). DONE portion (left) is grey; the REMAINING

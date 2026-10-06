@@ -1,25 +1,35 @@
 """
-Dash-frame overlays stay on screen and don't overlap each other.
+Dash-frame overlays stay on the dash's round glass, off its turn card, and
+off each other.
 
-The weather pill and the notice card grew (bigger, heavier font) to survive
-the 512 kbps stream. This ports their layout math from `MapViewSource.swift`
-(constants parsed from the source, so a retune is checked too) and asserts,
-for every combination of overlays that can be on screen together, that each
-rect is inside the 526x300 frame and the pill / card intersect nothing.
+The geometry is measured on the real dash (docs/dash-visible-area.md): the
+glass shows a circle of the 526x300 frame, and while navigating the dash
+draws its own turn card as a disc over the bottom-left. This ports the
+layout math of the fixed overlays from `MapViewSource.swift` (constants
+parsed from the source, so a retune is checked too) and asserts, for every
+combination of overlays that can be on screen together and every text
+width up to past the width-fit cap, that:
 
-Text widths can't be measured here (no UIFont), so both use their width-fit
-MAXIMUM — the worst case. Real labels are about half of that.
+- every overlay is inside the visible circle with `overlayClearance` to
+  spare (corners included),
+- nothing reaches into the turn card (plus clearance),
+- the weather pill, notice card and zoom OSD overlap nothing else,
+  including the heading puck.
+
+Text widths can't be measured here (no UIFont), so the widths are swept.
 """
 from __future__ import annotations
 
 import itertools
+import math
 import pathlib
 import re
 
 from tests.swift_source import decl_body, strip_comments
 
-SRC = (pathlib.Path(__file__).resolve().parents[3]
-       / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+SRC = (ROOT / "TripperDashPP" / "Map" / "MapViewSource.swift").read_text()
+DOC = (ROOT / "docs" / "dash-visible-area.md").read_text()
 W, H = 526, 300
 
 
@@ -27,44 +37,102 @@ def const(name: str) -> float:
     return float(re.search(rf"static let {name}(?:: CGFloat)? = ([0-9.]+)", SRC).group(1))
 
 
+def point(name: str) -> tuple[float, float]:
+    m = re.search(rf"static let {name} = CGPoint\(x: ([0-9.]+), y: ([0-9.]+)\)", SRC)
+    return float(m.group(1)), float(m.group(2))
+
+
 def local(fn: str, name: str) -> float:
     body = strip_comments(decl_body(SRC, fn))
     return float(re.search(rf"(?:let|var) {name}: CGFloat = ([0-9.]+)", body).group(1))
 
 
+def ivar(name: str) -> float:
+    return float(re.search(rf"private let {name}: CGFloat = ([0-9.]+)", SRC).group(1))
+
+
 PILL = "fileprivate func drawWeatherAlert(into ctx: CGContext)"
 CARD = "fileprivate func drawNotice(into ctx: CGContext)"
 BAR = "fileprivate func drawProgressBar(into ctx: CGContext)"
+ZOOM = "private func drawZoomOsd(into ctx: CGContext)"
 
+VIS_C, VIS_R = point("visibleCenter"), const("visibleRadius")
+NAV_C, NAV_R = point("navCardCenter"), const("navCardRadius")
+CLEAR = const("overlayClearance")
+NAV_MAX_X = NAV_C[0] + NAV_R + CLEAR
 SIGN_D, SIGN_M = const("speedLimitSignDiameter"), const("speedLimitSignMargin")
-BAR_L = const("progressBarLeftInset")
-assert re.search(r"static let overlayLeftClearance: CGFloat = progressBarLeftInset", SRC)
-LEFT_CLEAR = BAR_L
 SEC_W, SEC_H = (float(v) for v in re.search(
     r"sectionPanelSize = CGSize\(width: ([0-9.]+), height: ([0-9.]+)\)", SRC).groups())
 SEC_GAP = const("sectionPanelGap")
+BAR_L, BAR_R = const("progressBarLeftInset"), const("progressBarRightInset")
 BAR_H, BAR_BM = const("progressBarHeight"), const("progressBarBottomMargin")
-BAR_R = const("progressBarRightInset")
 MARK_HH = const("progressMarkerHalfHeight")
 MARK_W = local(BAR, "arrowW")
 BAR_ZONE = BAR_BM + BAR_H / 2 + MARK_HH + 1
+PILL_H = const("weatherPillHeight")
+PUCK_R = 14 * ivar("puckScale")
+PUCK_C = (W / 2, H / 2 + H * ivar("forwardBiasFraction"))
+PUCK = (PUCK_C[0] - PUCK_R, PUCK_C[1] - PUCK_R, PUCK_C[0] + PUCK_R, PUCK_C[1] + PUCK_R)
+
+
+def visible_span(y0: float, y1: float) -> tuple[float, float]:
+    dy = max(abs(y0 - VIS_C[1]), abs(y1 - VIS_C[1]))
+    r = VIS_R - CLEAR
+    half = math.sqrt(max(0.0, r * r - dy * dy))
+    return VIS_C[0] - half, VIS_C[0] + half
 
 
 def overlaps(a, b) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
-def on_screen(r) -> bool:
-    return 0 <= r[0] and 0 <= r[1] and r[2] <= W and r[3] <= H
+def on_glass(r) -> bool:
+    """All four corners inside the visible circle minus the clearance."""
+    return all(math.hypot(x - VIS_C[0], y - VIS_C[1]) <= VIS_R - CLEAR + 1e-6
+               for x in (r[0], r[2]) for y in (r[1], r[3]))
 
 
-def rects(sign: bool, section: bool, bar: bool, notice: bool) -> dict:
-    out = {}
-    # Zoom OSD disc, bottom-left (r = 15, centre r + 10 from the edges).
-    out["zoom_osd"] = (10, H - 40, 40, H - 10)
-    # The dash burns its own turn card into the left third (the zone
-    # `progressBarLeftInset` keeps the bar out of), full height.
-    out["dash_turn_card"] = (0, 0, BAR_L, H)
+def off_nav_card(r) -> bool:
+    px = min(max(NAV_C[0], r[0]), r[2])
+    py = min(max(NAV_C[1], r[1]), r[3])
+    return math.hypot(px - NAV_C[0], py - NAV_C[1]) >= NAV_R + CLEAR - 1e-6
+
+
+def pill_rect(sign: bool, section: bool, bar: bool, text_w: float):
+    m = local(PILL, "margin")
+    chrome = 2 * local(PILL, "padX") + local(PILL, "glyphSize") + local(PILL, "gap")
+    sign_bump = SIGN_D + 8 if (sign or section) else 0
+    bar_bump = BAR_ZONE + 4 - m if bar else 0
+    y = H - m - PILL_H - max(sign_bump, bar_bump)
+    max_x = min(W - m, visible_span(y, y + PILL_H)[1])
+    if max_x - chrome - text_w < PUCK[2] + CLEAR and y + PILL_H > PUCK[1] - CLEAR:
+        y = PUCK[1] - CLEAR - PILL_H
+        max_x = min(W - m, visible_span(y, y + PILL_H)[1])
+    text_w = min(text_w, max_x - NAV_MAX_X - chrome)
+    return (max_x - chrome - text_w, y, max_x, y + PILL_H)
+
+
+def notice_rect(text_w: float):
+    pad_x, pad_y = local(CARD, "padX"), local(CARD, "padY")
+    glyph, gap, font = local(CARD, "glyphSize"), local(CARD, "gap"), local(CARD, "fontSize")
+    card_h = pad_y + max(glyph, font) + pad_y
+    y = NAV_C[1] - NAV_R - CLEAR - card_h
+    lo, hi = visible_span(y, y + card_h)
+    text_w = min(text_w, hi - lo - (2 * pad_x + glyph + gap))
+    w = 2 * pad_x + glyph + gap + text_w
+    x = VIS_C[0] - w / 2
+    return (x, y, x + w, y + card_h)
+
+
+def zoom_rect():
+    r = 15
+    cx = PUCK[0] - CLEAR - r
+    cy = PUCK_C[1]
+    return (cx - r, cy - r, cx + r, cy + r)
+
+
+def rects(sign, section, bar, notice, pill_w, notice_w) -> dict:
+    out = {"zoom_osd": zoom_rect(), "puck": PUCK}
     sign_top = H - SIGN_M - SIGN_D
     if sign:
         out["sign"] = (W - SIGN_M - SIGN_D, sign_top, W - SIGN_M, H - SIGN_M)
@@ -74,50 +142,77 @@ def rects(sign: bool, section: bool, bar: bool, notice: bool) -> dict:
     if bar:
         cy = H - BAR_BM - BAR_H / 2
         out["bar"] = (BAR_L - MARK_W - 1, cy - MARK_HH - 1, W - BAR_R + MARK_W + 1, cy + MARK_HH + 1)
-
-    # Weather pill at its width-fit maximum.
-    m, pill_h = local(PILL, "margin"), local(PILL, "pillH")
-    sign_bump = SIGN_D + 8 if (sign or section) else 0
-    bar_bump = BAR_ZONE + 4 - m if bar else 0
-    y = H - m - pill_h - max(sign_bump, bar_bump)
-    out["pill"] = (LEFT_CLEAR, y, W - m, y + pill_h)
-
+    out["pill"] = pill_rect(sign, section, bar, pill_w)
     if notice:
-        pad_y, glyph = local(CARD, "padY"), local(CARD, "glyphSize")
-        font, cm = local(CARD, "fontSize"), local(CARD, "margin")
-        card_h = pad_y + max(glyph, font) + pad_y
-        cy0 = (H - card_h) / 2 - 4
-        out["notice"] = (LEFT_CLEAR, cy0, W - cm, cy0 + card_h)
+        out["notice"] = notice_rect(notice_w)
     return out
+
+
+PILL_WIDTHS = range(20, 420, 5)      # real labels ~110-230 px at 20 pt
+NOTICE_WIDTHS = range(40, 520, 20)
+
+
+def test_geometry_matches_measured_doc():
+    assert "centre (262, 263), radius 264" in DOC
+    assert "centre (79, 228), radius 68" in DOC
+    assert VIS_C == (262, 263) and VIS_R == 264
+    assert NAV_C == (79, 228) and NAV_R == 68
+    assert CLEAR >= 4   # doc: keep 4 px off both
 
 
 def test_layout_math_matches_source():
     pill = strip_comments(decl_body(SRC, PILL))
     assert "max(signBump, barBump)" in pill
     assert "Self.progressBarZoneHeight + 4 - margin" in pill
-    assert "frameSize.width - margin - Self.overlayLeftClearance" in pill
+    assert pill.count("Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound") == 2
+    assert "if maxX - chromeW - textW < puck.maxX + Self.overlayClearance," in pill
+    assert "originY + pillH > puck.minY - Self.overlayClearance {" in pill
+    assert "originY = puck.minY - Self.overlayClearance - pillH" in pill
+    assert "let maxTextW = maxX - Self.navCardClearMaxX - chromeW" in pill
+    assert "fontSize *= maxTextW / textW" in pill
+    assert "let pill = CGRect(x: maxX - pillW, y: originY, width: pillW, height: pillH)" in pill
     card = strip_comments(decl_body(SRC, CARD))
-    assert "(frameSize.height - cardH) / 2 - 4" in card
-    assert "let freeMinX = Self.overlayLeftClearance" in card
-    assert "let freeW = frameSize.width - margin - freeMinX" in card
-    assert "let maxTextW = freeW - (padX + glyphSize + gap + padX)" in card
-    assert "let originX = freeMinX + (freeW - cardW) / 2" in card
+    assert ("let originY = Self.navCardCenter.y - Self.navCardRadius"
+            " - Self.overlayClearance - cardH") in card
+    assert "let span = Self.visibleSpan(minY: originY, maxY: originY + cardH)" in card
+    assert ("let maxTextW = span.upperBound - span.lowerBound"
+            " - (padX + glyphSize + gap + padX)") in card
+    assert "fontSize *= maxTextW / textW" in card
+    assert "let originX = Self.visibleCenter.x - cardW / 2" in card
+    zoom = strip_comments(decl_body(SRC, ZOOM))
+    assert "let cx = puckRect.minX - Self.overlayClearance - r" in zoom
+    assert "let cy = puckRect.midY" in zoom
+    assert "let r = 14 * puckScale" in SRC
+    assert "let cy = frameSize.height / 2 + frameSize.height * forwardBiasFraction" in SRC
+    span = strip_comments(decl_body(SRC, "fileprivate static func visibleSpan("))
+    assert "max(abs(minY - visibleCenter.y), abs(maxY - visibleCenter.y))" in span
+    assert "let r = visibleRadius - overlayClearance" in span
     assert "progressBarBottomMargin + progressBarHeight / 2 + progressMarkerHalfHeight + 1" in SRC
 
 
-def test_overlays_on_screen_and_not_overlapping():
+def test_overlays_on_glass_off_card_and_not_overlapping():
     for combo in itertools.product([False, True], repeat=4):
-        r = rects(*combo)
-        for name, rect in r.items():
-            assert on_screen(rect), (combo, name, rect)
-        # Fixed overlays that never move must not overlap each other either.
-        assert not overlaps(r["zoom_osd"], r.get("bar", (0, 0, 0, 0)))
-        for mover in ("pill", "notice"):
-            if mover not in r:
-                continue
-            for other, rect in r.items():
-                if other != mover:
-                    assert not overlaps(r[mover], rect), (combo, mover, other, r[mover], rect)
+        for pw in PILL_WIDTHS:
+            for nw in (NOTICE_WIDTHS if combo[3] else [0]):
+                r = rects(*combo, pw, nw)
+                for name, rect in r.items():
+                    assert on_glass(rect), (combo, pw, nw, name, rect)
+                    assert off_nav_card(rect), (combo, pw, nw, name, rect)
+                for mover in ("pill", "notice", "zoom_osd"):
+                    if mover not in r:
+                        continue
+                    for other, rect in r.items():
+                        if other != mover:
+                            assert not overlaps(r[mover], rect), (combo, pw, nw, mover, other)
+
+
+def test_real_weather_labels_keep_full_size():
+    # 230 px ≈ "Strong wind 100 km" at 20 pt in DejaVu Sans Bold, which runs
+    # wider than SF Heavy: the longest real label must not be shrunk.
+    chrome = 2 * local(PILL, "padX") + local(PILL, "glyphSize") + local(PILL, "gap")
+    for sign, section, bar in itertools.product([False, True], repeat=3):
+        x0, _, x1, _ = pill_rect(sign, section, bar, 230)
+        assert x1 - x0 == chrome + 230, (sign, section, bar)
 
 
 def test_overlay_text_is_bigger_and_heavier():
