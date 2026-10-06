@@ -882,7 +882,7 @@ struct MapPickerView: View {
         VStack(spacing: 0) {
             // Demo mode: the interactive map is unmounted while streaming, so
             // the on-screen dash preview is the only place the rider sees the
-            // projected map + native bubble. Show it above the HUD.
+            // projected map + the dash's own turn card and ETA. Show it above the HUD.
             if status.bikeLink.isDemo && status.isStreaming {
                 DashPreviewPanel(demoModel: status.demoDashModel)
                     .padding(.horizontal, 12)

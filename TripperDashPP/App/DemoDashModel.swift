@@ -22,7 +22,8 @@
 //   2. `bubble` — a semantic snapshot of the native dash bubble (maneuver +
 //      ETA + distance-to-next + road name) that the real dash firmware would
 //      have drawn from the K1G TLV bytes. These values are NOT in the video
-//      frame, so the SwiftUI preview draws them as chrome around the panel.
+//      frame, so the SwiftUI preview draws them like the dash does: the turn
+//      card over the stream, the ETA in the gold band below it.
 //
 //  Both writers (`ActiveNavLoop.tick`, the MapViewSource frame callback) run
 //  on the main actor, and this type is @MainActor-isolated to match. It is
@@ -34,8 +35,8 @@ import CoreGraphics
 import Foundation
 import Observation
 
-/// Semantic snapshot of the "native" dash bubble — the maneuver glyph in a
-/// circle + ETA readout the dash firmware draws itself (NOT part of the
+/// Semantic snapshot of the "native" dash bubble — the turn card (glyph +
+/// distance) and the ETA the dash firmware draws itself (NOT part of the
 /// streamed video). Carries the raw values plus the two formatting flags the
 /// preview needs so it renders units/clock identically to the real dash.
 struct DemoNavBubble: Equatable, Sendable {
