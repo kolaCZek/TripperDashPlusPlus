@@ -1584,7 +1584,7 @@ final class AppStatus {
     @ObservationIgnored private var speedLimitCoverage: SpeedLimitService.BBox?
 
     /// Start observing system call state and forwarding it to the dash.
-    /// Mirrors `km3.u()` in the stock app: call changes become K1G
+    /// Like the stock app, call changes become K1G
     /// `05 21`/`05 4D` bursts over the existing nav control plane. No-op
     /// when not connected (handled inside `BikeLink.sendCallState`), so it's
     /// safe to start once at launch and leave running for the whole session.
@@ -1626,7 +1626,7 @@ final class AppStatus {
     /// Stand up the phone-status provider and hand `BikeLink` a `@Sendable`
     /// snapshot closure it can call once per heartbeat tick. Mirrors the
     /// Begin streaming the phone's own status into the dash heartbeat,
-    /// mirroring the stock app's `REForeGroundService` 1 Hz status timer
+    /// matching the stock app's 1 Hz status frames
     /// (battery / GPS / charging / signal). Always on — the stock app
     /// reports unconditionally and so do we; there's no user setting.
     /// Safe to call once at launch: the provider runs for the whole session

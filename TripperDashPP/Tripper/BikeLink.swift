@@ -520,8 +520,8 @@ final class BikeLink {
     /// q3c.q + q3c.r as a pair too. We were only sending z2 + q, silently
     /// dropping q3c.r since this function was written. Added while
     /// auditing the whole nav-entry sequence against the reference
-    /// (8/2026) after the route-card discovery — the official app's
-    /// `NavigationRootFragment.F0()` pairs q + r unconditionally, and
+    /// (8/2026) after the route-card discovery — the reference always
+    /// sends q + r as a pair, and
     /// "lists are empty" is permanently true for this app (no favourites
     /// feature), so there is no case where omitting it is correct.
     func sendNavStart() async {
@@ -596,7 +596,7 @@ final class BikeLink {
     /// Tear down the nav projection. Call BEFORE stopping the RTP stream.
     /// No-op if not connected.
     ///
-    /// Sequence mirrors NavigationFragment.Y7:
+    /// Sequence (as in better-dash):
     /// `q3c.h` (stop-frames) → `q3c.x` (projection off).
     func sendNavStop() async {
         guard !demoMode else { return }   // demo: no socket, nothing to tear down
@@ -661,7 +661,7 @@ final class BikeLink {
     // MARK: - Call-state notification
     //
     // Push the phone's current call state to the dash so it shows the OEM
-    // incoming-call card (decoded from `km3.u()` — see the
+    // incoming-call card (see the
     // `call-notification-wire-protocol.md` skill reference). Driven by
     // `CallStateObserver` off `CXCallObserver`. Like the nav hooks, this is
     // fire-and-forget on the link's seq counter and a no-op when not
@@ -674,7 +674,7 @@ final class BikeLink {
     private var lastCallState: K1GPacket.CallState?
 
     /// Send a call-state change to the dash as the OEM 2-packet burst
-    /// (`05 21 <state>` then the `05 4D 32` commit), mirroring `km3.u()`.
+    /// (`05 21 <state>` then the `05 4D 32` commit).
     /// De-duplicates against the previously-sent state. No-op if not
     /// connected (we simply drop the card — it'll re-sync on the next
     /// distinct state once the link is back).

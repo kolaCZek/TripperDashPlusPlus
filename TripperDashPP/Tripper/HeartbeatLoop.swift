@@ -7,14 +7,15 @@
 //  earlier revisions sent an empty K1G envelope every tick and the real
 //  Tripper dash dropped the link after a few seconds of "weird" heartbeats.
 //
-//  The Android REForeGroundService runs two parallel 1 Hz timer tasks:
+//  A paired phone sends two status frames once a second (see the
+//  better-dash capture):
 //
-//    - d.run(): 0044 packet (battery / GPS / charging / temp / volumes /
-//               nav distance) — the canonical status frame.
-//    - e.run(): 0030 packet (cell signal / volumes / nav distance) —
-//               trimmed metadata update.
+//    - 0044 packet (battery / GPS / charging / temp / volumes /
+//      nav distance) — the canonical status frame.
+//    - 0030 packet (cell signal / volumes / nav distance) —
+//      trimmed metadata update.
 //
-//  Both go out at 1 Hz, back-to-back. We mirror that here.
+//  Both go out at 1 Hz, back-to-back. We do the same here.
 //
 
 import Foundation
@@ -94,8 +95,8 @@ nonisolated struct HeartbeatLoop: Sendable {
         var transientFailures = 0
         var sentTicksWithoutRx = 0
         while !Task.isCancelled {
-            // Phone status: mirrors the OEM 1 Hz `REForeGroundService` timer
-            // which re-reads BatteryManager + cell info each fire. The
+            // Phone status: re-read on every 1 Hz tick, like the stock
+            // app's status frames. The
             // provider hops to the main actor, so only the first tick waits
             // for it; later ticks send the latest snapshot and refresh it in
             // the background (at most one refresh in flight).

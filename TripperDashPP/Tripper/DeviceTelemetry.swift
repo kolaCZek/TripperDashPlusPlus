@@ -3,21 +3,18 @@
 //  TripperDashPP
 //
 //  Live phone-status provider for the 1 Hz K1G status frames (`0044`
-//  heartbeat + `0030` metadata). Mirrors what the stock Royal Enfield
-//  app's `REForeGroundService` 1 Hz `TimerTask` (`d.run()`) reports to
-//  the big Tripper TFT:
+//  heartbeat + `0030` metadata): the phone status a phone paired with
+//  the big Tripper TFT reports once a second:
 //
-//    | TLV       | meaning            | OEM source                         |
-//    |-----------|--------------------|------------------------------------|
-//    | `06 04`   | battery capacity   | `BatteryManager.getIntProperty(4)` |
-//    | `06 0F`   | charging flag      | `ACTION_BATTERY_CHANGED` status    |
-//    | `06 03`   | GPS fix on/off     | `LocationManager.isProviderEnabled`|
-//    | `06 01`   | mobile signal pres.| `getAllCellInfo()...getLevel() > 0` |
-//    | `06 08`   | cell signal 0-255  | `p9k.p0()` (analog bars)            |
+//    | TLV       | meaning                      |
+//    |-----------|------------------------------|
+//    | `06 04`   | battery capacity             |
+//    | `06 0F`   | charging flag                |
+//    | `06 03`   | GPS fix on/off               |
+//    | `06 01`   | mobile signal present (0/1)  |
+//    | `06 08`   | cell signal 0-255            |
 //
-//  Decoded 2026-06-27 from `com.royalenfield.reprime`
-//  (`REForeGroundService.d.run()`, lines 211-232) and byte-verified
-//  against the real-phone capture better-dash inlines as
+//  Byte-verified against the real-phone capture better-dash inlines as
 //  `tripper_app_like_nav.py:INITIAL_BURST_HEX[8]`:
 //
 //    0044 …  06 08 0001 FF   06 03 0001 55   06 04 0001 A2
@@ -33,8 +30,8 @@
 //  * signal     : iOS gives NO public API for the bar COUNT (the
 //                 private `_signalStrengthBars` route is an App Store
 //                 reject). BUT the stock app's `06 01` TLV is itself
-//                 only a binary present/absent flag (payload `01`/`00`,
-//                 derived from `getLevel() > 0`), and THAT we can
+//                 only a binary present/absent flag (payload `01`/`00`
+//                 in captures), and THAT we can
 //                 reproduce faithfully via `NWPathMonitor(.cellular)`.
 //                 So `06 01` is byte-faithful to the OEM. The analog
 //                 `06 08` strength (0-255) we cannot truly measure, so
@@ -90,8 +87,8 @@ final class DeviceTelemetry {
     /// sane value before the first battery notification lands.
     private(set) var batteryPct: Int = 80
     private(set) var isCharging: Bool = false
-    /// Whether a cellular data path currently exists. This is the iOS
-    /// equivalent of the OEM's `getLevel() > 0` presence check.
+    /// Whether a cellular data path currently exists — the iOS way to
+    /// fill the binary `06 01` signal-present flag.
     private(set) var hasCellSignal: Bool = true
 
     // MARK: - Internals
@@ -204,8 +201,7 @@ final class DeviceTelemetry {
     /// GPS "on" matches the OEM `06 03` semantics: location services are
     /// authorized for us AND we currently hold a real fix. A bare
     /// authorization with no fix yet (cold start, indoors) reports off,
-    /// which is what the dash expects — the OEM derives this from
-    /// `isProviderEnabled("gps")` + an actual location.
+    /// which is what the dash expects.
     private var currentGpsOn: Bool {
         guard let location else { return false }
         #if canImport(CoreLocation)

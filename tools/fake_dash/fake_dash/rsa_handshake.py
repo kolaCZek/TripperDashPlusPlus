@@ -8,8 +8,8 @@ pubkey"), the bike answers with two K1G segments:
     07 00  <modulus, 128 B big-endian>
     07 03  <exponent, typically 00 01 00 01>
 
-The phone derives a payload `ssid_bytes ‖ aes_key_bytes` (see
-NavigationRootFragment.R0 in the decompiled app), encrypts it with
+The phone derives a payload `ssid_bytes ‖ aes_key_bytes` (see the
+handshake in better-dash), encrypts it with
 RSA-PKCS1v1.5 under the public key, and ships it back inside a single
 `q3c.d` segment of type=0x08 sub=0x00. The bike decrypts with its
 private key, recovers `ssid + aes_key`, validates the SSID, and replies
@@ -172,7 +172,7 @@ def decrypt_session_key(
     Decrypt a `q3c.d` payload (the 128 B RSA-PKCS1v1.5 ciphertext) and
     split it into SSID + AES session key.
 
-    Layout produced by `NavigationRootFragment.R0`:
+    Layout produced by the phone:
         plaintext = ssid_utf8_bytes ‖ aes_key_bytes
 
     The Royal Enfield app uses AES-256 (32-byte key), so we slice from

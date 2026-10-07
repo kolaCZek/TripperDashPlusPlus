@@ -21,7 +21,7 @@ This project replaces that pipeline with a proper one. We render a real turn-by-
 
 ## Why?
 
-Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it a ~200 kbps stream of arrow icons over an unencrypted Wi-Fi link. The hardware deserves better.
+Because the Tripper Dash has a hardware H.264 decoder doing 526×300, and Royal Enfield ships it a ~200 kbps stream of arrow icons over the bike's local Wi-Fi link. The hardware deserves better.
 
 Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[kolaCZek/better-dash](https://github.com/kolaCZek/better-dash)** — the byte-level source of truth for the K1G protocol.
 
@@ -95,7 +95,7 @@ The Tripper Dash (big round map-capable TFT) ships on:
 
 ## Legal / safety
 
-- This project **reverse engineers an unencrypted-by-design Wi-Fi protocol** between the official RE phone app and the Tripper Dash for **interoperability** — protected under [Article 6 of EU Directive 2009/24/EC](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009L0024). Not affiliated with, endorsed by, or sanctioned by Royal Enfield or Eicher Motors.
+- This project implements the Wi-Fi protocol the Tripper Dash speaks, independently and for **interoperability** only (see [Article 6 of EU Directive 2009/24/EC](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009L0024)). It contains no code from the Royal Enfield app. The session setup includes an RSA key exchange; the app performs it the same way any phone paired with the dash does and does not bypass it. Not affiliated with, endorsed by, or sanctioned by Royal Enfield or Eicher Motors.
 - **Don't read your phone while riding.** The whole point of this app is so you don't have to — but it doesn't replace common sense. Plan your route at a stop. Glance at the dash, not the phone.
 - **Use at your own risk.** No warranty, no liability (see [LICENSE](LICENSE)). If your bike catches fire because of bad RTP packets, that's on you (and also extremely unlikely).
 - **Clones get taken down.** Beyond the license, a 1:1 copy republished on the App Store violates Apple's [App Review Guidelines 4.1 (Copycats)](https://developer.apple.com/app-store/review/guidelines/#copycats) and [5.2 (Intellectual Property)](https://developer.apple.com/app-store/review/guidelines/#intellectual-property). Such apps can be reported and Apple routinely rejects or removes them.

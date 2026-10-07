@@ -18,7 +18,7 @@
 //  References:
 //   - tools/fake_dash/fake_dash/rsa_handshake.py (decrypt_session_key
 //     is the inverse of what we do here)
-//   - better-dash/tripper_app_like_nav.py (NavigationRootFragment.R0)
+//   - better-dash/tripper_app_like_nav.py (session-key handshake)
 //
 
 import Foundation

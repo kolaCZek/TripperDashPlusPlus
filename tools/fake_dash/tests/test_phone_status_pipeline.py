@@ -3,9 +3,7 @@ Tests for the phone-status telemetry TLV pipeline (battery / charging /
 GPS-fix / mobile-signal presence on the Tripper TFT, sent in the 1 Hz
 0044 heartbeat + 0030 metadata frames).
 
-Reverse-engineered 2026-06-27 from the stock Royal Enfield app
-(`com.royalenfield.reprime`, `REForeGroundService.d.run()`, lines
-211-232) and BYTE-VERIFIED against the real-phone capture that
+BYTE-VERIFIED against the real-phone capture that
 better-dash inlines verbatim as `INITIAL_BURST_HEX[9]`
 (`tripper_app_like_nav.py:54`):
 
@@ -30,7 +28,7 @@ phone-status TLVs so a future Swift edit that breaks them is caught by
 telemetry is always reported (no user toggle) — same as the stock app.
 
 ── iOS faithfulness note ──
-The OEM `06 01` is a BINARY present/absent flag (`getLevel() > 0`), not a
+The OEM `06 01` is a BINARY present/absent flag (`01`/`00`), not a
 bar count — so the iOS `NWPathMonitor(.cellular)` reproduction is
 byte-faithful. The analog `06 08` strength we cannot truly measure on
 iOS, so the Swift side drives it as a presence proxy (0xA0 / 0x00). These
@@ -216,8 +214,8 @@ def test_gps_flag_byte(gps_on, expected):
 
 @pytest.mark.parametrize("present,expected", [(True, 0x01), (False, 0x00)])
 def test_signal_present_flag_byte(present, expected):
-    """`06 01` is binary present/absent — exactly the OEM `getLevel()>0`
-    semantics. This is the byte we can reproduce faithfully on iOS."""
+    """`06 01` is binary present/absent — exactly the OEM semantics.
+    This is the byte we can reproduce faithfully on iOS."""
     ours = _tlv_map(make_heartbeat_0044(seq=0, signal_present=present))
     assert ours[(0x06, 0x01)] == bytes([expected])
 
