@@ -20,6 +20,9 @@ struct StreamingView: View {
     /// Presents the "add bike" form sheet.
     @State private var showAddBike = false
 
+    /// The bike whose name the edit sheet is changing (swipe → Edit).
+    @State private var editingBike: SavedBike?
+
     /// Presents the permissions checklist sheet.
     @State private var showPermissions = false
 
@@ -79,12 +82,18 @@ struct StreamingView: View {
                 } else {
                     ForEach(status.savedBikes.bikes) { bike in
                         bikeRow(bike)
-                            // Deleting drops the iOS Wi-Fi config too — not
-                            // while the link is using it.
-                            .deleteDisabled(!isEditableState)
-                    }
-                    .onDelete { offsets in
-                        for i in offsets { status.removeBike(id: status.savedBikes.bikes[i].id) }
+                            .swipeActions {
+                                // Deleting drops the iOS Wi-Fi config too —
+                                // not while the link is using it. Renaming
+                                // is a label only, so it's always offered.
+                                if isEditableState {
+                                    Button("Delete", role: .destructive) {
+                                        status.removeBike(id: bike.id)
+                                    }
+                                }
+                                Button("Edit") { editingBike = bike }
+                                    .tint(.blue)
+                            }
                     }
                 }
                 addBikeRow
@@ -288,6 +297,11 @@ struct StreamingView: View {
         .sheet(isPresented: $showAddBike) {
             AddBikeSheet { name, ssid in
                 status.addBike(name: name, ssid: ssid)
+            }
+        }
+        .sheet(item: $editingBike) { bike in
+            AddBikeSheet(editing: bike) { name, _ in
+                status.savedBikes.rename(id: bike.id, to: name)
             }
         }
         .toolbar {

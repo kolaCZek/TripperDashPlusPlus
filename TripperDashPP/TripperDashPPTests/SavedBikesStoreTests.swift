@@ -77,6 +77,49 @@ struct SavedBikesStoreTests {
         #expect(s.selectedID == a.id)
     }
 
+    @Test func renameKeepsSSIDAndPersists() {
+        let suite = UserDefaults(suiteName: "test.bikes.rename.\(UUID().uuidString)")!
+        let s1 = SavedBikesStore(defaults: suite)
+        let a = s1.add(name: "Guerrilla", ssid: "RE_1234_ABCDE")!
+        s1.rename(id: a.id, to: "  GG 450  ")
+        #expect(s1.bikes.first?.name == "GG 450") // trimmed
+        #expect(s1.bikes.first?.ssid == "RE_1234_ABCDE") // SSID untouched
+        #expect(s1.selectedID == a.id)
+        s1.rename(id: UUID(), to: "Ghost") // unknown id → no-op
+        #expect(s1.bikes.map(\.name) == ["GG 450"])
+
+        let s2 = SavedBikesStore(defaults: suite)
+        #expect(s2.bikes.first?.name == "GG 450") // survives reload
+
+        s2.rename(id: a.id, to: "   ")
+        #expect(s2.bikes.first?.displayName == "RE_1234_ABCDE") // empty → SSID
+    }
+
+    @Test func ssidInputIsFormattedWhileTyping() {
+        let f = AddBikeSheet.formatSSIDInput
+        #expect(f("RE_") == "RE_") // the prefilled field
+        #expect(f("RE") == "RE_") // backspace on the prefix puts it back
+        #expect(f("") == "RE_")
+        #expect(f("RE_0") == "RE_0")
+        #expect(f("RE_0w12") == "RE_0W12")
+        #expect(f("RE_0w123") == "RE_0W12_3")
+        #expect(f("RE_0W12_") == "RE_0W12_") // rider's own underscore kept
+        #expect(f("RE_0W12_3") == "RE_0W12_3")
+        #expect(f("RE_0w12345678") == "RE_0W12_345678")
+        #expect(f("re0w12345678") == "RE_0W12_345678") // select-all + type
+        #expect(f("RE_RE_0W12_345678") == "RE_0W12_345678") // paste after prefix
+        #expect(f("RE_RE12_345678") == "RE_RE12_345678") // code starting with RE kept
+        #expect(f("RE_0W12_3456789") == "RE_0W12_3456789") // not cut: still invalid
+        // Shapes, never cleans: non-Tripper names still fail the check.
+        for name in ["Home-WiFi-5G", "TP-Link_5GHz", "192.168.100.1", "192.168.1.1", "Vodafone5G"] {
+            #expect(!AddBikeSheet.isValidTripperSSID(f(name)), "select-all + paste \(name)")
+        }
+        for name in ["Home-WiFi-5G", "TP-Link_5GHz", "192.168.100.1", "192.168.1.1"] {
+            #expect(!AddBikeSheet.isValidTripperSSID(f("RE_" + name)), "typed after RE_: \(name)")
+        }
+        #expect(f("Vodafone5G") == "VODAFONE5G") // shown as typed
+    }
+
     @Test func persistsAcrossReload() {
         let suite = UserDefaults(suiteName: "test.bikes.persist.\(UUID().uuidString)")!
         let s1 = SavedBikesStore(defaults: suite)

@@ -53,8 +53,13 @@ def test_prerender_cover_is_dismissable_and_cleared_on_stop():
 
 def test_active_bike_cannot_be_deleted():
     body = decl_body(_src("UI/StreamingView.swift"), "var body: some View")
-    row = body.index("bikeRow(bike)")
-    assert body.index(".deleteDisabled(!isEditableState)", row) < body.index(".onDelete", row)
+    swipe = decl_body(body, ".swipeActions {")
+    gate = decl_body(swipe, "if isEditableState {")
+    assert "status.removeBike(id: bike.id)" in gate
+    # The gated button is the only way to delete from this view: no
+    # row-level .onDelete, context menu or second ungated button.
+    assert body.count("status.removeBike") == 1
+    assert ".onDelete" not in body
 
 
 def test_orphaned_live_activities_ended_at_launch():
