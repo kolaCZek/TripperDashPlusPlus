@@ -97,21 +97,22 @@ struct SavedBikesStoreTests {
 
     @Test func ssidInputIsFormattedWhileTyping() {
         let f = AddBikeSheet.formatSSIDInput
-        #expect(f("re0w12345678") == "RE_0W12_345678")
-        #expect(f("RE_0W12_345678") == "RE_0W12_345678") // already formatted
-        #expect(f("re-0w12 345678") == "RE_0W12_345678") // pasted with junk
-        #expect(f("") == "")
-        #expect(f("r") == "R")
-        #expect(f("re") == "RE") // no trailing separator yet
-        #expect(f("re_") == "RE") // backspace past a separator works
-        #expect(f("re0") == "RE_0")
-        #expect(f("re0w12") == "RE_0W12")
-        #expect(f("re0w123") == "RE_0W12_3")
-        #expect(f("re0w123456789") == "RE_0W12_3456789") // not cut: still invalid
-        #expect(f("192.168.1.1") == "192.168.1.1") // not RE: left as typed
-        #expect(f("home wifi") == "HOME WIFI")
-        #expect(AddBikeSheet.isValidTripperSSID(f("re 0w12 345678")))
-        #expect(!AddBikeSheet.isValidTripperSSID(f("re0w123456789")))
+        #expect(f("RE_") == "RE_") // the prefilled field
+        #expect(f("RE") == "RE_") // backspace on the prefix puts it back
+        #expect(f("") == "RE_")
+        #expect(f("RE_0") == "RE_0")
+        #expect(f("RE_0w12") == "RE_0W12")
+        #expect(f("RE_0w123") == "RE_0W12_3")
+        #expect(f("RE_0W12_") == "RE_0W12") // backspace past a separator works
+        #expect(f("RE_0w12345678") == "RE_0W12_345678")
+        #expect(f("re0w12345678") == "RE_0W12_345678") // select-all + type
+        #expect(f("RE_RE_0W12_345678") == "RE_0W12_345678") // paste after prefix
+        #expect(f("RE_re 0w12-345678") == "RE_0W12_345678")
+        #expect(f("RE_RE12_345678") == "RE_RE12_345678") // block starting with RE kept
+        #expect(f("RE_0W12_3456789") == "RE_0W12_3456789") // not cut: still invalid
+        #expect(AddBikeSheet.isValidTripperSSID(f("RE_RE_0W12_345678")))
+        #expect(!AddBikeSheet.isValidTripperSSID(f("RE_0W12_3456789")))
+        #expect(!AddBikeSheet.isValidTripperSSID(f("192.168.1.1")))
     }
 
     @Test func persistsAcrossReload() {

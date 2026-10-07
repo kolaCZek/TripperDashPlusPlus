@@ -31,7 +31,7 @@ struct AddBikeSheet: View {
         self.editing = editing
         self.onSave = onSave
         _name = State(initialValue: editing?.name ?? "")
-        _ssid = State(initialValue: editing?.ssid ?? "")
+        _ssid = State(initialValue: editing?.ssid ?? Self.ssidPrefix)
     }
 
     /// Trimmed, upper-cased SSID as it will be stored/validated.
@@ -48,29 +48,32 @@ struct AddBikeSheet: View {
         s.range(of: #"^RE_[A-Z0-9]{4}_[A-Z0-9]{6}$"#, options: .regularExpression) != nil
     }
 
-    /// Typing aid for the SSID field: upper-cases and puts the underscores
-    /// of RE_XXXX_XXXXXX where they belong, so "re0w12345678" reads
-    /// "RE_0W12_345678". A separator appears only once a character follows
-    /// it, so backspace removes it with the character before. Input that
-    /// doesn't start with RE is only upper-cased, so the format error still
-    /// shows a home Wi-Fi name or the dash IP as typed. Extra characters
-    /// are kept, not cut, so a too-long SSID still fails the check.
+    /// Every Tripper AP SSID starts with this, so the add form starts with it.
+    static let ssidPrefix = "RE_"
+
+    /// Typing aid for the SSID field: keeps the RE_ prefix, upper-cases, and
+    /// puts the second underscore of RE_XXXX_XXXXXX where it belongs, so
+    /// typing "0w12345678" after the prefix reads "RE_0W12_345678".
+    /// - The prefix can't be deleted; backspace on it puts it back.
+    /// - The second underscore appears only once a character follows it, so
+    ///   backspace removes it with the character before.
+    /// - A full SSID pasted after the prefix ("RE_RE_0W12…") drops the
+    ///   doubled RE. A block that merely starts with RE (RE_RE12_…) is kept:
+    ///   only a body longer than the 10 characters an SSID has is trimmed.
+    /// - Extra characters are kept, not cut, so a too-long SSID still fails
+    ///   the format check instead of turning into a different network.
     // ponytail: rewriting the text moves the cursor to the end, so a
     // mid-string edit jumps; a UITextField delegate fixes that if it bites.
     nonisolated static func formatSSIDInput(_ raw: String) -> String {
-        let upper = raw.uppercased()
-        let chars = upper.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
-        guard chars.hasPrefix("RE") else { return upper }
-        var out = "RE"
-        for (i, c) in chars.dropFirst(2).enumerated() {
-            if i == 0 || i == 4 { out.append("_") }
+        var body = Substring(raw.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) })
+        if body.hasPrefix("RE") { body = body.dropFirst(2) }
+        if body.count > 10, body.hasPrefix("RE") { body = body.dropFirst(2) }
+        var out = ssidPrefix
+        for (i, c) in body.enumerated() {
+            if i == 4 { out.append("_") }
             out.append(c)
         }
         return out
-    }
-
-    private var trimmedSSID: String {
-        ssid.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Editing never re-validates the SSID: it's read-only, and a legacy
@@ -82,7 +85,7 @@ struct AddBikeSheet: View {
     /// Show a corrective hint only once the rider has typed something that
     /// isn't (yet) a valid SSID — don't nag on an empty field.
     private var showFormatError: Bool {
-        !trimmedSSID.isEmpty && !canAdd
+        normalizedSSID != Self.ssidPrefix && !canAdd
     }
 
     var body: some View {
