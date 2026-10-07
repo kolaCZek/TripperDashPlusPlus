@@ -164,6 +164,15 @@ final class SavedBikesStore {
         persist()
     }
 
+    /// Rename a bike (swipe → Edit). The SSID never changes: a different
+    /// network is a different bike. An empty name falls back to the SSID
+    /// via `displayName`. Unknown id → no-op.
+    func rename(id: UUID, to rawName: String) {
+        guard let idx = bikes.firstIndex(where: { $0.id == id }) else { return }
+        bikes[idx].name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        persist()
+    }
+
     /// Make a bike active (rider tapped its Connect row / picked it).
     func select(id: UUID) {
         guard bikes.contains(where: { $0.id == id }) else { return }

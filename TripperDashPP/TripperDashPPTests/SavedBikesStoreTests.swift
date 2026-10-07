@@ -77,6 +77,24 @@ struct SavedBikesStoreTests {
         #expect(s.selectedID == a.id)
     }
 
+    @Test func renameKeepsSSIDAndPersists() {
+        let suite = UserDefaults(suiteName: "test.bikes.rename.\(UUID().uuidString)")!
+        let s1 = SavedBikesStore(defaults: suite)
+        let a = s1.add(name: "Guerrilla", ssid: "RE_1234_ABCDE")!
+        s1.rename(id: a.id, to: "  GG 450  ")
+        #expect(s1.bikes.first?.name == "GG 450") // trimmed
+        #expect(s1.bikes.first?.ssid == "RE_1234_ABCDE") // SSID untouched
+        #expect(s1.selectedID == a.id)
+        s1.rename(id: UUID(), to: "Ghost") // unknown id → no-op
+        #expect(s1.bikes.map(\.name) == ["GG 450"])
+
+        let s2 = SavedBikesStore(defaults: suite)
+        #expect(s2.bikes.first?.name == "GG 450") // survives reload
+
+        s2.rename(id: a.id, to: "   ")
+        #expect(s2.bikes.first?.displayName == "RE_1234_ABCDE") // empty → SSID
+    }
+
     @Test func persistsAcrossReload() {
         let suite = UserDefaults(suiteName: "test.bikes.persist.\(UUID().uuidString)")!
         let s1 = SavedBikesStore(defaults: suite)

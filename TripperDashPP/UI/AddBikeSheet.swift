@@ -12,16 +12,27 @@
 
 import SwiftUI
 
-/// A small modal form for adding a bike to the garage. Calls `onAdd(name,
-/// ssid)` and dismisses when the rider taps Add; Add is disabled until the
-/// SSID matches the Tripper AP format (RE_XXXX_XXXXXX).
+/// A small modal form for adding a bike to the garage, or editing a saved
+/// one's name. Calls `onSave(name, ssid)` and dismisses when the rider taps
+/// Add / Save. Adding requires an SSID in the Tripper AP format
+/// (RE_XXXX_XXXXXX); editing shows the SSID read-only, since a different
+/// network is a different bike (remove it and add it again).
 struct AddBikeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    let onAdd: (_ name: String, _ ssid: String) -> Void
+    /// nil = add a new bike; set = edit this bike's name.
+    let editing: SavedBike?
+    let onSave: (_ name: String, _ ssid: String) -> Void
 
-    @State private var name: String = ""
-    @State private var ssid: String = ""
+    @State private var name: String
+    @State private var ssid: String
+
+    init(editing: SavedBike? = nil, onSave: @escaping (_ name: String, _ ssid: String) -> Void) {
+        self.editing = editing
+        self.onSave = onSave
+        _name = State(initialValue: editing?.name ?? "")
+        _ssid = State(initialValue: editing?.ssid ?? "")
+    }
 
     /// Trimmed, upper-cased SSID as it will be stored/validated.
     private var normalizedSSID: String {
@@ -41,8 +52,10 @@ struct AddBikeSheet: View {
         ssid.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Editing never re-validates the SSID: it's read-only, and a legacy
+    /// bike saved before the format check must still be renamable.
     private var canAdd: Bool {
-        Self.isValidTripperSSID(normalizedSSID)
+        editing != nil || Self.isValidTripperSSID(normalizedSSID)
     }
 
     /// Show a corrective hint only once the rider has typed something that
@@ -64,14 +77,22 @@ struct AddBikeSheet: View {
                 }
 
                 Section {
-                    TextField("RE_XXXX_XXXXXX", text: $ssid)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .font(.body.monospaced())
+                    if editing != nil {
+                        Text(ssid)
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("RE_XXXX_XXXXXX", text: $ssid)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            .font(.body.monospaced())
+                    }
                 } header: {
                     Text("Wi-Fi network (SSID)")
                 } footer: {
-                    if showFormatError {
+                    if editing != nil {
+                        Text("The Wi-Fi network can't be changed. For a different network, remove this bike and add it again.")
+                    } else if showFormatError {
                         Text("That doesn't look like a Tripper network name. It should read like RE_0W12_345678 — you'll find it on the dash's phone-pairing screen.")
                             .foregroundStyle(.red)
                     } else {
@@ -79,15 +100,15 @@ struct AddBikeSheet: View {
                     }
                 }
             }
-            .navigationTitle("Add bike")
+            .navigationTitle(editing == nil ? "Add bike" : "Edit bike")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        onAdd(name, normalizedSSID)
+                    Button(editing == nil ? "Add" : "Save") {
+                        onSave(name, editing?.ssid ?? normalizedSSID)
                         dismiss()
                     }
                     .disabled(!canAdd)
