@@ -38,7 +38,7 @@ from typing import Iterable
 #   4B 31 47 20   ASCII "K1G "
 #   <seq>      rolling sequence byte, patched per-transmission
 #
-# The "0016 0002 …" prefix at the start of every Q3C_* hex string in
+# The "0016 0002 …" prefix at the start of every packet hex constant in
 # better-dash bakes in outer_len=0x16 for a single-segment ack; the
 # patch_k1g_seq() helper recomputes outer_len for variable-length packets.
 K1G_MAGIC = b"K1G "
@@ -186,7 +186,7 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
     Build a complete K1G wire packet from one or more segments.
 
     Layout produced (matching the templates baked into better-dash's
-    Q3C_* hex constants):
+    packet hex constants):
 
         [len: u16 BE = 0]           # patched after assembly
         [seg_count: u16 BE]         # always len(segs) + 1 (see below)
@@ -199,7 +199,7 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
     The leading outer_len is patched in place once the body is assembled
     (`patch_seq` re-patches it on every send).
 
-    seg_count quirk: every Q3C_* template in better-dash hardcodes
+    seg_count quirk: every packet template in better-dash hardcodes
     `00 02` for single-segment packets, and `active_nav_packet`
     computes `len(tlvs) + 1` for multi-segment packets. The real
     Tripper dash validates this byte — packets with the naive count

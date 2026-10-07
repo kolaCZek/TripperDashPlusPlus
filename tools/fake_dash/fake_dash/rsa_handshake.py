@@ -2,7 +2,7 @@
 RSA-1024 handshake state machine for the bike side.
 
 In the real protocol the bike (Tripper TFT) holds a long-lived RSA-1024
-key pair. After the phone sends `q3c.e` ("request auth / give me your
+key pair. After the phone sends `REQUEST_PUBKEY` ("request auth / give me your
 pubkey"), the bike answers with two K1G segments:
 
     07 00  <modulus, 128 B big-endian>
@@ -11,7 +11,7 @@ pubkey"), the bike answers with two K1G segments:
 The phone derives a payload `ssid_bytes ‖ aes_key_bytes` (see the
 handshake in better-dash), encrypts it with
 RSA-PKCS1v1.5 under the public key, and ships it back inside a single
-`q3c.d` segment of type=0x08 sub=0x00. The bike decrypts with its
+`SESSION_KEY` segment of type=0x08 sub=0x00. The bike decrypts with its
 private key, recovers `ssid + aes_key`, validates the SSID, and replies
 with `07 01 01` (auth OK).
 
@@ -53,7 +53,7 @@ from .protocol import (
 log = logging.getLogger("fake_dash.rsa")
 
 
-# RSA-1024 is hardcoded into the real q3c.d packet (outer_len=0x95,
+# RSA-1024 is hardcoded into the real SESSION_KEY packet (outer_len=0x95,
 # seg_len=0x80 = 128B ciphertext). Anything else would not fit.
 RSA_KEY_BITS = 1024
 RSA_CIPHERTEXT_LEN = 128
@@ -137,7 +137,7 @@ def public_key_bytes(pub: RSAPublicKey) -> tuple[bytes, bytes]:
     phone expects in `07 00` and `07 03` segments.
 
     Modulus is padded to exactly 128 B for RSA-1024 (the dash assumes
-    this width when sizing q3c.d). Exponent is the natural big-endian
+    this width when sizing SESSION_KEY). Exponent is the natural big-endian
     byte form, typically `00 01 00 01` for the standard F4 = 65537.
     """
     numbers = pub.public_numbers()
@@ -150,7 +150,7 @@ def public_key_bytes(pub: RSAPublicKey) -> tuple[bytes, bytes]:
 
 def build_pubkey_response(pub: RSAPublicKey, seq: int = 0) -> bytes:
     """
-    Build the K1G envelope the bike sends in response to `q3c.e`,
+    Build the K1G envelope the bike sends in response to `REQUEST_PUBKEY`,
     carrying modulus + exponent in two segments.
     """
     modulus, exponent = public_key_bytes(pub)
@@ -169,13 +169,13 @@ def decrypt_session_key(
     expected_ssid: str,
 ) -> HandshakeResult:
     """
-    Decrypt a `q3c.d` payload (the 128 B RSA-PKCS1v1.5 ciphertext) and
+    Decrypt a `SESSION_KEY` payload (the 128 B RSA-PKCS1v1.5 ciphertext) and
     split it into SSID + AES session key.
 
     Layout produced by the phone:
         plaintext = ssid_utf8_bytes ‖ aes_key_bytes
 
-    The Royal Enfield app uses AES-256 (32-byte key), so we slice from
+    The session key is AES-256 (32 bytes), so we slice from
     the end: last 32 B = AES key, prefix = SSID.
 
     Raises ValueError if the ciphertext length is wrong or PKCS1v1.5

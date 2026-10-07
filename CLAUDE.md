@@ -81,7 +81,7 @@ Ports the wire format to Swift. The files mirror `tools/fake_dash/fake_dash/`:
 | `DashMediaControl.swift` | (n/a — phone-side only) | dash LEFT/RIGHT-hold buttons → `MPMusicPlayerController` next/prev track |
 | `WiFiJoiner.swift` | (n/a — phone-side only) | `NEHotspotConfiguration` register / join / remove of the bike's AP (paid Hotspot Configuration entitlement) |
 
-**Drift policy:** when `tools/fake_dash/fake_dash/protocol.py` changes its wire format, the matching `K1G*.swift` constant **must** change in the same commit, and the integration test should pin the new shape. **But the integration test is not the protocol authority** — `better-dash` is. The real dash validates `outer_len`, `seg_count` (hardcoded for status templates, `count+1` for Q3C envelopes), the outbound type-byte family (`{0x02, 0x05, 0x06, 0x08}` — never `0x07`, which is inbound-only), and the rolling sequence byte. fake_dash checks none of these; both can pass and the bike still drops the packet. See the `royal-enfield-tripper-dash` skill (`references/k1g-wire-protocol.md`) before editing any `Tripper/` file.
+**Drift policy:** when `tools/fake_dash/fake_dash/protocol.py` changes its wire format, the matching `K1G*.swift` constant **must** change in the same commit, and the integration test should pin the new shape. **But the integration test is not the protocol authority** — `better-dash` is. The real dash validates `outer_len`, `seg_count` (hardcoded for status templates, `count+1` for `encode()` envelopes), the outbound type-byte family (`{0x02, 0x05, 0x06, 0x08}` — never `0x07`, which is inbound-only), and the rolling sequence byte. fake_dash checks none of these; both can pass and the bike still drops the packet. See the `royal-enfield-tripper-dash` skill (`references/k1g-wire-protocol.md`) before editing any `Tripper/` file.
 
 ## Repo conventions
 
@@ -211,7 +211,7 @@ When asked to add tests, **also add a fake-dash test** that exercises the same c
   - `render produced no frame`: a tick ran but rendered nothing; any `rtp gap` then is the renderer's.
   - `rtp gap` (> 750 ms): encoder or send path, `RtpStreamer`, when there's neither of the two above.
   - `dash rx gap` (> 2 s) / `Link dropped`: Wi-Fi / dash, `DashSocket` / `BikeLink`. A lone `dash rx gap` of 2–3.5 s also happens on healthy rides (measured max 3.5 s, `K1GConstants`).
-  - Nothing logged: no stage paused past its threshold. Lost RTP packets on the dash side (a smear until the next keyframe) are likely, but not proven; shorter pauses and a failed per-frame `q3c.g` kick don't log either.
+  - Nothing logged: no stage paused past its threshold. Lost RTP packets on the dash side (a smear until the next keyframe) are likely, but not proven; shorter pauses and a failed per-frame `PROJ_FRAME` kick don't log either.
 - **iOS API question** → Apple's WWDC sessions on Network framework, VideoToolbox, MapKit, and CoreLocation Background.
 - **Anything else** → ask the user via an issue or PR comment.
 

@@ -61,7 +61,7 @@ def test_handshake_end_to_end(server, tmp_path):
     phone_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     phone_sock.settimeout(2.0)
 
-    # 1) Phone → bike: request pubkey (q3c.e shape).
+    # 1) Phone → bike: request pubkey (REQUEST_PUBKEY shape).
     #    Type 0x08 (session, phone → bike) NOT 0x07 (auth, bike → phone
     #    only). Earlier revisions of this test used 0x07 and matched the
     #    server's old loose handler — but the real Tripper dash silently
@@ -78,7 +78,7 @@ def test_handshake_end_to_end(server, tmp_path):
     modulus = next(s.payload for s in segs if (s.type, s.sub) == (0x07, 0x00))
     assert len(modulus) == RSA_CIPHERTEXT_LEN
 
-    # 3) Build encrypted session key and ship it as q3c.d (08 00).
+    # 3) Build encrypted session key and ship it as SESSION_KEY (08 00).
     ssid = "RE_TEST_000000"
     aes_key = b"\x37" * 32
     plaintext = ssid.encode("utf-8") + aes_key

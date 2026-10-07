@@ -9,7 +9,7 @@ the BLE protocol of the small round Tripper Pod:
   1. `05 21 0001 <state>` — the call-state TLV
   2. `05 4D 0001 32`      — the commit/trailer suffix, constant
 
-State bytes:
+State bytes (only 0x32 is backed by a capture, see below):
 
   0x0A  incoming   — ringing
   0x14  active     — answered / in call
@@ -36,7 +36,7 @@ from fake_dash.protocol import Segment, build_envelope, decode_packet
 
 # --- Python mirrors of the Swift call-state builders -------------------------
 
-# K1GPacket.CallState raw values — must equal the reference packets below.
+# K1GPacket.CallState raw values — must equal the pinned packets below.
 CALL_INCOMING = 0x0A
 CALL_ACTIVE = 0x14
 CALL_OUTGOING = 0x1E
@@ -74,22 +74,25 @@ def callkit_to_state(has_ended: bool, has_connected: bool, is_outgoing: bool) ->
     return CALL_INCOMING
 
 
-# --- Byte-exact reference packets --------------------------------------------
+# --- Pinned reference packets -------------------------------------------------
 #
-# These are the full framed packets the stock app puts on the wire at
-# seq=0. The header is
+# The full framed packets we send at seq=0. Only the idle state (0x32) and
+# the 05 4D commit are backed by a capture (the better-dash heartbeat tail
+# `0521000132054D000132`, see test_idle_burst_matches_better_dash_inline_tail);
+# 0x0A/0x14/0x1E have no wire capture and are pinned here so a builder
+# change can't alter them silently. The header is
 # the fixed 17-byte K1G envelope prefix:
 #   0016  0002  00000000  02010005  4B314720  00
 #   len   segc  pad       marker    "K1G "     seq
 # followed by the TLV. build_envelope() must reproduce these exactly.
 
-OEM_CALL_STATE_PACKETS = {
+PINNED_CALL_STATE_PACKETS = {
     CALL_INCOMING: bytes.fromhex("0016000200000000020100054B31472000052100010A"),
     CALL_ACTIVE:   bytes.fromhex("0016000200000000020100054B314720000521000114"),
     CALL_OUTGOING: bytes.fromhex("0016000200000000020100054B31472000052100011E"),
     CALL_NONE:     bytes.fromhex("0016000200000000020100054B314720000521000132"),
 }
-OEM_CALL_COMMIT_PACKET = bytes.fromhex("0016000200000000020100054B31472000054D000132")
+PINNED_CALL_COMMIT_PACKET = bytes.fromhex("0016000200000000020100054B31472000054D000132")
 
 
 # --- Call-state TLV byte format (0x05 / 0x21) --------------------------------
@@ -131,25 +134,25 @@ def test_tlv_call_state_commit_is_constant_0x32() -> None:
 @pytest.mark.parametrize("state", ALL_STATES)
 def test_call_state_envelope_matches_reference_packet(state: int) -> None:
     """The full framed packet `build_envelope([tlv_call_state(s)], seq=0)`
-    must be BYTE-IDENTICAL to the reference packet.
+    must be BYTE-IDENTICAL to the pinned packet.
 
     This is the load-bearing assertion: it proves the Swift
     `makeCallState` (which shares `encode()` with this `build_envelope`)
     puts exactly the bytes the real dash expects on the wire — including
     the `seg_count = N+1 = 2` quirk and `outer_len = 0x16`."""
     pkt = build_envelope([tlv_call_state(state)], seq=0)
-    assert pkt == OEM_CALL_STATE_PACKETS[state], (
+    assert pkt == PINNED_CALL_STATE_PACKETS[state], (
         f"state 0x{state:02X}: built {pkt.hex().upper()} != "
-        f"OEM {OEM_CALL_STATE_PACKETS[state].hex().upper()}"
+        f"pinned {PINNED_CALL_STATE_PACKETS[state].hex().upper()}"
     )
 
 
 def test_call_state_commit_envelope_matches_reference_packet() -> None:
-    """The commit packet must be byte-identical to the reference packet."""
+    """The commit packet must be byte-identical to the pinned packet."""
     pkt = build_envelope([tlv_call_state_commit()], seq=0)
-    assert pkt == OEM_CALL_COMMIT_PACKET, (
+    assert pkt == PINNED_CALL_COMMIT_PACKET, (
         f"commit: built {pkt.hex().upper()} != "
-        f"OEM {OEM_CALL_COMMIT_PACKET.hex().upper()}"
+        f"pinned {PINNED_CALL_COMMIT_PACKET.hex().upper()}"
     )
 
 

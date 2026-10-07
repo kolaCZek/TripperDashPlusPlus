@@ -7,8 +7,9 @@
 //  earlier revisions sent an empty K1G envelope every tick and the real
 //  Tripper dash dropped the link after a few seconds of "weird" heartbeats.
 //
-//  A paired phone sends two status frames once a second (see the
-//  better-dash capture):
+//  Two status frames go out once a second (the 0044 is pinned by the
+//  better-dash capture; the 0030 follows better-dash
+//  `build_metadata_0030_e` and the dash accepts it on our rides):
 //
 //    - 0044 packet (battery / GPS / charging / temp / volumes /
 //      nav distance) — the canonical status frame.

@@ -51,10 +51,10 @@ open captures/dash_capture_*.h264
 
 | K1G segment | Direction | Meaning |
 |-------------|-----------|---------|
-| `08 04`     | phone → bike | request pubkey (`q3c.e`) — NOT 0x07; that family is inbound-only |
+| `08 04`     | phone → bike | request pubkey (`REQUEST_PUBKEY`) — NOT 0x07; that family is inbound-only |
 | `07 00`     | bike → phone | RSA modulus (128 B, big-endian) |
 | `07 03`     | bike → phone | RSA exponent (typically `00 01 00 01`) |
-| `08 00`     | phone → bike | RSA-encrypted `ssid ‖ aes_key` (`q3c.d`) |
+| `08 00`     | phone → bike | RSA-encrypted `ssid ‖ aes_key` (`SESSION_KEY`) |
 | `07 01 01`  | bike → phone | auth OK |
 | `07 01 00`  | bike → phone | auth fail |
 | `09 00 0001 XX` | bike → phone | joystick (map screen XX = 0x13/0x14/0x15/0x18; now-playing 0x09/0x0A; in-menu 0x20/0x12) |

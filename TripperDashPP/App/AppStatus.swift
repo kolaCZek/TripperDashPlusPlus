@@ -537,7 +537,7 @@ final class AppStatus {
         // gone out yet and `stopStreaming()` already sent its nav-stop.
         guard streamer === s else { return }
         // Kick the dash into nav projection BEFORE starting the RTP
-        // stream — without q3c.z2 + q3c.q the dash never switches off
+        // stream — without START_NAV + NAV_CTX the dash never switches off
         // the home widgets and treats UDP/5000 as noise.
         //
         // MUST be awaited here, not fire-and-forget. It used to be
@@ -555,7 +555,7 @@ final class AppStatus {
         // instead of entering nav projection, exactly the failure mode
         // this comment warns about. A dash still finishing its own
         // internal recovery is far more likely to be slow to process
-        // q3c.z2/q3c.q, which is exactly when this unenforced ordering
+        // START_NAV/NAV_CTX, which is exactly when this unenforced ordering
         // actually matters. Awaiting a UDP send is cheap (single-digit
         // ms in practice) — no perceptible startup delay for the normal
         // case, and a real ordering guarantee for the racy one.
@@ -603,7 +603,7 @@ final class AppStatus {
         }
         s.start()
         // Latch the "projection on" flag shortly after start so the
-        // dash has the q3c.w hint while the first frames are landing.
+        // dash has the PROJ_ON hint while the first frames are landing.
         // 250 ms gives the encoder time to emit its first NAL and the
         // RTP UDP connection to reach .ready.
         Task {

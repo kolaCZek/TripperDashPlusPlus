@@ -5,10 +5,10 @@
 //  Phone-side of the K1G RSA-1024 / PKCS1v1.5 handshake. Runs once per
 //  connection lifetime:
 //
-//    1. We send q3c.e ("give me your pubkey")
+//    1. We send REQUEST_PUBKEY ("give me your pubkey")
 //    2. Bike replies with two segments — modulus (07 00) + exponent (07 03)
 //    3. We assemble the SecKey, encrypt `ssid + aes_key` with PKCS1v1.5,
-//       and ship it as q3c.d (08 00)
+//       and ship it as SESSION_KEY (08 00)
 //    4. Bike replies with 07 01 01 (auth OK)
 //
 //  The AES session key is generated locally — `SecRandomCopyBytes` —

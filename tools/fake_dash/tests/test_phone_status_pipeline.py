@@ -9,10 +9,10 @@ better-dash inlines verbatim as `INITIAL_BURST_HEX[9]`
 
     0044 000a 00000000 020100054b314720 09
       06 08 0001 ff   cell signal strength (0-255 analog bars)
-      06 03 0001 55   GPS fix on              (Q3C_V, 55=on / aa=off)
+      06 03 0001 55   GPS fix on              (55=on / aa=off)
       06 04 0001 a2   battery, payload=level+100  (0xa2-100 = 62 %)
-      06 0f 0001 aa   charging                (Q3C_T, 55=yes / aa=no)
-      06 01 0001 01   mobile signal PRESENT   (Q3C_S, 01=have / 00=none)
+      06 0f 0001 aa   charging                (55=yes / aa=no)
+      06 01 0001 01   mobile signal PRESENT   (01=have / 00=none)
       05 4c 0001 13   music volume bucket
       05 2d 0002 0000 nav distance
       05 1b 0001 19   alarm volume bucket
@@ -48,7 +48,7 @@ from fake_dash.protocol import decode_packet
 
 # --- Real-phone capture (better-dash INITIAL_BURST_HEX[9]) -------------------
 
-OEM_0044_CAPTURE = bytes.fromhex(
+CAPTURED_0044 = bytes.fromhex(
     "0044000a00000000020100054b3147200906080001ff060300015506040001a2"
     "060f0001aa0601000101054c000113052d00020000051b0001190521000132054d000132"
 )
@@ -155,7 +155,7 @@ def _tlv_map(packet: bytes) -> dict:
 # === Tests: byte-exact wire pinning ==========================================
 
 
-def test_heartbeat_matches_real_oem_capture_field_for_field():
+def test_heartbeat_matches_real_capture_field_for_field():
     """Our 0044 builder, fed the captured phone's readings, reproduces the
     OEM status TLVs byte-for-byte.
 
@@ -164,7 +164,7 @@ def test_heartbeat_matches_real_oem_capture_field_for_field():
     (music/alarm/nav buckets differ by phone), but every phone-status TLV
     must match exactly — that's the contract this feature ships.
     """
-    oem = _tlv_map(OEM_0044_CAPTURE)
+    oem = _tlv_map(CAPTURED_0044)
     assert oem[(0x06, 0x08)] == bytes([0xFF])          # cell strength
     assert oem[(0x06, 0x03)] == bytes([0x55])          # GPS on
     assert oem[(0x06, 0x04)] == bytes([0xA2])          # battery 0xA2-100=62%
@@ -238,10 +238,10 @@ def test_heartbeat_outer_len_is_self_consistent():
     assert outer_len == len(pkt)
 
 
-def test_seg_count_is_the_oem_constant_0x000a():
-    """seg_count is a hardcoded OEM constant (0x000A), NOT a live TLV
+def test_seg_count_is_the_captured_constant_0x000a():
+    """seg_count is the fixed constant from the capture (0x000A), NOT a live TLV
     count — both the capture and our builder emit it verbatim."""
-    assert OEM_0044_CAPTURE[2:4] == bytes([0x00, 0x0A])
+    assert CAPTURED_0044[2:4] == bytes([0x00, 0x0A])
     assert make_heartbeat_0044(seq=0)[2:4] == bytes([0x00, 0x0A])
 
 

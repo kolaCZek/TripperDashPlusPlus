@@ -30,8 +30,8 @@
 //  * signal     : iOS gives NO public API for the bar COUNT (the
 //                 private `_signalStrengthBars` route is an App Store
 //                 reject). BUT the stock app's `06 01` TLV is itself
-//                 only a binary present/absent flag (payload `01`/`00`
-//                 in captures), and THAT we can
+//                 only a binary present/absent flag (payload `01` in
+//                 captures; we send `00` for no signal), and THAT we can
 //                 reproduce faithfully via `NWPathMonitor(.cellular)`.
 //                 So `06 01` is byte-faithful to the OEM. The analog
 //                 `06 08` strength (0-255) we cannot truly measure, so
