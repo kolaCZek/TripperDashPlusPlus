@@ -54,26 +54,36 @@ struct AddBikeSheet: View {
     /// Typing aid for the SSID field: keeps the RE_ prefix, upper-cases, and
     /// puts the second underscore of RE_XXXX_XXXXXX where it belongs, so
     /// typing "0w12345678" after the prefix reads "RE_0W12_345678".
+    /// It only shapes, it never cleans: dashes, dots and spaces are left in,
+    /// so a home Wi-Fi name or the dash IP still fails the format check
+    /// (the 8/2026 field report) instead of being coerced into one.
     /// - The prefix can't be deleted; backspace on it puts it back.
-    /// - The second underscore appears only once a character follows it, so
-    ///   backspace removes it with the character before.
-    /// - A full SSID pasted after the prefix ("RE_RE_0W12…") drops the
-    ///   doubled RE. A block that merely starts with RE (RE_RE12_…) is kept:
-    ///   only a body longer than the 10 characters an SSID has is trimmed.
-    /// - Extra characters are kept, not cut, so a too-long SSID still fails
-    ///   the format check instead of turning into a different network.
+    /// - Text that doesn't start with RE (select-all + paste) is left as
+    ///   typed, upper-cased, so the format error shows it.
+    /// - The second underscore goes in only after 4 letters/digits and once
+    ///   a character follows, so backspace removes it with that character.
+    /// - A full SSID pasted after the prefix ("RE_RE_0W12_…") drops the
+    ///   doubled prefix; a code that merely starts with RE (RE_RE12_…) is
+    ///   kept, since only a body longer than an SSID's 11 is trimmed.
     // ponytail: rewriting the text moves the cursor to the end, so a
     // mid-string edit jumps; a UITextField delegate fixes that if it bites.
     nonisolated static func formatSSIDInput(_ raw: String) -> String {
-        var body = Substring(raw.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) })
-        if body.hasPrefix("RE") { body = body.dropFirst(2) }
-        if body.count > 10, body.hasPrefix("RE") { body = body.dropFirst(2) }
-        var out = ssidPrefix
-        for (i, c) in body.enumerated() {
-            if i == 4 { out.append("_") }
-            out.append(c)
+        let upper = raw.uppercased()
+        if ssidPrefix.hasPrefix(upper) { return ssidPrefix }
+        var body: Substring
+        if upper.hasPrefix(ssidPrefix) {
+            body = upper.dropFirst(3)
+        } else if upper.hasPrefix("RE") {
+            body = upper.dropFirst(2)
+        } else {
+            return upper
         }
-        return out
+        while body.count > 11, body.hasPrefix(ssidPrefix) { body = body.dropFirst(3) }
+        let isCode = { (c: Character) in c.isASCII && (c.isLetter || c.isNumber) }
+        if body.count > 4, body.prefix(4).allSatisfy(isCode), body.dropFirst(4).first != "_" {
+            return ssidPrefix + String(body.prefix(4)) + "_" + String(body.dropFirst(4))
+        }
+        return ssidPrefix + String(body)
     }
 
     /// Editing never re-validates the SSID: it's read-only, and a legacy
@@ -83,7 +93,7 @@ struct AddBikeSheet: View {
     }
 
     /// Show a corrective hint only once the rider has typed something that
-    /// isn't (yet) a valid SSID — don't nag on an empty field.
+    /// isn't (yet) a valid SSID — not while the field holds just the prefix.
     private var showFormatError: Bool {
         normalizedSSID != Self.ssidPrefix && !canAdd
     }

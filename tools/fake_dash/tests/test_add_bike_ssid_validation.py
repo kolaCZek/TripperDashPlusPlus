@@ -93,3 +93,61 @@ def test_valid_tripper_ssids_pass():
 def test_ip_and_home_names_rejected():
     for s in ("192.168.1.1", "MYHOMEWIFI", "RE_ABC_123456", "RE_DEMO_0001", "RE_0W12_34567", "TRIPPER"):
         assert not TRIPPER_SSID_RE.match(s), f"{s} must NOT validate as a Tripper SSID"
+
+
+# --- The SSID typing aid must not undo the guard -----------------------------
+# Mirror of AddBikeSheet.formatSSIDInput. It shapes (prefix, upper-case, the
+# second underscore) but never strips characters, so a home Wi-Fi name or the
+# dash IP still fails the format check. An earlier version stripped
+# everything but letters/digits and turned "Vodafone5G" into a valid
+# RE_VODA_FONE5G.
+
+_PREFIX = "RE_"
+_CODE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+
+def format_ssid_input(raw: str) -> str:
+    up = raw.upper()
+    if _PREFIX.startswith(up):
+        return _PREFIX
+    if up.startswith(_PREFIX):
+        body = up[3:]
+    elif up.startswith("RE"):
+        body = up[2:]
+    else:
+        return up
+    while len(body) > 11 and body.startswith(_PREFIX):
+        body = body[3:]
+    if len(body) > 4 and all(c in _CODE for c in body[:4]) and body[4] != "_":
+        return _PREFIX + body[:4] + "_" + body[4:]
+    return _PREFIX + body
+
+
+def test_formatter_mirror_matches_swift_source():
+    body = decl_body(_add_bike_sheet_src(), "nonisolated static func formatSSIDInput(")
+    assert "} else {\n            return upper\n        }" in body, (
+        "non-RE input must be returned as typed so the format error shows it"
+    )
+    assert ".filter" not in body, "the formatter must not strip characters"
+
+
+def test_typing_aid_keeps_non_tripper_names_invalid():
+    names = ["Home-WiFi-5G", "TP-Link_5GHz", "192.168.100.1", "192.168.1.1", "My Home Net"]
+    for name in names:
+        assert not TRIPPER_SSID_RE.match(format_ssid_input(name)), name
+        assert not TRIPPER_SSID_RE.match(format_ssid_input(_PREFIX + name)), name
+    assert format_ssid_input("Vodafone5G") == "VODAFONE5G"
+
+
+def test_typing_aid_completes_and_keeps_valid_ssids():
+    for ssid in ["RE_0W12_345678", "RE_RE12_345678", "RE_REAB_CDEFGH"]:
+        assert format_ssid_input(ssid) == ssid
+        assert format_ssid_input(_PREFIX + ssid) == ssid  # paste after prefix
+        typed = _PREFIX
+        for c in ssid[3:].replace("_", "").lower():
+            typed = format_ssid_input(typed + c)
+        assert typed == ssid
+        while typed != _PREFIX:  # backspace never gets stuck
+            shorter = format_ssid_input(typed[:-1])
+            assert len(shorter) < len(typed) or shorter == _PREFIX
+            typed = shorter
