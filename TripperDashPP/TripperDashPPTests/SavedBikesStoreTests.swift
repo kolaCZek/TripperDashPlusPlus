@@ -95,6 +95,25 @@ struct SavedBikesStoreTests {
         #expect(s2.bikes.first?.displayName == "RE_1234_ABCDE") // empty → SSID
     }
 
+    @Test func ssidInputIsFormattedWhileTyping() {
+        let f = AddBikeSheet.formatSSIDInput
+        #expect(f("re0w12345678") == "RE_0W12_345678")
+        #expect(f("RE_0W12_345678") == "RE_0W12_345678") // already formatted
+        #expect(f("re-0w12 345678") == "RE_0W12_345678") // pasted with junk
+        #expect(f("") == "")
+        #expect(f("r") == "R")
+        #expect(f("re") == "RE") // no trailing separator yet
+        #expect(f("re_") == "RE") // backspace past a separator works
+        #expect(f("re0") == "RE_0")
+        #expect(f("re0w12") == "RE_0W12")
+        #expect(f("re0w123") == "RE_0W12_3")
+        #expect(f("re0w123456789") == "RE_0W12_3456789") // not cut: still invalid
+        #expect(f("192.168.1.1") == "192.168.1.1") // not RE: left as typed
+        #expect(f("home wifi") == "HOME WIFI")
+        #expect(AddBikeSheet.isValidTripperSSID(f("re 0w12 345678")))
+        #expect(!AddBikeSheet.isValidTripperSSID(f("re0w123456789")))
+    }
+
     @Test func persistsAcrossReload() {
         let suite = UserDefaults(suiteName: "test.bikes.persist.\(UUID().uuidString)")!
         let s1 = SavedBikesStore(defaults: suite)

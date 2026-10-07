@@ -48,6 +48,27 @@ struct AddBikeSheet: View {
         s.range(of: #"^RE_[A-Z0-9]{4}_[A-Z0-9]{6}$"#, options: .regularExpression) != nil
     }
 
+    /// Typing aid for the SSID field: upper-cases and puts the underscores
+    /// of RE_XXXX_XXXXXX where they belong, so "re0w12345678" reads
+    /// "RE_0W12_345678". A separator appears only once a character follows
+    /// it, so backspace removes it with the character before. Input that
+    /// doesn't start with RE is only upper-cased, so the format error still
+    /// shows a home Wi-Fi name or the dash IP as typed. Extra characters
+    /// are kept, not cut, so a too-long SSID still fails the check.
+    // ponytail: rewriting the text moves the cursor to the end, so a
+    // mid-string edit jumps; a UITextField delegate fixes that if it bites.
+    nonisolated static func formatSSIDInput(_ raw: String) -> String {
+        let upper = raw.uppercased()
+        let chars = upper.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        guard chars.hasPrefix("RE") else { return upper }
+        var out = "RE"
+        for (i, c) in chars.dropFirst(2).enumerated() {
+            if i == 0 || i == 4 { out.append("_") }
+            out.append(c)
+        }
+        return out
+    }
+
     private var trimmedSSID: String {
         ssid.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -86,6 +107,10 @@ struct AddBikeSheet: View {
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                             .font(.body.monospaced())
+                            .onChange(of: ssid) { _, new in
+                                let formatted = Self.formatSSIDInput(new)
+                                if formatted != new { ssid = formatted }
+                            }
                     }
                 } header: {
                     Text("Wi-Fi network (SSID)")
