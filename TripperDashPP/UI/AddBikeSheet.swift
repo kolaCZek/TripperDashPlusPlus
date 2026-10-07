@@ -49,7 +49,7 @@ struct AddBikeSheet: View {
     }
 
     /// Every Tripper AP SSID starts with this, so the add form starts with it.
-    static let ssidPrefix = "RE_"
+    nonisolated static let ssidPrefix = "RE_"
 
     /// Typing aid for the SSID field: keeps the RE_ prefix, upper-cases, and
     /// puts the second underscore of RE_XXXX_XXXXXX where it belongs, so
