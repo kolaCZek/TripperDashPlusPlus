@@ -14,7 +14,7 @@
 //  thread and hops onto `sendQueue`, where `RtpSendPipe` packetizes and
 //  sends without touching the main actor. The pipe's counters sit behind
 //  a lock; the main actor reads them once a second (`flushMetrics`). The
-//  only main-actor hop left on the path is the once-per-frame q3c.g kick
+//  only main-actor hop left on the path is the once-per-frame PROJ_FRAME kick
 //  to BikeLink (4 Hz).
 //
 
@@ -60,7 +60,7 @@ final class RtpStreamer {
     )
 
     /// Hook into the BikeLink so the streamer can announce per-frame
-    /// `q3c.g` (projection-frame) TLVs over the K1G control plane (UDP
+    /// `PROJ_FRAME` (projection-frame) TLVs over the K1G control plane (UDP
     /// TX :2000). Weak to avoid a retain cycle — the link outlives any
     /// single streamer instance.
     weak var bikeLink: BikeLink?
@@ -122,7 +122,7 @@ final class RtpStreamer {
         self.connection = conn
 
         // 2. Encoder callback → packetize → send, all on `sendQueue`.
-        //    Tell the dash a new map bitmap was rendered (q3c.g) once per
+        //    Tell the dash a new map bitmap was rendered (PROJ_FRAME) once per
         //    frame — without it the dash never refreshes the projection
         //    surface even though the RTP packets are arriving. That kick is
         //    BikeLink's (main actor), so it is the one hop per frame.

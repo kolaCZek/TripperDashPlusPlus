@@ -421,7 +421,7 @@ final class BikeLink {
     // recoverable by toggling streaming off+on.
 
     /// Phone → bike: `0x007E` route card, announcing a destination BEFORE
-    /// `sendNavStart()`'s q3c.z2. See `K1GPacket.makeRouteCard`'s doc for
+    /// `sendNavStart()`'s START_NAV. See `K1GPacket.makeRouteCard`'s doc for
     /// why this exists — TL;DR: the dash refuses to allocate its
     /// nav-decoder surface without it, and `ActiveNavLoop` only reaches
     /// for a route-shaped packet (`sendActiveNav`) while actually
@@ -511,18 +511,17 @@ final class BikeLink {
     /// RTP stream. No-op if not connected.
     ///
     /// Sequence mirrors better-dash `send_nav_mode_kick`:
-    /// `q3c.z2` (begin nav projection) → `q3c.q` (enter nav context) →
-    /// `q3c.r` (favourite lists are empty).
+    /// `START_NAV` (begin nav projection) → `NAV_CTX` (enter nav context) →
+    /// `EMPTY_LISTS` (favourite lists are empty).
     ///
-    /// NOTE on q3c.r: the reference sends all THREE of these together
+    /// NOTE on EMPTY_LISTS: the reference sends all THREE of these together
     /// (`for hex_str in (Q3C_Z2_START_NAV, Q3C_Q_NAV_CTX,
     /// Q3C_R_EMPTY_LISTS)`), and its fuller `_enter_nav_mode` path sends
-    /// q3c.q + q3c.r as a pair too. We were only sending z2 + q, silently
-    /// dropping q3c.r since this function was written. Added while
+    /// NAV_CTX + EMPTY_LISTS as a pair too. We were only sending z2 + q, silently
+    /// dropping EMPTY_LISTS since this function was written. Added while
     /// auditing the whole nav-entry sequence against the reference
-    /// (8/2026) after the route-card discovery — the official app's
-    /// `NavigationRootFragment.F0()` pairs q + r unconditionally, and
-    /// "lists are empty" is permanently true for this app (no favourites
+    /// (8/2026) after the route-card discovery. "Lists are empty" is
+    /// permanently true for this app (no favourites
     /// feature), so there is no case where omitting it is correct.
     func sendNavStart() async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
@@ -536,7 +535,7 @@ final class BikeLink {
             try await s.send(z2)
             try await s.send(q)
             try await s.send(r)
-            log.info("Sent nav-mode kick (q3c.z2 + q3c.q + q3c.r)")
+            log.info("Sent nav-mode kick (START_NAV + NAV_CTX + EMPTY_LISTS)")
         } catch {
             log.error("Nav-mode kick failed: \(error.localizedDescription)")
         }
@@ -551,7 +550,7 @@ final class BikeLink {
         let w = K1GPacket.makeProjectionOn(seq: seq.consume())
         do {
             try await s.send(w)
-            log.info("Sent projection-on latch (q3c.w)")
+            log.info("Sent projection-on latch (PROJ_ON)")
         } catch {
             log.error("Projection-on send failed: \(error.localizedDescription)")
         }
@@ -596,8 +595,8 @@ final class BikeLink {
     /// Tear down the nav projection. Call BEFORE stopping the RTP stream.
     /// No-op if not connected.
     ///
-    /// Sequence mirrors NavigationFragment.Y7:
-    /// `q3c.h` (stop-frames) → `q3c.x` (projection off).
+    /// Sequence (as in better-dash):
+    /// `PROJ_STOP` (stop-frames) → `PROJ_OFF` (projection off).
     func sendNavStop() async {
         guard !demoMode else { return }   // demo: no socket, nothing to tear down
         guard state == .connected, let s = socket else { return }
@@ -606,7 +605,7 @@ final class BikeLink {
         do {
             try await s.send(h)
             try await s.send(x)
-            log.info("Sent nav-stop (q3c.h + q3c.x)")
+            log.info("Sent nav-stop (PROJ_STOP + PROJ_OFF)")
         } catch {
             log.error("Nav-stop send failed: \(error.localizedDescription)")
         }
@@ -661,7 +660,7 @@ final class BikeLink {
     // MARK: - Call-state notification
     //
     // Push the phone's current call state to the dash so it shows the OEM
-    // incoming-call card (decoded from `km3.u()` — see the
+    // incoming-call card (see the
     // `call-notification-wire-protocol.md` skill reference). Driven by
     // `CallStateObserver` off `CXCallObserver`. Like the nav hooks, this is
     // fire-and-forget on the link's seq counter and a no-op when not
@@ -674,7 +673,7 @@ final class BikeLink {
     private var lastCallState: K1GPacket.CallState?
 
     /// Send a call-state change to the dash as the OEM 2-packet burst
-    /// (`05 21 <state>` then the `05 4D 32` commit), mirroring `km3.u()`.
+    /// (`05 21 <state>` then the `05 4D 32` commit).
     /// De-duplicates against the previously-sent state. No-op if not
     /// connected (we simply drop the card — it'll re-sync on the next
     /// distinct state once the link is back).
@@ -1216,7 +1215,7 @@ final class BikeLink {
         }
         log.info("[\(ms(), privacy: .public)ms] Initial burst done, waiting for modulus+exponent (timeout=\(K1G.handshakeStepTimeout, privacy: .public)s)")
 
-        // 1) Wait for modulus + exponent. The bike replies to q3c.e (which
+        // 1) Wait for modulus + exponent. The bike replies to REQUEST_PUBKEY (which
         //    was packet #1 in the burst above) with two segments. They may
         //    arrive in one packet or split across two.
         //
@@ -1285,9 +1284,9 @@ final class BikeLink {
         let pub = try RsaHandshake.makePublicKey(modulus: modulus, exponent: exponent)
         let aesKey = try RsaHandshake.makeAesKey()
         let ct = try RsaHandshake.encryptSessionKey(ssid: ssid, aesKey: aesKey, bikePublicKey: pub)
-        let q3cd = K1GPacket.makeSessionKey(ciphertext: ct, seq: seq.consume())
-        try await socket.send(q3cd)
-        log.info("[\(ms(), privacy: .public)ms] TX q3c.d (\(q3cd.count) B, ciphertext=\(ct.count) B): \(q3cd.hexPreview, privacy: .public)")
+        let sessionKeyPacket = K1GPacket.makeSessionKey(ciphertext: ct, seq: seq.consume())
+        try await socket.send(sessionKeyPacket)
+        log.info("[\(ms(), privacy: .public)ms] TX SESSION_KEY (\(sessionKeyPacket.count) B, ciphertext=\(ct.count) B): \(sessionKeyPacket.hexPreview, privacy: .public)")
 
         // 3) Wait for auth-OK (07 01 01). Same wall-clock race as step 1:
         //    if the dash goes silent after step 1 (ignition off, session
@@ -1336,7 +1335,7 @@ final class BikeLink {
     }
 
     /// Build the hostname the dash will show on its pairing screen.
-    /// Mirrors the Android app: prefers the device's user-set name,
+    /// Like the stock app's pairing label: prefers the device's user-set name,
     /// falls back to "TripperDashPP" if iOS denies access.
     private static func deviceHostname() -> String {
         #if canImport(UIKit)

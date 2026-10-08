@@ -304,7 +304,7 @@ actor DashSocket {
     private func drainAllPendingOnActor() {
         guard fd >= 0 else { return }
         // Match real K1G frames + RTP-ish overhead. 2 KiB is well above
-        // anything we expect on the control plane (largest is q3c.d at
+        // anything we expect on the control plane (largest is SESSION_KEY at
         // ~150 B).
         var buf = [UInt8](repeating: 0, count: 2048)
         var fromAddr = sockaddr_in()

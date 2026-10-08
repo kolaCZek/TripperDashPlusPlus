@@ -5,8 +5,8 @@ Responsibilities:
   - Listen on UDP/2000 for incoming phone packets
   - Track phone peers (by source IP:port) so we know where to send heartbeats
     and joystick events
-  - On `q3c.e` ("request auth") respond with our RSA pubkey
-  - On `q3c.d` (RSA-encrypted session key) decrypt → recover SSID + AES key
+  - On `REQUEST_PUBKEY` ("request auth") respond with our RSA pubkey
+  - On `SESSION_KEY` (RSA-encrypted session key) decrypt → recover SSID + AES key
     → emit `07 01 01` auth-OK
   - On joystick CLI invocation, send `09 00 0001 XX` to every known peer
   - Periodically broadcast a "bike present" beacon so phones can discover us
@@ -310,13 +310,13 @@ class FakeDashServer:
             self._dispatch_segment(seg, peer)
 
     def _dispatch_segment(self, seg: Segment, peer: PhonePeer) -> None:
-        # Type 0x08 sub 0x00 = q3c.d: phone shipping us the RSA-encrypted
+        # Type 0x08 sub 0x00 = SESSION_KEY: phone shipping us the RSA-encrypted
         # session key. Decrypt it and ack with 07 01 01.
         if seg.type == 0x08 and seg.sub == 0x00:
             self._handle_session_key(seg.payload, peer)
             return
 
-        # Type 0x08 sub 0x04 = q3c.e: phone requesting our RSA pubkey.
+        # Type 0x08 sub 0x04 = REQUEST_PUBKEY: phone requesting our RSA pubkey.
         # Better-dash + the real Tripper Android app both send this as
         # `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
         # match was kept while we figured out which type byte was correct;

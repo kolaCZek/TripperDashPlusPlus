@@ -69,14 +69,14 @@ nonisolated enum K1G {
     /// under `session` (0x08).
     ///
     /// Confirmed against `better-dash/tripper_app_like_nav.py` outbound
-    /// constants (Q3C_E_REQUEST_AUTH starts `… 00 08 04 00 01 01`, not
+    /// constants (better-dash `Q3C_E_REQUEST_AUTH` starts `… 00 08 04 00 01 01`, not
     /// `… 00 07 04 …`). Sending 0x07 outbound to the real Tripper dash
     /// causes a silent drop and the handshake times out.
     enum SegType: UInt8 {
-        case navInfo = 0x05  // phone → bike, nav-info TLVs (q3c.q, q3c.g, q3c.h, active_nav)
-        case status  = 0x06  // phone → bike, status TLVs (q3c.w, q3c.x, q3c.z2, button ACKs)
+        case navInfo = 0x05  // phone → bike, nav-info TLVs (NAV_CTX, PROJ_FRAME, PROJ_STOP, active_nav)
+        case status  = 0x06  // phone → bike, status TLVs (PROJ_ON, PROJ_OFF, START_NAV, button ACKs)
         case auth   = 0x07   // bike → phone, auth replies (sub-types below)
-        case session = 0x08  // phone → bike, auth + session payloads (q3c.e, q3c.d)
+        case session = 0x08  // phone → bike, auth + session payloads (REQUEST_PUBKEY, SESSION_KEY)
         case button = 0x09   // bike → phone, joystick / button events
         case nav    = 0x0A   // Unused; active-nav TLVs are sent under navInfo (0x05)
     }
@@ -90,16 +90,16 @@ nonisolated enum K1G {
 
     /// Sub-type bytes scoped to `SegType.session` (phone → bike outbound).
     enum SessionSub: UInt8 {
-        case sessionKey   = 0x00  // q3c.d: 128-byte RSA-PKCS1v1.5(ssid ‖ aesKey)
-        case requestPubkey = 0x04  // q3c.e: "give me your RSA pubkey" (payload = [0x01])
+        case sessionKey   = 0x00  // SESSION_KEY: 128-byte RSA-PKCS1v1.5(ssid ‖ aesKey)
+        case requestPubkey = 0x04  // REQUEST_PUBKEY: "give me your RSA pubkey" (payload = [0x01])
     }
 
     /// AES session key length the phone packs at the tail of the
-    /// RSA-encrypted q3c.d payload.
+    /// RSA-encrypted SESSION_KEY payload.
     static let aesKeyLength: Int = 32
 
     /// RSA-1024 ciphertext length. The dash hardcodes this when it sizes
-    /// the q3c.d segment (outer_len = 0x95, seg_len = 0x80).
+    /// the SESSION_KEY segment (outer_len = 0x95, seg_len = 0x80).
     static let rsaCiphertextLength: Int = 128
 
     // MARK: - Timing
@@ -121,8 +121,8 @@ nonisolated enum K1G {
     /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
     static let reconnectInterval: TimeInterval = 5.0
 
-    /// Post-z2 warm-up: how long to wait after `sendNavStart()` (q3c.z2 +
-    /// q3c.q) before starting the RTP stream, giving the dash time to
+    /// Post-z2 warm-up: how long to wait after `sendNavStart()` (START_NAV +
+    /// NAV_CTX) before starting the RTP stream, giving the dash time to
     /// actually ALLOCATE ITS NAV-DECODER SURFACE — not just receive the
     /// UDP packet. Captured from the reference `better-dash`
     /// `tripper_app_like_nav.py --pre-z2-wait` (default 0.45s, "captured
@@ -140,7 +140,7 @@ nonisolated enum K1G {
     /// screen instead of entering nav projection on a reconnect during
     /// free-ride — RTP packets arrived at the dash before its decoder
     /// surface existed to receive them, so it silently dropped back to
-    /// idle. Without this the whole q3c.z2/q3c.q kick was, in practice,
+    /// idle. Without this the whole START_NAV/NAV_CTX kick was, in practice,
     /// advisory rather than a real precondition.
     static let postZ2Warmup: TimeInterval = 0.45
 

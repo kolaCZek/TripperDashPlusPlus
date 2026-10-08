@@ -49,7 +49,7 @@ enum K1GPacket {
     /// The `seg_count` field is always emitted as `actual_count + 1`. This
     /// mirrors `better-dash/tripper_app_like_nav.py` (`seg_count = len(tlvs) + 1`
     /// in `active_nav_packet`, and a hardcoded `00 02` in every single-segment
-    /// Q3C_* constant). The real Tripper dash appears to use this byte as a
+    /// better-dash packet constant). The real Tripper dash appears to use this byte as a
     /// sanity check — packets with the "naive" count silently drop.
     static func encode(segments: [K1GSegment], seq: UInt8) -> Data {
         var body = Data(capacity: 17 + segments.reduce(0) { $0 + 4 + $1.payload.count })
@@ -254,7 +254,7 @@ nonisolated final class RollingSeq: @unchecked Sendable {
 
 extension K1GPacket {
 
-    /// Phone → bike: q3c.e (request the bike's RSA pubkey).
+    /// Phone → bike: REQUEST_PUBKEY (request the bike's RSA pubkey).
     ///
     /// Wire form (matches `better-dash` `Q3C_E_REQUEST_AUTH`):
     /// `00 16  00 02  00 00 00 00  02 01 00 05  K1G   <seq>  08 04 00 01 01`
@@ -272,7 +272,7 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
-    /// Phone → bike: q3c.d (RSA-PKCS1v1.5 ciphertext containing
+    /// Phone → bike: SESSION_KEY (RSA-PKCS1v1.5 ciphertext containing
     /// `ssid_bytes ‖ aes_key_bytes`).
     ///
     /// Wire form (matches `better-dash` `Q3C_D_PREFIX_HEX` + 128 B ct):
@@ -294,27 +294,27 @@ extension K1GPacket {
     // `references/k1g-wire-protocol.md` "Navigation lifecycle" table.
     //
     // The dash gates the nav-video surface on these TLVs regardless of
-    // whether RTP packets are arriving on UDP/5000 — without `q3c.q +
-    // q3c.z2` it never switches to the projection screen, and without
-    // `q3c.w` latched + `q3c.g` per frame it treats the incoming UDP
+    // whether RTP packets are arriving on UDP/5000 — without `NAV_CTX +
+    // START_NAV` it never switches to the projection screen, and without
+    // `PROJ_ON` latched + `PROJ_FRAME` per frame it treats the incoming UDP
     // stream as noise and keeps the home widgets visible.
     //
     // Recommended start sequence (mirrors better-dash `send_nav_mode_kick`),
     // preceded by the `0x007E` route-card burst (see `makeRouteCard`):
-    //   1. `q3c.z2` (START_NAV)        — open the nav projection screen
-    //   2. `q3c.q`  (NAV_CTX)          — enter nav context, then `q3c.r`
-    //                                    (EMPTY_LISTS, see `makeEmptyLists`)
+    //   1. `START_NAV`        — open the nav projection screen
+    //   2. `NAV_CTX`          — enter nav context, then `EMPTY_LISTS`
+    //                           (see `makeEmptyLists`)
     //   3. start the RTP/H.264 stream
-    //   4. `q3c.w`  (PROJ_ON)          — latch projection-live flag
-    //   5. then per frame, send `q3c.g` (PROJ_FRAME) right after each
+    //   4. `PROJ_ON`          — latch projection-live flag
+    //   5. then per frame, send `PROJ_FRAME` right after each
     //      H.264 frame goes out so the dash knows a new bitmap landed
     //
-    // Recommended stop sequence (mirrors NavigationFragment.Y7):
-    //   1. `q3c.h`  (PROJ_STOP)        — "no more bitmaps coming"
-    //   2. `q3c.x`  (PROJ_OFF)         — "projection video stopped"
+    // Recommended stop sequence (as in better-dash):
+    //   1. `PROJ_STOP`        — "no more bitmaps coming"
+    //   2. `PROJ_OFF`         — "projection video stopped"
     //   3. tear down the RTP stream
 
-    /// Phone → bike: q3c.q "enter nav context". TLV `05 2E 00 01 1E`.
+    /// Phone → bike: NAV_CTX "enter nav context". TLV `05 2E 00 01 1E`.
     static func makeNavContext(seq: UInt8) -> Data {
         let seg = K1GSegment(
             type: .navInfo,
@@ -324,12 +324,12 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
-    /// Phone → bike: q3c.r "favourite lists are empty". Five `05 2F..33
-    /// 0001 00` TLVs in one envelope. Sent immediately after `q3c.q` as
-    /// part of the nav-context handshake — mirrors the official app's
-    /// `NavigationRootFragment.F0()`, which sends q3c.q then q3c.r when
-    /// its saved-destination lists are empty (which ours always are: this
-    /// app has no favourites feature, so "empty" is permanently correct).
+    /// Phone → bike: EMPTY_LISTS "favourite lists are empty". Five `05 2F..33
+    /// 0001 00` TLVs in one envelope. Sent immediately after `NAV_CTX` as
+    /// part of the nav-context handshake — better-dash `send_nav_mode_kick`
+    /// always sends START_NAV, NAV_CTX and EMPTY_LISTS together, and
+    /// "empty" is permanently correct for us (this app has no favourites
+    /// feature).
     ///
     /// Verified byte-for-byte against the reference's
     /// `Q3C_R_EMPTY_LISTS` constant before wiring in.
@@ -340,7 +340,7 @@ extension K1GPacket {
         return encode(segments: segs, seq: seq)
     }
 
-    /// Phone → bike: q3c.z2 "begin nav projection". TLV `06 80 00 01 0B`.
+    /// Phone → bike: START_NAV "begin nav projection". TLV `06 80 00 01 0B`.
     static func makeStartNav(seq: UInt8) -> Data {
         let seg = K1GSegment(
             type: .status,
@@ -350,7 +350,7 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
-    /// Phone → bike: q3c.w "projection video is live". TLV `06 05 00 01 55`.
+    /// Phone → bike: PROJ_ON "projection video is live". TLV `06 05 00 01 55`.
     /// Latched once when the RTP stream starts producing frames.
     static func makeProjectionOn(seq: UInt8) -> Data {
         let seg = K1GSegment(
@@ -366,7 +366,7 @@ extension K1GPacket {
     /// file: it's a byte-for-byte port of `better-dash`'s
     /// `build_navigation_packet()`, which patches a route TITLE into a
     /// captured, opaque template rather than composing semantic TLVs. The
-    /// template's inner fields (t3c.* — distance/ETA/decimal-separator
+    /// template's inner fields (distance/ETA/decimal-separator
     /// placeholders) are NOT meaningful defaults we control; they're
     /// whatever bytes the real dash's own nav_open_ok.pcap capture showed.
     /// Several of them are deliberately omitted, because the dash DOES
@@ -392,7 +392,7 @@ extension K1GPacket {
     /// marker inside the suffix template to `0x55` (on) or `0xAA` (off),
     /// mirroring `build_navigation_packet`'s `projection_on` flag — the
     /// dash reads this as part of the same packet rather than requiring a
-    /// separate `q3c.w`/`q3c.x` toggle for the route-card's own view.
+    /// separate `PROJ_ON`/`PROJ_OFF` toggle for the route-card's own view.
     ///
     /// `includeHudFields` controls whether the template's nav-data TLVs are
     /// included (true = pre-z2 burst, false = 1 Hz keep-alive).
@@ -546,7 +546,7 @@ extension K1GPacket {
         return body
     }
 
-    /// Phone → bike: q3c.g "new map bitmap was rendered this tick".
+    /// Phone → bike: PROJ_FRAME "new map bitmap was rendered this tick".
     /// TLV `05 56 00 01 55`. Send this once per encoded H.264 frame.
     static func makeProjectionFrame(seq: UInt8) -> Data {
         let seg = K1GSegment(
@@ -557,7 +557,7 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
-    /// Phone → bike: q3c.h "no more bitmaps coming" (stop-frames).
+    /// Phone → bike: PROJ_STOP "no more bitmaps coming" (stop-frames).
     /// TLV `05 56 00 01 AA`.
     static func makeProjectionStop(seq: UInt8) -> Data {
         let seg = K1GSegment(
@@ -568,7 +568,7 @@ extension K1GPacket {
         return encode(segments: [seg], seq: seq)
     }
 
-    /// Phone → bike: q3c.x "projection video stopped". TLV `06 05 00 01 AA`.
+    /// Phone → bike: PROJ_OFF "projection video stopped". TLV `06 05 00 01 AA`.
     static func makeProjectionOff(seq: UInt8) -> Data {
         let seg = K1GSegment(
             type: .status,
@@ -637,52 +637,49 @@ extension K1GPacket {
 
     // MARK: - Call-state notification
     //
-    // Mirror the stock Royal Enfield app's incoming-call card on the big
-    // Tripper TFT. Decoded 2026-06-27 from the OEM Android app
-    // (`com.royalenfield.reprime`): `bluconnect.km3.u(sq8 state)` pushes the
-    // call state to the dash over the SAME K1G/UDP-2000 control plane we
-    // already use for nav — there is NO separate transport and NO paid
-    // entitlement. (The BLE `q12.m(byte)` path in the OEM app is for the
-    // OLD round Tripper and is irrelevant here — don't confuse the two.)
+    // Show the dash's built-in incoming-call card on the big Tripper TFT.
+    // The call state goes to the dash over the SAME K1G/UDP-2000 control
+    // plane we already use for nav — there is NO separate transport and NO
+    // paid entitlement. (The small round Tripper Pod uses a different, BLE
+    // protocol — don't confuse the two.)
     //
-    // Each state change is a 2-packet burst, exactly like `km3.u()`:
+    // Each state change is a 2-packet burst:
     //   1. the `05 21 0001 <state>` call-state TLV
-    //   2. the `05 4D 0001 32` commit/trailer suffix (`dbg.f`)
+    //   2. the `05 4D 0001 32` commit/trailer suffix
     //
-    // The four state bytes are byte-verified against the OEM constants
-    // `dbg.l2/n2/m2/o2`, and the idle value `0x32` is byte-identical to the
-    // `0521000132` tail better-dash already inlines in every 0044/0030
-    // heartbeat. Full reverse-engineering writeup + the AES caller-name
+    // The idle value `0x32` is byte-identical to the `0521000132` tail
+    // better-dash already inlines in every 0044/0030 heartbeat. Full
+    // wire-protocol writeup + the AES caller-name
     // caveat (why we ship state-only for now) live in the skill reference
     // `references/call-notification-wire-protocol.md`.
     //
-    // Caller-name card (`05 22`) is deliberately NOT implemented: the OEM
-    // app AES-encrypts the name under a key it RSA-hands to the dash, and
+    // Caller-name card (`05 22`) is deliberately NOT implemented: the name
+    // is AES-encrypted under the session key exchanged at connect, and
     // on iOS `CXCallObserver` doesn't surface the caller's name/number for
     // cellular calls anyway — so a generic state-only card is the complete
     // achievable feature here.
 
-    /// Phone → bike call state. Raw byte is the `05 21` TLV payload, taken
-    /// verbatim from the OEM `sq8` enum mapping in `km3.u()`.
+    /// Phone → bike call state. Raw byte is the `05 21` TLV payload.
     enum CallState: UInt8, Sendable, CaseIterable {
-        case incoming = 0x0A   // sq8.INCOMING_CALL  (dbg.l2) — ringing
-        case active   = 0x14   // sq8.ACTIVE_CALL    (dbg.n2) — answered / in call
-        case outgoing = 0x1E   // sq8.OUTGOING_CALL  (dbg.m2) — we dialed out
-        case none     = 0x32   // sq8.NO_CALL        (dbg.o2) — idle / call ended
+        case incoming = 0x0A   // ringing
+        case active   = 0x14   // answered / in call
+        case outgoing = 0x1E   // we dialed out
+        case none     = 0x32   // idle / call ended
     }
 
     /// `05 21 0001 <state>` — the standalone call-state TLV. One per state
-    /// change. Goes through the normal `encode()` so `seg_count` (=2) and
-    /// `outer_len` (=0x16) come out byte-identical to the OEM `dbg.l2/n2/m2/o2`
-    /// constants when `seq == 0`.
+    /// change. Goes through the normal `encode()`, so `seg_count` (=2) and
+    /// `outer_len` (=0x16) follow the standard single-segment envelope.
+    /// Only the idle `0x32` is backed by a capture (the better-dash
+    /// heartbeat tail `0521000132`); `0x0A`/`0x14`/`0x1E` have no capture.
     static func makeCallState(_ state: CallState, seq: UInt8) -> Data {
         let seg = K1GSegment(type: .navInfo, sub: 0x21, payload: Data([state.rawValue]))
         return encode(segments: [seg], seq: seq)
     }
 
-    /// `05 4D 0001 32` — the call-state commit/trailer (`dbg.f`). `km3.u()`
-    /// always sends this immediately after the `05 21` packet, regardless of
-    /// state. Constant payload `0x32`.
+    /// `05 4D 0001 32` — the call-state commit/trailer. Always sent
+    /// immediately after the `05 21` packet, regardless of state.
+    /// Constant payload `0x32`.
     static func makeCallStateCommit(seq: UInt8) -> Data {
         let seg = K1GSegment(type: .navInfo, sub: 0x4D, payload: Data([0x32]))
         return encode(segments: [seg], seq: seq)
@@ -699,7 +696,7 @@ extension K1GPacket {
     // through `makeActiveNav(...)` which prefixes the K1G header and computes
     // outer_len / seg_count.
 
-    /// `05 02 0001 <code>` — t3c.g(): primary maneuver glyph code.
+    /// `05 02 0001 <code>` — primary maneuver glyph code.
     /// The full enum is now cataloged and user-verified against a
     /// Guerrilla 450 (see `docs/maneuver-glyphs/README.md`, 90 entries).
     /// Callers should pass the byte from `ManeuverKind.wireByte`; the
@@ -709,7 +706,7 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x02, payload: Data([code]))
     }
 
-    /// `05 04 0002 <meters_BE>` — t3c.h(): distance to the next turn.
+    /// `05 04 0002 <meters_BE>` — distance to the next turn.
     static func tlvPrimaryDistance(meters: UInt16) -> K1GSegment {
         var be = meters.bigEndian
         return K1GSegment(
@@ -718,7 +715,7 @@ extension K1GPacket {
         )
     }
 
-    /// `05 06 0001 <unit>` — t3c.j(): unit byte for primary distance.
+    /// `05 06 0001 <unit>` — unit byte for primary distance.
     /// Encoded as decimal-ASCII-digit: `10`=km/10ths, `20`=mi/10ths,
     /// `30`=metres, `50`=feet. Pass the wire byte directly (not the
     /// integer 10/20/30/50 — that would be a different value).
@@ -726,13 +723,13 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x06, payload: Data([wireByte]))
     }
 
-    /// `05 03 0002 <code> <flags>` — t3c.n(): secondary maneuver glyph,
+    /// `05 03 0002 <code> <flags>` — secondary maneuver glyph,
     /// the look-ahead chevron the dash renders when two turns are
     /// stacked within a few hundred meters (e.g. "turn right onto X,
     /// then immediately left onto Y"). The first byte is the same
     /// glyph enum as the primary maneuver TLV (0x02). The second
-    /// byte is undocumented in better-dash and in the Tripper Android
-    /// decomp; we send 0x00 as a safe placeholder, which the dash
+    /// byte is undocumented in better-dash and never seen non-zero in
+    /// any capture; we send 0x00 as a safe placeholder, which the dash
     /// silently accepts for the primary case. If a future field test
     /// ever decodes the second byte's semantics (reserved/padding,
     /// secondary-roundabout exit counter, or handedness bit-flags),
@@ -741,7 +738,7 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code, flags]))
     }
 
-    /// `05 05 0002 <meters_BE>` — t3c.o(): distance to the secondary
+    /// `05 05 0002 <meters_BE>` — distance to the secondary
     /// maneuver. Same wire shape as `tlvPrimaryDistance` (2-byte BE
     /// meters). The dash uses this to render the small "in 1.2 km"
     /// chip next to the secondary chevron.
@@ -753,14 +750,14 @@ extension K1GPacket {
         )
     }
 
-    /// `05 07 0001 <unit>` — t3c.p(): unit byte for secondary
+    /// `05 07 0001 <unit>` — unit byte for secondary
     /// distance. Same decimal-ASCII encoding as `tlvPrimaryUnit`
     /// (`0x10`/`0x20`/`0x30`/`0x50`).
     static func tlvSecondaryUnit(_ wireByte: UInt8) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x07, payload: Data([wireByte]))
     }
 
-    /// `05 09 0002 <meters_BE>` — t3c.q(): total distance remaining.
+    /// `05 09 0002 <meters_BE>` — total distance remaining.
     static func tlvTotalDistance(meters: UInt16) -> K1GSegment {
         var be = meters.bigEndian
         return K1GSegment(
@@ -769,19 +766,19 @@ extension K1GPacket {
         )
     }
 
-    /// `05 46 0001 <unit>` — t3c.r(): unit byte for total distance.
+    /// `05 46 0001 <unit>` — unit byte for total distance.
     static func tlvTotalDistanceUnit(_ wireByte: UInt8) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x46, payload: Data([wireByte]))
     }
 
-    /// `05 0A 0001 <55|AA>` — t3c.d() with q3c.A/B: decimal separator.
+    /// `05 0A 0001 <55|AA>` — decimal separator.
     /// `useComma=true` → `0xAA` (","), `false` → `0x55` (".").
     static func tlvDecimalSeparator(useComma: Bool) -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x0A,
                    payload: Data([useComma ? 0xAA : 0x55]))
     }
 
-    /// `05 08 0004 <ascii_HHMM>` — t3c.e(): ETA as 4 ASCII bytes, e.g.
+    /// `05 08 0004 <ascii_HHMM>` — ETA as 4 ASCII bytes, e.g.
     /// "18:32" → `31 38 33 32`. Caller passes a Date; we format in the
     /// device's local timezone as 4 ASCII digits HHMM, zero-padded.
     ///
@@ -812,13 +809,13 @@ extension K1GPacket {
                           payload: Data(s.utf8))
     }
 
-    /// `05 54 0001 <byte>` — t3c.f(): ETA format flag.
+    /// `05 54 0001 <byte>` — ETA format flag.
     ///
     /// **Always `0x30`.** This is the only value the real dash is known to
     /// accept: it is what the real-phone capture `_NAV_FULL` in better-dash
     /// carries (`05 54 0001 30`, road "Taille de Mas du Gr", ETA "0303"),
-    /// and the byte lives in the decimal-ASCII-digit family (same `t3c.f` /
-    /// `sb.append(int)` encoding as the unit bytes), NOT the `0x55`/`0xAA`
+    /// and the byte lives in the decimal-ASCII-digit family (same encoding
+    /// as the unit bytes: `0x30` = "0"), NOT the `0x55`/`0xAA`
     /// separator-flag family.
     ///
     /// History of this byte, both field-confirmed by Martin:
@@ -843,7 +840,7 @@ extension K1GPacket {
                           payload: Data([0x30]))
     }
 
-    /// `05 0B 0006 <ascii_DDHHMM>` — q3c.S2: remaining travel time, 6 ASCII
+    /// `05 0B 0006 <ascii_DDHHMM>` — remaining travel time, 6 ASCII
     /// bytes, e.g. 1 day 23 h 45 m → "012345".
     static func tlvRemainingTime(seconds: TimeInterval) -> K1GSegment {
         let total = max(0, Int(seconds.rounded()))
@@ -855,13 +852,13 @@ extension K1GPacket {
                           payload: Data(s.utf8))
     }
 
-    /// `05 55 0001 20` — q3c.T2: remaining-time unit byte. Always 0x20
+    /// `05 55 0001 20` — remaining-time unit byte. Always 0x20
     /// per the skill, but the dash also accepts the absence of this TLV.
     static func tlvRemainingUnit() -> K1GSegment {
         K1GSegment(type: .navInfo, sub: 0x55, payload: Data([0x20]))
     }
 
-    /// `05 01 <len> <ascii+0x00>` — t3c.m(): current road name. Folded to
+    /// `05 01 <len> <ascii+0x00>` — current road name. Folded to
     /// plain ASCII first (`dashSafe`) because the dash font can't render
     /// diacritics — a Czech name like "Nižbor" arrives as mojibake and
     /// heavier ones ("Křivoklát") can make the firmware drop the field
@@ -874,14 +871,14 @@ extension K1GPacket {
                           payload: Data(bytes))
     }
 
-    /// `06 05 0001 <55|AA>` — t3c.s(): projection ON flag (mirror of
-    /// the standalone `q3c.w` / `q3c.x` latches).
+    /// `06 05 0001 <55|AA>` — projection ON flag (mirror of
+    /// the standalone `PROJ_ON` / `PROJ_OFF` latches).
     static func tlvProjectionFlag(on: Bool) -> K1GSegment {
         K1GSegment(type: .status, sub: 0x05,
                    payload: Data([on ? 0x55 : 0xAA]))
     }
 
-    /// `06 0D 0001 <55|AA>` — t3c.t(): decimal-notation flag.
+    /// `06 0D 0001 <55|AA>` — decimal-notation flag.
     /// `on=true` (`0x55`) tells the dash to format distances with the
     /// decimal separator. The Python authority defaults to OFF so that
     /// whole-metre values like "500 m" render as integers.
@@ -931,8 +928,8 @@ extension K1GPacket {
         // F2c: secondary maneuver chevron (look-ahead). All three
         // sub-TLVs go together — sending just one without the other
         // two would be ill-defined. Insert immediately after the
-        // primary block, before ETA, to match the better-dash field
-        // ordering from `q3c.java`.
+        // primary block, before ETA, to match the better-dash `_NAV_FULL`
+        // field order.
         if let code = secondaryManeuver,
            let dist = secondaryDistanceMeters,
            let unit = secondaryUnit
@@ -947,7 +944,7 @@ extension K1GPacket {
             // the dash reads the 0x54 flag to interpret the 0x08 HH:MM
             // payload, and drops a "dangling" ETA whose format flag
             // arrives later in the chain. Matches the better-dash
-            // `t3c.w` field order (08 → 54), NOT a trailing flag block.
+            // nav-packet field order (08 → 54), NOT a trailing flag block.
             segs.append(tlvEtaFormat(is24Hour: is24Hour))
         }
         segs.append(tlvTotalDistance(meters: totalDistanceMeters))
@@ -957,7 +954,7 @@ extension K1GPacket {
         // when the unit doesn't arrive right after. The old order pushed
         // 0x46 to the end of the chain (after the decimal separator and
         // remaining-time block), so the dash never rendered total
-        // distance OR ETA. Authority: better-dash `t3c.w` (09 → 46).
+        // distance OR ETA. Authority: better-dash nav-packet order (09 → 46).
         segs.append(tlvTotalDistanceUnit(totalDistanceUnit))
         segs.append(tlvDecimalSeparator(useComma: useCommaDecimal))
         if let secs = remainingSeconds {
@@ -972,20 +969,21 @@ extension K1GPacket {
 
 // MARK: - Status / heartbeat / metadata builders (raw bytes)
 //
-// These mirror the `REForeGroundService` 1 Hz timer tasks in the official
-// Android Tripper app, captured in `better-dash/tripper_app_like_nav.py`.
-// They DON'T go through `encode()` because the `seg_count` field is taken
-// straight from the captured Android code (e.g. `0x000A` for the 0044
+// The 1 Hz status frames. The 0044 is pinned by the real-phone capture in
+// `better-dash/tripper_app_like_nav.py`; the 0030 follows better-dash
+// `build_metadata_0030_e` and the dash accepts it on our rides.
+// They DON'T go through `encode()` because the `seg_count` field is fixed
+// (e.g. `0x000A` for the 0044
 // heartbeat) rather than computed from segment count — the real dash
 // validates this exact byte and drops packets where it doesn't match.
 
 extension K1GPacket {
 
     /// Music volume bucket TLV (mute + 10 levels). Maps a 0..1 ratio to
-    /// the same `054C 0001 1X` byte the Android `REForeGroundService` picks.
+    /// the same `054C 0001 1X` byte the stock app sends.
     nonisolated static func musicVolumeTLV(ratio0to1: Double) -> [UInt8] {
         if ratio0to1 <= 0.0 {
-            return [0x05, 0x4C, 0x00, 0x01, 0x10] // mute baseline (Q3C_N1)
+            return [0x05, 0x4C, 0x00, 0x01, 0x10] // mute baseline
         }
         let idx = max(0, min(9, Int(ratio0to1 * 10.0)))
         return [0x05, 0x4C, 0x00, 0x01, UInt8(0x11 + idx)]
@@ -994,18 +992,18 @@ extension K1GPacket {
     /// Alarm volume bucket TLV (mute + 10 levels). `051B 0001 1X`.
     nonisolated static func alarmVolumeTLV(ratio0to1: Double) -> [UInt8] {
         if ratio0to1 <= 0.0 {
-            return [0x05, 0x1B, 0x00, 0x01, 0x10] // mute baseline (Q3C_Y1)
+            return [0x05, 0x1B, 0x00, 0x01, 0x10] // mute baseline
         }
         let idx = max(0, min(9, Int(ratio0to1 * 10.0)))
         return [0x05, 0x1B, 0x00, 0x01, UInt8(0x11 + idx)]
     }
 
-    /// `REForeGroundService.d.run()` 0044 heartbeat (1 Hz). Phone → bike,
+    /// 0044 heartbeat (1 Hz). Phone → bike,
     /// reports baseline hardware status: cell signal, engine temp, GPS on,
     /// battery, charging, music + alarm volumes, current nav distance.
     ///
-    /// Note: `seg_count = 0x000A` (= 10) is hardcoded — the Android code
-    /// emits the same constant regardless of how many TLVs it appends.
+    /// Note: `seg_count = 0x000A` (= 10) is hardcoded — copied from the
+    /// captured 0044 and kept fixed; don't recompute it.
     nonisolated static func makeHeartbeat0044(
         seq: UInt8,
         fixedTempC: Int = 20,
@@ -1023,10 +1021,9 @@ extension K1GPacket {
         // Hardcoded header: outer_len placeholder | seg_count=10 | pad | marker | K1G  | seq
         //
         // `seg_count = 0x000A` is a CONSTANT copied verbatim from the
-        // Android `REForeGroundService.d.run()` — the OEM app emits the
-        // same 10 regardless of how many TLVs it actually appends, and the
-        // dash accepts it. So adding/removing a TLV here does NOT change
-        // this byte. (The captured OEM 0044 carries exactly 10 TLVs incl.
+        // captured 0044 and kept fixed; the dash accepts it with the TLVs
+        // we send (field-tested). So adding/removing a TLV here does NOT
+        // change this byte. (The captured 0044 carries exactly 10 TLVs incl.
         // `06 01` + the idle `05 21`/`05 4D`; we omit engine-temp's OEM
         // absence quirk and the call-state pair lives on its own burst, so
         // our real TLV count differs — intentionally — from this byte.)
@@ -1039,22 +1036,21 @@ extension K1GPacket {
         body.append(contentsOf: [0x06, 0x08, 0x00, 0x01, UInt8(cellSignal0to255 & 0xFF)])
         // 06 10 00 01 <temp+40>  — engine temperature
         body.append(contentsOf: [0x06, 0x10, 0x00, 0x01, UInt8((fixedTempC + 40) & 0xFF)])
-        // 06 03 00 01 <55|AA>    — GPS on (Q3C_V + Q3C_A/B)
+        // 06 03 00 01 <55|AA>    — GPS on
         body.append(contentsOf: [0x06, 0x03, 0x00, 0x01, gpsOn ? 0x55 : 0xAA])
-        // 06 04 00 01 <batt+100> — battery capacity (Q3C_U). OEM payload is
+        // 06 04 00 01 <batt+100> — battery capacity. OEM payload is
         //                          (level + 100); dash subtracts 100 to get %.
         body.append(contentsOf: [0x06, 0x04, 0x00, 0x01, UInt8((batteryPct0to100 + 100) & 0xFF)])
-        // 06 0F 00 01 <55|AA>    — charging flag (Q3C_T)
+        // 06 0F 00 01 <55|AA>    — charging flag
         body.append(contentsOf: [0x06, 0x0F, 0x00, 0x01, charging ? 0x55 : 0xAA])
-        // 06 01 00 01 <01|00>    — mobile signal PRESENT (Q3C_S). The OEM
-        //                          derives this from `getAllCellInfo()...
-        //                          getLevel() > 0` — a binary present/absent
-        //                          flag, NOT a bar count. Byte-verified
+        // 06 01 00 01 <01|00>    — mobile signal PRESENT. A
+        //                          binary present/absent flag, NOT a bar
+        //                          count. Byte-verified
         //                          against the captured 0044 (`06 01 0001 01`).
         body.append(contentsOf: [0x06, 0x01, 0x00, 0x01, signalPresent ? 0x01 : 0x00])
         // music bucket
         body.append(contentsOf: musicVolumeTLV(ratio0to1: musicRatio0to1))
-        // 05 2D 00 02 <distance:u16BE> (Q3C_Q2)
+        // 05 2D 00 02 <distance:u16BE>
         body.append(contentsOf: [0x05, 0x2D, 0x00, 0x02,
                                  UInt8((navDistanceRounded >> 8) & 0xFF),
                                  UInt8(navDistanceRounded & 0xFF)])
@@ -1068,7 +1064,7 @@ extension K1GPacket {
         return body
     }
 
-    /// `REForeGroundService.e.run()` 0030 metadata (1 Hz). Phone → bike,
+    /// 0030 metadata (1 Hz). Phone → bike,
     /// trimmed status update sent alongside the 0044 heartbeat: cell
     /// signal, volumes, nav distance. `seg_count = 0x0006` hardcoded.
     nonisolated static func makeMetadata0030(
@@ -1098,7 +1094,7 @@ extension K1GPacket {
         return body
     }
 
-    /// Hostname / Bluconnect identity announce (`0021` packet). Phone → bike,
+    /// Hostname identity announce (`0021` packet). Phone → bike,
     /// sent once in the initial burst so the dash can label the device on
     /// its pairing screen.
     static func makeHostnameAnnounce(hostname: String) -> Data {
@@ -1125,13 +1121,13 @@ extension K1GPacket {
 // MARK: - Initial burst
 
 /// Captured 9-packet burst the real Tripper app sends immediately on
-/// `REForeGroundService.onCreate`. The dash uses this exact sequence as
+/// connecting. The dash uses this exact sequence as
 /// a discovery + capabilities handshake — if any are missing or out of
 /// order it won't transition out of the "Connected to <phone>" pairing
 /// state and the RSA handshake never completes.
 ///
 /// Source: `better-dash/tripper_app_like_nav.py:INITIAL_BURST_HEX`.
-/// Packet 1 is q3c.e (`makeRequestPubkey`). Packet 2 is the hostname
+/// Packet 1 is REQUEST_PUBKEY (`makeRequestPubkey`). Packet 2 is the hostname
 /// announce. Packets 3-7 are capability ACKs (packet 3 carries the live
 /// set-clock TLV, see `makePacket3SetClock`) (`02060600…` /
 /// `055700`/`0556`/`0605`/`0517` families). Packet 8 is a fixed init
@@ -1198,7 +1194,7 @@ enum InitialBurst {
         //
         // Earlier revisions reused `makeHeartbeat0044` + tail TLVs, which
         // produced an 11-TLV / 73 B packet with `seg_count=10`. The real
-        // dash treats that as malformed, never replies to packet #1 (q3c.e),
+        // dash treats that as malformed, never replies to packet #1 (REQUEST_PUBKEY),
         // and the phone times out with "missing modulus or exponent". The
         // emulator (fake_dash) doesn't validate seg_count so the bug only
         // shows up against real hardware. See SKILL pitfall "Initial burst

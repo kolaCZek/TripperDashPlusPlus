@@ -9,8 +9,8 @@ the primary turn to benefit from a look-ahead chevron:
   - `05 05 0002 <meters_BE>` — secondary distance (same shape as primary)
   - `05 07 0001 <unit>` — secondary unit byte (same encoding as primary)
 
-Wire authority: better-dash `tripper_app_like_nav.py` comments
-(jadx-derived from `t3c.n() / .o() / .p()`), plus our own field test
+Wire authority: better-dash `tripper_app_like_nav.py`, plus our own
+field test
 of the `<flags>` byte (pending — sent as 0x00 placeholder).
 
 This file pins the wire format so a future Swift edit that misorders

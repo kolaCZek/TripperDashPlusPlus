@@ -37,7 +37,7 @@ APPSTATUS = _APP / "App" / "AppStatus.swift"
 
 def _step3(src: str) -> str:
     body = strip_comments(decl_body(src, "private func runHandshake"))
-    # Everything after the q3c.d session-key send is step 3.
+    # Everything after the SESSION_KEY session-key send is step 3.
     return body[body.index("K1GPacket.makeSessionKey"):]
 
 

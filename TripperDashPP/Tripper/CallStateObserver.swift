@@ -21,7 +21,7 @@
 //      see `K1GPacket.CallState` docs + the skill reference
 //      `call-notification-wire-protocol.md`.
 //
-//  Mapping (CXCall → K1GPacket.CallState), mirroring the OEM `km3.u()`:
+//  Mapping (CXCall → K1GPacket.CallState):
 //
 //      hasEnded == true                      → .none      (clear the card)
 //      hasConnected == true                  → .active    (answered / in call)
