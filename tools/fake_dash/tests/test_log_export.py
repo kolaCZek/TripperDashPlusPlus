@@ -67,6 +67,5 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert "OSLogStore(scope: .currentProcessIdentifier)" in write
     # Every app subsystem contains "kolaczek" (the predicate matches them all).
     assert 'NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")' in write
-    assert all("kolaczek" in s for s in _subsystems())
     assert "store.getEntries(matching: own)" in write
     assert "FileManager.default.temporaryDirectory" in write

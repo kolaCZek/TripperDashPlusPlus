@@ -153,7 +153,7 @@
 	</dict>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
-	<!-- Logging: persist info level for the app's own subsystems      -->
+	<!-- Logging: persist info level for the app's own subsystem       -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
 	<!-- Info-level lines ("Baked batch", "Speed-limit grid", heartbeat,

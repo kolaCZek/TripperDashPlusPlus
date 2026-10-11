@@ -24,7 +24,8 @@ Invariants under test:
 import math
 import unittest
 
-# The exact Swift mirror (pinned there against RouteTileCache.lateralAnchors).
+# Same algorithm as RouteTileCache.lateralAnchors; test_lateral_buffer.py
+# owns the sign checks (the tests here never look at which side a wing is on).
 from tests.test_lateral_buffer import lateral_anchors
 
 
