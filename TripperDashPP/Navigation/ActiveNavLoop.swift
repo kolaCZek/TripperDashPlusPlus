@@ -33,7 +33,7 @@ import os.log
 
 @MainActor
 final class ActiveNavLoop {
-    private let log = Logger(subsystem: "cz.kolaczek.tripperdash", category: "ActiveNavLoop")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ActiveNavLoop")
 
     private weak var bikeLink: BikeLink?
     private weak var navigator: ActiveNavigator?

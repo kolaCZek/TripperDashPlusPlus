@@ -53,7 +53,7 @@ actor OSMTileFetcher {
 
     static let shared = OSMTileFetcher()
 
-    private let log = Logger(subsystem: "cz.kolaczek.TripperDashPP", category: "OSMTileFetcher")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "OSMTileFetcher")
 
     // Tile provider URL is no longer a single constant — it comes from
     // the `MapStyle` passed into `fetch`. Both palettes use the SAME OSM

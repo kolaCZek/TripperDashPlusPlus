@@ -175,32 +175,6 @@
 				</dict>
 			</dict>
 		</dict>
-		<key>cz.kolaczek.TripperDashPP</key>
-		<dict>
-			<key>DEFAULT-OPTIONS</key>
-			<dict>
-				<key>Level</key>
-				<dict>
-					<key>Enable</key>
-					<string>Info</string>
-					<key>Persist</key>
-					<string>Info</string>
-				</dict>
-			</dict>
-		</dict>
-		<key>cz.kolaczek.tripperdash</key>
-		<dict>
-			<key>DEFAULT-OPTIONS</key>
-			<dict>
-				<key>Level</key>
-				<dict>
-					<key>Enable</key>
-					<string>Info</string>
-					<key>Persist</key>
-					<string>Info</string>
-				</dict>
-			</dict>
-		</dict>
 	</dict>
 
 </dict>

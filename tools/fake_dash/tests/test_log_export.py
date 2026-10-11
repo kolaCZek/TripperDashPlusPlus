@@ -40,6 +40,11 @@ def test_info_plist_persists_info_level_for_every_app_subsystem():
         assert level == {"Enable": "Info", "Persist": "Info"}, s
 
 
+def test_app_logs_under_one_subsystem():
+    # Console.app filters and the bug-report template name one subsystem.
+    assert _subsystems() == {"eu.kolaczek.tripperdashpp"}, _subsystems()
+
+
 def test_export_reads_own_entries_off_main_and_shares_a_file():
     src = strip_comments((APP / "UI/StreamingView.swift").read_text(encoding="utf-8"))
     assert "import OSLog" in src

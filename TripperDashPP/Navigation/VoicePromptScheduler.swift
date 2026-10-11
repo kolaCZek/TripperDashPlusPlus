@@ -49,7 +49,6 @@ struct VoicePromptScheduler {
     static let farUpperMeters: Double = 1050    // announce ~1 km, with slack
     static let farLowerMeters: Double = 800     // ...but not once inside 800 m
     static let nearUpperMeters: Double = 350    // announce ~300 m, with slack
-    static let nearLowerMeters: Double = 180
     static let nowMeters: Double = 40           // "now" — at the turn
 
     /// Identity of the maneuver the fired-set currently belongs to. When the

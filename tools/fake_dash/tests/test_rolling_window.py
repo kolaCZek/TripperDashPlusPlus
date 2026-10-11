@@ -24,6 +24,9 @@ Invariants under test:
 import math
 import unittest
 
+# The exact Swift mirror (pinned there against RouteTileCache.lateralAnchors).
+from tests.test_lateral_buffer import lateral_anchors
+
 
 # Mirror Swift `RouteTileCache` tunables exactly. If the Swift side
 # changes one of these, update here too — the tests will then fail
@@ -71,44 +74,6 @@ def anchors_along_polyline(coords, stride):
             leftover = 0
     if out[-1] != coords[-1]:
         out.append(coords[-1])
-    return out
-
-
-def lateral_anchors(mains, offset_m):
-    """Perpendicular shift, same as Swift `lateralAnchors`."""
-    out = []
-    for i, c in enumerate(mains):
-        # Tangent via neighbours
-        if i == 0:
-            j = 1
-        elif i == len(mains) - 1:
-            j = i - 1
-        else:
-            j = i + 1
-        dlat = mains[j][0] - c[0]
-        dlon = mains[j][1] - c[1]
-        # Perpendicular vector in lat/lon space, flat-earth approx
-        # at this latitude.
-        lat_rad = math.radians(c[0])
-        # Sign convention: i==len-1 case used j=i-1, so flip perp.
-        sign = -1 if (i == len(mains) - 1) else 1
-        # Perpendicular (rotate 90° CCW): (-dlon, +dlat) in plane.
-        # Scale to metres-per-degree:
-        m_per_deg_lat = 111_320.0
-        m_per_deg_lon = m_per_deg_lat * math.cos(lat_rad)
-        # Convert tangent to metres, rotate, convert back.
-        tx_m = dlon * m_per_deg_lon
-        ty_m = dlat * m_per_deg_lat
-        norm = math.hypot(tx_m, ty_m)
-        if norm < 1e-9:
-            out.append(c)
-            continue
-        # Unit perpendicular (rotated by 90° CCW × sign).
-        px_m = -ty_m / norm * sign
-        py_m = tx_m / norm * sign
-        d_lon = (px_m * offset_m) / m_per_deg_lon
-        d_lat = (py_m * offset_m) / m_per_deg_lat
-        out.append((c[0] + d_lat, c[1] + d_lon))
     return out
 
 
