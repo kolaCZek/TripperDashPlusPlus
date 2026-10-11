@@ -7,8 +7,8 @@ a fixed 1/6 s AFTER each tick, so every period was render time (~26 ms) +
 166.7 ms. MapViewSource.startTimer now sleeps until absolute deadlines on a
 fixed grid (SuspendingClock, same uptime clock as HeartbeatLoop and the PTS).
 A tick that overruns its slot skips the missed slots rather than bursting, and
-a tick that STARTS late (main actor busy when the sleep fired) skips the next
-slot if it would land closer than half an interval — so no two frames are ever
+the next tick never starts less than half an interval after the previous one
+ENDED (a late or slow tick delays it rather than skipping a slot) — so no two frames are ever
 closer than 125 ms (≤ 8 fps even for one pair; the decoder blinks above ~12).
 The field log was taken at the old 6 fps; the rate is now 4 fps.
 """

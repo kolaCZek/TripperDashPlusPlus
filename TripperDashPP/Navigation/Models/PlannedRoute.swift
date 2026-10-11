@@ -104,7 +104,7 @@ final class PlannedRoute {
     // MARK: - Init
 
     /// Build from an ordered list of waypoints. Legs start empty —
-    /// the caller runs `RoutingService.recompute(_:dirtyLegIndices:preferences:isStillLive:)`
+    /// the caller runs `RoutingService.recompute(_:dirtyLegIndices:preferences:timeout:isStillLive:)`
     /// with `allLegIndices` to fill them.
     init(waypoints: [Waypoint]) {
         precondition(waypoints.count >= 2, "A PlannedRoute needs at least origin + destination")

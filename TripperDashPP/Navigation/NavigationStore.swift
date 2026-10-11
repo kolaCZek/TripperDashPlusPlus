@@ -127,9 +127,8 @@ final class NavigationStore {
 
     /// Fill a quick-access slot from a search result. Creates a fresh
     /// Favorite with the slot's fixed name + icon, replacing whatever
-    /// was previously pinned there (the old one becomes a regular
-    /// favorite available in the Others list — or, if it was created
-    /// purely as a pin, the caller can decide to remove it).
+    /// was previously pinned there (the old slot-owned favorite is
+    /// deleted, not moved to the Others list).
     ///
     /// The fixed-name/icon design means we never reuse an existing
     /// favorite for the Home/Work pin — each slot owns its own Favorite

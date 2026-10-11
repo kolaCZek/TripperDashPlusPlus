@@ -22,7 +22,7 @@ CARRY the ordinal forward from the immediately-preceding step if that one
 is also a roundabout. So the whole maneuver shows one stable exit number
 from entry through exit.
 
-This mirrors the Swift carry logic in `ManeuverIcon.classify`. The Swift
+This mirrors the Swift carry logic in `ManeuverKind.classify`. The Swift
 side is additionally covered by the existing roundabout-parser sync tests;
 here we pin the carry SEMANTICS (which the parser-only tests can't see,
 since carry lives in the classifier, not the parser).
@@ -39,8 +39,8 @@ from fake_dash.roundabout_parser import parse_exit_number
 
 from tests.swift_source import decl_body
 
-# Roundabout family keywords — mirror of `Keywords.roundabout` in
-# ManeuverKeywords.swift. Used to decide whether a previous step is a
+# Roundabout family keywords — the EN/CZ/SK/PL/DE subset of
+# `Keywords.roundabout` in ManeuverKeywords.swift. Used to decide whether a previous step is a
 # roundabout we may carry an ordinal from.
 ROUNDABOUT_KEYWORDS = [
     "roundabout", "rotary", "traffic circle",
@@ -60,7 +60,9 @@ def classify_roundabout_exit(step_instructions: str,
                              previous_instructions: str | None) -> int:
     """Mirror of the roundabout-exit resolution in `ManeuverKind.classify`:
     parse the current step; if that yields nothing AND the previous step is
-    also a roundabout, carry its ordinal forward; else exit 0 (generic)."""
+    also a roundabout, carry its ordinal forward; else exit 0 (generic).
+    Swift then tries `inferExitFromDirection` (always 1, 2 or 3, so its
+    `?? 0` is unreachable); this mirror omits that step."""
     n = parse_exit_number(step_instructions)
     if n is None and previous_instructions is not None and _is_roundabout(previous_instructions):
         n = parse_exit_number(previous_instructions)

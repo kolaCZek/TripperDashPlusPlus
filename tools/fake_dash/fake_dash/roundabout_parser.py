@@ -2,9 +2,9 @@
 Python mirror of `TripperDashPP/Navigation/Models/RoundaboutInstructionParser.swift`.
 
 Same exit-noun-anchored strategy + word-ordinal table as the Swift
-parser. Used by `tests/test_roundabout_parser.py` to drive a shared
-fixture set through both parsers and assert they agree, so the iOS and
-tooling sides can't drift apart silently.
+parser. Used by `tests/test_roundabout_parser.py` to drive a fixture
+set through this parser and assert its tables/regexes match the Swift
+source text, so the iOS and tooling sides can't drift apart silently.
 
 If you change either side, mirror the change here (and vice versa).
 
@@ -101,7 +101,8 @@ def parse_exit_number(instructions: str) -> int | None:
       3. Bare number, ONLY when there is no exit noun at all.
 
     Returns int in [1, 20] if a recognisable ordinal is present, else
-    None (caller falls back to exit 0 = generic glyph).
+    None (the Swift caller then tries the preceding step and
+    `inferExitFromDirection`, which always returns 1, 2 or 3).
     """
     lowered = instructions.lower()
 

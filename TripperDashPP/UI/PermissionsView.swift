@@ -9,8 +9,9 @@
 //  Presented from Settings → About → "Check permissions".
 //
 //  Permissions covered (matches TripperDashPP-Info.plist usage strings):
-//    • Location (When In Use → Always) — CLLocationManager. The app needs
-//      Always so the map/wakelock keeps running with the screen off.
+//    • Location (When In Use → Always) — CLLocationManager. The app asks
+//      for Always, but While Using already keeps the map/wakelock running
+//      with the screen off.
 //    • Apple Music — MPMediaLibrary. Dash joystick skips tracks via
 //      MPMusicPlayerController.systemMusicPlayer.
 //    • Local Network — talking to the dash AP at 192.168.1.1. iOS exposes

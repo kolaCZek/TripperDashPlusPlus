@@ -45,7 +45,7 @@ struct VoicePromptDecision: Equatable {
 struct VoicePromptScheduler {
 
     // Tier windows (metres). A tier fires when the rider FIRST crosses below
-    // its upper bound (and, for far, is still above the next tier's bound).
+    // its upper bound (and, for far, is still above `farLowerMeters`).
     static let farUpperMeters: Double = 1050    // announce ~1 km, with slack
     static let farLowerMeters: Double = 800     // ...but not once inside 800 m
     static let nearUpperMeters: Double = 350    // announce ~300 m, with slack

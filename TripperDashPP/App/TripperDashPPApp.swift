@@ -11,7 +11,7 @@ import SwiftUI
 struct TripperDashPPApp: App {
 
     /// Single source of truth for global app state (connection status,
-    /// streaming counters, selected destination). Injected as
+    /// streaming counters, planned route). Injected as
     /// `@Environment(AppStatus.self)` into every screen via
     /// `.environment(_:)` on the root scene.
     @State private var status = AppStatus()

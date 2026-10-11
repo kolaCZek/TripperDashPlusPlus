@@ -4,8 +4,8 @@ Speed-limit map-match spatial grid (review B6).
 `MapViewSource.recomputeSpeedLimit` runs at GPS cadence on the main actor.
 It used to full-scan every segment of every tagged way AND every drivable
 road in the route bbox + 300 m (downtown: tens of thousands per fix). It now
-asks a `SegmentGrid` (SpeedLimitService.swift) built once in
-`setSpeedLimits`, querying only the 3x3 cells around the fix, and falls back
+asks a `SegmentGrid` (SpeedLimitService.swift) built once per
+`setSpeedLimits` (off main, in `buildSpeedLimitGrids`), querying only the 3x3 cells around the fix, and falls back
 to the old full scan only when the grid can't prove its answer.
 
 This file mirrors `SegmentGrid` 1:1 and proves grid-then-fallback returns

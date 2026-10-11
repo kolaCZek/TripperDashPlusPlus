@@ -73,7 +73,9 @@ struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     var points: [RoutePoint]
     /// Length measured along the ORIGINAL trace (haversine sum), metres.
     /// Stored at import so the list doesn't have to recompute, and so a
-    /// reduced track still reports its true on-the-ground length.
+    /// reduced track still reports its true on-the-ground length. A
+    /// planner save or an edited waypoint route stores the routed road
+    /// distance instead when it is known (`fromPlan`, `setRoadDistance`).
     var totalDistanceMeters: Double
     /// Original filename (e.g. "alps-day2.gpx"), for display + dedupe.
     var sourceFilename: String?

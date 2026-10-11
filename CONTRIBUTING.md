@@ -35,7 +35,7 @@ Awesome. Please:
 1. **Open an issue first** before starting work on anything non-trivial — there might be design decisions worth discussing, or it might already be in progress.
 2. Fork, branch from `main`, do the work, open a PR.
 3. PR title format: imperative present, short and specific (e.g. `Add RSA session-key exchange`, `Fix initial-burst seg_count`).
-4. CI must pass — the `fake_dash` pytest suite + Docker image build (on PRs touching `tools/fake_dash/`), plus an `xcodebuild test` of the app and its Swift unit-test target on macOS (every push). But remember: **fake_dash is a permissive plumbing harness, not a protocol authority.** Anything touching the K1G wire format must also be byte-verified against [better-dash](https://github.com/kolaCZek/better-dash).
+4. CI must pass — the `fake_dash` pytest suite + Docker image build (on PRs touching `tools/` or `TripperDashPP/`), plus an `xcodebuild test` of the app and its Swift unit-test target on macOS (every push). But remember: **fake_dash is a permissive plumbing harness, not a protocol authority.** Anything touching the K1G wire format must also be byte-verified against [better-dash](https://github.com/kolaCZek/better-dash).
 5. New Swift code should follow Apple's [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/).
 
 ## Development setup

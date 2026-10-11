@@ -41,7 +41,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # Swift constants we mirror. Keep in sync with RouteTileCache.swift /
-# MapViewSource.swift; the *_source_sync tests below assert they still match.
+# MapViewSource.swift; the Swift-source sync tests below assert they still match.
 # ---------------------------------------------------------------------------
 
 TILE_PIXELS = 256
@@ -466,7 +466,7 @@ def _layer_black_frames(osm_zoom: int, grid_side: int, eff_zoom: float) -> tuple
 
 
 def test_coarse_layer_covers_wide_zoom_out():
-    """Coarse z=12 fully covers the frame from the widest manual zoom-out
+    """Coarse z=13 fully covers the frame from the widest manual zoom-out
     (effective ~0.12 = autozoom floor 0.8 x bias floor 0.15) up through
     the coarse->base handoff (COARSE_EDGE + margin), where base takes over."""
     for eff in [0.12, 0.20, 0.35, 0.55, 0.77, COARSE_EDGE + LAYER_MARGIN]:

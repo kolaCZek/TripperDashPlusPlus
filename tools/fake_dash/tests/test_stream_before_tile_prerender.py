@@ -13,8 +13,8 @@ out waiting for the phone's projection.
 
 The fix: the dash link must never be held hostage to OSM downloads. Start
 streaming immediately after installing route geometry (the renderer draws the
-vector fallback until tiles arrive), and run the tile prerender in a detached
-background Task AFTER streaming is live.
+vector fallback until tiles arrive), and run the tile prerender in an unawaited
+Task AFTER streaming is live.
 
 Static-source guard (no Xcode / MapKit in CI): parse MapPickerView.swift and
 assert the ordering — streaming is not gated behind an awaited prerender.

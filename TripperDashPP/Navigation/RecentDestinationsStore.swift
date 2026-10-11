@@ -52,7 +52,7 @@ struct RecentDestination: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Two records are "the same place" if name + rounded coordinate match.
-    /// Rounding to ~11 m (5 dp) absorbs the tiny coordinate jitter MapKit
+    /// Rounding to ~1 m (5 dp) absorbs the tiny coordinate jitter MapKit
     /// returns for the same POI across searches.
     func samePlace(as other: RecentDestination) -> Bool {
         name == other.name

@@ -1206,7 +1206,7 @@ final class BikeLink {
             try Task.checkCancellation()
             try await socket.send(pkt)
             log.debug("[\(ms(), privacy: .public)ms] TX burst #\(i + 1)/\(burst.count) (\(pkt.count) B): \(pkt.hexPreview, privacy: .public)")
-            // 60 ms gap matches better-dash's default --burst-pause.
+            // 60 ms gap (better-dash's default --burst-pause is 20 ms).
             // Skip the gap after the last packet so the handshake can start
             // listening immediately.
             if i + 1 < burst.count {
@@ -1433,7 +1433,7 @@ private extension Data {
     /// Short, log-friendly hex preview: first 32 bytes as space-separated
     /// hex pairs, with "… +N more" suffix if longer. Designed for OSLog
     /// where we want enough bytes to identify K1G headers + first TLV but
-    /// not spam the log with 800 B RSA ciphertext.
+    /// not spam the log with 128 B RSA ciphertext.
     nonisolated var hexPreview: String {
         let cap = 32
         if count <= cap {

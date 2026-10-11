@@ -24,7 +24,7 @@
 //  Output:
 //  -------
 //  526×300 BGRA pixel buffer at 4 fps emitted to the encoder. The
-//  CoreLocation `Always` wakelock keeps the encoder pipeline
+//  background CoreLocation wakelock keeps the encoder pipeline
 //  + Swift Concurrency executor alive on lock screen; the tile cache
 //  supplies the visual content. (PiP was the old keep-alive; removed in
 //  Phase 8d — the tile + CGContext path is BG-safe without it.)
@@ -522,7 +522,7 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
-    /// without PiP. The CoreLocation `Always` wakelock keeps the
+    /// without PiP. The background CoreLocation wakelock keeps the
     /// process awake on lock screen.
 
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {
@@ -1065,7 +1065,7 @@ extension MapViewSource {
     /// Decide which heading to point the rendered frame at.
     ///
     /// Policy (field-test 2026-06-21):
-    ///   - `speed > 3 m/s` (~11 km/h) AND `course >= 0` → trust GPS course
+    ///   - `speed >= 3 m/s` (~11 km/h) AND `course >= 0` → trust GPS course
     ///   - otherwise → fall back to the compass (last valid value)
     ///   - lerp `lastHeading → targetHeading` in `updateHeading()` so the
     ///     view doesn't snap when the source flips between course and
@@ -2188,7 +2188,7 @@ extension MapViewSource {
 
     /// Push the alternative routes for the current leg (thin grey lines +
     /// ETA-delta bubbles). Pass an empty array to clear (no alternatives,
-    /// or the feature is off). Called from ActiveNavLoop / AppStatus as the
+    /// or the feature is off). Called from MapPickerView / AppStatus as the
     /// active leg's alternatives change.
     func setAlternativeRoutes(_ alts: [AlternativeRouteRender]) {
         alternativeRoutes = alts
@@ -2208,7 +2208,7 @@ struct AlternativeRouteRender: Identifiable {
     /// Coordinate the ETA bubble is anchored to.
     let bubbleAnchor: CLLocationCoordinate2D
 
-    /// "+5 min" / "−2 min" / "similar" (|delta| < 60 s reads "similar").
+    /// "+5 min" / "−2 min" / "similar" (|delta| < 30 s reads "similar").
     var etaDeltaLabel: String {
         let mins = Int((etaDeltaSeconds / 60).rounded())
         if abs(mins) < 1 { return "similar" }
@@ -2348,7 +2348,7 @@ extension MapViewSource {
 
     /// Compact along-route distance for the weather pill's suffix, e.g.
     /// "15 km" / "9 mi". Deliberately COARSER than `formatDistance`: a
-    /// weather sample is only accurate to its ~10 km spacing, so showing
+    /// weather sample is only accurate to its 1–10 km spacing, so showing
     /// "14.7 km" would fake precision and cost pill width. Rounds to whole
     /// km/mi above the sub-unit threshold, and to the nearest 100 m / 500 ft
     /// only when the hazard is very close (so a hazard 300 m ahead doesn't

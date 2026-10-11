@@ -264,21 +264,16 @@ final class DashNavSettings {
 
     /// Route progress bar: draw a thin bar along the BOTTOM edge of the
     /// streamed map showing how far along the route the rider is (filled
-    /// from the left) plus a coarse traffic-delay tint on the road AHEAD.
+    /// from the left), plus via-point ticks and a weather-hazard band.
     /// Defaults ON — it's an at-a-glance ride gauge, non-critical, and
     /// costs nothing (all data is already local: breadcrumb distance vs.
-    /// planned total, and the live Apple ETA vs. the trip's own baseline
-    /// pace). When OFF, `drawProgressBar` is a no-op.
+    /// planned total). When OFF, `drawProgressBar` is a no-op.
     ///
-    /// IMPORTANT — honest scope (Martin, 8/2026): the "ahead" tint is a
-    /// SINGLE coarse colour derived from whether the live ETA is running
-    /// slower than the route's own start-of-trip average pace. It is NOT
-    /// per-segment traffic flow — Apple `MKDirections` returns only a
-    /// scalar `expectedTravelTime`, no geometry-resolved flow, so a true
+    /// IMPORTANT — honest scope (Martin, 8/2026): there is NO traffic
+    /// tint. Apple `MKDirections` returns only a scalar
+    /// `expectedTravelTime`, no geometry-resolved flow, so a true
     /// yellow/red "jam at km 12" colouring is impossible on Apple and
-    /// waits on the BYOK TomTom provider (see routing-engines.md). This
-    /// bar tells the rider "the road ahead is slower than this trip has
-    /// been", not WHERE the slowdown is.
+    /// waits on the BYOK TomTom provider (see routing-engines.md).
     var progressBarEnabled: Bool = true {
         didSet { persist() }
     }

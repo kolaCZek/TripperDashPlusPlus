@@ -8,7 +8,7 @@ Two pure cores mirrored from `WeatherAlertService.swift`:
    scales with route length so a short ride samples finely (down to 1 km)
    and a long ride stays coarse (up to 10 km), targeting a roughly
    constant point count that never overruns Open-Meteo's single-GET
-   budget.  spacing = clamp(min(len, range) / target, minSpacing, maxSpacing)
+   budget.  spacing = clamp(len / target, minSpacing, maxSpacing)
 
 2. `pickAlongRoute` span walk — the surfaced hazard now carries the
    near/far edge of the CONTIGUOUS run of same-glyph samples it belongs

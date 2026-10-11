@@ -64,8 +64,8 @@ def camera_label(maxspeed_kmh: int, imperial: bool) -> str:
     OSM `maxspeed` is always km/h (European dataset). Metric shows it
     verbatim; imperial converts to mph (rounded). The numeric conversion
     goes through the shared `displayLimit` helper in Swift (same one the
-    posted-limit sign uses) so the pill and the sign can never disagree.
-    The pill shows the BARE NUMBER — no unit suffix (rider feedback
+    posted-limit sign uses) so the pill and the sign could never disagree.
+    The pill showed the BARE NUMBER — no unit suffix (rider feedback
     8/2026: "50" not "50 km/h"; the camera pictograph already frames it
     as a speed).
     """

@@ -84,7 +84,7 @@ Reference implementation (the phone side): https://github.com/kolaCZek/better-da
 ## Status
 
 Plumbing test harness for the TripperDash++ project — runs in CI on PRs
-and `main` pushes that touch `tools/fake_dash/` (pytest suite + Docker
+and `main` pushes that touch `tools/` or `TripperDashPP/` (pytest suite + Docker
 image build). The suite also holds Python mirrors of pure Swift logic and
 Swift-source drift guards. See the parent repo's `README.md`
 and `CLAUDE.md` for the broader context.

@@ -85,7 +85,7 @@ def test_button_fans_out_to_registered_peer(running_server):
     Simulate a phone: open a UDP socket, send a single 'wake' packet
     so the server registers us as a peer, then ask via the control
     socket to fire a RIGHT button. We should receive a K1G envelope
-    containing segment type=0x09 sub=0x00 with a 1-byte payload = 13
+    containing segment type=0x09 sub=0x00 with a 1-byte payload = 0x13
     (the real dash's `09 00 0001 XX` shape — code as the trailing byte).
     """
     server, sock_path, k1g_port = running_server

@@ -1,8 +1,8 @@
 """
 Port of `RouteTileCache.lateralAnchors` to Python so we can
 verify the geometry without needing a Swift compiler or a device. The
-Swift implementation is kept in sync with this reference — any drift
-should be caught by the assertions below.
+Swift implementation is kept in sync with this reference by hand — the
+assertions below test this port only and never read the Swift source.
 
 Why bother? The lateral-buffer trick is the difference between "user
 strays 1 km and the map goes dark" and "user strays 1 km and the map
