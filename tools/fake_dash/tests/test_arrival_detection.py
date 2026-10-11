@@ -5,7 +5,7 @@ Tests for final-destination arrival detection, as implemented in:
     (`ingest(fix:)` arrival branch + `handleArrival()` + `hasArrived`
     state + `hasBeenUnderway` guard, reset in `stop()`)
   - TripperDashPP/App/AppStatus.swift
-    (`onArrived` tears down the stream + route artefacts)
+    (`onArrived` speaks the arrival confirmation; the stream stays up)
   - TripperDashPP/UI/MapPickerView.swift
     (auto-dismiss 4 s after arrival → finishArrival → stop())
 

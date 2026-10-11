@@ -21,7 +21,7 @@ assignees: ''
 ## Scope check
 
 - [ ] I understand scope is intentionally minimal — some features (e.g. an Apple Watch app) are out of scope for now
-- [ ] This feature does not require a new paid-only Apple Dev entitlement or service (e.g. push notifications, WeatherKit) — Hotspot Configuration for Wi-Fi auto-join is the only one in use
+- [ ] This feature does not require a new paid-only Apple Dev entitlement or service (e.g. push notifications, WeatherKit) — Hotspot Configuration + Access Wi-Fi Information for Wi-Fi auto-join are the only ones in use
 
 ## Additional context
 

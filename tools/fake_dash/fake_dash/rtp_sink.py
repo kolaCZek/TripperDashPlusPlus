@@ -54,7 +54,7 @@ class RtpStats:
 class _FragmentBuffer:
     """In-flight FU-A reassembly state for a single RTP timestamp.
 
-    The dash sends one access unit per RTP timestamp; we track only one
+    The phone sends one access unit per RTP timestamp; we track only one
     at a time and drop anything that arrives out-of-order from a stale
     timestamp.
     """

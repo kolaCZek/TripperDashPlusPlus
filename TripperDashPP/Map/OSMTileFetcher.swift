@@ -38,8 +38,8 @@ import Foundation
 import OSLog
 
 /// Errors that can come out of a tile fetch attempt. Surfaced to the
-/// caller so it can decide whether to retry, give up, or fall back to
-/// a dark-grey "no tile" frame.
+/// caller so it can decide whether to retry, give up, or leave that
+/// tile's area land-filled in the composite.
 enum OSMTileFetchError: Error {
     case http(status: Int)
     case rateLimited
@@ -216,8 +216,8 @@ actor OSMTileFetcher {
                     return data
                 case 429:
                     // Rate-limited — bail immediately, no retry. Caller
-                    // should treat this as a soft failure (use the
-                    // dark fallback tile) and not hammer the server.
+                    // should treat this as a soft failure (land-fill
+                    // the tile) and not hammer the server.
                     log.warning("OSM 429 rate-limited on \(key, privacy: .public)")
                     throw OSMTileFetchError.rateLimited
                 case 500...599:

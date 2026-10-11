@@ -6,7 +6,7 @@ iOS app source (Swift 6 / SwiftUI, iOS 18.6+).
 
 ```
 App/         @main + AppStatus (shared observable state) + LocationService + VoiceNavigator (offline AVSpeechSynthesizer) + DemoDashModel
-UI/          SwiftUI views (RootView, MapPickerView, StreamingView, InteractiveMapView, RideStatsPanel,
+UI/          SwiftUI views (RootView, MapPickerView, StreamingView, InteractiveMapView, RideStatsPanel, RideHistoryView,
              DashPreviewPanel, AddBikeSheet, PermissionsView)
   Navigation/  destination search / route preview / favorite-editor / saved-routes sheets, NavigationHUD, FreeRideHUD,
              PlanningMapView, WaypointListView, QuickAccessTiles, RouteProgressMap, PrerenderProgressView
@@ -27,13 +27,14 @@ RideAlerts/  keyless ride enrichment — WeatherAlertService (Open-Meteo, whole-
              SpeedLimitService + MaxspeedParser (OSM maxspeed → posted-limit sign), SpeedCameraService (OSM/Overpass cameras +
              average-speed sections), SpeedCameraAnnouncer (spoken camera alerts), RouteProjection
 RideStats/   GPS-only trip computer — RideStats (accumulator), RideStatsFormatting, RideStatsService (live session, last ride
-             persisted), GPXExporter. Phone-side only
+             persisted), RideHistoryStore (last 30 days of rides), GPXExporter. Phone-side only
 LiveActivity/        LiveActivityController + RideActivityAttributes (Lock Screen / Dynamic Island ride card)
 TripperDashShare/    Share Extension target ("Share to TripperDash++" from Google / Apple Maps)
 TripperDashWidgets/  Widget extension target rendering the Live Activity
 TripperDashPP-Info.plist, TripperDashPP.entitlements (Hotspot Configuration), PrivacyInfo.xcprivacy
-TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride stats + formatting + persistence, next-waypoint label,
-             ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations)
+TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride stats + formatting + persistence + history, next-waypoint label,
+             ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations,
+             save-route-from-planner, link-error mapping, reconnect budget, turn-distance text, MapKit leg-tail probe)
 ```
 
 Background keep-alive (background CoreLocation updates) and the

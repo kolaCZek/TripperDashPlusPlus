@@ -5,7 +5,7 @@
 //  "Ride history" sheet (picker toolbar, idle state only): every ride of
 //  the last `RideHistoryStore.retentionDays` days, newest first. Tap a
 //  ride for its map + totals, save it to Saved routes, or export it as
-//  GPX — the same actions the post-arrival trip panel offers, for rides
+//  GPX — the post-arrival trip panel's save, plus export, for rides
 //  that weren't saved on the spot. Swipe to delete.
 //
 

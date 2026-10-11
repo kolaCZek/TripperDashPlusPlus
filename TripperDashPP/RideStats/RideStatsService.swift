@@ -15,11 +15,12 @@
 //    • Totals accumulate across back-to-back rides — arriving and then
 //      planning a fresh route KEEPS folding onto the same numbers, so a
 //      multi-leg day reads as one ride.
-//    • Totals are held frozen on screen after arrival until the rider
-//      starts moving again (a new route) or the session ends.
-//    • The LIVE accumulator is in-memory. To survive the arrival→sleep→
+//    • Totals are held frozen on screen once streaming stops (`end()`)
+//      until the rider streams again (a new route) or the session ends.
+//      Arrival keeps the stream up (free ride), so totals keep folding.
+//    • The LIVE accumulator is in-memory. To survive the stop→sleep→
 //      kill cycle (iOS suspends and then terminates the app once the
-//      streaming wakelock drops at arrival), the LAST ride summary is
+//      streaming wakelock drops), the LAST ride summary is
 //      persisted to UserDefaults at each teardown (`end()`/`pause()`) and
 //      restored on launch, so reopening the app shows the last ride's
 //      summary panel instead of a blank picker. The restored ride is
@@ -167,8 +168,8 @@ final class RideStatsService {
     /// Streaming stopped — drop the subscription, keep totals on screen.
     /// The frozen numbers stay visible (via the post-arrival panel) until
     /// the next ride resumes folding or reset() ends the session. Persists
-    /// the summary so it survives the arrival→sleep→kill cycle: this runs at
-    /// the arrival teardown, before iOS can terminate the backgrounded app.
+    /// the summary so it survives the stop→sleep→kill cycle: this runs at
+    /// the stream teardown, before iOS can terminate the backgrounded app.
     func end() {
         sub = nil
         if state == .running { state = .paused }

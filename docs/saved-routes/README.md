@@ -169,7 +169,7 @@ build on a Mac):
 - `tools/fake_dash/tests/gpx_geometry_mirror.py` — port of `GPXGeometry`
   (incl. `bounding_span` used by the preview map) + `RouteStartPlanner` +
   the GPX extraction-priority rule.
-- `tools/fake_dash/tests/test_gpx_import.py` — 61 tests: haversine,
+- `tools/fake_dash/tests/test_gpx_import.py` — 67 tests: haversine,
   perpendicular distance, RDP reduce (endpoints/names kept, hard cap,
   order preserved, idempotent), extraction priority (rte>trk>wpt),
   tolerance (namespaces, bad coords, name fallback), full-trace distance,

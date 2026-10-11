@@ -14,8 +14,8 @@
 //
 //  Why Open-Meteo (not WeatherKit):
 //    - WeatherKit needs its own entitlement + a signed JWT per request.
-//      TripperDash++ adds no paid capability beyond Hotspot Configuration
-//      and stays keyless (see CLAUDE.md "Distribution"), so WeatherKit is
+//      TripperDash++ adds no paid capability beyond its Wi-Fi entitlements
+//      (Hotspot Configuration, Access Wi-Fi Information) and stays keyless (see CLAUDE.md "Distribution"), so WeatherKit is
 //      off the table.
 //    - Open-Meteo is keyless, free for non-commercial use, returns WMO
 //      weather codes + wind gusts + visibility + precipitation in one
@@ -129,8 +129,9 @@ final class WeatherAlertService {
 
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "WeatherAlert")
 
-    /// Latest evaluated alert (`nil` = nothing worth showing). Read by the
-    /// nav pump each tick and pushed into `MapViewSource.setWeatherAlert`.
+    /// Latest evaluated alert (`nil` = nothing worth showing). Returned by
+    /// `refresh`, which `AppStatus.refreshWeather` pushes into
+    /// `MapViewSource.setWeatherAlert`.
     private(set) var current: WeatherAlert?
 
     /// Minimum spacing between network polls. Weather doesn't change fast
@@ -190,7 +191,8 @@ final class WeatherAlertService {
     /// Evaluate weather at `position` plus a series of points sampled
     /// along `routeAhead` (spacing chosen adaptively by `adaptiveSpacing`
     /// out to `sampleRangeMeters`). Throttled to `pollInterval` and to ~1 km of
-    /// movement, so it's safe to call from the 1 Hz nav pump every tick —
+    /// movement, so it's safe to call on every ~1 Hz GPS fix
+    /// (`AppStatus.navigatorIngest`) —
     /// the actual fetch only fires when the throttle opens. Updates
     /// `current` in place; returns the new value.
     @discardableResult

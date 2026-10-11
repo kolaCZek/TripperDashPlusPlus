@@ -25,7 +25,7 @@
 //  where a prompt would be routed to a dead session.
 //
 //  NOTE: the app's background survival does NOT depend on audio — that is
-//  owned entirely by CoreLocation `Always` updates (see `LocationService`).
+//  owned entirely by CoreLocation background updates (see `LocationService`).
 //  Audio here is purely the spoken-guidance feature.
 //
 //  ── Queueing / priority ──────────────────────────────────────────────

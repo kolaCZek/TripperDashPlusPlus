@@ -282,10 +282,10 @@ class FakeDashServer:
             peer.rx_logged = True
         segs = decode_packet(data)
         if not segs:
-            # Empty K1G envelope (17-byte header, no TLVs) is the standard
-            # heartbeat from the phone side — better-dash captures confirm
-            # this is normal. Only log louder if the magic / framing is
-            # actually corrupt.
+            # Empty K1G envelope (17-byte header, no TLVs). Earlier phone
+            # builds sent these as heartbeats; today's heartbeat is the
+            # 0044 + 0030 pair (HeartbeatLoop.swift). Only log louder if the
+            # magic / framing is actually corrupt.
             if is_valid_envelope(data):
                 if not peer.empty_envelope_logged:
                     log.info(
@@ -317,8 +317,7 @@ class FakeDashServer:
             return
 
         # Type 0x08 sub 0x04 = REQUEST_PUBKEY: phone requesting our RSA pubkey.
-        # Better-dash + the real Tripper Android app both send this as
-        # `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
+        # Better-dash sends this as `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
         # match was kept while we figured out which type byte was correct;
         # confirmed via better-dash that 0x07 is INBOUND-ONLY (bike → phone)
         # so the phone never legitimately sends 0x07. Stay strict — that
@@ -347,8 +346,9 @@ class FakeDashServer:
                     seg.sub,
                     len(seg.payload),
                 )
-            # `06 04` (battery) only rides in the phone's 1 Hz 0044
-            # heartbeat. ACK it like the real dash does; the phone drops the
+            # `06 04` (battery) only rides in the phone's 0044 status
+            # frames (the 1 Hz heartbeat and the initial burst's packet 9).
+            # ACK it like the real dash does; the phone drops the
             # link after K1G.rxSilenceTimeout without RX.
             if seg.sub == 0x04:
                 self._send_heartbeat_ack(peer)

@@ -48,7 +48,7 @@ from tests.swift_source import decl_body, strip_comments
 # We model just the first byte emitted by an episode's handshake — that's
 # the one the freshly-rebooted dash latches onto.
 
-_HANDSHAKE_SEQ_CONSUMES = 12  # initial burst (9) + pubkey + a couple status
+_HANDSHAKE_SEQ_CONSUMES = 12  # pubkey request + session key + a few status
 
 
 def _run_episode(seq: RollingSeq, *, reset_first: bool) -> int:

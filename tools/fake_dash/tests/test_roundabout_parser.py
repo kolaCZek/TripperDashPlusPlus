@@ -123,9 +123,9 @@ def test_every_listed_word_form_parses_to_its_number():
     ordinal token)."""
     for n, forms in WORD_ORDINALS.items():
         for form in forms:
-            # Skip pure-digit forms (1st/2nd/etc) when wrapping in a
-            # sentence because the digit regex would match them via
-            # the digit path before the word table is consulted.
+            # Pure-digit forms (1st/2nd/etc) are not skipped: the digit
+            # regex matches them via the digit path before the word
+            # table is consulted, and they parse to the same number.
             phrase = f"take the {form} exit"
             assert parse_exit_number(phrase) == n, (
                 f"Form {form!r} (registered for exit {n}) parsed to "

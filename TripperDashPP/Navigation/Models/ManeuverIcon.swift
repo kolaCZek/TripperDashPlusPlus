@@ -50,7 +50,7 @@ import Foundation
 /// only when all of that fails does it fall back to exit 0, a generic
 /// roundabout glyph (CCW or CW per driving side).
 enum ManeuverKind: Equatable {
-    case straight                                  // 0x09 (short) / 0x3B (long)
+    case straight                                  // 0x09 (long-distance 0x3B unused)
     case slightLeft                                // 0x18
     case left                                      // 0x14
     case sharpLeft                                 // 0x16

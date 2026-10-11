@@ -4,7 +4,7 @@ Speed-camera maxspeed + imperial-badge tests (#3, #4).
 The Swift side:
   - `MaxspeedParser.swift` — the ONE parser both services share.
   - `SpeedCameraService.makeCamera` — now routes `maxspeed` through it, so
-    a "55 mph" camera stores 88 km/h instead of 55 (#3).
+    a "55 mph" camera stores 89 km/h instead of 55 (#3).
   - `MapViewSource.displayLimit` — the ONE km/h→display converter. The
     posted-limit sign calls it; the camera badge used to as well, but it no
     longer draws a number (removed 8/2026) (#4).

@@ -16,7 +16,8 @@
 //  raw 1 Hz feed would waste the budget and could stall the Lock Screen. We
 //  keep the last-pushed snapshot and only push when a rider would actually
 //  notice a difference (maneuver glyph, reroute flag, distance bucket, ETA
-//  minute, secondary line, remaining distance, or ≥1% progress). 1 Hz in,
+//  minute, secondary line, remaining distance, destination name, or ≥1%
+//  progress). 1 Hz in,
 //  ≪1 Hz out.
 //
 //  Availability: ActivityKit is iOS 16.1+. The app targets iOS 18.6, so the

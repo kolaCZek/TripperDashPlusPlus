@@ -4,7 +4,7 @@
 //
 //  Phase 7b — wrapper around MKLocalSearchCompleter for live
 //  autocomplete + MKLocalSearch for resolving a completion to a real
-//  coordinate. Owns its region bias (100 km box around the current
+//  coordinate. Owns its region bias (200 km box around the current
 //  GPS, Czech Republic fallback).
 //
 
