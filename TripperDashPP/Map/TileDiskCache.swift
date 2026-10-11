@@ -45,7 +45,7 @@ actor TileDiskCache {
 
     static let shared = TileDiskCache()
 
-    private let log = Logger(subsystem: "cz.kolaczek.TripperDashPP", category: "TileDiskCache")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "TileDiskCache")
 
     /// Tiles whose mtime is older than this are evicted at startup.
     /// `read` bumps the mtime, so a tile read on every ride is never

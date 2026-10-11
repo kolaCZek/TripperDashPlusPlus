@@ -153,7 +153,7 @@
 	</dict>
 
 	<!-- ───────────────────────────────────────────────────────────── -->
-	<!-- Logging: persist info level for the app's own subsystems      -->
+	<!-- Logging: persist info level for the app's own subsystem       -->
 	<!-- ───────────────────────────────────────────────────────────── -->
 
 	<!-- Info-level lines ("Baked batch", "Speed-limit grid", heartbeat,
@@ -163,32 +163,6 @@
 	<key>OSLogPreferences</key>
 	<dict>
 		<key>eu.kolaczek.tripperdashpp</key>
-		<dict>
-			<key>DEFAULT-OPTIONS</key>
-			<dict>
-				<key>Level</key>
-				<dict>
-					<key>Enable</key>
-					<string>Info</string>
-					<key>Persist</key>
-					<string>Info</string>
-				</dict>
-			</dict>
-		</dict>
-		<key>cz.kolaczek.TripperDashPP</key>
-		<dict>
-			<key>DEFAULT-OPTIONS</key>
-			<dict>
-				<key>Level</key>
-				<dict>
-					<key>Enable</key>
-					<string>Info</string>
-					<key>Persist</key>
-					<string>Info</string>
-				</dict>
-			</dict>
-		</dict>
-		<key>cz.kolaczek.tripperdash</key>
 		<dict>
 			<key>DEFAULT-OPTIONS</key>
 			<dict>

@@ -30,7 +30,7 @@ import os.log
 
 @MainActor
 final class LiveActivityController {
-    private let log = Logger(subsystem: "cz.kolaczek.tripperdash", category: "LiveActivity")
+    private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "LiveActivity")
 
     private var activity: Activity<RideActivityAttributes>?
 
