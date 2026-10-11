@@ -61,8 +61,8 @@ def classify_roundabout_exit(step_instructions: str,
     """Mirror of the roundabout-exit resolution in `ManeuverKind.classify`:
     parse the current step; if that yields nothing AND the previous step is
     also a roundabout, carry its ordinal forward; else exit 0 (generic).
-    Swift tries `inferExitFromDirection` before falling back to 0; this
-    mirror omits that step."""
+    Swift then tries `inferExitFromDirection` (always 1, 2 or 3, so its
+    `?? 0` is unreachable); this mirror omits that step."""
     n = parse_exit_number(step_instructions)
     if n is None and previous_instructions is not None and _is_roundabout(previous_instructions):
         n = parse_exit_number(previous_instructions)

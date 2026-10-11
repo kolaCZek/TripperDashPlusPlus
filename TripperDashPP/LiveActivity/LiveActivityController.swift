@@ -17,8 +17,7 @@
 //  keep the last-pushed snapshot and only push when a rider would actually
 //  notice a difference (maneuver glyph, reroute flag, distance bucket, ETA
 //  minute, secondary line, remaining distance, destination name, or ≥1%
-//  progress). 1 Hz in,
-//  ≪1 Hz out.
+//  progress). 1 Hz in, ≪1 Hz out.
 //
 //  Availability: ActivityKit is iOS 16.1+. The app targets iOS 18.6, so the
 //  APIs are always present; the `areActivitiesEnabled` gate still matters

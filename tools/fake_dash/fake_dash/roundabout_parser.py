@@ -102,7 +102,7 @@ def parse_exit_number(instructions: str) -> int | None:
 
     Returns int in [1, 20] if a recognisable ordinal is present, else
     None (the Swift caller then tries the preceding step and
-    `inferExitFromDirection`, finally exit 0 = generic glyph).
+    `inferExitFromDirection`, which always returns 1, 2 or 3).
     """
     lowered = instructions.lower()
 

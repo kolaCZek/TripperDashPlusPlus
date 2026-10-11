@@ -359,9 +359,9 @@ final class AppStatus {
                     // arrival `ActiveNavigator` leaves
                     // `isNavigating == true` for the HUD's ~4 s dismiss beat.
                     // Without this guard, a link flap inside that window would
-                    // re-arm the stream onto a now-empty map (no route, no
-                    // maneuver) — a bare map with no navigation, exactly what
-                    // we just stopped. `hasArrived` resets on the next
+                    // re-arm navigation for a route that is already finished;
+                    // `finishArrival()` is about to clear it and switch to
+                    // free ride. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
                     //
                     // Field report (8/2026): this branch fires (dash shows

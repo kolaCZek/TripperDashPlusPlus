@@ -317,7 +317,8 @@ class FakeDashServer:
             return
 
         # Type 0x08 sub 0x04 = REQUEST_PUBKEY: phone requesting our RSA pubkey.
-        # Better-dash sends this as `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
+        # Better-dash and its real-phone capture both send this as
+        # `08 04 00 01 01`. The earlier loose `{(0x07, 0x04), (0x08, 0x04)}`
         # match was kept while we figured out which type byte was correct;
         # confirmed via better-dash that 0x07 is INBOUND-ONLY (bike → phone)
         # so the phone never legitimately sends 0x07. Stay strict — that

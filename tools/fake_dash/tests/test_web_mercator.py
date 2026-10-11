@@ -1,8 +1,8 @@
 """
 Python port of `WebMercator` so we can validate the Slippy Map tile
-math without booting Xcode. Same formulas, same constants — if these
-match the reference tile indices (Karlín, Slaný, Zvoleněves at z=15) then
-the Swift implementation will too.
+math without booting Xcode. Same formulas, same constants. The tile
+indices for Karlín, Slaný and Zvoleněves at z=15 are self-consistency
+anchors (see EXPECTED), not independent reference values.
 
 If you change `WebMercator.swift`, mirror the change here and re-run
 `pytest tests/test_web_mercator.py`.
@@ -197,6 +197,6 @@ class TestTileBox:
         radius_px = radius_m / mpp
         radius_tiles = radius_px / TILE_PIXELS
         diam_tiles = 2 * radius_tiles + 1
-        # gridSide=4 should comfortably contain a 1.5 km radius
-        # (diameter spans ~3-4 tiles depending on tile alignment).
+        # A 1.5 km radius spans ~4.8 tiles (785 m each) across, inside
+        # the asserted (3, 5) bound.
         assert 3.0 < diam_tiles < 5.0, f"got {diam_tiles:.2f} tiles wide"
