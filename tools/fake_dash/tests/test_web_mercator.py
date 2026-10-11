@@ -1,8 +1,8 @@
 """
 Python port of `WebMercator` so we can validate the Slippy Map tile
-math without booting Xcode. Same formulas, same constants — if these
-match published reference values (Praha, Karlín, Slaný at z=15) then
-the Swift implementation will too.
+math without booting Xcode. Same formulas, same constants. The tile
+indices for Karlín, Slaný and Zvoleněves at z=15 are self-consistency
+anchors (see EXPECTED), not independent reference values.
 
 If you change `WebMercator.swift`, mirror the change here and re-run
 `pytest tests/test_web_mercator.py`.
@@ -187,10 +187,9 @@ class TestTileBox:
 
     def test_4x4_box_at_1500m_radius(self):
         """At z=15 near Prague, gridSide=4 (RouteTileCache's old value; now 5)
-        should bracket a ~1.5 km radius. mpp ≈ 4.9 m/px at 50°N → one
-        tile = 1254 m, 4 tiles diameter = ~5 km, which covers a ~2.5 km
-        radius. We test a smaller 1500 m radius so the 4 tiles have a
-        bit of margin on each side."""
+        should bracket a ~1.5 km radius. mpp ≈ 3.07 m/px at 50°N → one
+        tile ≈ 785 m, so a 1500 m radius lands just under the asserted
+        upper bound of 5 tiles wide."""
         lat, lon = KARLIN
         z = 15
         radius_m = 1500.0
@@ -198,6 +197,6 @@ class TestTileBox:
         radius_px = radius_m / mpp
         radius_tiles = radius_px / TILE_PIXELS
         diam_tiles = 2 * radius_tiles + 1
-        # gridSide=4 should comfortably contain a 1.5 km radius
-        # (diameter spans ~3-4 tiles depending on tile alignment).
+        # A 1.5 km radius spans ~4.8 tiles (785 m each) across, inside
+        # the asserted (3, 5) bound.
         assert 3.0 < diam_tiles < 5.0, f"got {diam_tiles:.2f} tiles wide"

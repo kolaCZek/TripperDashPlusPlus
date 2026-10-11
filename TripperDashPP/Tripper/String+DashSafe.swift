@@ -14,9 +14,10 @@
 //  `dashSafe` folds any string down to plain 7-bit ASCII: diacritics
 //  are stripped to their base letter (á→a, ř→r, ž→z, ě→e), a handful of
 //  common typographic characters are mapped to ASCII equivalents, and
-//  anything still outside printable ASCII is dropped. Applied at the two
+//  anything still outside printable ASCII is dropped. Applied at the three
 //  points where text actually leaves for the dash — `K1GPacket.tlvRoadName`
-//  (the control-plane road-name TLV) and `MapViewSource.drawText` (the
+//  (the control-plane road-name TLV), `K1GPacket.makeRouteCard` (the
+//  route-card title) and `MapViewSource.drawText` (the
 //  video overlay) — so EVERY on-dash string is sanitised regardless of
 //  where it originated. It's a no-op on strings that are already ASCII,
 //  so distances/times/etc. pass through untouched.

@@ -4,7 +4,7 @@ GPS-fix / mobile-signal presence on the Tripper TFT, sent in the 1 Hz
 0044 heartbeat + 0030 metadata frames).
 
 BYTE-VERIFIED against the real-phone capture that
-better-dash inlines verbatim as `INITIAL_BURST_HEX[9]`
+better-dash inlines verbatim as `INITIAL_BURST_HEX[8]`
 (`tripper_app_like_nav.py:54`):
 
     0044 000a 00000000 020100054b314720 09
@@ -46,7 +46,7 @@ import pytest
 from fake_dash.protocol import decode_packet
 
 
-# --- Real-phone capture (better-dash INITIAL_BURST_HEX[9]) -------------------
+# --- Real-phone capture (better-dash INITIAL_BURST_HEX[8]) -------------------
 
 CAPTURED_0044 = bytes.fromhex(
     "0044000a00000000020100054b3147200906080001ff060300015506040001a2"

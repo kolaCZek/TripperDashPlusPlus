@@ -192,8 +192,8 @@ enum RoundaboutInstructionParser {
     ///     left  → 1st exit (peel off early), straight → 2nd, right → 3rd
     /// A guess, not gospel: prefer `parseExitNumber`; use this only when
     /// that yields nil. Beats a numberless glyph, and the arc direction
-    /// matches the rider's actual path. Returns nil when no direction word
-    /// is present (then the caller's generic exit-0 circle stands).
+    /// matches the rider's actual path. With no direction word it returns
+    /// 2 ("continue"/"straight" → across), so it never returns nil.
     static func inferExitFromDirection(_ instructions: String,
                                        drivingSide: DrivingSide = .right) -> Int? {
         let s = instructions.lowercased()

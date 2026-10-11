@@ -608,7 +608,7 @@ def test_route_changes_refetch_speed_limits():
     # limits never came back for the rest of either ride — cameras did, on
     # the first reroute. Route changes must refetch limits too (skipped when
     # the loaded box already covers the new route), and a failed fetch is
-    # retried every 60 s while navigating.
+    # retried after 60 s (doubling to 600 s) while navigating.
     from tests.swift_source import decl_body, strip_comments
     picker = strip_comments(_src("UI/MapPickerView.swift"))
     hook = picker[picker.index("onActiveRouteChanged = { [weak status] newRoute in"):]
@@ -637,7 +637,7 @@ def test_route_changes_refetch_speed_limits():
 class _LimitPrefetchModel:
     """Python mirror of AppStatus.prefetchSpeedLimits: claim (buffered box)
     on the call, fetch in flight, resolve later; retry 60 s after a failure
-    while navigating. Boxes are (south, west, north, east) in metres."""
+    (doubling to 600 s) while navigating. Boxes are (south, west, north, east) in metres."""
 
     BUFFER = 300
     RETRY = 60

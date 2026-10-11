@@ -1137,7 +1137,7 @@ enum InitialBurst {
     /// Build the 9-packet sequence ready to send (in order; only packet 1
     /// consumes a byte from `seq`, the rest carry fixed captured sequence
     /// bytes). Pause between sends is the
-    /// caller's responsibility (better-dash uses 50–100 ms).
+    /// caller's responsibility (better-dash `--burst-pause` defaults to 20 ms).
     static func packets(hostname: String, fixedTempC: Int, seq: RollingSeq) -> [Data] {
         let p1 = K1GPacket.makeRequestPubkey(seq: seq.consume())
 

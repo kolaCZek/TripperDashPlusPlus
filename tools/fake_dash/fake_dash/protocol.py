@@ -200,7 +200,7 @@ def build_envelope(segments: Iterable[Segment], seq: int = 0) -> bytes:
     (`patch_seq` re-patches it on every send).
 
     seg_count quirk: every packet template in better-dash hardcodes
-    `00 02` for single-segment packets, and `active_nav_packet`
+    `00 02` for single-segment packets, and `build_active_nav_packet`
     computes `len(tlvs) + 1` for multi-segment packets. The real
     Tripper dash validates this byte — packets with the naive count
     silently drop. So we always emit `actual_count + 1` here too,

@@ -138,7 +138,7 @@ def public_key_bytes(pub: RSAPublicKey) -> tuple[bytes, bytes]:
 
     Modulus is padded to exactly 128 B for RSA-1024 (the dash assumes
     this width when sizing SESSION_KEY). Exponent is the natural big-endian
-    byte form, typically `00 01 00 01` for the standard F4 = 65537.
+    byte form, typically `01 00 01` for the standard F4 = 65537.
     """
     numbers = pub.public_numbers()
     mod_bytes = numbers.n.to_bytes(RSA_CIPHERTEXT_LEN, "big")

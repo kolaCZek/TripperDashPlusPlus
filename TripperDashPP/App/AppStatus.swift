@@ -150,7 +150,7 @@ final class AppStatus {
 
     // MARK: - Background keep-alive (Phase 6)
 
-    /// User-controlled: when true, we hold a CoreLocation Always
+    /// User-controlled: when true, we hold a CoreLocation background
     /// wakelock while streaming so the iPhone screen can
     /// lock without iOS suspending the app (which kills the
     /// VTCompressionSession with `kVTInvalidSessionErr` / -12903).
@@ -176,7 +176,7 @@ final class AppStatus {
 
     /// Reflects whether the location wakelock is active right now. Used
     /// by the UI to show a "Background mode active" badge. Background
-    /// survival is owned entirely by CoreLocation `Always` updates.
+    /// survival is owned entirely by CoreLocation background updates.
     var backgroundKeepAliveActive: Bool {
         wakelockToken != nil
     }
@@ -294,8 +294,8 @@ final class AppStatus {
                 if sessionEnded && self.rideStats.stats.startedAt != nil {
                     // Zero the trip computer so the next connected ride starts
                     // fresh and the post-arrival panel stops showing stale
-                    // totals. (App kill also resets — RideStats is in-memory
-                    // only.) Frozen totals from a plain arrival are kept: this
+                    // totals. (`reset()` also clears the last-ride copy
+                    // persisted to UserDefaults.) Frozen totals from a plain arrival are kept: this
                     // fires only on a real teardown, not on stopStreaming() at
                     // a waypoint.
                     self.rideStats.reset()
@@ -356,13 +356,12 @@ final class AppStatus {
                     // (never released on stop), so there's no re-bake.
                     //
                     // The `!hasArrived` guard is load-bearing: on final
-                    // arrival `onArrived` deliberately tears the stream down
-                    // AND drops the tile cache + route polyline, but leaves
+                    // arrival `ActiveNavigator` leaves
                     // `isNavigating == true` for the HUD's ~4 s dismiss beat.
                     // Without this guard, a link flap inside that window would
-                    // re-arm the stream onto a now-empty map (no route, no
-                    // maneuver) — a bare map with no navigation, exactly what
-                    // we just stopped. `hasArrived` resets on the next
+                    // re-arm navigation for a route that is already finished;
+                    // `finishArrival()` is about to clear it and switch to
+                    // free ride. `hasArrived` resets on the next
                     // start()/stop(), so legitimate reconnects still fire.
                     //
                     // Field report (8/2026): this branch fires (dash shows
@@ -1573,7 +1572,7 @@ final class AppStatus {
     /// Keyless weather provider for the dash weather pill. Owned for the
     /// app's lifetime so its throttle state + URLSession persist across
     /// start/stop streaming. Polled (throttled) from `navigatorIngest`
-    /// using the rider's live position + route-ahead look-ahead point.
+    /// using the rider's live position + the route-ahead polyline.
     @ObservationIgnored private let weatherService = WeatherAlertService()
 
     /// Guards against overlapping speed-camera prefetches when several

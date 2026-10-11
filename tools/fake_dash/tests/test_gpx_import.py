@@ -428,7 +428,8 @@ class TestAnalyze:
     def test_just_over_threshold_boundary(self):
         # Construct a route where nearest is index 1 and the saving is
         # just above 300 m. Spacing 400 m between pt0 and pt1; a third
-        # point beyond, so pt1 isn't the destination (never prompted).
+        # point beyond, so the rider on pt1 isn't within 300 m of the
+        # last point (at the destination → never prompted).
         step = 400 / 111_320 / math.cos(math.radians(50))
         route = [Pt(50.0, 14.0), Pt(50.0, 14.0 + step), Pt(50.0, 14.0 + 2 * step)]
         # Rider sits on pt1 → dist_first ≈ 400 m, nearest 0 → saving 400.

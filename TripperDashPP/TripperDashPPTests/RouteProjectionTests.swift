@@ -4,9 +4,9 @@
 //
 //  Tests the along-route projection geometry AND the along-route speed-
 //  camera selection it powers. The key scenario is the SHARP BEND: a camera
-//  just past a hairpin lies >75° off the rider's heading (so the old
-//  straight-line cone would reject it) yet is only ~300 m ahead ALONG THE
-//  ROAD and must warn. Pure value types, headless (no CoreLocation/MapKit).
+//  just past a hairpin is only ~170 m away in a straight line yet ~600 m
+//  ahead ALONG THE ROAD, and the along-route distance is what must be
+//  reported. Pure value types, headless (no CoreLocation/MapKit).
 //
 //  Geometry note: 0.001° latitude ≈ 111 m; 0.001° longitude at ~50°N ≈
 //  71 m. Fixtures use a simple L-shaped / hairpin polyline so along-route

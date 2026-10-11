@@ -425,7 +425,7 @@ final class RouteTileCache {
     //   because `extend()` is idempotent and disk cache survives
     //   the cache instance going away.
 
-    /// One anchor in the routeAnchors array. Identifies position
+    /// One anchor in the allAnchors array. Identifies position
     /// along the polyline + which lateral row (0=main, -1=left wing,
     /// +1=right wing, …). Indexing is dense: anchor i+1 always
     /// neighbours anchor i in the geometry, so we can walk the array
@@ -435,9 +435,9 @@ final class RouteTileCache {
         /// Distance from the polyline START along the route (meters).
         /// Used to pick the "front edge" of the rolling window quickly.
         let routeOffsetMeters: CLLocationDistance
-        /// 0 = main anchor on the polyline, ±1 / ±2 = lateral wing
-        /// offsets. Kept around for diagnostics only — bake order
-        /// treats main and wings equally.
+        /// 0 = main anchor on the polyline, ±1 = lateral wing
+        /// offsets. Drives the main-row preference (`tileRowKind`,
+        /// `snapToMainAnchor`); bake order treats main and wings equally.
         let lateralRow: Int
     }
 
@@ -707,9 +707,10 @@ final class RouteTileCache {
         // off the main actor, see `composite`; the cap still keeps the
         // nearest tiles first in the fetch queue). Normally extend() finds a
         // handful of new anchors as the rider rolls forward, but after a
-        // hard-snap — the motion interpolator jumping the displayed position
-        // km back onto the GPS fix — the rider's route offset moves by a
-        // large distance at once and the whole new window is missing.
+        // hard-snap — the since-removed motion interpolator jumping the
+        // displayed position km back onto the GPS fix — the rider's route
+        // offset moved by a large distance at once and the whole new window
+        // was missing.
         //
         // Measured on the 2026-09-02 ride: snaps of 1769 m / 3275 m / 5313 m
         // were each followed within seconds by bake bursts of 130-180/min and

@@ -5,7 +5,7 @@
 //  feat/saved-routes-gpx — the "Saved routes" library, opened from the
 //  button next to Settings on the main screen.
 //
-//  Shows every imported route (name, start → end, distance in the
+//  Shows every saved route (name, start → end, distance in the
 //  rider's unit), supports swipe-to-delete, and offers "Import GPX"
 //  which drives the system document picker. Tapping a route pushes
 //  `SavedRouteDetailView` (rename / delete / start navigation).

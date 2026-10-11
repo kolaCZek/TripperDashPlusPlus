@@ -12,8 +12,9 @@
 //      and sends a full active-nav K1G packet via `BikeLink.sendActiveNav`.
 //
 //   2. Pushes the same snapshot into `MapViewSource.setNavOverlay(...)`
-//      so the maneuver glyph + distance + road name overlay on the
-//      video stream stays in sync with the bubble.
+//      for the maneuver glyph + distance + road name video overlay
+//      (its `drawNavOverlay` call is currently commented out, so
+//      nothing is drawn).
 //
 //  Lifecycle is tied to streaming, not to having a route: when the
 //  rider isn't navigating but we're still streaming the map (e.g.

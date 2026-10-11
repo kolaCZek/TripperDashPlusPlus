@@ -144,7 +144,8 @@ struct Lexicon {
     let speedCamera: String
     /// Ordinals 1…9 for roundabout exits (index 0 unused).
     let ordinals: [String]
-    /// Build the roundabout action for a given exit; `exit` clamps 1…9.
+    /// Build the roundabout action for a given exit; an exit outside 1…9
+    /// gets the generic "follow the arrow" phrase.
     let roundabout: (Int, [String]) -> String
     /// The per-maneuver action clause.
     let actionFor: (ManeuverKind) -> String

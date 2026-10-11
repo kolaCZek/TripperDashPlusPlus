@@ -49,8 +49,8 @@ def tlv_secondary_unit(wire_byte: int) -> Segment:
 @pytest.mark.parametrize(
     "code, flags, expected",
     [
-        (0x0B, 0x00, b"\x0b\x00"),  # continue/straight, default flags
-        (0x3C, 0x00, b"\x3c\x00"),  # bear-right
+        (0x0B, 0x00, b"\x0b\x00"),  # roundabout CCW exit 1, default flags
+        (0x3C, 0x00, b"\x3c\x00"),  # arrival pin
         (0x31, 0x00, b"\x31\x00"),  # CW table entry (skill F2b)
         (0x46, 0x00, b"\x46\x00"),  # CW table entry
         (0x0A, 0x00, b"\x0a\x00"),  # CCW table entry
@@ -169,7 +169,7 @@ def _swift_lookahead_decision(
     threshold_meters: float,
     is_rerouting: bool = False,
 ) -> bool:
-    """Mirror of the conditional in ActiveNavLoop.swift line ~120."""
+    """Mirror of the conditional in ActiveNavLoop.swift line ~295."""
     return (
         lookahead_enabled
         and not is_rerouting

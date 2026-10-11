@@ -50,8 +50,9 @@ def tlv_eta_format(is_24h: bool) -> Segment:
     the Swift signature. 12-hour mode previously sent 0x31 (an inferred
     guess); on a 6/2026 ride that BLANKED the ETA on the real dash (the dash
     rejects 0x31 and drops the whole ETA block), so 0x31 is confirmed wrong.
-    We send 0x30 unconditionally; the dash then shows the (24-hour) HH:MM
-    payload instead of a blank field even when set to 12-hour."""
+    We send 0x30 unconditionally; the dash then shows the HH:MM payload
+    (which `tlvEta` builds as hour % 12 in 12-hour mode) instead of a blank
+    field even when set to 12-hour."""
     return Segment(type=0x05, sub=0x54, payload=bytes([0x30]))
 
 
@@ -134,7 +135,7 @@ def test_tlv_eta_format_12h_also_0x30_never_0x31() -> None:
     with the dash set to 12-hour, the ETA went blank because the dash
     rejects 0x31 and drops the whole ETA block (same failure mode as the
     original 0x55/0xAA bug). 0x30 is the only value the dash is known to
-    accept, so we send it unconditionally; the rider sees the 24-hour HH:MM
+    accept, so we send it unconditionally; the rider sees the HH:MM
     arrival time instead of a blank field. This guards against anyone
     re-introducing the 0x31 guess without a real 12h-mode capture."""
     seg = tlv_eta_format(is_24h=False)
@@ -177,7 +178,7 @@ def test_tlv_remaining_ascii_encoding(seconds: int, expected: bytes) -> None:
 
 def test_tlv_remaining_negative_floors_to_zero() -> None:
     """Defensive: should never happen in production (etaSeconds is
-    guarded by `etaSec > 0` in ActiveNavLoop) but the Swift formatter
+    guarded by `finalEtaSec > 0` in ActiveNavLoop) but the Swift formatter
     uses `max(0, …)` so we pin the same behaviour."""
     seg = tlv_remaining(-100)
     assert seg.payload == b"000000"

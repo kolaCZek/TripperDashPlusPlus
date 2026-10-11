@@ -40,7 +40,7 @@ struct MapPickerView: View {
     @State private var showSavedRoutes = false
     @State private var showRideHistory = false
 
-    /// Armed when the rider taps "Connect to dash to start" while a plan
+    /// Armed when the rider taps "Connect & start navigation" while a plan
     /// is laid out — i.e. they intend to ride, not just connect. When the
     /// link then reaches `.connected`, we auto-start navigation instead of
     /// making them tap a second button. Cleared on start, on a failed/
@@ -1356,8 +1356,8 @@ struct MapPickerView: View {
     /// Wire the shared route-changed hook (covers initial bake, reroute,
     /// AND multi-stop leg advance — all funnel through here).
     private func installRouteChangedHook() {
-        // Dash "exit navigation" button (0x12) → same teardown as tapping
-        // "End" in the app. Registered alongside the route-changed hook so
+        // Dash "exit navigation" button (0x12) → same teardown as holding
+        // "Stop navigation" in the app. Registered alongside the route-changed hook so
         // it shares the session's lifecycle; cleared in stopNavigation().
         status.activeNavigator.onExitNavRequested = { [weak status] in
             guard status != nil else { return }

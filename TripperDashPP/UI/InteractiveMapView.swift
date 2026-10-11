@@ -359,7 +359,7 @@ final class DestinationAnnotation: NSObject, MKAnnotation {
 /// resources) get dealloc'd.
 ///
 /// Pattern parallels `SnapshotterPark` in Map/SnapshotterPark.swift —
-/// same MTLDebugDevice assertion problem, same bounded-LIFO-ring
+/// same MTLDebugDevice assertion problem, same bounded-FIFO-ring
 /// solution.
 /// Capacity is much smaller here (10 vs 100) because MKMapView creation
 /// is rare (once per picker appearance) and each view holds way more

@@ -10,7 +10,8 @@ Invariants under test:
 
   * `computeAllAnchors` produces 3 rows: main + left wing + right wing.
     For a 40 km route with stride=700 m, that's roughly 57 + 57 + 57
-    = ~171 anchors — well under the 300 cap.
+    = ~171 anchors — well under the old 300 cap (Swift's
+    `maxTilesPerRoute`, since deleted).
   * `routeOffsetMeters` monotonically increases along the main row.
   * `snapToMainAnchor` returns the offset of the closest main anchor
     and ignores wings.
@@ -33,6 +34,7 @@ LATERAL_OFFSET_M = 1500.0
 INITIAL_BAKE_AHEAD_M = 8000.0
 ROLLING_LOOKAHEAD_M = 5000.0
 ROLLING_TRAIL_M = 500.0
+# No Swift counterpart any more: `maxTilesPerRoute` was deleted (#144).
 MAX_TILES_PER_ROUTE = 300
 
 EARTH_R = 6_371_000.0
@@ -75,7 +77,9 @@ def anchors_along_polyline(coords, stride):
 
 
 def lateral_anchors(mains, offset_m):
-    """Perpendicular shift, same as Swift `lateralAnchors`."""
+    """Perpendicular shift, like Swift `lateralAnchors` but with a
+    one-sided tangent and the opposite sign (a negative offset lands on
+    the right of the route here)."""
     out = []
     for i, c in enumerate(mains):
         # Tangent via neighbours
@@ -138,7 +142,8 @@ def anchor_indices_in_range(all_anchors, lo, hi):
 
 
 def snap_to_main(all_anchors, coord, max_dist=3000.0):
-    """Mirror of `snapToMainAnchor` — closest main row anchor, with
+    """Mirror of `snapToMainAnchor` with `allowJump: true` (no
+    continuity window) — closest main row anchor, with
     a 3 km cutoff (off-route + lateral buffer)."""
     best_off, best_dist = None, float("inf")
     for (c, off, row) in all_anchors:
@@ -206,7 +211,7 @@ class RollingWindowTests(unittest.TestCase):
     def test_total_under_cap_for_typical_route(self):
         # The new architecture doesn't decimate; it just bakes more
         # incrementally. But a typical 40 km route should still be
-        # well under the soft cap.
+        # well under the old soft cap (deleted from Swift).
         self.assertLess(len(self.anchors), MAX_TILES_PER_ROUTE)
 
     def test_initial_window_yields_8km_worth(self):

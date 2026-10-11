@@ -91,7 +91,7 @@ nonisolated enum WebMercator {
     }
 
     /// Meters per pixel at the given latitude and zoom. Used by
-    /// `tileBox`.
+    /// `tileBox` and `MapViewSource.drawVectorOnlyFrame`.
     ///
     /// Formula: at the equator, one tile = 40075017 m / 2^z, and one
     /// tile = `tilePixels` px → mpp = circumference / (tilePixels * 2^z).

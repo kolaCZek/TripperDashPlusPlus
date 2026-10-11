@@ -7,7 +7,7 @@ alternative-route line was drawn under it.
 
 An alternative route is drawn in two independent passes:
 
-  1. `drawAlternativeLines` — the thin grey line. Guards
+  1. the alt-line pass in `drawProjectedTile` — the thin grey line. Guards
      `alt.coords.count > 1` and SKIPS any alt with a degenerate polyline
      (empty or single-point).
   2. `drawAlternativeBubbles` — the "+5 min" / "−2 min" ETA label, drawn
@@ -68,7 +68,7 @@ def push_alternative_renders(routes: list[list[int]], active_time: float,
 
 
 def draw_alternative_lines(alts: list[AltRender]) -> list[int]:
-    """Mirror of `drawAlternativeLines`: returns the indices whose line is
+    """Mirror of the alt-line pass in `drawProjectedTile`: returns the indices whose line is
     actually stroked (count > 1)."""
     return [i for i, a in enumerate(alts) if len(a.coords) > 1]
 

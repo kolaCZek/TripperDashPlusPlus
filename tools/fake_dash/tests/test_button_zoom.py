@@ -190,8 +190,8 @@ def test_in_then_out_returns_near_neutral():
 
 def test_effective_target_scales_autozoom():
     z = ZoomBias()
-    z.nudge(zoom_in=True, now=0.0)  # bias = 1.15
-    # Autozoom target 1.0 → biased 1.15; autozoom keeps breathing under it.
+    z.nudge(zoom_in=True, now=0.0)  # bias = 2.0
+    # Autozoom target 1.0 → biased 2.0; autozoom keeps breathing under it.
     assert abs(z.effective_target(1.0) - ZOOM_BIAS_STEP) < 1e-9
 
 
