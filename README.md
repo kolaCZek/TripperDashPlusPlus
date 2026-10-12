@@ -95,9 +95,9 @@ The app adds these actions to the Shortcuts app and to Siri (English phrases, e.
 - **Stop Ride** — ends navigation or a free ride.
 - **Ride Status** — distance and arrival time left, or the free-ride distance so far.
 
-A navigation action during a running navigation replaces its route, like *Edit route*. Starting a ride opens the app, so it needs an unlocked phone; replacing the route of a running navigation, Stop Ride and Ride Status also work with the phone locked.
+A navigation action during a running navigation replaces its route, like *Edit route*. Starting a ride asks to open the app, so it needs an unlocked phone. Replacing the route of a running navigation, Stop Ride and Ride Status run without opening the app.
 
-**Start the free ride when you switch the bike on:** Shortcuts → Automation → **+** → **Wi-Fi** → choose the bike's network → **Run Immediately** → add **Start Free Ride**. When the phone rejoins the bike's Wi-Fi after a drop mid-ride, the automation fires again and does nothing.
+**Start the free ride when you switch the bike on:** Shortcuts → Automation → **+** → **Wi-Fi** → choose the bike's network → **Run Immediately** → add **Start Free Ride**. When the phone rejoins the bike's Wi-Fi after a drop mid-ride, the automation fires again and does nothing. With more than one bike, the action connects to the bike last used in the app, whichever network fired it.
 
 ## Compatibility
 

@@ -39,7 +39,9 @@ struct ShortcutPolicyTests {
 
     @Test func startsByLinkState() {
         #expect(freeRide(link: .connected) == .startNow)
+        #expect(freeRide(link: .connecting) == .waitForLink)
         #expect(freeRide(link: .handshaking) == .waitForLink)
+        #expect(freeRide(link: .reconnecting) == .waitForLink)
         #expect(freeRide(link: .idle) == .connect)
         #expect(freeRide(link: .error("x")) == .connect)
         #expect(freeRide(link: .idle, canConnect: false) == .noBike)
