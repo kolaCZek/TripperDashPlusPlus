@@ -78,7 +78,7 @@ _LOG_CALL = re.compile(r"\b\w*[lL]og\.(info|notice|error|warning|fault|log)\(")
 # z/x/y, shared map URLs carry @lat,lon, a ShareResolution holds coordinates).
 _POSITION = re.compile(
     r"\\\((?:[^()]|\([^()]*\))*\b(latitude|longitude|coordinate)\b"
-    r"|\\\((key|[\w.?]*absoluteString[^,)]*|text[^,)]*|String\(describing: resolution\)), privacy: \.public"
+    r"|\\\(([\w.]*[kK]ey|[\w.?]*absoluteString[^,)]*|text ?\?\?[^,)]*|String\(describing: resolution\)), privacy: \.public"
 )
 
 
