@@ -15,8 +15,9 @@
 //
 //  The typical automation: Shortcuts → Automation → Wi-Fi → the bike's
 //  network → Start Free Ride. iOS rejoins that network after a drop
-//  mid-ride and fires the automation again, so every action is a no-op
-//  while a ride is running or about to start (`ShortcutPolicy`).
+//  mid-ride and fires the automation again, so Start Free Ride is a no-op
+//  while a ride is running or about to start (`ShortcutPolicy`), decided
+//  in the background without opening the app.
 //
 
 import AppIntents
@@ -116,13 +117,20 @@ nonisolated struct SavedRouteQuery: EntityStringQuery {
 // Main-actor isolated (the project default): `nonisolated` isn't allowed on
 // the `@Parameter` properties a nonisolated struct would make nonisolated.
 
-struct StartFreeRideIntent: AppIntent {
+/// Decides in the background and opens the app only to start a ride, so the
+/// automation's repeat when the phone rejoins the bike's Wi-Fi mid-ride
+/// returns without bringing the app forward or asking to unlock.
+struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
     static let title: LocalizedStringResource = "Start Free Ride"
     static let description = IntentDescription("Connects to your bike and streams the map to the dash, without a route.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
-        .result(dialog: "\(AppStatus.shared.startFreeRideFromShortcut())")
+        let status = AppStatus.shared
+        if let refusal = status.freeRideShortcutRefusal { return .result(dialog: "\(refusal)") }
+        throw needsToContinueInForegroundError("Open TripperDash++ to start the free ride.") {
+            _ = status.startFreeRideFromShortcut()
+        }
     }
 }
 
@@ -188,11 +196,16 @@ struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
         guard let dest = await LocalSearchService().geocode(place, near: status.locationService.lastFix?.coordinate) else {
             return .result(dialog: "Couldn't find \(place).")
         }
-        // The search may pick a different place than meant: confirm first.
+        // The search may pick a different place than meant: name it before
+        // acting. Starting a ride already asks to open the app, so ask once.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
-        try await requestConfirmation(dialog: "Navigate to \(label)?")
-        let said = try await navigate(self) { await status.navigateFromShortcut(to: dest) }
-        return .result(dialog: "\(said)")
+        if status.activeNavigator.isNavigating {
+            try await requestConfirmation(dialog: "Reroute to \(label)?")
+            return .result(dialog: "\(await status.navigateFromShortcut(to: dest))")
+        }
+        throw needsToContinueInForegroundError("Open TripperDash++ to navigate to \(label)?") {
+            _ = await status.navigateFromShortcut(to: dest)
+        }
     }
 }
 
