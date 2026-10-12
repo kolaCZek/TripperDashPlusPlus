@@ -137,7 +137,7 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         let status = AppStatus.shared
         if let refusal = status.freeRideShortcutRefusal { return .result(dialog: "\(refusal)") }
-        throw needsToContinueInForegroundError("Open TripperDash++ to start the free ride.") {
+        throw needsToContinueInForegroundError("Open TripperDash++ to start or continue your ride.") {
             status.startFreeRideFromShortcut()
         }
     }
@@ -151,8 +151,10 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
 private func navigate<I: ForegroundContinuableIntent>(_ intent: I,
                                                       _ go: @escaping @MainActor () async -> String) async throws -> String {
     let status = AppStatus.shared
-    // A redirect, or a refusal: answered without opening the app.
-    if status.activeNavigator.isNavigating || status.handPlanStaged { return await go() }
+    // Refused straight away: deciding after go()'s await could see a ride
+    // the rider's own plan just started, and redirect it.
+    if status.handPlanStaged && !status.activeNavigator.isNavigating { return AppStatus.planStagedReply }
+    if status.activeNavigator.isNavigating { return await go() }   // redirect, in the background
     throw intent.needsToContinueInForegroundError("Open TripperDash++ to start the ride.") {
         _ = await go()
     }
@@ -211,7 +213,7 @@ struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
         // acting. Starting a ride already asks to open the app, so ask once.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
         if status.handPlanStaged && !status.activeNavigator.isNavigating {
-            return .result(dialog: "\(await status.navigateFromShortcut(to: dest))")   // refuses
+            return .result(dialog: "\(AppStatus.planStagedReply)")
         }
         if status.activeNavigator.isNavigating {
             // Arrival beat included: navigateFromShortcut answers "Just arrived" without asking.
