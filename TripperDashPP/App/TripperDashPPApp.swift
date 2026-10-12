@@ -14,10 +14,14 @@ struct TripperDashPPApp: App {
     /// streaming counters, planned route). Injected as
     /// `@Environment(AppStatus.self)` into every screen via
     /// `.environment(_:)` on the root scene.
-    @State private var status = AppStatus()
+    @State private var status = AppStatus.shared
 
     init() {
         LiveActivityController.endOrphanedActivities()
+        // Let Siri learn the current favorite and saved-route names for the
+        // phrases that take them. ponytail: launch-time only — a name added
+        // mid-session reaches Siri on the next launch.
+        TripperDashShortcuts.updateAppShortcutParameters()
     }
 
     var body: some Scene {
