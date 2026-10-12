@@ -396,6 +396,18 @@ final class AppStatus {
                     // RTP, so the dash sits on its loading dots until it times out.
                     self.applyKeepAwake()
                 }
+                // A Shortcuts request waiting for the link. Handled here, not
+                // in a view, so it still happens once the rider has pocketed
+                // the phone. A failed or cancelled connect drops it.
+                switch state {
+                case .idle, .error:
+                    self.pendingRideRequest = nil
+                case .connected where self.pendingRideRequest == .freeRide:
+                    self.pendingRideRequest = nil
+                    if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }
+                default:
+                    break
+                }
             }
         }
     }
@@ -1478,9 +1490,10 @@ final class AppStatus {
 
     // MARK: - Shortcuts / Siri (RideIntents.swift)
 
-    /// A ride a Shortcuts / Siri intent asked for, waiting for the picker
-    /// to start it once the link is up (`MapPickerView.consumeRideRequest`).
-    /// `.navigate` rides on the staged `plannedRoute`.
+    /// A ride a Shortcuts / Siri intent asked for, waiting for the link.
+    /// `.freeRide` starts in `observeBikeLink`; `.navigate` rides on the
+    /// staged `plannedRoute` and the picker starts it
+    /// (`MapPickerView.consumeRideRequest`).
     enum ShortcutRideRequest { case freeRide, navigate }
     var pendingRideRequest: ShortcutRideRequest?
 
@@ -1496,24 +1509,35 @@ final class AppStatus {
         }
     }
 
-    /// "Start free ride". Repeats are no-ops: a "joined the bike's Wi-Fi"
-    /// automation fires again when the phone rejoins after a drop mid-ride.
+    private var freeRideDecision: ShortcutPolicy.FreeRide {
+        ShortcutPolicy.freeRide(rideActive: rideActive,
+                                requestPending: pendingRideRequest != nil,
+                                planStaged: plannedRoute != nil,
+                                link: bikeLink.state,
+                                canConnect: canConnect)
+    }
+
+    /// Why "Start free ride" does nothing now, or nil when it would start
+    /// one. Checked in the background, before the app is brought forward:
+    /// a "joined the bike's Wi-Fi" automation fires again when the phone
+    /// rejoins after a drop mid-ride, and that repeat must not open the app.
+    var freeRideShortcutRefusal: String? {
+        switch freeRideDecision {
+        case .alreadyRiding: "Already riding."
+        case .alreadyStarting: "Already starting your ride."
+        case .planStaged: "A route is planned. Start it or cancel it in TripperDash++."
+        case .noBike: "Add your bike in TripperDash++ first."
+        case .startNow, .waitForLink, .connect: nil
+        }
+    }
+
+    /// "Start free ride", with the app in the foreground.
     func startFreeRideFromShortcut() -> String {
-        switch ShortcutPolicy.freeRide(rideActive: rideActive,
-                                       requestPending: pendingRideRequest != nil,
-                                       planStaged: plannedRoute != nil,
-                                       link: bikeLink.state,
-                                       canConnect: canConnect) {
-        case .alreadyRiding:
-            return "Already riding."
-        case .alreadyStarting:
-            return "Already starting your ride."
-        case .planStaged:
-            return "A route is planned. Start it or cancel it in TripperDash++."
-        case .noBike:
-            return "Add your bike in TripperDash++ first."
+        switch freeRideDecision {
+        case .alreadyRiding, .alreadyStarting, .planStaged, .noBike:
+            return freeRideShortcutRefusal ?? ""
         case .startNow:
-            pendingRideRequest = .freeRide
+            Task { await startFreeRide() }
             return "Starting free ride."
         case .waitForLink:
             pendingRideRequest = .freeRide
@@ -1526,6 +1550,7 @@ final class AppStatus {
     }
 
     func navigateFromShortcut(to dest: Destination) async -> String {
+        await waitForFirstFix()
         let origin = Waypoint.currentLocation(locationService.lastFix?.coordinate ?? dest.coordinate)
         return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)))
     }
@@ -1533,6 +1558,7 @@ final class AppStatus {
     /// Ride a saved route, joining it at the nearest point when that skips
     /// a real part of it (the case where the app's Start asks).
     func navigateFromShortcut(to route: SavedRoute) async -> String {
+        await waitForFirstFix()
         let decision = RouteStartPlanner.analyze(points: route.points,
                                                  riderLocation: locationService.lastFix?.coordinate)
         guard let plan = savedRoutePlan(route,
@@ -1540,6 +1566,16 @@ final class AppStatus {
                                         nearestIndex: decision.nearestIndex)
         else { return "That route has no points." }
         return await navigateFromShortcut(plan)
+    }
+
+    /// Launched cold by an intent, the picker starts location only as it
+    /// appears: give the first fix a moment, so a saved route is joined
+    /// where the rider is rather than at its start.
+    private func waitForFirstFix() async {
+        // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
+        for _ in 0..<30 where locationService.lastFix == nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     /// Navigate `plan` (origin = live location). Mid-navigation it replaces
@@ -1595,15 +1631,18 @@ final class AppStatus {
             stopFreeRide()
             return "Free ride stopped."
         }
-        // A ride still waiting for the link: cancel the connect, which also
-        // disarms a navigation auto-start. A planned route stays on screen.
+        // Not riding yet. Dropping the staged route also disarms the picker's
+        // armed navigation auto-start (it watches `plannedRoute`), which may
+        // already have taken over the request. Cancel a connect only if this
+        // ride started it, not one the rider started by hand.
+        let hadPlan = plannedRoute != nil
+        guard hadRequest || hadPlan else { return "No ride in progress." }
+        cancelPlanning()
         switch bikeLink.state {
-        case .connecting, .handshaking:
-            bikeLink.disconnect()
-            return "Ride cancelled."
-        default:
-            return hadRequest ? "Ride cancelled." : "No ride in progress."
+        case .connecting, .handshaking: bikeLink.disconnect()
+        default: break
         }
+        return "Ride cancelled."
     }
 
     /// "How far to go?" — spoken by Siri, so whole words, no H:MM:SS.
@@ -1614,10 +1653,18 @@ final class AppStatus {
             RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: comma)
         }
         func hm(_ seconds: Double) -> String {
-            let mins = Int(max(0, seconds)) / 60
-            return mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min"
+            let f = DateComponentsFormatter()
+            f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
+            f.unitsStyle = .full   // "1 hour, 5 minutes"
+            var english = Calendar.current
+            english.locale = Locale(identifier: "en")   // the dialog is English
+            f.calendar = english
+            return f.string(from: max(0, seconds)) ?? ""
         }
-        if activeNavigator.isNavigating, !activeNavigator.hasArrived {
+        if activeNavigator.isNavigating, activeNavigator.hasArrived {
+            return "You've arrived."
+        }
+        if activeNavigator.isNavigating {
             let eta = Date().addingTimeInterval(activeNavigator.finalDestinationEtaSeconds)
             let name = activeNavigator.plan?.waypoints.last?.name ?? "your destination"
             return "\(dist(activeNavigator.finalDestinationRemainingDistance)) to \(name), "
