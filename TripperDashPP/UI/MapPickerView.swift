@@ -1575,7 +1575,11 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             // Stop Ride cancelled the plan during the beat: don't start it.
-            guard status.plannedRoute === plan else { transitioning = false; return }
+            guard status.plannedRoute === plan else {
+                transitioning = false
+                consumeRideRequest()   // a shortcut's plan that replaced it
+                return
+            }
             // The rider chose this plan over a share parked during an
             // earlier ride — don't replay a stale destination after it.
             status.pendingShare = nil

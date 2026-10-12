@@ -63,5 +63,7 @@ struct ShortcutPolicyTests {
 
     @Test func aHandBuiltPlanIsNeverReplaced() {
         #expect(ShortcutPolicy.navigate(navigating: false, arrived: false, handPlanStaged: true) == .handPlanStaged)
+        // Mid-navigation a new destination still redirects.
+        #expect(ShortcutPolicy.navigate(navigating: true, arrived: false, handPlanStaged: true) == .redirect)
     }
 }
