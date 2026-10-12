@@ -113,7 +113,10 @@ nonisolated struct SavedRouteQuery: EntityStringQuery {
 
 // MARK: - Intents
 
-nonisolated struct StartFreeRideIntent: AppIntent {
+// Main-actor isolated (the project default): `nonisolated` isn't allowed on
+// the `@Parameter` properties a nonisolated struct would make nonisolated.
+
+struct StartFreeRideIntent: AppIntent {
     static let title: LocalizedStringResource = "Start Free Ride"
     static let description = IntentDescription("Connects to your bike and streams the map to the dash, without a route.")
     static let openAppWhenRun = true
@@ -136,7 +139,7 @@ private func navigate<I: ForegroundContinuableIntent>(_ intent: I,
     }
 }
 
-nonisolated struct NavigateToFavoriteIntent: AppIntent, ForegroundContinuableIntent {
+struct NavigateToFavoriteIntent: AppIntent, ForegroundContinuableIntent {
     static let title: LocalizedStringResource = "Navigate to Favorite"
     static let description = IntentDescription("Navigates to a favorite, such as Home or Work. Replaces the route of a running navigation.")
     static let openAppWhenRun = false
@@ -154,7 +157,7 @@ nonisolated struct NavigateToFavoriteIntent: AppIntent, ForegroundContinuableInt
     }
 }
 
-nonisolated struct RideSavedRouteIntent: AppIntent, ForegroundContinuableIntent {
+struct RideSavedRouteIntent: AppIntent, ForegroundContinuableIntent {
     static let title: LocalizedStringResource = "Ride Saved Route"
     static let description = IntentDescription("Navigates a saved route, joining it at the nearest point if you're partway along. Replaces the route of a running navigation.")
     static let openAppWhenRun = false
@@ -172,7 +175,7 @@ nonisolated struct RideSavedRouteIntent: AppIntent, ForegroundContinuableIntent 
     }
 }
 
-nonisolated struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
+struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
     static let title: LocalizedStringResource = "Navigate to Place"
     static let description = IntentDescription("Finds a place near you and navigates there after you confirm it. Replaces the route of a running navigation.")
     static let openAppWhenRun = false
@@ -187,13 +190,13 @@ nonisolated struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent
         }
         // The search may pick a different place than meant: confirm first.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
-        try await requestConfirmation(result: .result(dialog: "Navigate to \(label)?"))
+        try await requestConfirmation(dialog: "Navigate to \(label)?")
         let said = try await navigate(self) { await status.navigateFromShortcut(to: dest) }
         return .result(dialog: "\(said)")
     }
 }
 
-nonisolated struct StopRideIntent: AppIntent {
+struct StopRideIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop Ride"
     static let description = IntentDescription("Stops navigation or a free ride.")
     static let openAppWhenRun = false
@@ -203,7 +206,7 @@ nonisolated struct StopRideIntent: AppIntent {
     }
 }
 
-nonisolated struct RideStatusIntent: AppIntent {
+struct RideStatusIntent: AppIntent {
     static let title: LocalizedStringResource = "Ride Status"
     static let description = IntentDescription("Tells the distance and arrival time left, or the free-ride distance so far.")
     static let openAppWhenRun = false
