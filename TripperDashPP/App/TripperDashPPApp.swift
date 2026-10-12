@@ -5,6 +5,7 @@
 //  App entry point. Sets up the root scene and shared app state.
 //
 
+import AppIntents
 import SwiftUI
 
 @main
