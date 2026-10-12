@@ -448,10 +448,7 @@ struct MapPickerView: View {
         switch status.bikeLink.state {
         case .idle, .error:
             break
-        case .connecting, .handshaking, .reconnecting:
-            status.pendingRideRequest = nil
-            pendingAutoStart = true
-        case .connected:
+        default:   // fires on .connected; armed until then
             status.pendingRideRequest = nil
             pendingAutoStart = true
             tryAutoStartNavigation()
@@ -1579,6 +1576,8 @@ struct MapPickerView: View {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
+            // Stop Ride cancelled the plan during the beat: don't start it.
+            guard status.plannedRoute === plan else { transitioning = false; return }
             // The rider chose this plan over a share parked during an
             // earlier ride — don't replay a stale destination after it.
             status.pendingShare = nil

@@ -28,7 +28,7 @@ import Foundation
 enum ShortcutPolicy {
 
     enum FreeRide: Equatable {
-        case alreadyRiding, alreadyStarting, planStaged, noBike, startNow, waitForLink, connect
+        case alreadyRiding, alreadyStarting, planStaged, noBike, startNow, waitForLink, connect, reconnect
     }
 
     static func freeRide(rideActive: Bool,
@@ -36,7 +36,15 @@ enum ShortcutPolicy {
                          planStaged: Bool,
                          link: BikeLink.LinkState,
                          canConnect: Bool) -> FreeRide {
-        if rideActive { return .alreadyRiding }
+        if rideActive {
+            // The link gave up reconnecting (bike off past the reconnect
+            // budget): connect again, and the ride resumes on .connected.
+            // A drop mid-ride sits in .reconnecting and stays a no-op.
+            switch link {
+            case .idle, .error: return canConnect ? .reconnect : .alreadyRiding
+            default: return .alreadyRiding
+            }
+        }
         if requestPending { return .alreadyStarting }
         // Don't throw away a route the rider planned.
         if planStaged { return .planStaged }
@@ -47,14 +55,15 @@ enum ShortcutPolicy {
         }
     }
 
-    enum Navigate: Equatable { case stage, redirect, finishingArrival }
+    enum Navigate: Equatable { case stage, redirect, finishingArrival, handPlanStaged }
 
     /// A new destination mid-navigation replaces the running route. In the
     /// few seconds between arrival and the switch to free ride, `replacePlan`
     /// refuses and the stage path would be torn down by `finishArrival`.
-    static func navigate(navigating: Bool, arrived: Bool) -> Navigate {
-        guard navigating else { return .stage }
-        return arrived ? .finishingArrival : .redirect
+    /// A plan the rider built or edited by hand is never replaced.
+    static func navigate(navigating: Bool, arrived: Bool, handPlanStaged: Bool) -> Navigate {
+        if navigating { return arrived ? .finishingArrival : .redirect }
+        return handPlanStaged ? .handPlanStaged : .stage
     }
 }
 
@@ -141,7 +150,9 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
 @MainActor
 private func navigate<I: ForegroundContinuableIntent>(_ intent: I,
                                                       _ go: @escaping @MainActor () async -> String) async throws -> String {
-    if AppStatus.shared.activeNavigator.isNavigating { return await go() }
+    let status = AppStatus.shared
+    // A redirect, or a refusal: answered without opening the app.
+    if status.activeNavigator.isNavigating || status.handPlanStaged { return await go() }
     throw intent.needsToContinueInForegroundError("Open TripperDash++ to start the ride.") {
         _ = await go()
     }
@@ -199,6 +210,9 @@ struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
         // The search may pick a different place than meant: name it before
         // acting. Starting a ride already asks to open the app, so ask once.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
+        if status.handPlanStaged && !status.activeNavigator.isNavigating {
+            return .result(dialog: "\(await status.navigateFromShortcut(to: dest))")   // refuses
+        }
         if status.activeNavigator.isNavigating {
             // Arrival beat included: navigateFromShortcut answers "Just arrived" without asking.
             if !status.activeNavigator.hasArrived {
