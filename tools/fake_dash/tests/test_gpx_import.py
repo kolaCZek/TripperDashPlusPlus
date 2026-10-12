@@ -503,7 +503,7 @@ class TestAnalyze:
         assert "points.count > 1" in drop and "<= promptThresholdMeters" in drop
         app = (Path(__file__).resolve().parents[3] / "TripperDashPP" / "App"
                / "AppStatus.swift").read_text()
-        begin = strip_comments(decl_body(app, "func beginPlanningFromSavedRoute"))
+        begin = strip_comments(decl_body(app, "func savedRoutePlan"))
         assert begin.index("droppingReachedStart") < begin.index("GPXGeometry.reduce")
 
 
