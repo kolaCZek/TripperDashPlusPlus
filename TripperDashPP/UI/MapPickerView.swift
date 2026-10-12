@@ -338,7 +338,12 @@ struct MapPickerView: View {
         }
         .onChange(of: status.bikeLink.state) { _, newState in
             handleLinkStateForAutoStart(newState)
+            switch newState {
+            case .idle, .error: status.pendingRideRequest = nil   // connect failed or cancelled
+            default: consumeRideRequest()
+            }
         }
+        .onChange(of: status.pendingRideRequest, initial: true) { _, _ in consumeRideRequest() }
         .onChange(of: status.rideStats.state) { _, newState in
             // A new leg started folding again (begin() after a paused
             // post-arrival freeze) — clear a prior manual dismissal so
@@ -422,6 +427,38 @@ struct MapPickerView: View {
             sharedSearchSeed = hint
             showSearch = true
             status.pendingSearchHint = nil
+        }
+    }
+
+    /// Start a ride a Shortcuts / Siri intent asked for. Navigation goes
+    /// through the same armed auto-start as "Connect & start navigation";
+    /// free ride starts once the link is up. A failed or cancelled connect
+    /// drops the request (above), like it disarms auto-start; while still
+    /// `.idle` the connect the intent started hasn't flipped the state yet.
+    private func consumeRideRequest() {
+        guard let request = status.pendingRideRequest else { return }
+        // The rider started a ride by hand meanwhile: that ride wins.
+        guard mode == .picking else {
+            status.pendingRideRequest = nil
+            return
+        }
+        switch status.bikeLink.state {
+        case .idle, .error:
+            break
+        case .connecting, .handshaking, .reconnecting:
+            if request == .navigate {
+                status.pendingRideRequest = nil
+                pendingAutoStart = true
+            }
+        case .connected:
+            status.pendingRideRequest = nil
+            switch request {
+            case .navigate:
+                pendingAutoStart = true
+                tryAutoStartNavigation()
+            case .freeRide:
+                if !isPlanning { Task { @MainActor in await status.startFreeRide() } }
+            }
         }
     }
 

@@ -38,6 +38,7 @@ Companion proof-of-concept (Python, dash-side protocol reverse engineering): **[
 - **Ride-aware alerts.** A conservative, keyless weather pill (rain/snow/ice/frost risk/storms/gusts/crosswind/fog via Open-Meteo) that samples the whole route ahead and tells you how far the next hazard sits (e.g. *Rain 15 km*), a posted speed-limit sign in the corner (OSM `maxspeed`, map-matched to the road you're on, imperial-aware), plus a best-effort speed-camera overlay (OpenStreetMap/Overpass) burned onto the map. Inside an OSM average-speed section (`enforcement=average_speed`) a panel next to the sign shows your GPS-estimated section average and the distance left.
 - **GPS trip computer.** A ride summary on the phone — distance, moving time, average and max speed, and approximate elevation gain — folded from the same GPS stream the map already uses (no extra sensor or battery draw). It shows back on the map after you arrive and accumulates across a multi-leg day, zeroing when the session ends (you disconnect or the bike powers off). The last ride's summary survives the app being killed, and a recorded ride can be saved to Saved routes and exported as GPX. **Ride history** (clock icon on the map) keeps every ride of the last 30 days with its map and totals, so a ride you didn't save on arrival can still be saved or exported later. Phone-side only; it's never sent to the dash.
 - **Phone-side extras.** A Lock Screen / Dynamic Island Live Activity mirrors the next turn and ETA; *Share → TripperDash++* from Google Maps or Apple Maps plans a route; a demo mode simulates the dash on-screen without the bike.
+- **Shortcuts & Siri.** Start a free ride, navigate to a favorite, a saved route or any place, stop the ride, or ask how far is left. A Shortcuts automation on joining the bike's Wi-Fi can start the free ride when you switch the bike on — see [Shortcuts & Siri](#shortcuts--siri).
 - **No keys, no SDK.** OSM tiles + Apple MapKit only, zero third-party SPM dependencies. Building it needs a paid Apple Developer Program membership (Hotspot Configuration entitlement for the in-app Wi-Fi auto-join).
 
 Field-tested on a **Royal Enfield Guerrilla 450**. See [`docs/maneuver-glyphs/`](docs/maneuver-glyphs/) for the full glyph catalog.
@@ -82,6 +83,21 @@ make fake-dash-down    # stop
 ```
 
 ⚠️ **fake_dash is a plumbing harness, not a protocol authority.** It is deliberately permissive and will accept packets the real dash rejects. Byte-level protocol correctness is verified against [better-dash](https://github.com/kolaCZek/better-dash). A green fake_dash run does **not** mean the bike will accept your changes.
+
+## Shortcuts & Siri
+
+The app adds these actions to the Shortcuts app and to Siri (English phrases, e.g. *"Start free ride with TripperDash++"*):
+
+- **Start Free Ride** — connects to your selected bike and streams the map without a route.
+- **Navigate to Favorite** — Home, Work or any favorite.
+- **Ride Saved Route** — joins the route at the nearest point when you're partway along.
+- **Navigate to Place** — searches near you and asks you to confirm the match.
+- **Stop Ride** — ends navigation or a free ride.
+- **Ride Status** — distance and arrival time left, or the free-ride distance so far.
+
+A navigation action during a running navigation replaces its route, like *Edit route*. Starting a ride opens the app, so it needs an unlocked phone; replacing the route of a running navigation, Stop Ride and Ride Status also work with the phone locked.
+
+**Start the free ride when you switch the bike on:** Shortcuts → Automation → **+** → **Wi-Fi** → choose the bike's network → **Run Immediately** → add **Start Free Ride**. When the phone rejoins the bike's Wi-Fi after a drop mid-ride, the automation fires again and does nothing.
 
 ## Compatibility
 
