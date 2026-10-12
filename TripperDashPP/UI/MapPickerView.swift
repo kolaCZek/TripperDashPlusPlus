@@ -341,7 +341,6 @@ struct MapPickerView: View {
             consumeRideRequest()
         }
         .onChange(of: status.pendingRideRequest, initial: true) { _, _ in consumeRideRequest() }
-        .onChange(of: transitioning) { _, _ in consumeRideRequest() }
         .onChange(of: status.rideStats.state) { _, newState in
             // A new leg started folding again (begin() after a paused
             // post-arrival freeze) — clear a prior manual dismissal so
@@ -1647,6 +1646,7 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             transitioning = false
+            consumeRideRequest()   // a request that arrived while stopping
         }
     }
 
@@ -1689,6 +1689,7 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             transitioning = false
+            consumeRideRequest()   // a request that arrived while stopping
         }
     }
 
