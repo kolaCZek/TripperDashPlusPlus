@@ -129,7 +129,7 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
         let status = AppStatus.shared
         if let refusal = status.freeRideShortcutRefusal { return .result(dialog: "\(refusal)") }
         throw needsToContinueInForegroundError("Open TripperDash++ to start the free ride.") {
-            _ = status.startFreeRideFromShortcut()
+            status.startFreeRideFromShortcut()
         }
     }
 }
@@ -200,7 +200,10 @@ struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
         // acting. Starting a ride already asks to open the app, so ask once.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
         if status.activeNavigator.isNavigating {
-            try await requestConfirmation(dialog: "Reroute to \(label)?")
+            // Arrival beat included: navigateFromShortcut answers "Just arrived" without asking.
+            if !status.activeNavigator.hasArrived {
+                try await requestConfirmation(dialog: "Reroute to \(label)?")
+            }
             return .result(dialog: "\(await status.navigateFromShortcut(to: dest))")
         }
         throw needsToContinueInForegroundError("Open TripperDash++ to navigate to \(label)?") {
