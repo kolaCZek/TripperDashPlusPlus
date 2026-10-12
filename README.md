@@ -92,12 +92,12 @@ The app adds these actions to the Shortcuts app and to Siri (English phrases, e.
 - **Navigate to Favorite** — Home, Work or any favorite.
 - **Ride Saved Route** — joins the route at the nearest point when you're partway along.
 - **Navigate to Place** — searches near you and asks you to confirm the match.
-- **Stop Ride** — ends navigation or a free ride, or cancels a ride a shortcut is still starting. A route you planned by hand is left alone.
+- **Stop Ride** — ends navigation or a free ride, or cancels a ride a shortcut is still starting.
 - **Ride Status** — distance and arrival time left, or the free-ride distance so far.
 
-A navigation action during a running navigation replaces its route, like *Edit route*. Starting a ride asks to open the app, so it needs an unlocked phone. Replacing the route of a running navigation, Stop Ride and Ride Status run without opening the app.
+A navigation action during a running navigation replaces its route, like *Edit route*. A route you planned or edited by hand is never replaced or cancelled by a shortcut, and Stop Ride cancels only a connect a shortcut started. Starting a ride asks to open the app, so it needs an unlocked phone. Replacing the route of a running navigation, Stop Ride and Ride Status run without opening the app.
 
-**Start the free ride when you switch the bike on:** Shortcuts → Automation → **+** → **Wi-Fi** → choose the bike's network → **Run Immediately** → add **Start Free Ride**. When the phone rejoins the bike's Wi-Fi after a drop mid-ride, the automation fires again and does nothing. With more than one bike, the action connects to the bike last used in the app, whichever network fired it.
+**Start the free ride when you switch the bike on:** Shortcuts → Automation → **+** → **Wi-Fi** → choose the bike's network → **Run Immediately** → add **Start Free Ride**. When the phone rejoins the bike's Wi-Fi after a drop mid-ride, the automation fires again and does nothing. After a long stop with the bike off, when the app has given up reconnecting, it reconnects and the ride carries on. With more than one bike, the action connects to the bike last used in the app, whichever network fired it.
 
 ## Compatibility
 
