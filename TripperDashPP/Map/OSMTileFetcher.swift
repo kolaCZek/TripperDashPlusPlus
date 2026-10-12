@@ -218,7 +218,7 @@ actor OSMTileFetcher {
                     // Rate-limited — bail immediately, no retry. Caller
                     // should treat this as a soft failure (land-fill
                     // the tile) and not hammer the server.
-                    log.warning("OSM 429 rate-limited on \(key, privacy: .public)")
+                    log.warning("OSM 429 rate-limited on \(key, privacy: .private)")
                     throw OSMTileFetchError.rateLimited
                 case 500...599:
                     // Transient server error — retry per the backoff loop.

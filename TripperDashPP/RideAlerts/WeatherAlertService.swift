@@ -236,7 +236,10 @@ final class WeatherAlertService {
         } catch {
             // Soft failure — keep the previous value rather than blanking a
             // valid warning on one flaky fetch. (Don't null `current`.)
-            log.warning("Weather fetch failed: \(String(describing: error), privacy: .public)")
+            // Domain + code only: a URLError's description carries the
+            // failing GET URL, whose query string is the rider's position.
+            let ns = error as NSError
+            log.warning("Weather fetch failed: \(ns.domain, privacy: .public) \(ns.code, privacy: .public)")
         }
         return current
     }

@@ -69,3 +69,40 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert 'NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")' in write
     assert "store.getEntries(matching: own)" in write
     assert "FileManager.default.temporaryDirectory" in write
+
+
+
+_LOG_CALL = re.compile(r"\b\w*[lL]og\.(info|notice|error|warning|fault|log)\(")
+# Interpolations that put a position in the log: coordinates directly, or
+# strings derived from one (Overpass cache keys are a bbox, tile keys are
+# z/x/y, shared map URLs carry @lat,lon, a ShareResolution holds coordinates).
+_POSITION = re.compile(
+    r"\\\((?:[^()]|\([^()]*\))*\b(latitude|longitude|coordinate)\b"
+    r"|\\\(([\w.]*[kK]ey|[\w.?]*absoluteString[^,)]*|text ?\?\?[^,)]*|String\(describing: resolution\)), privacy: \.public"
+)
+
+
+def _log_calls(src: str):
+    """Yield (line, full call text) for every non-debug Logger call,
+    following balanced parentheses across lines."""
+    for m in _LOG_CALL.finditer(src):
+        depth, j = 1, m.end()
+        while j < len(src) and depth:
+            depth += {"(": 1, ")": -1}.get(src[j], 0)
+            j += 1
+        yield src.count("\n", 0, m.start()) + 1, src[m.start():j]
+
+
+def test_no_persisted_log_line_carries_a_position():
+    # The info level is persisted in every build, not just Debug, so a
+    # position in a log line stays on the phone and leaves it in any
+    # sysdiagnose. Log counts and distances; mark position-derived strings
+    # .private. Debug lines aren't persisted, so they're out of scope.
+    hits = [
+        f"{f.relative_to(APP)}:{n}"
+        for f in APP.rglob("*.swift")
+        if "TripperDashPPTests" not in f.parts
+        for n, call in _log_calls(strip_comments(f.read_text(encoding="utf-8")))
+        if _POSITION.search(call)
+    ]
+    assert not hits, f"position in persisted log lines: {hits}"

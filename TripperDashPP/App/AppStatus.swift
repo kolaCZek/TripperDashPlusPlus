@@ -1432,7 +1432,7 @@ final class AppStatus {
                     // Extension couldn't resolve the short-link under its
                     // network sandbox and passed the raw maps URL through —
                     // resolve it here (normal network, full redirect follow).
-                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .public)")
+                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .private)")
                     resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
                 } else {
                     resolution = SharedDeepLink.decode(url)
@@ -1440,7 +1440,7 @@ final class AppStatus {
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
-            shareLog.info("resolution=\(String(describing: resolution), privacy: .public)")
+            shareLog.info("resolution=\(String(describing: resolution), privacy: .private)")
             let staged = await beginPlanningFromShared(resolution)
             shareLog.info("beginPlanningFromShared staged=\(staged, privacy: .public)")
         }

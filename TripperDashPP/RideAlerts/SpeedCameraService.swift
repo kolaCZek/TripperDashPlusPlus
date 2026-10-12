@@ -154,14 +154,14 @@ actor SpeedCameraService {
 
         let cached = loadCache(key: key)
         if let cached, cached.complete {
-            log.info("Speed cameras: disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public) + \(cached.data.sections.count, privacy: .public) sections)")
+            log.info("Speed cameras: disk-cache hit \(key, privacy: .private) (\(cached.data.cameras.count, privacy: .public) + \(cached.data.sections.count, privacy: .public) sections)")
             return cached.data
         }
 
         do {
             let data = try await fetch(box: box)
             saveCache(key: key, data: data)
-            log.info("Speed cameras: fetched \(data.cameras.count, privacy: .public) + \(data.sections.count, privacy: .public) sections for \(key, privacy: .public)")
+            log.info("Speed cameras: fetched \(data.cameras.count, privacy: .public) + \(data.sections.count, privacy: .public) sections for \(key, privacy: .private)")
             return data
         } catch {
             log.warning("Speed cameras fetch failed: \(String(describing: error), privacy: .public)")
@@ -189,14 +189,14 @@ actor SpeedCameraService {
         // re-fetched here as well; it still serves as the offline fallback.
         let cached = loadCache(key: key)
         if let cached, cached.complete {
-            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .public) (\(cached.data.cameras.count, privacy: .public))")
+            log.info("Speed cameras (around): disk-cache hit \(key, privacy: .private) (\(cached.data.cameras.count, privacy: .public))")
             return cached.data.cameras
         }
 
         do {
             let data = try await fetch(box: box)
             saveCache(key: key, data: data)
-            log.info("Speed cameras (around): fetched \(data.cameras.count, privacy: .public) for \(key, privacy: .public)")
+            log.info("Speed cameras (around): fetched \(data.cameras.count, privacy: .public) for \(key, privacy: .private)")
             return data.cameras
         } catch {
             log.warning("Speed cameras (around) fetch failed: \(String(describing: error), privacy: .public)")
