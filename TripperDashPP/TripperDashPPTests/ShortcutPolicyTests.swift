@@ -29,6 +29,13 @@ struct ShortcutPolicyTests {
         #expect(freeRide(rideActive: true, link: .connected) == .alreadyRiding)
     }
 
+    @Test func aRideWhoseLinkGaveUpReconnects() {
+        // Bike off past the reconnect budget: the Wi-Fi automation brings it back.
+        #expect(freeRide(rideActive: true, link: .error("timed out")) == .reconnect)
+        #expect(freeRide(rideActive: true, link: .idle) == .reconnect)
+        #expect(freeRide(rideActive: true, link: .error("x"), canConnect: false) == .alreadyRiding)
+    }
+
     @Test func aSecondTriggerWhileStartingDoesNothing() {
         #expect(freeRide(requestPending: true, link: .connecting) == .alreadyStarting)
     }
@@ -48,9 +55,13 @@ struct ShortcutPolicyTests {
     }
 
     @Test func aNewDestinationRedirectsARunningNavigation() {
-        #expect(ShortcutPolicy.navigate(navigating: true, arrived: false) == .redirect)
-        #expect(ShortcutPolicy.navigate(navigating: false, arrived: false) == .stage)
+        #expect(ShortcutPolicy.navigate(navigating: true, arrived: false, handPlanStaged: false) == .redirect)
+        #expect(ShortcutPolicy.navigate(navigating: false, arrived: false, handPlanStaged: false) == .stage)
         // Between arrival and the switch to free ride, replacePlan refuses.
-        #expect(ShortcutPolicy.navigate(navigating: true, arrived: true) == .finishingArrival)
+        #expect(ShortcutPolicy.navigate(navigating: true, arrived: true, handPlanStaged: false) == .finishingArrival)
+    }
+
+    @Test func aHandBuiltPlanIsNeverReplaced() {
+        #expect(ShortcutPolicy.navigate(navigating: false, arrived: false, handPlanStaged: true) == .handPlanStaged)
     }
 }
