@@ -402,9 +402,13 @@ final class AppStatus {
                 switch state {
                 case .idle, .error:
                     self.pendingRideRequest = nil
-                case .connected where self.pendingRideRequest == .freeRide:
-                    self.pendingRideRequest = nil
-                    if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }
+                    self.shortcutConnect = false
+                case .connected:
+                    self.shortcutConnect = false
+                    if self.pendingRideRequest == .freeRide {
+                        self.pendingRideRequest = nil
+                        if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }
+                    }
                 default:
                     break
                 }
@@ -1496,15 +1500,28 @@ final class AppStatus {
     /// (`MapPickerView.consumeRideRequest`).
     enum ShortcutRideRequest { case freeRide, navigate }
     var pendingRideRequest: ShortcutRideRequest?
-    /// The plan a shortcut staged, so Stop Ride drops only that one and
-    /// never a plan the rider built by hand.
-    @ObservationIgnored private weak var shortcutPlan: PlannedRoute?
+    /// Stop ids of the plan a shortcut staged. The staged plan is the
+    /// shortcut's only while its stops still match: once the rider adds,
+    /// removes or reorders one it's theirs, and shortcuts leave it alone.
+    @ObservationIgnored private var shortcutStopIds: [UUID] = []
+    /// A connect a shortcut started, which Stop Ride may cancel; a connect
+    /// the rider started by hand is left alone.
+    @ObservationIgnored private var shortcutConnect = false
+
+    private var ownPlanStaged: Bool {
+        plannedRoute.map { $0.waypoints.map(\.id) == shortcutStopIds } ?? false
+    }
+    /// A plan the rider built or edited by hand is staged.
+    var handPlanStaged: Bool { plannedRoute != nil && !ownPlanStaged }
+
+    private static let planStagedReply = "A route is planned. Start it or cancel it in TripperDash++."
 
     private var canConnect: Bool { bikeLink.demoMode || !savedBikes.bikes.isEmpty }
 
     /// Connect to the selected bike (or the only one), like the picker's
     /// Connect button without the chooser.
     private func connectSelectedBike() {
+        shortcutConnect = true
         if bikeLink.demoMode {
             bikeLink.connect()
         } else if let bike = savedBikes.selected ?? savedBikes.bikes.first {
@@ -1528,9 +1545,9 @@ final class AppStatus {
         switch freeRideDecision {
         case .alreadyRiding: "Already riding."
         case .alreadyStarting: "Already starting your ride."
-        case .planStaged: "A route is planned. Start it or cancel it in TripperDash++."
+        case .planStaged: Self.planStagedReply
         case .noBike: "Add your bike in TripperDash++ first."
-        case .startNow, .waitForLink, .connect: nil
+        case .startNow, .waitForLink, .connect, .reconnect: nil
         }
     }
 
@@ -1547,6 +1564,8 @@ final class AppStatus {
         case .connect:
             pendingRideRequest = .freeRide
             connectSelectedBike()
+        case .reconnect:
+            connectSelectedBike()   // observeBikeLink resumes the ride on .connected
         }
     }
 
@@ -1587,7 +1606,10 @@ final class AppStatus {
     private func navigateFromShortcut(_ plan: PlannedRoute) async -> String {
         let dest = plan.waypoints.last?.name ?? "your destination"
         switch ShortcutPolicy.navigate(navigating: activeNavigator.isNavigating,
-                                       arrived: activeNavigator.hasArrived) {
+                                       arrived: activeNavigator.hasArrived,
+                                       handPlanStaged: handPlanStaged) {
+        case .handPlanStaged:
+            return Self.planStagedReply
         case .finishingArrival:
             return "Just arrived. Try again in a moment."
         case .redirect:
@@ -1609,7 +1631,7 @@ final class AppStatus {
             if isFreeRiding { stopFreeRide() }
             pendingShare = nil   // this ride supersedes a share parked earlier
             plannedRoute = plan
-            shortcutPlan = plan
+            shortcutStopIds = plan.waypoints.map(\.id)
             Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
             guard canConnect else { return "Route planned. Add your bike in TripperDash++ to start." }
             pendingRideRequest = .navigate
@@ -1638,11 +1660,11 @@ final class AppStatus {
         // the picker's armed navigation auto-start (it watches
         // `plannedRoute`), which may already have taken over the request. A
         // plan and a connect the rider started by hand are left alone.
-        let ownPlan = plannedRoute != nil && plannedRoute === shortcutPlan
+        let ownPlan = ownPlanStaged
         guard hadRequest || ownPlan else { return "No ride in progress." }
         if ownPlan { cancelPlanning() }
         switch bikeLink.state {
-        case .connecting, .handshaking: bikeLink.disconnect()
+        case .connecting, .handshaking: if shortcutConnect { bikeLink.disconnect() }
         default: break
         }
         return "Ride cancelled."
