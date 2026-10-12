@@ -92,7 +92,7 @@ The app adds these actions to the Shortcuts app and to Siri (English phrases, e.
 - **Navigate to Favorite** — Home, Work or any favorite.
 - **Ride Saved Route** — joins the route at the nearest point when you're partway along.
 - **Navigate to Place** — searches near you and asks you to confirm the match.
-- **Stop Ride** — ends navigation or a free ride.
+- **Stop Ride** — ends navigation or a free ride, or cancels a ride a shortcut is still starting. A route you planned by hand is left alone.
 - **Ride Status** — distance and arrival time left, or the free-ride distance so far.
 
 A navigation action during a running navigation replaces its route, like *Edit route*. Starting a ride asks to open the app, so it needs an unlocked phone. Replacing the route of a running navigation, Stop Ride and Ride Status run without opening the app.
