@@ -1496,6 +1496,9 @@ final class AppStatus {
     /// (`MapPickerView.consumeRideRequest`).
     enum ShortcutRideRequest { case freeRide, navigate }
     var pendingRideRequest: ShortcutRideRequest?
+    /// The plan a shortcut staged, so Stop Ride drops only that one and
+    /// never a plan the rider built by hand.
+    @ObservationIgnored private weak var shortcutPlan: PlannedRoute?
 
     private var canConnect: Bool { bikeLink.demoMode || !savedBikes.bikes.isEmpty }
 
@@ -1531,21 +1534,19 @@ final class AppStatus {
         }
     }
 
-    /// "Start free ride", with the app in the foreground.
-    func startFreeRideFromShortcut() -> String {
+    /// "Start free ride", with the app in the foreground. Re-decides: the
+    /// state may have changed while iOS asked to open the app.
+    func startFreeRideFromShortcut() {
         switch freeRideDecision {
         case .alreadyRiding, .alreadyStarting, .planStaged, .noBike:
-            return freeRideShortcutRefusal ?? ""
+            return
         case .startNow:
             Task { await startFreeRide() }
-            return "Starting free ride."
         case .waitForLink:
             pendingRideRequest = .freeRide
-            return "Starting free ride once your bike connects."
         case .connect:
             pendingRideRequest = .freeRide
             connectSelectedBike()
-            return "Connecting to your bike."
         }
     }
 
@@ -1573,7 +1574,8 @@ final class AppStatus {
     /// where the rider is rather than at its start.
     private func waitForFirstFix() async {
         // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
-        for _ in 0..<30 where locationService.lastFix == nil {
+        func fresh() -> Bool { (locationService.lastFix.map { -$0.timestamp.timeIntervalSinceNow < 30 }) ?? false }
+        for _ in 0..<30 where !fresh() {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
@@ -1607,6 +1609,7 @@ final class AppStatus {
             if isFreeRiding { stopFreeRide() }
             pendingShare = nil   // this ride supersedes a share parked earlier
             plannedRoute = plan
+            shortcutPlan = plan
             Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
             guard canConnect else { return "Route planned. Add your bike in TripperDash++ to start." }
             pendingRideRequest = .navigate
@@ -1631,13 +1634,13 @@ final class AppStatus {
             stopFreeRide()
             return "Free ride stopped."
         }
-        // Not riding yet. Dropping the staged route also disarms the picker's
-        // armed navigation auto-start (it watches `plannedRoute`), which may
-        // already have taken over the request. Cancel a connect only if this
-        // ride started it, not one the rider started by hand.
-        let hadPlan = plannedRoute != nil
-        guard hadRequest || hadPlan else { return "No ride in progress." }
-        cancelPlanning()
+        // Not riding yet. Dropping the route a shortcut staged also disarms
+        // the picker's armed navigation auto-start (it watches
+        // `plannedRoute`), which may already have taken over the request. A
+        // plan and a connect the rider started by hand are left alone.
+        let ownPlan = plannedRoute != nil && plannedRoute === shortcutPlan
+        guard hadRequest || ownPlan else { return "No ride in progress." }
+        if ownPlan { cancelPlanning() }
         switch bikeLink.state {
         case .connecting, .handshaking: bikeLink.disconnect()
         default: break
@@ -1653,6 +1656,7 @@ final class AppStatus {
             RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: comma)
         }
         func hm(_ seconds: Double) -> String {
+            if seconds < 60 { return "less than a minute" }
             let f = DateComponentsFormatter()
             f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
             f.unitsStyle = .full   // "1 hour, 5 minutes"

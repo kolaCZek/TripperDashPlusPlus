@@ -442,6 +442,9 @@ struct MapPickerView: View {
             status.pendingRideRequest = nil
             return
         }
+        // The staged plan is gone (a ride started meanwhile took it, or it
+        // was cancelled): don't arm a start the next hand-built plan would fire.
+        guard isPlanning else { status.pendingRideRequest = nil; return }
         switch status.bikeLink.state {
         case .idle, .error:
             break
