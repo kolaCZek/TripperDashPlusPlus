@@ -32,7 +32,7 @@ final class ShareViewController: UIViewController {
 
     private func handleShare() async {
         let (text, url) = await extractPayload()
-        log.info("share payload text=\(text ?? "nil", privacy: .public) url=\(url?.absoluteString ?? "nil", privacy: .public)")
+        log.info("share payload text=\(text ?? "nil", privacy: .private) url=\(url?.absoluteString ?? "nil", privacy: .private)")
 
         // Reject shares from unsupported apps up front. If the payload carries
         // a URL (directly or embedded in the text) and it isn't a Google/Apple
@@ -42,7 +42,7 @@ final class ShareViewController: UIViewController {
         // flows through to the resolver as before.
         if let shared = url ?? SharedDestinationResolver.firstURL(in: text),
            !SharedDestinationResolver.isSupportedMapsURL(shared) {
-            log.warning("unsupported share source: \(shared.absoluteString, privacy: .public)")
+            log.warning("unsupported share source: \(shared.absoluteString, privacy: .private)")
             showUnsupported()
             return
         }
@@ -61,7 +61,7 @@ final class ShareViewController: UIViewController {
             deepLink = encoded
         } else if let raw = url ?? SharedDestinationResolver.firstURL(in: text),
                   let passthrough = Self.rawURLDeepLink(raw) {
-            log.info("extension could not resolve; passing raw URL to app: \(raw.absoluteString, privacy: .public)")
+            log.info("extension could not resolve; passing raw URL to app: \(raw.absoluteString, privacy: .private)")
             deepLink = passthrough
         } else {
             log.warning("share resolved to nothing actionable")
@@ -149,13 +149,13 @@ final class ShareViewController: UIViewController {
         while let r = responder {
             if let app = r as? UIApplication {
                 app.open(url, options: [:]) { ok in
-                    log.info("UIApplication.open ok=\(ok) for \(url.absoluteString, privacy: .public)")
+                    log.info("UIApplication.open ok=\(ok) for \(url.absoluteString, privacy: .private)")
                 }
                 return
             }
             responder = r.next
         }
-        log.error("no UIApplication in responder chain for \(url.absoluteString, privacy: .public)")
+        log.error("no UIApplication in responder chain for \(url.absoluteString, privacy: .private)")
     }
 
     private func finish() {
