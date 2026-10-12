@@ -69,3 +69,19 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert 'NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")' in write
     assert "store.getEntries(matching: own)" in write
     assert "FileManager.default.temporaryDirectory" in write
+
+
+def test_no_log_line_carries_gps_coordinates():
+    # The info level is persisted in every build, not just Debug, so a
+    # coordinate in a log line stays on the phone and leaves it in any
+    # sysdiagnose. Log distances and names, never latitude/longitude.
+    call = re.compile(r"\.(debug|info|notice|error|warning|fault|log)\(")
+    coord = re.compile(r"\\\([^)]*\b(latitude|longitude)\b")
+    hits = []
+    for f in APP.rglob("*.swift"):
+        if "TripperDashPPTests" in f.parts:
+            continue
+        for n, line in enumerate(strip_comments(f.read_text(encoding="utf-8")).splitlines(), 1):
+            if call.search(line) and coord.search(line):
+                hits.append(f"{f.relative_to(APP)}:{n}")
+    assert not hits, f"GPS coordinates in log lines: {hits}"

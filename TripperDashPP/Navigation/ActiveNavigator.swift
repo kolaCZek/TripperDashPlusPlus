@@ -1223,7 +1223,7 @@ final class ActiveNavigator {
         isRerouting = true
         defer { isRerouting = false }
         lastRerouteAt = .now
-        log.info("Requesting reroute from \(coord.latitude),\(coord.longitude) to \(dest.name, privacy: .public)")
+        log.info("Requesting reroute to \(dest.name, privacy: .public)")
         if let newRoute = await cb(coord, dest) {
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
