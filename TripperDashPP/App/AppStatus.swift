@@ -1514,7 +1514,7 @@ final class AppStatus {
     /// A plan the rider built or edited by hand is staged.
     var handPlanStaged: Bool { plannedRoute != nil && !ownPlanStaged }
 
-    private static let planStagedReply = "A route is planned. Start it or cancel it in TripperDash++."
+    static let planStagedReply = "A route is planned. Start it or cancel it in TripperDash++."
 
     private var canConnect: Bool { bikeLink.demoMode || !savedBikes.bikes.isEmpty }
 
