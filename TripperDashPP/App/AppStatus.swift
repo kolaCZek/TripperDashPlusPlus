@@ -1555,15 +1555,17 @@ final class AppStatus {
         }
     }
 
-    func navigateFromShortcut(to dest: Destination) async -> String {
+    /// `running`: the navigation the intent decided to redirect (nil = it
+    /// decided to start one). Acting on any other ride is refused.
+    func navigateFromShortcut(to dest: Destination, running: PlannedRoute?) async -> String {
         await waitForFirstFix()
         let origin = Waypoint.currentLocation(locationService.lastFix?.coordinate ?? dest.coordinate)
-        return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)))
+        return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)), running: running)
     }
 
     /// Ride a saved route, joining it at the nearest point when that skips
     /// a real part of it (the case where the app's Start asks).
-    func navigateFromShortcut(to route: SavedRoute) async -> String {
+    func navigateFromShortcut(to route: SavedRoute, running: PlannedRoute?) async -> String {
         await waitForFirstFix()
         let decision = RouteStartPlanner.analyze(points: route.points,
                                                  riderLocation: locationService.lastFix?.coordinate)
@@ -1571,7 +1573,7 @@ final class AppStatus {
                                         mode: decision.shouldPrompt ? .fromNearest : .fromFirst,
                                         nearestIndex: decision.nearestIndex)
         else { return "That route has no points." }
-        return await navigateFromShortcut(plan)
+        return await navigateFromShortcut(plan, running: running)
     }
 
     /// Launched cold by an intent, the picker starts location only as it
@@ -1589,11 +1591,14 @@ final class AppStatus {
     /// the running route, like Edit route; in free ride it ends the free
     /// ride and starts navigation; otherwise it stages the plan and
     /// connects, and the picker starts it.
-    private func navigateFromShortcut(_ plan: PlannedRoute) async -> String {
+    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?) async -> String {
         let dest = plan.waypoints.last?.name ?? "your destination"
         switch ShortcutPolicy.navigate(navigating: activeNavigator.isNavigating,
                                        arrived: activeNavigator.hasArrived,
-                                       handPlanStaged: handPlanStaged) {
+                                       handPlanStaged: handPlanStaged,
+                                       rideChanged: activeNavigator.plan !== running) {
+        case .rideChanged:
+            return "Your ride changed. Nothing was rerouted."
         case .handPlanStaged:
             return Self.planStagedReply
         case .finishingArrival:
@@ -1605,11 +1610,11 @@ final class AppStatus {
                                                    dirtyLegIndices: plan.allLegIndices,
                                                    preferences: navigationStore.routePreferences,
                                                    timeout: ActiveNavigator.routeRequestTimeout,
-                                                   isStillLive: { nav.isNavigating })
+                                                   isStillLive: { nav.plan === running })
             } catch {
                 return "Couldn't find a route to \(dest). Your current route is unchanged."
             }
-            guard await nav.replacePlan(plan) else {
+            guard nav.plan === running, await nav.replacePlan(plan) else {
                 return "Couldn't switch routes right now. Your current route is unchanged."
             }
             return "Rerouting to \(dest)."
