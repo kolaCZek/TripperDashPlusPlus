@@ -65,5 +65,8 @@ struct ShortcutPolicyTests {
         #expect(ShortcutPolicy.navigate(navigating: false, arrived: false, handPlanStaged: true) == .handPlanStaged)
         // Mid-navigation a new destination still redirects.
         #expect(ShortcutPolicy.navigate(navigating: true, arrived: false, handPlanStaged: true) == .redirect)
+        // The navigation ended or was replaced while Siri asked: never act on another ride.
+        #expect(ShortcutPolicy.navigate(navigating: false, arrived: false, handPlanStaged: false, rideChanged: true) == .rideChanged)
+        #expect(ShortcutPolicy.navigate(navigating: true, arrived: false, handPlanStaged: false, rideChanged: true) == .rideChanged)
     }
 }
