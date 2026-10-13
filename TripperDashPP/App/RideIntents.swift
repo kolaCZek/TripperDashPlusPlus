@@ -55,13 +55,17 @@ enum ShortcutPolicy {
         }
     }
 
-    enum Navigate: Equatable { case stage, redirect, finishingArrival, handPlanStaged }
+    enum Navigate: Equatable { case stage, redirect, finishingArrival, handPlanStaged, rideChanged }
 
     /// A new destination mid-navigation replaces the running route. In the
     /// few seconds between arrival and the switch to free ride, `replacePlan`
     /// refuses and the stage path would be torn down by `finishArrival`.
     /// A plan the rider built or edited by hand is never replaced.
-    static func navigate(navigating: Bool, arrived: Bool, handPlanStaged: Bool) -> Navigate {
+    /// `rideChanged`: the navigation isn't the one the intent decided on
+    /// (it ended, or the rider started another while Siri asked).
+    static func navigate(navigating: Bool, arrived: Bool, handPlanStaged: Bool,
+                         rideChanged: Bool = false) -> Navigate {
+        if rideChanged { return .rideChanged }
         if navigating { return arrived ? .finishingArrival : .redirect }
         return handPlanStaged ? .handPlanStaged : .stage
     }
@@ -149,14 +153,24 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
 /// iOS 26 for `supportedModes`, which needs iOS 26 — we target 18.6.
 @MainActor
 private func navigate<I: ForegroundContinuableIntent>(_ intent: I,
-                                                      _ go: @escaping @MainActor () async -> String) async throws -> String {
+                                                      open: IntentDialog = "Open TripperDash++ to start the ride.",
+                                                      confirm: (@MainActor () async throws -> Void)? = nil,
+                                                      _ go: @escaping @MainActor (_ running: PlannedRoute?) async -> String) async throws -> String {
     let status = AppStatus.shared
+    let nav = status.activeNavigator
     // Refused straight away: deciding after go()'s await could see a ride
     // the rider's own plan just started, and redirect it.
-    if status.handPlanStaged && !status.activeNavigator.isNavigating { return AppStatus.planStagedReply }
-    if status.activeNavigator.isNavigating { return await go() }   // redirect, in the background
-    throw intent.needsToContinueInForegroundError("Open TripperDash++ to start the ride.") {
-        _ = await go()
+    if status.handPlanStaged && !nav.isNavigating { return AppStatus.planStagedReply }
+    if nav.isNavigating {
+        // Redirect, in the background, pinned to this navigation: if it
+        // ends or is replaced during the awaits, nothing is rerouted.
+        let running = nav.plan
+        // Arrival beat: navigateFromShortcut answers "Just arrived" without asking.
+        if !nav.hasArrived { try await confirm?() }
+        return await go(running)
+    }
+    throw intent.needsToContinueInForegroundError(open) {
+        _ = await go(nil)
     }
 }
 
@@ -173,7 +187,7 @@ struct NavigateToFavoriteIntent: AppIntent, ForegroundContinuableIntent {
         guard let fav = status.navigationStore.settings.favorites.first(where: { $0.id == favorite.id }) else {
             return .result(dialog: "That favorite no longer exists.")
         }
-        let said = try await navigate(self) { await status.navigateFromShortcut(to: fav.asDestination) }
+        let said = try await navigate(self) { await status.navigateFromShortcut(to: fav.asDestination, running: $0) }
         return .result(dialog: "\(said)")
     }
 }
@@ -191,7 +205,7 @@ struct RideSavedRouteIntent: AppIntent, ForegroundContinuableIntent {
         guard let saved = status.savedRoutesStore.route(id: route.id) else {
             return .result(dialog: "That route no longer exists.")
         }
-        let said = try await navigate(self) { await status.navigateFromShortcut(to: saved) }
+        let said = try await navigate(self) { await status.navigateFromShortcut(to: saved, running: $0) }
         return .result(dialog: "\(said)")
     }
 }
@@ -212,19 +226,11 @@ struct NavigateToPlaceIntent: AppIntent, ForegroundContinuableIntent {
         // The search may pick a different place than meant: name it before
         // acting. Starting a ride already asks to open the app, so ask once.
         let label = [dest.name, dest.addressLine].compactMap { $0 }.joined(separator: ", ")
-        if status.handPlanStaged && !status.activeNavigator.isNavigating {
-            return .result(dialog: "\(AppStatus.planStagedReply)")
+        let said = try await navigate(self, open: "Open TripperDash++ to navigate to \(label)?",
+                                      confirm: { try await requestConfirmation(dialog: "Reroute to \(label)?") }) {
+            await status.navigateFromShortcut(to: dest, running: $0)
         }
-        if status.activeNavigator.isNavigating {
-            // Arrival beat included: navigateFromShortcut answers "Just arrived" without asking.
-            if !status.activeNavigator.hasArrived {
-                try await requestConfirmation(dialog: "Reroute to \(label)?")
-            }
-            return .result(dialog: "\(await status.navigateFromShortcut(to: dest))")
-        }
-        throw needsToContinueInForegroundError("Open TripperDash++ to navigate to \(label)?") {
-            _ = await status.navigateFromShortcut(to: dest)
-        }
+        return .result(dialog: "\(said)")
     }
 }
 
