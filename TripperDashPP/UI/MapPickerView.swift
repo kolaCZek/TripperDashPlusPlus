@@ -338,7 +338,9 @@ struct MapPickerView: View {
         }
         .onChange(of: status.bikeLink.state) { _, newState in
             handleLinkStateForAutoStart(newState)
+            consumeRideRequest()
         }
+        .onChange(of: status.pendingRideRequest, initial: true) { _, _ in consumeRideRequest() }
         .onChange(of: status.rideStats.state) { _, newState in
             // A new leg started folding again (begin() after a paused
             // post-arrival freeze) — clear a prior manual dismissal so
@@ -422,6 +424,34 @@ struct MapPickerView: View {
             sharedSearchSeed = hint
             showSearch = true
             status.pendingSearchHint = nil
+        }
+    }
+
+    /// Start a navigation a Shortcuts / Siri intent staged, through the same
+    /// armed auto-start as "Connect & start navigation". (A free-ride request
+    /// and a failed or cancelled connect are handled in
+    /// `AppStatus.observeBikeLink`.) While still `.idle` the connect the
+    /// intent started hasn't flipped the state yet.
+    private func consumeRideRequest() {
+        guard status.pendingRideRequest == .navigate else { return }
+        switch mode {
+        case .picking: break
+        case .transitioning: return   // a ride just stopped; retried when it settles
+        case .navigating, .freeRiding:
+            // The rider started a ride by hand meanwhile: that ride wins.
+            status.pendingRideRequest = nil
+            return
+        }
+        // The staged plan is gone (a ride started meanwhile took it, or it
+        // was cancelled): don't arm a start the next hand-built plan would fire.
+        guard isPlanning else { status.pendingRideRequest = nil; return }
+        switch status.bikeLink.state {
+        case .idle, .error:
+            break
+        default:   // fires on .connected; armed until then
+            status.pendingRideRequest = nil
+            pendingAutoStart = true
+            tryAutoStartNavigation()
         }
     }
 
@@ -1544,6 +1574,12 @@ struct MapPickerView: View {
         transitioning = true
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
+            // Stop Ride cancelled the plan during the beat: don't start it.
+            guard status.plannedRoute === plan else {
+                transitioning = false
+                consumeRideRequest()   // a shortcut's plan that replaced it
+                return
+            }
             // The rider chose this plan over a share parked during an
             // earlier ride — don't replay a stale destination after it.
             status.pendingShare = nil
@@ -1614,6 +1650,7 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             transitioning = false
+            consumeRideRequest()   // a request that arrived while stopping
         }
     }
 
@@ -1656,6 +1693,7 @@ struct MapPickerView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             transitioning = false
+            consumeRideRequest()   // a request that arrived while stopping
         }
     }
 

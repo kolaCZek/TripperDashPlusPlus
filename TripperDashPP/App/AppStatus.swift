@@ -47,6 +47,11 @@ struct StreamMetrics: Sendable, Equatable {
 @Observable
 final class AppStatus {
 
+    /// The app's one instance. The scene and the Shortcuts / Siri intents
+    /// (`RideIntents.swift`) must act on the same state, and an intent can
+    /// run before any view exists.
+    static let shared = AppStatus()
+
     // MARK: - Connection
 
     /// Live K1G control-plane orchestrator. Phase 3+ reads `bikeLink.state`
@@ -390,6 +395,22 @@ final class AppStatus {
                     // A reconnect where NEITHER resume branch fired starts no
                     // RTP, so the dash sits on its loading dots until it times out.
                     self.applyKeepAwake()
+                }
+                // A Shortcuts request waiting for the link. Handled here, not
+                // in a view, so it still happens once the rider has pocketed
+                // the phone. A failed or cancelled connect drops it.
+                switch state {
+                case .idle, .error:
+                    self.pendingRideRequest = nil
+                    self.shortcutConnect = false
+                case .connected:
+                    self.shortcutConnect = false
+                    if self.pendingRideRequest == .freeRide {
+                        self.pendingRideRequest = nil
+                        if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }
+                    }
+                default:
+                    break
                 }
             }
         }
@@ -1127,6 +1148,17 @@ final class AppStatus {
     func beginPlanningFromSavedRoute(_ route: SavedRoute,
                                      mode: RouteStartMode,
                                      nearestIndex: Int) {
+        guard let plan = savedRoutePlan(route, mode: mode, nearestIndex: nearestIndex) else { return }
+        plannedRoute = plan
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
+    /// The `PlannedRoute` for riding a saved route: live location as the
+    /// origin, then the route's points from the chosen start. Not yet
+    /// routed. Shared by the Saved Routes sheet and the Shortcuts intent.
+    func savedRoutePlan(_ route: SavedRoute,
+                        mode: RouteStartMode,
+                        nearestIndex: Int) -> PlannedRoute? {
         let selected = RouteStartPlanner.droppingReachedStart(
             RouteStartPlanner.navigablePoints(route.points, mode: mode, nearestIndex: nearestIndex),
             riderLocation: locationService.lastFix?.coordinate)
@@ -1140,7 +1172,7 @@ final class AppStatus {
         let navPoints = route.kind == .track
             ? GPXGeometry.reduce(selected, cap: RoutePoint.navigableCap)
             : selected
-        guard navPoints.count >= 1 else { return }
+        guard navPoints.count >= 1 else { return nil }
 
         let originCoord = locationService.lastFix?.coordinate
             ?? navPoints[0].coordinate
@@ -1161,8 +1193,7 @@ final class AppStatus {
         // Track via-points are shape, not stops → HUD presents start→finish.
         plan.isTrack = (route.kind == .track)
         plan.isFromLibrary = true
-        plannedRoute = plan
-        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+        return plan
     }
 
     /// Build a save of the live plan to Saved routes, so a route planned at
@@ -1446,6 +1477,222 @@ final class AppStatus {
         }
     }
 
+
+    // MARK: - Shortcuts / Siri (RideIntents.swift)
+
+    /// A ride a Shortcuts / Siri intent asked for, waiting for the link.
+    /// `.freeRide` starts in `observeBikeLink`; `.navigate` rides on the
+    /// staged `plannedRoute` and the picker starts it
+    /// (`MapPickerView.consumeRideRequest`).
+    enum ShortcutRideRequest { case freeRide, navigate }
+    var pendingRideRequest: ShortcutRideRequest?
+    /// Stop ids of the plan a shortcut staged. The staged plan is the
+    /// shortcut's only while its stops still match: once the rider adds,
+    /// removes or reorders one it's theirs, and shortcuts leave it alone.
+    @ObservationIgnored private var shortcutStopIds: [UUID] = []
+    /// A connect a shortcut started, which Stop Ride may cancel; a connect
+    /// the rider started by hand is left alone.
+    @ObservationIgnored private var shortcutConnect = false
+
+    private var ownPlanStaged: Bool {
+        plannedRoute.map { $0.waypoints.map(\.id) == shortcutStopIds } ?? false
+    }
+    /// A plan the rider built or edited by hand is staged.
+    var handPlanStaged: Bool { plannedRoute != nil && !ownPlanStaged }
+
+    static let planStagedReply = "A route is planned. Start it or cancel it in TripperDash++."
+
+    private var canConnect: Bool { bikeLink.demoMode || !savedBikes.bikes.isEmpty }
+
+    /// Connect to the selected bike (or the only one), like the picker's
+    /// Connect button without the chooser.
+    private func connectSelectedBike() {
+        shortcutConnect = true
+        if bikeLink.demoMode {
+            bikeLink.connect()
+        } else if let bike = savedBikes.selected ?? savedBikes.bikes.first {
+            connect(to: bike)
+        }
+    }
+
+    private var freeRideDecision: ShortcutPolicy.FreeRide {
+        ShortcutPolicy.freeRide(rideActive: rideActive,
+                                requestPending: pendingRideRequest != nil,
+                                planStaged: plannedRoute != nil,
+                                link: bikeLink.state,
+                                canConnect: canConnect)
+    }
+
+    /// Why "Start free ride" does nothing now, or nil when it would start
+    /// one. Checked in the background, before the app is brought forward:
+    /// a "joined the bike's Wi-Fi" automation fires again when the phone
+    /// rejoins after a drop mid-ride, and that repeat must not open the app.
+    var freeRideShortcutRefusal: String? {
+        switch freeRideDecision {
+        case .alreadyRiding: "Already riding."
+        case .alreadyStarting: "Already starting your ride."
+        case .planStaged: Self.planStagedReply
+        case .noBike: "Add your bike in TripperDash++ first."
+        case .startNow, .waitForLink, .connect, .reconnect: nil
+        }
+    }
+
+    /// "Start free ride", with the app in the foreground. Re-decides: the
+    /// state may have changed while iOS asked to open the app.
+    func startFreeRideFromShortcut() {
+        switch freeRideDecision {
+        case .alreadyRiding, .alreadyStarting, .planStaged, .noBike:
+            return
+        case .startNow:
+            Task { await startFreeRide() }
+        case .waitForLink:
+            pendingRideRequest = .freeRide
+        case .connect:
+            pendingRideRequest = .freeRide
+            connectSelectedBike()
+        case .reconnect:
+            connectSelectedBike()   // observeBikeLink resumes the ride on .connected
+        }
+    }
+
+    /// `running`: the navigation the intent decided to redirect (nil = it
+    /// decided to start one). Acting on any other ride is refused.
+    func navigateFromShortcut(to dest: Destination, running: PlannedRoute?) async -> String {
+        await waitForFirstFix()
+        let origin = Waypoint.currentLocation(locationService.lastFix?.coordinate ?? dest.coordinate)
+        return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)), running: running)
+    }
+
+    /// Ride a saved route, joining it at the nearest point when that skips
+    /// a real part of it (the case where the app's Start asks).
+    func navigateFromShortcut(to route: SavedRoute, running: PlannedRoute?) async -> String {
+        await waitForFirstFix()
+        let decision = RouteStartPlanner.analyze(points: route.points,
+                                                 riderLocation: locationService.lastFix?.coordinate)
+        guard let plan = savedRoutePlan(route,
+                                        mode: decision.shouldPrompt ? .fromNearest : .fromFirst,
+                                        nearestIndex: decision.nearestIndex)
+        else { return "That route has no points." }
+        return await navigateFromShortcut(plan, running: running)
+    }
+
+    /// Launched cold by an intent, the picker starts location only as it
+    /// appears: give the first fix a moment, so a saved route is joined
+    /// where the rider is rather than at its start.
+    private func waitForFirstFix() async {
+        // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
+        func fresh() -> Bool { (locationService.lastFix.map { -$0.timestamp.timeIntervalSinceNow < 30 }) ?? false }
+        for _ in 0..<30 where !fresh() {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// Navigate `plan` (origin = live location). Mid-navigation it replaces
+    /// the running route, like Edit route; in free ride it ends the free
+    /// ride and starts navigation; otherwise it stages the plan and
+    /// connects, and the picker starts it.
+    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?) async -> String {
+        let dest = plan.waypoints.last?.name ?? "your destination"
+        switch ShortcutPolicy.navigate(navigating: activeNavigator.isNavigating,
+                                       arrived: activeNavigator.hasArrived,
+                                       handPlanStaged: handPlanStaged,
+                                       rideChanged: activeNavigator.plan !== running) {
+        case .rideChanged:
+            return "Your ride changed. Nothing was rerouted."
+        case .handPlanStaged:
+            return Self.planStagedReply
+        case .finishingArrival:
+            return "Just arrived. Try again in a moment."
+        case .redirect:
+            let nav = activeNavigator
+            do {
+                try await routingService.recompute(plan,
+                                                   dirtyLegIndices: plan.allLegIndices,
+                                                   preferences: navigationStore.routePreferences,
+                                                   timeout: ActiveNavigator.routeRequestTimeout,
+                                                   isStillLive: { nav.plan === running })
+            } catch {
+                return "Couldn't find a route to \(dest). Your current route is unchanged."
+            }
+            guard nav.plan === running, await nav.replacePlan(plan) else {
+                return "Couldn't switch routes right now. Your current route is unchanged."
+            }
+            return "Rerouting to \(dest)."
+        case .stage:
+            if isFreeRiding { stopFreeRide() }
+            pendingShare = nil   // this ride supersedes a share parked earlier
+            plannedRoute = plan
+            shortcutStopIds = plan.waypoints.map(\.id)
+            Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+            guard canConnect else { return "Route planned. Add your bike in TripperDash++ to start." }
+            pendingRideRequest = .navigate
+            switch bikeLink.state {
+            case .idle, .error: connectSelectedBike()
+            default: break
+            }
+            return "Starting navigation to \(dest)."
+        }
+    }
+
+    /// "Stop ride": the same teardown as the dash's exit button or the
+    /// app's Stop, and drops a ride still waiting to start.
+    func stopRideFromShortcut() -> String {
+        let hadRequest = pendingRideRequest != nil
+        pendingRideRequest = nil
+        if activeNavigator.isNavigating, let exit = activeNavigator.onExitNavRequested {
+            exit()
+            return "Navigation stopped."
+        }
+        if isFreeRiding {
+            stopFreeRide()
+            return "Free ride stopped."
+        }
+        // Not riding yet. Dropping the route a shortcut staged also disarms
+        // the picker's armed navigation auto-start (it watches
+        // `plannedRoute`), which may already have taken over the request. A
+        // plan and a connect the rider started by hand are left alone.
+        let ownPlan = ownPlanStaged
+        guard hadRequest || ownPlan else { return "No ride in progress." }
+        if ownPlan { cancelPlanning() }
+        switch bikeLink.state {
+        case .connecting, .handshaking: if shortcutConnect { bikeLink.disconnect() }
+        default: break
+        }
+        return "Ride cancelled."
+    }
+
+    /// "How far to go?" — spoken by Siri, so whole words, no H:MM:SS.
+    func rideStatusForShortcut() -> String {
+        let imperial = dashNavSettings.units == .imperial
+        let comma = dashNavSettings.decimalSeparator == .comma
+        func dist(_ m: Double) -> String {
+            RideStatsFormatting.distance(m, imperial: imperial, useCommaDecimal: comma)
+        }
+        func hm(_ seconds: Double) -> String {
+            if seconds < 60 { return "less than a minute" }
+            let f = DateComponentsFormatter()
+            f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
+            f.unitsStyle = .full   // "1 hour, 5 minutes"
+            var english = Calendar.current
+            english.locale = Locale(identifier: "en")   // the dialog is English
+            f.calendar = english
+            return f.string(from: max(0, seconds)) ?? ""
+        }
+        if activeNavigator.isNavigating, activeNavigator.hasArrived {
+            return "You've arrived."
+        }
+        if activeNavigator.isNavigating {
+            let eta = Date().addingTimeInterval(activeNavigator.finalDestinationEtaSeconds)
+            let name = activeNavigator.plan?.waypoints.last?.name ?? "your destination"
+            return "\(dist(activeNavigator.finalDestinationRemainingDistance)) to \(name), "
+                + "arriving at \(RideStatsFormatting.clock(eta, is24Hour: dashNavSettings.is24Hour))."
+        }
+        if isFreeRiding {
+            let s = rideStats.stats
+            return "Free ride: \(dist(s.distanceMeters)) in \(hm(s.elapsedSeconds))."
+        }
+        return "No ride in progress."
+    }
 
     /// Exit planning mode and drop the staged plan.
     func cancelPlanning() {
