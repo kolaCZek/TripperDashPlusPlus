@@ -284,9 +284,6 @@ struct StreamingView: View {
                 } label: {
                     Label("Check permissions", systemImage: "checkmark.shield")
                 }
-                Link(destination: URL(string: "https://ko-fi.com/kolaczek")!) {
-                    Label("Donate", systemImage: "heart")
-                }
             }
         }
         .navigationTitle("Settings")
