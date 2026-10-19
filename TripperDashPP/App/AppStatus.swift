@@ -1330,6 +1330,10 @@ final class AppStatus {
             // full route — not just the located legs — is planned. Bias each
             // geocode to the previous located stop (or the live fix) so an
             // ambiguous name resolves near the route.
+            // Launched cold by the share, location has only just started:
+            // wait for a fix so a route starting at the rider (e.g. Home)
+            // drops that first stop below instead of keeping a 0 m leg.
+            await waitForFirstFix()
             var stops: [Waypoint] = []
             var lastCoord = locationService.lastFix?.coordinate
             for r in resolved {
@@ -1380,6 +1384,16 @@ final class AppStatus {
         let la = CLLocation(latitude: a.latitude, longitude: a.longitude)
         let lb = CLLocation(latitude: b.latitude, longitude: b.longitude)
         return la.distance(from: lb) < 150
+    }
+
+    /// Give a fix that isn't there yet up to 3 s, for callers launched
+    /// cold (the picker starts location only as it appears).
+    private func waitForFirstFix() async {
+        // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
+        func fresh() -> Bool { (locationService.lastFix.map { -$0.timestamp.timeIntervalSinceNow < 30 }) ?? false }
+        for _ in 0..<30 where !fresh() {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     /// Geocode a shared place label into a routable destination, biased to
