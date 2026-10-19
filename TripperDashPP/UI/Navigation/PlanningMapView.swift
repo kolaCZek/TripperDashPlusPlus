@@ -9,6 +9,7 @@
 //  MapViewSource snapshotter for Apple's shared GPU pool):
 //
 //   - every waypoint as a numbered pin (origin / via-N / destination),
+//     except a "Current location" origin, which the user-location dot marks,
 //   - for each leg, the selected option as a thick blue line and the
 //     alternatives as thin gray lines,
 //   - tap a gray alternative -> onPickAlternative(leg, option),
@@ -194,7 +195,9 @@ struct PlanningMapView: UIViewRepresentable {
                 }
             }
             if rect.isNull {
-                for wp in parent.plan.waypoints {
+                // Not the "Current location" snapshot: with no fix at
+                // planning time it is just stop 1, not where the rider is.
+                for wp in parent.plan.waypoints where !wp.isCurrentLocation {
                     let p = MKMapPoint(wp.coordinate)
                     rect = rect.union(MKMapRect(x: p.x, y: p.y, width: 0, height: 0))
                 }
@@ -210,6 +213,9 @@ struct PlanningMapView: UIViewRepresentable {
         private func waypointSignature() -> Int {
             var hasher = Hasher()
             for wp in parent.plan.waypoints { hasher.combine(wp.id) }
+            // Refit once the legs arrive: leg 0 starts at the live
+            // location, so the rider's dot comes into view.
+            hasher.combine(parent.plan.isComputed)
             return hasher.finalize()
         }
 

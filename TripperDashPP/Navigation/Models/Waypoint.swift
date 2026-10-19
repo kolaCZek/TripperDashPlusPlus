@@ -33,7 +33,8 @@ struct Waypoint: Identifiable, Hashable, Sendable {
     var addressLine: String?
 
     /// Last-known coordinate. For an `isCurrentLocation` origin this is
-    /// only a snapshot used for map-fit / display; routing uses the
+    /// only a snapshot (stop 1's coordinate when there was no fix yet):
+    /// the planning map neither pins nor fits to it, and routing uses the
     /// live fix via `.forCurrentLocation()` instead.
     var coordinate: CLLocationCoordinate2D
 
