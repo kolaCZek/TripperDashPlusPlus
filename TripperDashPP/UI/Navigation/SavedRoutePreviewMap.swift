@@ -51,10 +51,7 @@ struct SavedRoutePreviewMap: View {
             .onAppear { renderIfNeeded(size: geo.size) }
             .onChange(of: geo.size) { _, newSize in renderIfNeeded(size: newSize) }
             .onChange(of: points) { _, _ in renderIfNeeded(size: geo.size) }
-            .onChange(of: colorScheme) { _, _ in
-                renderedKey = nil
-                renderIfNeeded(size: geo.size)
-            }
+            .onChange(of: colorScheme) { _, _ in renderIfNeeded(size: geo.size) }
         }
     }
 
@@ -95,7 +92,10 @@ struct SavedRoutePreviewMap: View {
         snapshotter.start(with: .main) { snap, _ in
             SnapshotterPark.shared.park(snapshotter)
             // A quick second edit can finish first: keep only the latest.
-            guard let snap, renderedKey == key else { return }
+            guard renderedKey == key else { return }
+            // Failed (offline, MapKit throttling): forget the key so the
+            // next appear or edit retries instead of keeping the old shape.
+            guard let snap else { renderedKey = nil; return }
             image = drawRoute(on: snap, coords: coords, isDark: isDark)
         }
     }

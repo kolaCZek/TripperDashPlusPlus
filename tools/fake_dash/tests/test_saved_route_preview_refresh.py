@@ -31,7 +31,11 @@ class PreviewFollowsEdits(unittest.TestCase):
 
     def test_stale_snapshot_dropped(self):
         body = decl_body(self.src, "private func render(")
-        self.assertIn("renderedKey == key", body)
+        self.assertIn("guard renderedKey == key else { return }", body)
+
+    def test_failed_snapshot_retries(self):
+        body = decl_body(self.src, "private func render(")
+        self.assertIn("guard let snap else { renderedKey = nil; return }", body)
 
 
 if __name__ == "__main__":
