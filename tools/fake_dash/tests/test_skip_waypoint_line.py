@@ -10,7 +10,9 @@ Three things kept it on screen:
      reroute (~7 s later in the log) the active line and turns led there.
   3. The off-route reroute replaced the leg's options but left the old
      alternatives (grey lines from the removed stop) drawn.
-Plus (review): a reroute already in flight when the stop is removed must
+Plus (review): the progress bar is rebased on the legs still ahead, so it
+neither jumps by the skipped leg nor keeps the removed stop's tick; and a
+reroute already in flight when the stop is removed must
 not land on the new leg; `requestReroute` drops a result whose destination
 is no longer the current one.
 """
@@ -68,6 +70,13 @@ class SwiftWiring(unittest.TestCase):
         guard = body.index("guard destination == dest else")
         self.assertLess(body.index("await cb(coord, dest)"), guard)
         self.assertLess(guard, body.index("await installSwappedRoute(newRoute)"))
+
+    def test_skip_rebases_progress_bar(self):
+        body = decl_body(self.nav, "func skipCurrentLeg(")
+        covered = body.index("let covered = plannedTotalDistance - finalDestinationRemainingDistance")
+        rebase = body.index("setProgressBaseline(plan: plan, fromLegIndex: currentLegIndex, alreadyCovered: covered)")
+        self.assertLess(covered, body.index("await advanceToNextLeg("))
+        self.assertLess(body.index("await requestReroute(from: here)"), rebase)
 
     def test_reroute_drops_stale_alternatives(self):
         body = decl_body(self.nav, "private func installSwappedRoute(")

@@ -1349,6 +1349,9 @@ final class ActiveNavigator {
         // average-speed section, so end it like any other recalculation.
         routeRecalculations += 1
         let skippedFrom = currentLegIndex
+        // Read before the skip, like `replacePlan`: the progress bar keeps
+        // what was already ridden.
+        let covered = plannedTotalDistance - finalDestinationRemainingDistance
         await advanceToNextLeg(in: plan)
         guard currentLegIndex > skippedFrom else { return false }
         // The next leg starts AT the removed stop, so its line and turns
@@ -1357,6 +1360,10 @@ final class ActiveNavigator {
         if let here = currentCoordinate, !isRerouting {
             await requestReroute(from: here)
         }
+        // Rebase the bar on the legs still ahead (the current one now from
+        // the rider): without it the bar jumped forward by the skipped leg
+        // and kept the removed stop's tick.
+        setProgressBaseline(plan: plan, fromLegIndex: currentLegIndex, alreadyCovered: covered)
         return true
     }
 
