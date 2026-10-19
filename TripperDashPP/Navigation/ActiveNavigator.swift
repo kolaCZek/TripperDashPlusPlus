@@ -427,8 +427,9 @@ final class ActiveNavigator {
     /// whole ride (never reduced by a reroute — a reroute changes the
     /// road ahead, but progress is still measured against the trip the
     /// rider set out on, so the bar doesn't jump backward mid-ride). A
-    /// mid-ride edit (`replacePlan`) re-bases it to ridden-so-far + the
-    /// new legs, so the bar keeps the progress already made.
+    /// mid-ride edit (`replacePlan`) or a stop removed from the dash
+    /// (`skipCurrentLeg`) re-bases it to ridden-so-far + the legs ahead,
+    /// so the bar keeps the progress already made.
     private(set) var plannedTotalDistance: CLLocationDistance = 0
 
     /// Fractional positions (0…1) of the intermediate pass-through
@@ -440,8 +441,8 @@ final class ActiveNavigator {
     /// not a mid-route tick. Empty for a single-destination session AND
     /// for a dense plan (> `RoutePoint.editableListThreshold` via-points,
     /// e.g. an imported track) where ticks would smear into a comb.
-    /// Fixed for the ride (a reroute doesn't shuffle the ticks), matching
-    /// the fixed `plannedTotalDistance` denominator.
+    /// Fixed between re-bases (a reroute doesn't shuffle the ticks),
+    /// matching `plannedTotalDistance`.
     private(set) var plannedWaypointFractions: [Double] = []
 
     /// The new final destination's name after a mid-ride edit changed it
@@ -653,8 +654,9 @@ final class ActiveNavigator {
 
     /// Progress gauge baseline: sum EVERY leg's selected distance (from
     /// `fromLegIndex` to the end) so the bar measures against the whole
-    /// remaining trip. Shared by `start(plan:)` and `replacePlan(_:)`;
-    /// `alreadyCovered` is the distance ridden before a mid-ride edit.
+    /// remaining trip. Shared by `start(plan:)`, `replacePlan(_:)` and
+    /// `skipCurrentLeg`; `alreadyCovered` is the distance ridden before a
+    /// mid-ride edit or skip.
     private func setProgressBaseline(plan: PlannedRoute, fromLegIndex: Int, alreadyCovered: Double) {
         let plannedLegs = Array(plan.legs[fromLegIndex...])
         let legDistances = plannedLegs.map { $0.selected?.distanceMeters ?? 0 }
@@ -668,7 +670,7 @@ final class ActiveNavigator {
         // staged for navigation carries hundreds of via-points): past the
         // planner's editable-list threshold the ticks would smear into an
         // unreadable comb, so we mirror that cutoff and draw none.
-        let viaCount = legDistances.count - 1   // boundaries before the final dest
+        let viaCount = plan.legs.count - 1   // the plan's via-points, not just those ahead
         if viaCount <= RoutePoint.editableListThreshold {
             self.plannedWaypointFractions = baseline.fractions
         } else {
@@ -1225,6 +1227,17 @@ final class ActiveNavigator {
         lastRerouteAt = .now
         log.info("Requesting reroute to \(dest.name, privacy: .public)")
         if let newRoute = await cb(coord, dest) {
+            // The leg changed while routing (a stop removed from the dash,
+            // a leg advance, the ride ended): this road leads to the old
+            // stop. Drop it, and let the next off-route fix route the new
+            // leg at once — no cooldown, no 5 s off-route wait (an on-route
+            // fix clears `offRouteSince` as usual).
+            guard destination == dest else {
+                log.info("Reroute result for \(dest.name, privacy: .public) dropped — the leg changed meanwhile")
+                lastRerouteAt = .distantPast
+                offRouteSince = .distantPast
+                return
+            }
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
         } else {
@@ -1271,6 +1284,9 @@ final class ActiveNavigator {
         // in the hook instead — nothing to sync.
         if let plan, plan.legs.indices.contains(currentLegIndex) {
             plan.replaceLegRoute(legIndex: currentLegIndex, with: newRoute)
+            // The leg's other options went with it: drop their grey lines,
+            // which still ran the abandoned way (after a removed stop: from it).
+            refreshAlternatives()
         }
         refreshOverviewCaches()
         // A reroute can replace the leg the borrowed step came from, so
@@ -1287,7 +1303,10 @@ final class ActiveNavigator {
     /// `onActiveRouteChanged` hook reroute uses — so the polyline swap
     /// and tile re-bake are already wired for free. Called from
     /// `ingest(fix:)` when the rider reaches an intermediate waypoint.
-    private func advanceToNextLeg(in plan: PlannedRoute) async {
+    /// `rebaseCovered` (a rider skip): rebase the progress bar on the legs
+    /// ahead before the first await, so a second quick press reads a
+    /// consistent baseline.
+    private func advanceToNextLeg(in plan: PlannedRoute, rebaseCovered: Double? = nil) async {
         let next = currentLegIndex + 1
         guard plan.legs.indices.contains(next) else { return }
         let leg = plan.legs[next]
@@ -1305,6 +1324,9 @@ final class ActiveNavigator {
         // `isNavigating` (already true) or firing `onActiveRouteChanged`
         // (the caller below does that once seed() returns).
         seed(route: route, destination: destWp.asDestination)
+        if let rebaseCovered {
+            setProgressBaseline(plan: plan, fromLegIndex: next, alreadyCovered: rebaseCovered)
+        }
         await onActiveRouteChanged?(route)
     }
 
@@ -1336,7 +1358,24 @@ final class ActiveNavigator {
         // Mid-leg swap the rider triggers: the next leg can turn off the
         // average-speed section, so end it like any other recalculation.
         routeRecalculations += 1
-        await advanceToNextLeg(in: plan)
+        let skippedFrom = currentLegIndex
+        // Read before the skip, like `replacePlan`: the progress bar keeps
+        // what was already ridden, and drops the skipped leg and its tick.
+        let covered = plannedTotalDistance - finalDestinationRemainingDistance
+        await advanceToNextLeg(in: plan, rebaseCovered: covered)
+        guard currentLegIndex > skippedFrom else { return false }
+        // The next leg starts AT the removed stop, so its line and turns
+        // still lead there. Route from where the rider is now instead of
+        // waiting for the off-route reroute (~7 s, field log 2026-10-19).
+        if let here = currentCoordinate, !isRerouting {
+            await requestReroute(from: here)
+        }
+        // Rebase again on the rerouted leg (rider → next stop) so the bar
+        // stays continuous — unless the ride, plan or leg changed during
+        // the awaits (stop + new ride, arrival, a second press).
+        guard isNavigating, !hasArrived, self.plan === plan,
+              currentLegIndex == skippedFrom + 1 else { return true }
+        setProgressBaseline(plan: plan, fromLegIndex: currentLegIndex, alreadyCovered: covered)
         return true
     }
 

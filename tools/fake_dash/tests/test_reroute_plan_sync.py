@@ -63,11 +63,11 @@ class FakePlan:
             self.legs[leg_index] = FakeLeg(coords=list(coords))
 
     def full_route_coords(self) -> list[int]:
-        """Mirror of `installFullRouteContext`: concatenate every leg's
-        selected coords (dedup of shared join points omitted — irrelevant
-        to this invariant)."""
+        """Mirror of `installFullRouteContext`: concatenate the selected
+        coords of the legs from the current one on (dedup of shared join
+        points omitted — irrelevant to this invariant)."""
         out: list[int] = []
-        for leg in self.legs:
+        for leg in self.legs[self.current_leg:]:
             out.extend(leg.coords)
         return out
 
@@ -139,8 +139,8 @@ def test_plan_sync_makes_the_reroute_the_drawn_route():
 
 def test_plan_sync_only_touches_the_current_leg():
     """A multi-stop plan: reroute on leg 1 must leave legs 0 and 2 intact
-    and only swap the middle leg, so the whole-trip line = prefix + new +
-    suffix."""
+    and only swap the middle leg. The line drawn = new + suffix: leg 0 is
+    behind the rider (test_skip_waypoint_line.py)."""
     plan = FakePlan(
         legs=[FakeLeg([1, 2]), FakeLeg(OLD_ROAD), FakeLeg([30, 31])],
         current_leg=1,
@@ -150,7 +150,7 @@ def test_plan_sync_only_touches_the_current_leg():
     assert plan.legs[0].coords == [1, 2]
     assert plan.legs[1].coords == NEW_ROAD
     assert plan.legs[2].coords == [30, 31]
-    assert r.route_draw_coords == [1, 2] + NEW_ROAD + [30, 31]
+    assert r.route_draw_coords == NEW_ROAD + [30, 31]
 
 
 def test_single_destination_no_plan_uses_polyline():
