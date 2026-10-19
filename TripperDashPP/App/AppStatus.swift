@@ -1418,7 +1418,9 @@ final class AppStatus {
     }
 
     /// Give a fix that isn't there yet up to 3 s, for callers launched
-    /// cold (the picker starts location only as it appears).
+    /// cold (the picker starts location only as it appears): a shared
+    /// route, or a Shortcuts intent, so a route is joined where the rider
+    /// is rather than at its start.
     private func waitForFirstFix() async {
         // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
         func fresh() -> Bool { (locationService.lastFix.map { -$0.timestamp.timeIntervalSinceNow < 30 }) ?? false }
@@ -1588,17 +1590,6 @@ final class AppStatus {
                                         nearestIndex: decision.nearestIndex)
         else { return "That route has no points." }
         return await navigateFromShortcut(plan, running: running)
-    }
-
-    /// Launched cold by an intent, the picker starts location only as it
-    /// appears: give the first fix a moment, so a saved route is joined
-    /// where the rider is rather than at its start.
-    private func waitForFirstFix() async {
-        // ponytail: polls up to 3 s; an async first-fix API on LocationService if more callers need one
-        func fresh() -> Bool { (locationService.lastFix.map { -$0.timestamp.timeIntervalSinceNow < 30 }) ?? false }
-        for _ in 0..<30 where !fresh() {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
     }
 
     /// Navigate `plan` (origin = live location). Mid-navigation it replaces
