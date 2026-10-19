@@ -17,8 +17,8 @@
 //  snapshotter in SnapshotterPark so its command buffer drains safely.
 //
 //  Unlike the old 1 Hz MapPreviewView this is a ONE-SHOT snapshot
-//  (routes don't move), re-taken only when the point set or the pixel
-//  size changes.
+//  (routes don't move), re-taken only when the points or the pixel size
+//  change (the detail screen edits points in place).
 //
 
 import CoreLocation
@@ -50,6 +50,7 @@ struct SavedRoutePreviewMap: View {
             .clipped()
             .onAppear { renderIfNeeded(size: geo.size) }
             .onChange(of: geo.size) { _, newSize in renderIfNeeded(size: newSize) }
+            .onChange(of: points) { _, _ in renderIfNeeded(size: geo.size) }
             .onChange(of: colorScheme) { _, _ in
                 renderedKey = nil
                 renderIfNeeded(size: geo.size)
@@ -60,17 +61,18 @@ struct SavedRoutePreviewMap: View {
     // MARK: - Rendering
 
     /// Re-render only when the inputs that affect pixels actually change
-    /// (point identities + integer pixel size + colour scheme), so layout
-    /// passes that re-emit the same size don't kick off redundant snapshots.
+    /// (every point + integer pixel size + colour scheme), so layout passes
+    /// that re-emit the same size don't kick off redundant snapshots. All
+    /// points, not just the ends: a reorder or a middle stop changes the shape.
     private func renderIfNeeded(size: CGSize) {
         guard size.width >= 1, size.height >= 1, !points.isEmpty else { return }
-        let key = "\(points.count)-\(points.first?.id.uuidString ?? "")-\(points.last?.id.uuidString ?? "")-\(Int(size.width))x\(Int(size.height))-\(colorScheme == .dark ? "d" : "l")"
+        let key = "\(points.hashValue)-\(Int(size.width))x\(Int(size.height))-\(colorScheme == .dark ? "d" : "l")"
         guard key != renderedKey else { return }
         renderedKey = key
-        render(size: size)
+        render(size: size, key: key)
     }
 
-    private func render(size: CGSize) {
+    private func render(size: CGSize, key: String) {
         let coords = points.map(\.coordinate)
         guard let span = GPXGeometry.boundingSpan(coords) else { return }
 
@@ -92,7 +94,8 @@ struct SavedRoutePreviewMap: View {
         let snapshotter = MKMapSnapshotter(options: options)
         snapshotter.start(with: .main) { snap, _ in
             SnapshotterPark.shared.park(snapshotter)
-            guard let snap else { return }
+            // A quick second edit can finish first: keep only the latest.
+            guard let snap, renderedKey == key else { return }
             image = drawRoute(on: snap, coords: coords, isDark: isDark)
         }
     }
