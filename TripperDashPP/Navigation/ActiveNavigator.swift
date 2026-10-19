@@ -1271,6 +1271,9 @@ final class ActiveNavigator {
         // in the hook instead — nothing to sync.
         if let plan, plan.legs.indices.contains(currentLegIndex) {
             plan.replaceLegRoute(legIndex: currentLegIndex, with: newRoute)
+            // The leg's other options went with it: drop their grey lines,
+            // which still ran the abandoned way (after a removed stop: from it).
+            refreshAlternatives()
         }
         refreshOverviewCaches()
         // A reroute can replace the leg the borrowed step came from, so
@@ -1336,7 +1339,15 @@ final class ActiveNavigator {
         // Mid-leg swap the rider triggers: the next leg can turn off the
         // average-speed section, so end it like any other recalculation.
         routeRecalculations += 1
+        let skippedFrom = currentLegIndex
         await advanceToNextLeg(in: plan)
+        guard currentLegIndex > skippedFrom else { return false }
+        // The next leg starts AT the removed stop, so its line and turns
+        // still lead there. Route from where the rider is now instead of
+        // waiting for the off-route reroute (~7 s, field log 2026-10-19).
+        if let here = currentCoordinate, !isRerouting {
+            await requestReroute(from: here)
+        }
         return true
     }
 

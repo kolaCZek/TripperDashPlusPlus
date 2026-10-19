@@ -1316,17 +1316,19 @@ struct MapPickerView: View {
         status.mapViewSource.setTileCache(cache, buildLayers: true)
     }
 
-    /// Concatenate every leg's selected-option polyline into one full-trip
-    /// coordinate array and collect the intermediate via-stops, then push
-    /// both into the renderer so the dash draws the whole route + a dot at
-    /// each stop. Origin (index 0) and final destination (last) are
-    /// excluded from the dots — the puck marks the origin and the line's
-    /// end marks the destination. A single-destination plan (n=2) yields
-    /// no dots, so this is a no-op visual-wise beyond the full line (which
-    /// equals the single leg anyway).
-    private func installFullRouteContext(plan: PlannedRoute) {
+    /// Concatenate the selected-option polylines of the legs still ahead
+    /// (from `fromLeg`, the current one) into one coordinate array and
+    /// collect the via-stops still ahead, then push both into the renderer
+    /// so the dash draws the rest of the route + a dot at each stop. Legs
+    /// already behind are left out: the grey breadcrumb shows what was
+    /// ridden, and a stop removed from the dash (`skipCurrentLeg`) must not
+    /// keep its blue line and dot. The final destination is excluded from
+    /// the dots — the line's end marks it. A single-destination plan (n=2)
+    /// yields no dots, so this is a no-op visual-wise beyond the full line
+    /// (which equals the single leg anyway).
+    private func installFullRouteContext(plan: PlannedRoute, fromLeg: Int) {
         var full: [CLLocationCoordinate2D] = []
-        for leg in plan.legs {
+        for leg in plan.legs.dropFirst(fromLeg) {
             guard let route = leg.selected?.route else { continue }
             let poly = route.polyline
             let n = poly.pointCount
@@ -1342,14 +1344,13 @@ struct MapPickerView: View {
                 full.append(c)
             }
         }
-        // Intermediate via-stops only (drop origin + final destination).
+        // Via-stops still ahead: the current leg's end through the last
+        // intermediate one (leg i runs waypoint i → i+1; drop the final).
         let wps = plan.waypoints
-        let dots: [CLLocationCoordinate2D]
-        if wps.count > 2 {
-            dots = wps[1..<(wps.count - 1)].map { $0.coordinate }
-        } else {
-            dots = []
-        }
+        let firstAhead = fromLeg + 1
+        let dots = firstAhead < wps.count - 1
+            ? wps[firstAhead..<(wps.count - 1)].map(\.coordinate)
+            : []
         status.mapViewSource.setFullRoute(coords: full, waypoints: dots)
     }
 
@@ -1377,7 +1378,8 @@ struct MapPickerView: View {
             //     rebuilt from the (mutated) plan — otherwise the dash
             //     keeps drawing the pre-switch shape.
             if let plan = status.activeNavigator.plan {
-                self.installFullRouteContext(plan: plan)
+                self.installFullRouteContext(plan: plan,
+                                             fromLeg: status.activeNavigator.currentLegIndex)
             }
             // (4) Cameras + average-speed sections for a new road or the
             //     next leg. No-op while the route stays inside the area
@@ -1568,7 +1570,7 @@ struct MapPickerView: View {
             // background — until tiles arrive), and let the prerender fill in
             // the real map in the background when connectivity returns.
             installRouteGeometrySync(firstLeg)
-            installFullRouteContext(plan: plan)
+            installFullRouteContext(plan: plan, fromLeg: 0)
             await status.activeNavigator.start(plan: plan)
             // Planning UI is consumed — drop it so picking returns to
             // browsing after navigation ends.
