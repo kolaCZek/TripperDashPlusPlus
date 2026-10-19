@@ -10,6 +10,9 @@ Three things kept it on screen:
      reroute (~7 s later in the log) the active line and turns led there.
   3. The off-route reroute replaced the leg's options but left the old
      alternatives (grey lines from the removed stop) drawn.
+Plus (review): a reroute already in flight when the stop is removed must
+not land on the new leg; `requestReroute` drops a result whose destination
+is no longer the current one.
 """
 
 from __future__ import annotations
@@ -48,6 +51,7 @@ class SwiftWiring(unittest.TestCase):
     def test_full_route_starts_at_current_leg(self):
         body = decl_body(self.picker, "private func installFullRouteContext")
         self.assertIn("plan.legs.dropFirst(fromLeg)", body)
+        self.assertIn("let firstAhead = fromLeg + 1", body)
         self.assertIn("wps[firstAhead..<(wps.count - 1)]", body)
         self.assertIn("fromLeg: status.activeNavigator.currentLegIndex", self.picker)
         self.assertIn("installFullRouteContext(plan: plan, fromLeg: 0)", self.picker)
@@ -56,6 +60,14 @@ class SwiftWiring(unittest.TestCase):
         body = decl_body(self.nav, "func skipCurrentLeg(")
         self.assertLess(body.index("await advanceToNextLeg("),
                         body.index("await requestReroute(from: here)"))
+
+    def test_late_reroute_for_an_old_leg_is_dropped(self):
+        # A reroute in flight when the stop is removed (an off-route one, or
+        # a first press before a second) must not be installed on the new leg.
+        body = decl_body(self.nav, "private func requestReroute(")
+        guard = body.index("guard destination == dest else")
+        self.assertLess(body.index("await cb(coord, dest)"), guard)
+        self.assertLess(guard, body.index("await installSwappedRoute(newRoute)"))
 
     def test_reroute_drops_stale_alternatives(self):
         body = decl_body(self.nav, "private func installSwappedRoute(")

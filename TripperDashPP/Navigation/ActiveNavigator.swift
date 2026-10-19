@@ -1225,6 +1225,15 @@ final class ActiveNavigator {
         lastRerouteAt = .now
         log.info("Requesting reroute to \(dest.name, privacy: .public)")
         if let newRoute = await cb(coord, dest) {
+            // The leg changed while routing (a stop removed from the dash,
+            // a leg advance, the ride ended): this road leads to the old
+            // stop. Drop it, and let the off-route check route the new leg
+            // without waiting out the cooldown.
+            guard destination == dest else {
+                log.info("Reroute result for \(dest.name, privacy: .public) dropped — the leg changed meanwhile")
+                lastRerouteAt = .distantPast
+                return
+            }
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
         } else {
