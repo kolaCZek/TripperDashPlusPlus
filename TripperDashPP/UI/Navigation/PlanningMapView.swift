@@ -118,19 +118,26 @@ struct PlanningMapView: UIViewRepresentable {
 
         func syncWaypointPins(on map: MKMapView) {
             let wps = parent.plan.waypoints
+            // No pin for the "Current location" origin: the user-location
+            // dot already marks it, and the waypoint's coordinate is only
+            // the fix at planning time. With no fix yet it is the route's
+            // first point, so a pin there covered stop 1. Routing ignores
+            // it too (RoutingService routes from the live location).
+            let pinned = wps.enumerated().filter { !$0.element.isCurrentLocation }
             let existing = map.annotations.compactMap { $0 as? WaypointAnnotation }
             // Cheap diff: if ids+coords match in order, leave them.
-            let sameCount = existing.count == wps.count
+            let sameCount = existing.count == pinned.count
             let allMatch = sameCount && zip(
-                existing.sorted { $0.ordinal < $1.ordinal }, wps
-            ).allSatisfy { ann, wp in
-                ann.waypointId == wp.id
+                existing.sorted { $0.ordinal < $1.ordinal }, pinned
+            ).allSatisfy { ann, item in
+                let wp = item.element
+                return ann.waypointId == wp.id
                     && ann.coordinate.latitude == wp.coordinate.latitude
                     && ann.coordinate.longitude == wp.coordinate.longitude
             }
             guard !allMatch else { return }
             map.removeAnnotations(existing)
-            let fresh = wps.enumerated().map { idx, wp in
+            let fresh = pinned.map { idx, wp in
                 WaypointAnnotation(waypointId: wp.id,
                                    ordinal: idx,
                                    total: wps.count,
