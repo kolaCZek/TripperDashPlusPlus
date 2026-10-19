@@ -10,11 +10,11 @@ Three things kept it on screen:
      reroute (~7 s later in the log) the active line and turns led there.
   3. The off-route reroute replaced the leg's options but left the old
      alternatives (grey lines from the removed stop) drawn.
-Plus (review): the progress bar is rebased on the legs still ahead, so it
+Plus (reviews): the progress bar is rebased on the legs still ahead, so it
 neither jumps by the skipped leg nor keeps the removed stop's tick; and a
-reroute already in flight when the stop is removed must
-not land on the new leg; `requestReroute` drops a result whose destination
-is no longer the current one.
+reroute already in flight when the stop is removed must not land on the
+new leg: `requestReroute` drops a result whose destination is no longer
+the current one and lets the next off-route fix reroute at once.
 """
 
 from __future__ import annotations
@@ -69,14 +69,25 @@ class SwiftWiring(unittest.TestCase):
         body = decl_body(self.nav, "private func requestReroute(")
         guard = body.index("guard destination == dest else")
         self.assertLess(body.index("await cb(coord, dest)"), guard)
-        self.assertLess(guard, body.index("await installSwappedRoute(newRoute)"))
+        self.assertLess(guard, body.index("offRouteSince = .distantPast"))
+        self.assertLess(body.index("offRouteSince = .distantPast"), body.index("await installSwappedRoute(newRoute)"))
 
     def test_skip_rebases_progress_bar(self):
         body = decl_body(self.nav, "func skipCurrentLeg(")
         covered = body.index("let covered = plannedTotalDistance - finalDestinationRemainingDistance")
+        self.assertLess(covered, body.index("await advanceToNextLeg(in: plan, rebaseCovered: covered)"))
+        # Rebase before the advance's first await (a second press reads it).
+        adv = decl_body(self.nav, "private func advanceToNextLeg(")
+        self.assertLess(adv.index("setProgressBaseline(plan: plan, fromLegIndex: next, alreadyCovered: rebaseCovered)"),
+                        adv.index("await onActiveRouteChanged?("))
+        # Post-reroute rebase only on the same ride, plan and leg.
+        guard = body.index("guard isNavigating, !hasArrived, self.plan === plan")
         rebase = body.index("setProgressBaseline(plan: plan, fromLegIndex: currentLegIndex, alreadyCovered: covered)")
-        self.assertLess(covered, body.index("await advanceToNextLeg("))
-        self.assertLess(body.index("await requestReroute(from: here)"), rebase)
+        self.assertLess(body.index("await requestReroute(from: here)"), guard)
+        self.assertLess(guard, rebase)
+        # Tick-comb cutoff counts the plan's via-points, not just those ahead.
+        self.assertIn("let viaCount = plan.legs.count - 1",
+                      decl_body(self.nav, "private func setProgressBaseline("))
 
     def test_reroute_drops_stale_alternatives(self):
         body = decl_body(self.nav, "private func installSwappedRoute(")
