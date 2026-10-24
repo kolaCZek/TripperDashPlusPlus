@@ -28,13 +28,14 @@ import Foundation
 enum ShortcutPolicy {
 
     enum FreeRide: Equatable {
-        case alreadyRiding, alreadyStarting, planStaged, noBike, startNow, waitForLink, connect, reconnect
+        case alreadyRiding, alreadyStarting, planStaged, handConnecting, noBike, startNow, waitForLink, connect, reconnect
     }
 
     static func freeRide(rideActive: Bool,
                          requestPending: Bool,
                          planStaged: Bool,
                          link: BikeLink.LinkState,
+                         shortcutConnect: Bool,
                          canConnect: Bool) -> FreeRide {
         if rideActive {
             // The link gave up reconnecting (bike off past the reconnect
@@ -50,7 +51,10 @@ enum ShortcutPolicy {
         if planStaged { return .planStaged }
         switch link {
         case .connected: return .startNow
-        case .connecting, .handshaking, .reconnecting: return .waitForLink
+        // A link the rider brought up by hand is theirs: the app's own Wi-Fi
+        // join fires a "joined the bike's Wi-Fi" automation, and a free ride
+        // would take over a connect meant for picking a destination.
+        case .connecting, .handshaking, .reconnecting: return shortcutConnect ? .waitForLink : .handConnecting
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }

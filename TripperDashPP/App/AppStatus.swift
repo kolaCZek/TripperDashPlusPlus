@@ -1536,6 +1536,7 @@ final class AppStatus {
                                 requestPending: pendingRideRequest != nil,
                                 planStaged: plannedRoute != nil,
                                 link: bikeLink.state,
+                                shortcutConnect: shortcutConnect,
                                 canConnect: canConnect)
     }
 
@@ -1547,7 +1548,8 @@ final class AppStatus {
         switch freeRideDecision {
         case .alreadyRiding: "Already riding."
         case .alreadyStarting: "Already starting your ride."
-        case .planStaged: Self.planStagedReply
+        case .planStaged: "A planned route is in TripperDash++, so free ride wasn't started."
+        case .handConnecting: "TripperDash++ is connecting to your bike, so free ride wasn't started."
         case .noBike: "Add your bike in TripperDash++ first."
         case .startNow, .waitForLink, .connect, .reconnect: nil
         }
@@ -1557,7 +1559,7 @@ final class AppStatus {
     /// state may have changed while iOS asked to open the app.
     func startFreeRideFromShortcut() {
         switch freeRideDecision {
-        case .alreadyRiding, .alreadyStarting, .planStaged, .noBike:
+        case .alreadyRiding, .alreadyStarting, .planStaged, .handConnecting, .noBike:
             return
         case .startNow:
             Task { await startFreeRide() }
@@ -1624,11 +1626,25 @@ final class AppStatus {
             }
             return "Rerouting to \(dest)."
         case .stage:
-            if isFreeRiding { stopFreeRide() }
+            if isFreeRiding {
+                // Route first, like the redirect: ending the free ride for a
+                // route that then fails would leave the dash with no map.
+                do {
+                    try await routingService.recompute(plan,
+                                                       dirtyLegIndices: plan.allLegIndices,
+                                                       preferences: navigationStore.routePreferences,
+                                                       timeout: ActiveNavigator.routeRequestTimeout,
+                                                       isStillLive: { [weak self] in self?.isFreeRiding == true })
+                } catch {
+                    return "Couldn't find a route to \(dest). Free ride continues."
+                }
+                guard isFreeRiding, plan.isComputed else { return "Your ride changed. Nothing was started." }
+                stopFreeRide()
+            }
             pendingShare = nil   // this ride supersedes a share parked earlier
             plannedRoute = plan
             shortcutStopIds = plan.waypoints.map(\.id)
-            Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+            if !plan.isComputed { Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) } }
             guard canConnect else { return "Route planned. Add your bike in TripperDash++ to start." }
             pendingRideRequest = .navigate
             switch bikeLink.state {
@@ -1657,7 +1673,11 @@ final class AppStatus {
         // `plannedRoute`), which may already have taken over the request. A
         // plan and a connect the rider started by hand are left alone.
         let ownPlan = ownPlanStaged
-        guard hadRequest || ownPlan else { return "No ride in progress." }
+        guard hadRequest || ownPlan else {
+            // A plan the rider built is theirs (its Start may be in its
+            // 500 ms beat right now): left alone, and said so.
+            return plannedRoute != nil ? "Your planned route in TripperDash++ was left as is." : "No ride in progress."
+        }
         if ownPlan { cancelPlanning() }
         switch bikeLink.state {
         case .connecting, .handshaking: if shortcutConnect { bikeLink.disconnect() }
