@@ -270,7 +270,9 @@ final class ActiveNavLoop {
         // "recalculating" icon (0x1C) until the new route lands. Falls back
         // to `.straight` only in the brief pre-first-fix transient.
         let kind: ManeuverKind = {
-            if isRerouting { return .recalculating }
+            // A retry while the U-turn is up keeps the U-turn (the rider
+            // rides on past a road with no junction: one every ~12 s).
+            if isRerouting, !nav.isWrongWay { return .recalculating }
             return nav.upcomingManeuver ?? .straight
         }()
 
@@ -605,7 +607,9 @@ final class ActiveNavLoop {
 
         // Reroute: announce once when an episode begins; re-arm when it ends.
         if isRerouting {
-            if !spokeReroutingForEpisode {
+            // Not while the U-turn is up: the rider already has the
+            // instruction, and a U-turn retry comes every ~12 s.
+            if !spokeReroutingForEpisode, !isWrongWay {
                 spokeReroutingForEpisode = true
                 voice.speak(VoicePhrase.rerouting(lang),
                             language: lang.rawValue, priority: .critical)

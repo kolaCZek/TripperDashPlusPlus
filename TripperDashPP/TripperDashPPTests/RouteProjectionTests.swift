@@ -13,6 +13,8 @@
 //  arc-lengths are hand-verifiable.
 //
 
+import CoreLocation
+import MapKit
 import Testing
 @testable import TripperDashPP
 
@@ -130,5 +132,76 @@ struct RouteProjectionTests {
             rider: rider, target: cam, maxLateralMeters: 60)
         #expect(ahead != nil)
         #expect(abs((ahead ?? 0) - 334) < 15)
+    }
+}
+
+/// Map matching and reroute-heading statics behind the wrong-way U-turn
+/// (PR #191), on real MKPolylines. Python mirrors of the same scenarios live
+/// in tools/fake_dash/tests/test_wrong_way_uturn.py.
+@MainActor
+struct RerouteHeadingTests {
+
+    /// x metres east, y metres north of 50°N 14°E.
+    private func pt(_ x: Double, _ y: Double) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: 50 + y / 111_320,
+                               longitude: 14 + x / (111_320 * cos(50 * .pi / 180)))
+    }
+
+    private func line(_ xy: [(Double, Double)]) -> MKPolyline {
+        let c = xy.map { pt($0.0, $0.1) }
+        return MKPolyline(coordinates: c, count: c.count)
+    }
+
+    /// Up carriageway A (x = 0), across, back down B (x = 20); 100 m segments.
+    private var dividedTurnaround: MKPolyline {
+        line(stride(from: 0.0, through: 1000, by: 100).map { (0, $0) }
+             + stride(from: 1000.0, through: 0, by: -100).map { (20, $0) })
+    }
+
+    @Test func gpsErrorTowardsFarCarriagewayKeepsCursor() {
+        let route = dividedTurnaround
+        let rider = pt(11, 450)
+        #expect(PolylineMath.nearestSegment(on: route, from: 4, to: rider).segmentIndex > 10)
+        #expect(PolylineMath.nearestSegment(on: route, from: 4, to: rider, preferContinuity: true).segmentIndex == 4)
+    }
+
+    @Test func longSegmentDoesNotFreezeCursor() {
+        // 800 m approach, 15 m median crossing, return carriageway.
+        let route = line([(0, 0), (0, 800), (15, 800), (15, 0)])
+        for y in [790.0, 300, 50] {
+            let r = PolylineMath.nearestSegment(on: route, from: 0, to: pt(15, y),
+                                                preferContinuity: true, course: 180)
+            #expect(r.segmentIndex == 2)
+        }
+    }
+
+    @Test func outAndBackStandingTakesEarliestTie() {
+        // Ways out (x = 0) and back (x = 3), 50 m vertices; rider standing at
+        // y = 880, fix 2 m towards the way back.
+        let route = line(stride(from: 0.0, through: 1000, by: 50).map { (0, $0) }
+                         + stride(from: 1000.0, through: 0, by: -50).map { (3, $0) })
+        let rider = pt(2, 880)
+        #expect(PolylineMath.nearestSegment(on: route, from: 16, to: rider).segmentIndex > 20)
+        #expect(PolylineMath.nearestSegment(on: route, from: 16, to: rider, preferContinuity: true).segmentIndex == 17)
+        #expect(PolylineMath.nearestSegment(on: route, from: 16, to: rider,
+                                            preferContinuity: true, course: 0).segmentIndex == 17)
+    }
+
+    @Test func forwardPickHonoursHeadingAndDetourCap() {
+        let north = [pt(0, 0), pt(0, 111)]
+        let south = [pt(0, 0), pt(0, -111)]
+        #expect(ActiveNavigator.forwardRouteIndex([(south, 600), (north, 600)], course: 0) == 1)
+        #expect(ActiveNavigator.forwardRouteIndex([(south, 600), (north, 1320)], course: 0) == nil)
+        #expect(ActiveNavigator.forwardRouteIndex([(south, 600), (south, 600)], course: 350) == nil)
+    }
+
+    @Test func wrongWayClock() {
+        let t0 = Date(timeIntervalSince1970: 0)
+        // Not active: anything at or below 120° stops the clock.
+        #expect(ActiveNavigator.wrongWaySince(nil, offLine: 180, at: t0, active: false) == t0)
+        #expect(ActiveNavigator.wrongWaySince(t0, offLine: 100, at: t0, active: false) == nil)
+        // Active: 60–120° keeps it, under 60° clears it.
+        #expect(ActiveNavigator.wrongWaySince(t0, offLine: 100, at: t0, active: true) == t0)
+        #expect(ActiveNavigator.wrongWaySince(t0, offLine: 30, at: t0, active: true) == nil)
     }
 }

@@ -229,6 +229,8 @@ class SwiftWiring(unittest.TestCase):
         self.assertIn("$0.d <= nearest.d + continuityCourseTieMeters", seg)
         self.assertIn("to: course)) < 60 })", seg)
         self.assertIn("near.d <= continuityKeepWithin, near.d - bestDist < continuityJumpMargin", seg)
+        self.assertIn("? window.first(where: { $0.d <= nearest.d + continuityCourseTieMeters }) ?? nearest", seg)
+        self.assertIn("if near.i == bestIdx { break }", seg)
         self.assertIn("continuityCourseTieMeters: CLLocationDistance = 10", poly)
         for const in ("continuityWindow: CLLocationDistance = 300",
                       "continuityJumpMargin: CLLocationDistance = 25",
@@ -275,14 +277,24 @@ class SwiftWiring(unittest.TestCase):
         self.assertIn("onUTurnRoute = true", branch)
         self.assertIn("onUTurnRoute = false", decl_body(self.nav, "private func resetWrongWay("))
 
-    def test_u_turn_only_retry_keeps_the_u_turn(self):
-        # Review 2: a retry that again only turns back must not reset the
-        # U-turn (and re-speak it) every 10-15 s.
+    def test_u_turn_route_shows_u_turn_at_once_and_retries_quietly(self):
+        # Review 4: a U-turn-only route shows the U-turn on install (not its
+        # first turn behind the rider for 3 s); retries meanwhile keep the
+        # U-turn on the dash and say nothing (one every ~12 s).
         body = decl_body(self.nav, "private func requestReroute(")
-        keep = body.index("let wrongWay = (isWrongWay, wrongWaySince)")
-        self.assertLess(keep, body.index("await installSwappedRoute(newRoute)"))
         branch = body[body.index("if needsUTurn {"):]
-        self.assertIn("if wrongWay.0 { (isWrongWay, wrongWaySince) = wrongWay }", branch)
+        self.assertLess(body.index("await installSwappedRoute(newRoute)"), body.index("if needsUTurn {"))
+        self.assertIn("abs(ManeuverGeometry.signedDelta(from: course, to: start)) > 120", branch)
+        self.assertIn("isWrongWay = true", branch)
+        self.assertIn("if isRerouting, !nav.isWrongWay { return .recalculating }", self.loop)
+        voice = decl_body(self.loop, "private func emitVoice(")
+        self.assertIn("if !spokeReroutingForEpisode, !isWrongWay {", voice)
+
+    def test_u_turn_route_becomes_normal_once_ridden_along(self):
+        # Review 4: otherwise wrong-way is judged off the line for the rest
+        # of the leg and a later missed turn gives a false U-turn.
+        upd = decl_body(self.nav, "private func updateWrongWay(")
+        self.assertIn("if offLine < 60 { onUTurnRoute = false }", upd)
 
     def test_loop_speaks_once_and_hides_lookahead(self):
         self.assertIn("&& !nav.isWrongWay", self.loop)

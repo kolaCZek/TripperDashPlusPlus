@@ -1298,7 +1298,6 @@ final class ActiveNavigator {
                 return
             }
             log.info("Reroute succeeded — swapping active route")
-            let wrongWay = (isWrongWay, wrongWaySince)
             await installSwappedRoute(newRoute)
             // Every option turns back. A rider who rides on anyway gets a
             // new try (maybe a road ahead by now) at the failure pace, not
@@ -1306,9 +1305,16 @@ final class ActiveNavigator {
             if needsUTurn {
                 lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
                 onUTurnRoute = true
-                // Still riding away from a road behind: the U-turn stays on
-                // screen and isn't spoken again on every retry.
-                if wrongWay.0 { (isWrongWay, wrongWaySince) = wrongWay }
+                // The new line starts behind the rider: show the U-turn now,
+                // not its first turn for 3 s. A rider already wrong-way keeps
+                // it with no new prompt (no loop tick sees a gap while
+                // `isRerouting`). Riding within 60° of it clears it at once.
+                if let course = freshCourse,
+                   let start = ManeuverGeometry.outgoingBearing(newRoute.polyline.coordinateList(), anchor: 30),
+                   abs(ManeuverGeometry.signedDelta(from: course, to: start)) > 120 {
+                    isWrongWay = true
+                    wrongWaySince = .now
+                }
             }
         } else {
             // Back-date the cooldown clock so the next attempt comes
@@ -1638,6 +1644,8 @@ final class ActiveNavigator {
         let pts = polyline.points()
         let line = ManeuverGeometry.bearing(from: pts[i].coordinate, to: pts[i + 1].coordinate)
         let offLine = abs(ManeuverGeometry.signedDelta(from: line, to: fix.course))
+        // Riding along it: from here on a U-turn route is a normal one.
+        if offLine < 60 { onUTurnRoute = false }
         wrongWaySince = Self.wrongWaySince(wrongWaySince, offLine: offLine, at: fix.timestamp, active: isWrongWay)
         let now = wrongWaySince.map { fix.timestamp.timeIntervalSince($0) >= self.wrongWayDelay } ?? false
         guard now != isWrongWay else { return }
