@@ -19,21 +19,49 @@ import MapKit
 
 enum PolylineMath {
 
+    /// `nearestSegment(preferContinuity:)`: how far along the route counts
+    /// as "where the rider is" (> 1 s at 200 km/h plus a GPS gap), how much
+    /// closer a later stretch must be to take the cursor (above typical GPS
+    /// error), and past which distance the near stretch is lost anyway
+    /// (= the navigator's 60 m off-route corridor; a tunnel exit or a cut
+    /// corner jumps as before).
+    static let continuityWindow: CLLocationDistance = 300
+    static let continuityJumpMargin: CLLocationDistance = 25
+    static let continuityKeepWithin: CLLocationDistance = 60
+    /// Inside the window, how much nearer a stretch against the rider's
+    /// `course` may be and still lose to one along it (~GPS error).
+    static let continuityCourseTieMeters: CLLocationDistance = 10
+
     /// Perpendicular distance (meters) from `coord` to the nearest
     /// segment of `polyline`, plus the index of that segment in the
     /// polyline's `points()` array.
     ///
     /// `searchFrom` lets the caller skip segments already passed
     /// (forward-only walking). Pass 0 for a cold lookup.
+    ///
+    /// `preferContinuity` (the live cursor): keep the best segment within
+    /// `continuityWindow` of `searchFrom` unless a later one is
+    /// `continuityJumpMargin` closer, or the near one is off the route. A
+    /// later stretch of the route close by (the far carriageway after a
+    /// turnaround, the way back of an out-and-back, the next leg of a
+    /// hairpin) could otherwise steal the cursor through a few metres of GPS
+    /// error, and the cursor never comes back: progress, turns and the
+    /// wrong-way check then read the wrong stretch. `course` (the rider's
+    /// last moving course, kept through stops) breaks near-ties inside the
+    /// window; without one the earliest near-tie wins.
     static func nearestSegment(on polyline: MKPolyline,
                                from searchFrom: Int,
-                               to coord: CLLocationCoordinate2D)
+                               to coord: CLLocationCoordinate2D,
+                               preferContinuity: Bool = false,
+                               course: CLLocationDirection? = nil)
                               -> (distanceMeters: CLLocationDistance, segmentIndex: Int) {
         let count = polyline.pointCount
         guard count >= 2 else { return (.greatestFiniteMagnitude, 0) }
         let points = polyline.points()
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
         var bestIdx = max(0, searchFrom)
+        var window: [(i: Int, d: CLLocationDistance, a: CLLocationCoordinate2D, b: CLLocationCoordinate2D)] = []
+        var along: CLLocationDistance = 0
         let start = max(0, searchFrom)
         for i in start..<(count - 1) {
             let a = points[i].coordinate
@@ -43,7 +71,41 @@ enum PolylineMath {
                 bestDist = d
                 bestIdx = i
             }
+            // Counted from the END of the cursor segment, so a long one
+            // (a straight before a hairpin) can't fill the window alone.
+            if preferContinuity, along <= continuityWindow {
+                window.append((i, d, a, b))
+                if i > start { along += haversine(a, b) }
+            }
         }
+        guard preferContinuity, let nearest = window.min(by: { $0.d < $1.d }) else {
+            return (bestDist, bestIdx)
+        }
+        // Within the window, a stretch running the rider's way beats a
+        // nearer one running against it by GPS error (the way back of an
+        // out-and-back next to the way out, the leg below a switchback).
+        // No course (standing, e.g. a red light before an out-and-back
+        // turnaround): the earliest near-tie, the stretch reached first.
+        var candidates = [course == nil
+                          ? window.first(where: { $0.d <= nearest.d + continuityCourseTieMeters }) ?? nearest
+                          : nearest]
+        if let course,
+           let aligned = window.filter({ $0.d <= nearest.d + continuityCourseTieMeters
+                                       && abs(ManeuverGeometry.signedDelta(
+                                           from: ManeuverGeometry.bearing(from: $0.a, to: $0.b),
+                                           to: course)) < 60 })
+                             .min(by: { $0.d < $1.d }) {
+            candidates.insert(aligned, at: 0)
+        }
+        // First that may keep the cursor; an aligned one that may not falls
+        // back to the window's nearest, not straight to a far jump.
+        for near in candidates {
+            if near.i == bestIdx { break }
+            if near.d <= continuityKeepWithin, near.d - bestDist < continuityJumpMargin {
+                return (near.d, near.i)
+            }
+        }
+
         return (bestDist, bestIdx)
     }
 

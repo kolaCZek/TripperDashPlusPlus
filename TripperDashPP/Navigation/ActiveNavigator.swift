@@ -218,6 +218,9 @@ final class ActiveNavigator {
     /// the pre-first-fix transient when no arriving step is known yet.
     var upcomingManeuver: ManeuverKind? {
         guard let arriving = stepBeforeNext else { return nil }
+        if isWrongWay, let here = currentCoordinate {
+            return DrivingSide.at(here) == .left ? .uTurnRight : .uTurnLeft
+        }
         // Normal case: the departing step lives in this same route.
         //
         // Track-route boundary case: when the maneuver node is the END of
@@ -249,7 +252,7 @@ final class ActiveNavigator {
     /// The localized instruction text for the UPCOMING maneuver — the
     /// arriving step's `.instructions` (the turn at the end of the leg the
     /// rider is on), NOT `nextStep`'s (which is one maneuver further on).
-    var upcomingInstructions: String? { stepBeforeNext?.instructions }
+    var upcomingInstructions: String? { isWrongWay ? "Make a U-turn" : stepBeforeNext?.instructions }
 
     /// The fully classified LOOK-AHEAD (secondary) maneuver — the one
     /// after `upcomingManeuver`. Its arriving step is `nextStep` (whose
@@ -286,6 +289,31 @@ final class ActiveNavigator {
     /// surface: the navigator already digests the fix; we just retain its
     /// coordinate.
     private(set) var currentCoordinate: CLLocationCoordinate2D?
+
+    /// Last GPS course while actually moving (≥ `courseMinSpeed`), kept
+    /// through a stop at a junction. `nil` until the first one. Picks an
+    /// off-route reroute that carries on the way the rider is riding.
+    private var travelCourse: (degrees: CLLocationDirection, at: Date)?
+    private let courseMinSpeed: CLLocationSpeed = 3   // m/s, below it GPS course is noise
+    /// Older than this, the course is forgotten: the rider may have turned
+    /// round slowly (a fuel-station forecourt) and ridden back out.
+    private let courseMaxAge: TimeInterval = 45
+    /// Wall clock (`.now`), unlike the wrong-way clock on `fix.timestamp`:
+    /// fixes arrive in real time, and replayed ones are stamped at ingest.
+    private var freshCourse: CLLocationDirection? {
+        guard let c = travelCourse, Date.now.timeIntervalSince(c.at) < courseMaxAge else { return nil }
+        return c.degrees
+    }
+
+    /// The rider rides AGAINST the blue line where they are (≥ 120° off it
+    /// for `wrongWayDelay`), e.g. after a reroute whose every option turns
+    /// back. `upcomingManeuver` then shows a U-turn instead of the turn far
+    /// behind them. Clears once they ride within 60° of the line.
+    private(set) var isWrongWay = false
+    private var wrongWaySince: Date?
+    /// The active route came from a reroute whose every option turned back.
+    private var onUTurnRoute = false
+    private let wrongWayDelay: TimeInterval = 3
 
     // MARK: - Route overview geometry (feat/nav-route-overview-map)
 
@@ -555,11 +583,13 @@ final class ActiveNavigator {
     /// Live-traffic reroute hook. Returns Apple's current traffic-aware
     /// route ALTERNATIVES from the rider's live position to the current
     /// destination (i.e. `MKDirections` with `requestsAlternateRoutes`),
-    /// or nil/empty on failure. Distinct from `onRerouteRequested` (which
-    /// returns a single best route for OFF-route recovery): the traffic
-    /// check needs the WHOLE candidate set so it can pick the fastest
-    /// candidate that is a genuinely different road from the active route
-    /// (`trafficRerouteDecision`). Wired by AppStatus. `nil` when unwired →
+    /// or nil/empty on failure. The traffic check needs the WHOLE candidate
+    /// set so it can pick the fastest candidate that is a genuinely
+    /// different road from the active route (`trafficRerouteDecision`); the
+    /// off-route reroute uses it too once the rider's course is known, to
+    /// pick a road that carries on ahead (`forwardRouteIndex`).
+    /// `onRerouteRequested` (best route only) remains for the ETA refresh
+    /// and a reroute with no course yet. Wired by AppStatus. `nil` when unwired →
     /// the periodic check no-ops (the feature toggle is
     /// `trafficRerouteEnabled`).
     var onTrafficRoutesRequested: ((@MainActor (CLLocationCoordinate2D, Destination) async -> [MKRoute]))?
@@ -706,6 +736,7 @@ final class ActiveNavigator {
         self.lastSegmentIndex = 0
         self.offRouteSince = nil
         self.isOffRoute = false
+        resetWrongWay()
         // Seed initial display values from the route itself.
         self.remainingDistance = route.distance
         self.legArrivalDate = Date(timeIntervalSinceNow: route.expectedTravelTime)
@@ -933,6 +964,8 @@ final class ActiveNavigator {
         self.arrivalArmed = false
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.stationaryInRadiusSince = nil
+        self.travelCourse = nil
+        resetWrongWay()
         // Overview geometry — drop breadcrumb + caches so the next ride
         // starts with an empty progress bar.
         self.traveledCoordinates = []
@@ -969,6 +1002,7 @@ final class ActiveNavigator {
         let coord = fix.coordinate
         let previousCoordinate = self.currentCoordinate
         self.currentCoordinate = coord
+        if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = (fix.course, .now) }
         // Record the travelled trace (thinned). Drives the grey
         // "where you've been" line on the overview map; held across
         // reroutes so the progress bar keeps its history.
@@ -977,9 +1011,16 @@ final class ActiveNavigator {
         let (distFromRoute, segIdx) = PolylineMath.nearestSegment(
             on: route.polyline,
             from: lastSegmentIndex,
-            to: coord
+            to: coord,
+            preferContinuity: true,
+            course: freshCourse
         )
         self.lastSegmentIndex = segIdx
+        // Off the route the cursor is just the nearest stretch anywhere on
+        // it, which may run back at the rider by chance; judge only near the
+        // line, or on a U-turn route the rider is riding away from.
+        updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx,
+                       judge: distFromRoute <= offRouteDistanceThreshold || onUTurnRoute)
 
         let remaining = PolylineMath.remainingDistance(
             on: route.polyline,
@@ -1199,6 +1240,8 @@ final class ActiveNavigator {
             self.secondNextStep = nil
             self.distanceToSecondNextStep = 0
         }
+        // The U-turn is "now"; the step distance points at a node behind.
+        if isWrongWay { self.distanceToNextStep = 0 }
 
         // On-route detection + hysteresis-based reroute trigger.
         let nowOff = distFromRoute > offRouteDistanceThreshold
@@ -1226,7 +1269,23 @@ final class ActiveNavigator {
         defer { isRerouting = false }
         lastRerouteAt = .now
         log.info("Requesting reroute to \(dest.name, privacy: .public)")
-        if let newRoute = await cb(coord, dest) {
+        // MKDirections takes no heading: from a bare point it often leads
+        // back the way the rider came. Ask for the alternatives and take
+        // Apple's best one that carries on in the direction of travel.
+        var needsUTurn = false
+        let rerouted: MKRoute?
+        if let course = freshCourse, let alternatives = onTrafficRoutesRequested {
+            let routes = await alternatives(coord, dest)
+            let ahead = Self.forwardRouteIndex(routes.map { ($0.polyline.coordinateList(), $0.expectedTravelTime) },
+                                               course: course)
+            needsUTurn = ahead == nil && !routes.isEmpty
+            rerouted = ahead.map { routes[$0] } ?? routes.first
+            let verdict = ahead.map { "option \($0 + 1) carries on ahead" } ?? "none ahead, U-turn"
+            log.info("Reroute: \(routes.count) option(s), course \(Int(course))° → \(verdict, privacy: .public)")
+        } else {
+            rerouted = await cb(coord, dest)
+        }
+        if let newRoute = rerouted {
             // The leg changed while routing (a stop removed from the dash,
             // a leg advance, the ride ended): this road leads to the old
             // stop. Drop it, and let the next off-route fix route the new
@@ -1240,6 +1299,23 @@ final class ActiveNavigator {
             }
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
+            // Every option turns back. A rider who rides on anyway gets a
+            // new try (maybe a road ahead by now) at the failure pace, not
+            // 30 s of dragging the line behind.
+            if needsUTurn {
+                lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
+                onUTurnRoute = true
+                // The new line starts behind the rider: show the U-turn now,
+                // not its first turn for 3 s. A rider already wrong-way keeps
+                // it with no new prompt (no loop tick sees a gap while
+                // `isRerouting`). Riding within 60° of it clears it at once.
+                if let course = freshCourse,
+                   let start = ManeuverGeometry.outgoingBearing(newRoute.polyline.coordinateList(), anchor: 30),
+                   abs(ManeuverGeometry.signedDelta(from: course, to: start)) > 120 {
+                    isWrongWay = true
+                    wrongWaySince = .now
+                }
+            }
         } else {
             // Back-date the cooldown clock so the next attempt comes
             // `rerouteRetryAfterFailure` from NOW, not `rerouteCooldown` from
@@ -1266,6 +1342,7 @@ final class ActiveNavigator {
         self.lastSegmentIndex = 0
         self.offRouteSince = nil
         self.isOffRoute = false
+        resetWrongWay()
         self.remainingDistance = newRoute.distance
         self.legArrivalDate = Date(timeIntervalSinceNow: newRoute.expectedTravelTime)
         self.stepBeforeNext = newRoute.steps.first        // arriving (text + incoming leg)
@@ -1532,6 +1609,11 @@ final class ActiveNavigator {
         // the same road look like a distinct, far faster route once the
         // rider was past 20 % of it.) Current leg only — the candidates
         // end at this leg's destination.
+        // A "faster" road that starts by turning back is no swap for a
+        // rider riding on (Apple's origin has no heading either).
+        let candidates = freshCourse.map { course in
+            candidates.filter { Self.leavesAhead($0.polyline.coordinateList(), course: course) }
+        } ?? candidates
         let start = min(max(0, lastSegmentIndex), activeRouteCoordsCache.count - 1)
         let aheadCoords = Array(activeRouteCoordsCache[start...])
         guard let decision = Self.trafficRerouteDecision(
@@ -1549,6 +1631,69 @@ final class ActiveNavigator {
         defer { isRerouting = false }
         lastRerouteAt = .now
         await installSwappedRoute(best)
+    }
+
+    /// Wrong-way check against the route segment nearest the rider. Only
+    /// while moving (GPS course is noise when slow): a slow fix keeps an
+    /// active U-turn, but restarts a clock that hasn't fired yet.
+    private func updateWrongWay(fix: Fix, on polyline: MKPolyline, segmentIndex i: Int, judge: Bool) {
+        guard judge, fix.course >= 0, fix.speed >= courseMinSpeed, i >= 0, i + 1 < polyline.pointCount else {
+            if !isWrongWay { wrongWaySince = nil }
+            return
+        }
+        let pts = polyline.points()
+        let line = ManeuverGeometry.bearing(from: pts[i].coordinate, to: pts[i + 1].coordinate)
+        let offLine = abs(ManeuverGeometry.signedDelta(from: line, to: fix.course))
+        // Riding along it: from here on a U-turn route is a normal one.
+        if offLine < 60 { onUTurnRoute = false }
+        wrongWaySince = Self.wrongWaySince(wrongWaySince, offLine: offLine, at: fix.timestamp, active: isWrongWay)
+        let now = wrongWaySince.map { fix.timestamp.timeIntervalSince($0) >= self.wrongWayDelay } ?? false
+        guard now != isWrongWay else { return }
+        isWrongWay = now
+        let what = now ? "riding against the route, U-turn" : "cleared"
+        log.info("Wrong way: \(what, privacy: .public) (course \(Int(fix.course))°, line \(Int(line))°)")
+    }
+
+    /// A new line (route swap, leg advance, alternative switch): judge it
+    /// afresh. A U-turn still due shows again after `wrongWayDelay`, and
+    /// the loop sees the gap, so it is spoken again.
+    private func resetWrongWay() {
+        isWrongWay = false
+        wrongWaySince = nil
+        onUTurnRoute = false
+    }
+
+    /// Wrong-way clock. Starting it needs every moving fix past 120° off the
+    /// line; once the U-turn shows, only riding within 60° of the line
+    /// clears it (60–120°: a bend, turning round in a junction).
+    static func wrongWaySince(_ since: Date?, offLine delta: Double, at t: Date, active: Bool) -> Date? {
+        if delta > 120 { return since ?? t }
+        if delta < 60 || !active { return nil }
+        return since
+    }
+
+    /// Whether a route's first `departureAnchorMeters` leave within 90° of
+    /// `course`, i.e. it carries on the way the rider rides.
+    /// ponytail: judges the first 30 m only; a route that U-turns at the
+    /// next junction still counts as ahead. Check further if that shows up.
+    static func leavesAhead(_ coords: [CLLocationCoordinate2D],
+                            course: CLLocationDirection,
+                            departureAnchorMeters: CLLocationDistance = 30) -> Bool {
+        guard coords.count >= 2,
+              let start = ManeuverGeometry.outgoingBearing(coords, anchor: departureAnchorMeters)
+        else { return false }
+        return abs(ManeuverGeometry.signedDelta(from: course, to: start)) < 90
+    }
+
+    /// Index of the first route (Apple's order: best first) that leaves
+    /// ahead and costs at most `max(120 s, 15 %)` more than Apple's best;
+    /// `nil` → a U-turn is the sensible way (no road ahead, or only a long
+    /// detour, e.g. no junction for 10 km on a missed rural turn).
+    static func forwardRouteIndex(_ routes: [(coords: [CLLocationCoordinate2D], time: TimeInterval)],
+                                  course: CLLocationDirection) -> Int? {
+        guard let best = routes.first?.time else { return nil }
+        let budget = best + max(120, 0.15 * best)
+        return routes.firstIndex { $0.time <= budget && leavesAhead($0.coords, course: course) }
     }
 
     /// Pure decision core for the live-traffic reroute — no MapKit calls,
