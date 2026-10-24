@@ -99,14 +99,20 @@ def nearest_segment(segs, rider, start, continuity=False, course=None):
                 along += math.hypot(dx, dy)
     if not continuity or not window:
         return best_d, best_i
-    near = min(window, key=lambda w: w[1])
-    if course is not None:
+    nearest = min(window, key=lambda w: w[1])
+    if course is None:
+        candidates = [next(w for w in window if w[1] <= nearest[1] + TIE)]
+    else:
+        candidates = [nearest]
         aligned = [w for w in window
-                   if w[1] <= near[1] + TIE and abs((course - w[2] + 540) % 360 - 180) < 60]
+                   if w[1] <= nearest[1] + TIE and abs((course - w[2] + 540) % 360 - 180) < 60]
         if aligned:
-            near = min(aligned, key=lambda w: w[1])
-    if near[0] != best_i and near[1] <= KEEP and near[1] - best_d < MARGIN:
-        return near[1], near[0]
+            candidates.insert(0, min(aligned, key=lambda w: w[1]))
+    for near in candidates:
+        if near[0] == best_i:
+            break
+        if near[1] <= KEEP and near[1] - best_d < MARGIN:
+            return near[1], near[0]
     return best_d, best_i
 
 
@@ -143,6 +149,36 @@ class CursorJump(unittest.TestCase):
                ((300, -200), (40, -200)), ((40, -200), (40, 50))]
         self.assertEqual(nearest_segment(far, (39, 50), 0, continuity=True)[1], 4)
 
+    def test_standing_jitter_before_overlapping_turnaround(self):
+        # Review 3: ways out and back 0.3 m apart, rider standing (no course)
+        # with GPS jitter 50 m before the turnaround: the cursor never moves
+        # to the way back.
+        import random
+        rnd = random.Random(1)
+        out = [((0, y), (0, y + 10)) for y in range(0, 300, 10)]
+        back = [((0, 300), (0.3, 300))] + [((0.3, y), (0.3, y - 10)) for y in range(300, 0, -10)]
+        route = out + back
+        cursor = 25
+        for _ in range(40):
+            rider = (rnd.uniform(-3, 3), 250 + rnd.uniform(-3, 3))
+            cursor = nearest_segment(route, rider, cursor, continuity=True)[1]
+            self.assertLessEqual(cursor, len(out))
+
+    def test_aligned_that_may_not_keep_falls_back_to_nearest(self):
+        # Review 3: cursor stretch 55 m away against the course, an aligned
+        # one 62 m away (> 60, may not keep), a far stretch 2 km on that is
+        # 40 m away: keep the cursor stretch, as without a course.
+        route = [((55, 0), (55, 100)),            # 0: cursor, north, 55 m
+                 ((55, 100), (62, 100)),          # 1
+                 ((62, 100), (62, -100)),         # 2: south (aligned), 62 m
+                 ((62, -100), (62, -2000)),       # 3
+                 ((62, -2000), (-40, -2000)),     # 4
+                 ((-40, -2000), (-40, 50))]       # 5: far, 40 m
+        rider = (0, 50)
+        self.assertEqual(nearest_segment(route, rider, 0)[1], 5)
+        self.assertEqual(nearest_segment(route, rider, 0, continuity=True)[1], 0)
+        self.assertEqual(nearest_segment(route, rider, 0, continuity=True, course=180)[1], 0)
+
     def test_long_segment_does_not_freeze_the_cursor(self):
         # Review 2: an 800 m approach, a 15 m median crossing, the return
         # carriageway. Riding back down it after the instructed U-turn, the
@@ -160,11 +196,13 @@ class CursorJump(unittest.TestCase):
     def test_out_and_back_inside_the_window(self):
         # Review 2: 50 m vertices, ways out and back 3 m apart, rider heading
         # out at y = 880 (fix 2 m towards the way back). Course keeps the
-        # cursor on the way out; without it the way back wins.
+        # cursor on the way out; standing (no course), the earliest near-tie
+        # (the way out) wins too (review 3: a red light before the turn).
         out = [((0, y), (0, y + 50)) for y in range(0, 1000, 50)]
         back = [((0, 1000), (3, 1000))] + [((3, y), (3, y - 50)) for y in range(1000, 0, -50)]
         route = out + back
-        self.assertGreater(nearest_segment(route, (2, 880), 16, continuity=True)[1], len(out))
+        self.assertGreater(nearest_segment(route, (2, 880), 16)[1], len(out))   # old: way back
+        self.assertEqual(nearest_segment(route, (2, 880), 16, continuity=True)[1], 17)
         self.assertEqual(nearest_segment(route, (2, 880), 16, continuity=True, course=0)[1], 17)
         # Really on the way back (heading south): the way back.
         self.assertGreater(nearest_segment(route, (2.5, 880), 16, continuity=True, course=180)[1], len(out))
@@ -200,7 +238,8 @@ class SwiftWiring(unittest.TestCase):
     def test_ingest_matches_with_course_and_zeroes_distance(self):
         ingest = decl_body(self.nav, "func ingest(fix: Fix)")
         self.assertIn("preferContinuity: true,", ingest)
-        self.assertIn("course: fix.course >= 0 && fix.speed >= courseMinSpeed ? fix.course : nil", ingest)
+        self.assertIn("course: freshCourse", ingest)
+        self.assertIn("judge: distFromRoute <= offRouteDistanceThreshold || onUTurnRoute", ingest)
         zero = ingest.index("if isWrongWay { self.distanceToNextStep = 0 }")
         self.assertLess(ingest.rindex("self.distanceToNextStep = remaining"), zero)
         self.assertLess(zero, ingest.index("let nowOff = distFromRoute > offRouteDistanceThreshold"))
@@ -209,7 +248,7 @@ class SwiftWiring(unittest.TestCase):
     def test_checked_on_every_fix_against_the_nearest_segment(self):
         ingest = decl_body(self.nav, "func ingest(fix: Fix)")
         self.assertLess(ingest.index("self.lastSegmentIndex = segIdx"),
-                        ingest.index("updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx)"))
+                        ingest.index("updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx,"))
         upd = decl_body(self.nav, "private func updateWrongWay(")
         self.assertIn("fix.speed >= courseMinSpeed", upd)
         self.assertIn("ManeuverGeometry.bearing(from: pts[i].coordinate, to: pts[i + 1].coordinate)", upd)
@@ -225,6 +264,16 @@ class SwiftWiring(unittest.TestCase):
         self.assertIn("wrongWaySince = nil", reset)
         for decl in ("func stop()", "private func seed(", "private func installSwappedRoute("):
             self.assertIn("resetWrongWay()", decl_body(self.nav, decl), decl)
+
+    def test_judged_only_near_the_line_or_on_a_u_turn_route(self):
+        # Review 3: off the route the cursor is the nearest stretch anywhere,
+        # which may run back at the rider (missed turn): no U-turn there.
+        upd = decl_body(self.nav, "private func updateWrongWay(")
+        self.assertIn("guard judge, fix.course >= 0", upd)
+        body = decl_body(self.nav, "private func requestReroute(")
+        branch = body[body.index("if needsUTurn {"):]
+        self.assertIn("onUTurnRoute = true", branch)
+        self.assertIn("onUTurnRoute = false", decl_body(self.nav, "private func resetWrongWay("))
 
     def test_u_turn_only_retry_keeps_the_u_turn(self):
         # Review 2: a retry that again only turns back must not reset the

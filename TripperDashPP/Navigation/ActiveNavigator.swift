@@ -298,6 +298,8 @@ final class ActiveNavigator {
     /// Older than this, the course is forgotten: the rider may have turned
     /// round slowly (a fuel-station forecourt) and ridden back out.
     private let courseMaxAge: TimeInterval = 45
+    /// Wall clock (`.now`), unlike the wrong-way clock on `fix.timestamp`:
+    /// fixes arrive in real time, and replayed ones are stamped at ingest.
     private var freshCourse: CLLocationDirection? {
         guard let c = travelCourse, Date.now.timeIntervalSince(c.at) < courseMaxAge else { return nil }
         return c.degrees
@@ -309,6 +311,8 @@ final class ActiveNavigator {
     /// behind them. Clears once they ride within 60° of the line.
     private(set) var isWrongWay = false
     private var wrongWaySince: Date?
+    /// The active route came from a reroute whose every option turned back.
+    private var onUTurnRoute = false
     private let wrongWayDelay: TimeInterval = 3
 
     // MARK: - Route overview geometry (feat/nav-route-overview-map)
@@ -1009,10 +1013,14 @@ final class ActiveNavigator {
             from: lastSegmentIndex,
             to: coord,
             preferContinuity: true,
-            course: fix.course >= 0 && fix.speed >= courseMinSpeed ? fix.course : nil
+            course: freshCourse
         )
         self.lastSegmentIndex = segIdx
-        updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx)
+        // Off the route the cursor is just the nearest stretch anywhere on
+        // it, which may run back at the rider by chance; judge only near the
+        // line, or on a U-turn route the rider is riding away from.
+        updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx,
+                       judge: distFromRoute <= offRouteDistanceThreshold || onUTurnRoute)
 
         let remaining = PolylineMath.remainingDistance(
             on: route.polyline,
@@ -1297,6 +1305,7 @@ final class ActiveNavigator {
             // 30 s of dragging the line behind.
             if needsUTurn {
                 lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
+                onUTurnRoute = true
                 // Still riding away from a road behind: the U-turn stays on
                 // screen and isn't spoken again on every retry.
                 if wrongWay.0 { (isWrongWay, wrongWaySince) = wrongWay }
@@ -1621,8 +1630,8 @@ final class ActiveNavigator {
     /// Wrong-way check against the route segment nearest the rider. Only
     /// while moving (GPS course is noise when slow): a slow fix keeps an
     /// active U-turn, but restarts a clock that hasn't fired yet.
-    private func updateWrongWay(fix: Fix, on polyline: MKPolyline, segmentIndex i: Int) {
-        guard fix.course >= 0, fix.speed >= courseMinSpeed, i >= 0, i + 1 < polyline.pointCount else {
+    private func updateWrongWay(fix: Fix, on polyline: MKPolyline, segmentIndex i: Int, judge: Bool) {
+        guard judge, fix.course >= 0, fix.speed >= courseMinSpeed, i >= 0, i + 1 < polyline.pointCount else {
             if !isWrongWay { wrongWaySince = nil }
             return
         }
@@ -1643,6 +1652,7 @@ final class ActiveNavigator {
     private func resetWrongWay() {
         isWrongWay = false
         wrongWaySince = nil
+        onUTurnRoute = false
     }
 
     /// Wrong-way clock. Starting it needs every moving fix past 120° off the

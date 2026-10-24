@@ -46,8 +46,9 @@ enum PolylineMath {
     /// turnaround, the way back of an out-and-back, the next leg of a
     /// hairpin) could otherwise steal the cursor through a few metres of GPS
     /// error, and the cursor never comes back: progress, turns and the
-    /// wrong-way check then read the wrong stretch. `course` (rider's GPS
-    /// course while moving) breaks near-ties inside the window.
+    /// wrong-way check then read the wrong stretch. `course` (the rider's
+    /// last moving course, kept through stops) breaks near-ties inside the
+    /// window; without one the earliest near-tie wins.
     static func nearestSegment(on polyline: MKPolyline,
                                from searchFrom: Int,
                                to coord: CLLocationCoordinate2D,
@@ -83,17 +84,26 @@ enum PolylineMath {
         // Within the window, a stretch running the rider's way beats a
         // nearer one running against it by GPS error (the way back of an
         // out-and-back next to the way out, the leg below a switchback).
-        var near = nearest
+        // No course (standing, e.g. a red light before an out-and-back
+        // turnaround): the earliest near-tie, the stretch reached first.
+        var candidates = [course == nil
+                          ? window.first(where: { $0.d <= nearest.d + continuityCourseTieMeters }) ?? nearest
+                          : nearest]
         if let course,
            let aligned = window.filter({ $0.d <= nearest.d + continuityCourseTieMeters
                                        && abs(ManeuverGeometry.signedDelta(
                                            from: ManeuverGeometry.bearing(from: $0.a, to: $0.b),
                                            to: course)) < 60 })
                              .min(by: { $0.d < $1.d }) {
-            near = aligned
+            candidates.insert(aligned, at: 0)
         }
-        if near.i != bestIdx, near.d <= continuityKeepWithin, near.d - bestDist < continuityJumpMargin {
-            return (near.d, near.i)
+        // First that may keep the cursor; an aligned one that may not falls
+        // back to the window's nearest, not straight to a far jump.
+        for near in candidates {
+            if near.i == bestIdx { break }
+            if near.d <= continuityKeepWithin, near.d - bestDist < continuityJumpMargin {
+                return (near.d, near.i)
+            }
         }
 
         return (bestDist, bestIdx)
