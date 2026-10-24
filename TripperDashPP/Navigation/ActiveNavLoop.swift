@@ -81,6 +81,9 @@ final class ActiveNavLoop {
     /// it once per reroute episode, not every tick while it's in flight.
     private var spokeReroutingForEpisode = false
 
+    /// Same, for the wrong-way U-turn prompt.
+    private var spokeUTurnForEpisode = false
+
     /// Pure "when to warn about a speed camera" decision state. Fires the
     /// spoken camera callout ONCE per camera as the rider closes in on it
     /// from ahead. Reset on stop() and on reroute, same discipline as the
@@ -158,6 +161,7 @@ final class ActiveNavLoop {
         // prompt; the loop then drops into its free-ride branch.
         promptScheduler.reset()
         spokeReroutingForEpisode = false
+        spokeUTurnForEpisode = false
         cameraAnnouncer.reset()
         sectionTracker.reset()
         mapSource?.setSpeedSection(nil)
@@ -229,6 +233,7 @@ final class ActiveNavLoop {
             // a later route start doesn't inherit stale fired tiers.
             promptScheduler.reset()
             spokeReroutingForEpisode = false
+            spokeUTurnForEpisode = false
             cameraAnnouncer.reset()
             sectionTracker.reset()
             mapSource?.setSpeedSection(nil)
@@ -295,6 +300,7 @@ final class ActiveNavLoop {
         let lookahead: ManeuverKind? = nav.lookaheadManeuver
         let emitSecondary = settings.lookaheadEnabled
             && !isRerouting   // stale route during reroute → no look-ahead
+            && !nav.isWrongWay   // a U-turn first; the turn after it is far behind
             && lookahead != nil
             && distNext <= settings.lookaheadThresholdMeters
         let secondaryManeuverByte: UInt8?
@@ -539,7 +545,7 @@ final class ActiveNavLoop {
         //     speak" decisions are pure (VoicePhrase / VoicePromptScheduler)
         //     and unit-tested off-device.
         emitVoice(kind: kind, distNext: distNext, isRerouting: isRerouting,
-                  arrivingStep: arrivingStep)
+                  isWrongWay: nav.isWrongWay, arrivingStep: arrivingStep)
 
         // Route recalculated or swapped → end the average-speed section and
         // hide its panel. The average is measured along the route line, so
@@ -592,6 +598,7 @@ final class ActiveNavLoop {
     private func emitVoice(kind: ManeuverKind,
                            distNext: Double,
                            isRerouting: Bool,
+                           isWrongWay: Bool,
                            arrivingStep: MKRoute.Step?) {
         guard let voice, settings.voiceEnabled else { return }
         let lang = settings.voiceLanguage
@@ -608,6 +615,18 @@ final class ActiveNavLoop {
             return
         }
         spokeReroutingForEpisode = false
+
+        // Riding against the line: say the U-turn once per episode; the
+        // maneuver tiers belong to a turn behind the rider meanwhile.
+        if isWrongWay {
+            if !spokeUTurnForEpisode,
+               let phrase = VoicePhrase.maneuver(kind, tier: .now, language: lang) {
+                spokeUTurnForEpisode = true
+                voice.speak(phrase, language: lang.rawValue, priority: .critical)
+            }
+            return
+        }
+        spokeUTurnForEpisode = false
 
         // Don't voice a bogus arrival/straight heartbeat far out.
         if case .arrive = kind { return }

@@ -218,6 +218,9 @@ final class ActiveNavigator {
     /// the pre-first-fix transient when no arriving step is known yet.
     var upcomingManeuver: ManeuverKind? {
         guard let arriving = stepBeforeNext else { return nil }
+        if isWrongWay, let here = currentCoordinate {
+            return DrivingSide.at(here) == .left ? .uTurnRight : .uTurnLeft
+        }
         // Normal case: the departing step lives in this same route.
         //
         // Track-route boundary case: when the maneuver node is the END of
@@ -292,6 +295,14 @@ final class ActiveNavigator {
     /// off-route reroute that carries on the way the rider is riding.
     private var travelCourse: CLLocationDirection?
     private let courseMinSpeed: CLLocationSpeed = 3   // m/s, below it GPS course is noise
+
+    /// The rider rides AGAINST the blue line where they are (≥ 120° off it
+    /// for `wrongWayDelay`), e.g. after a reroute whose every option turns
+    /// back. `upcomingManeuver` then shows a U-turn instead of the turn far
+    /// behind them. Clears once they ride within 60° of the line.
+    private(set) var isWrongWay = false
+    private var wrongWaySince: Date?
+    private let wrongWayDelay: TimeInterval = 3
 
     // MARK: - Route overview geometry (feat/nav-route-overview-map)
 
@@ -940,6 +951,8 @@ final class ActiveNavigator {
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.stationaryInRadiusSince = nil
         self.travelCourse = nil
+        self.isWrongWay = false
+        self.wrongWaySince = nil
         // Overview geometry — drop breadcrumb + caches so the next ride
         // starts with an empty progress bar.
         self.traveledCoordinates = []
@@ -988,6 +1001,7 @@ final class ActiveNavigator {
             to: coord
         )
         self.lastSegmentIndex = segIdx
+        updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx)
 
         let remaining = PolylineMath.remainingDistance(
             on: route.polyline,
@@ -1578,6 +1592,29 @@ final class ActiveNavigator {
         defer { isRerouting = false }
         lastRerouteAt = .now
         await installSwappedRoute(best)
+    }
+
+    /// Wrong-way check against the route segment nearest the rider. Only
+    /// while moving (GPS course is noise when slow); a stop keeps the state.
+    private func updateWrongWay(fix: Fix, on polyline: MKPolyline, segmentIndex i: Int) {
+        guard fix.course >= 0, fix.speed >= courseMinSpeed, i >= 0, i + 1 < polyline.pointCount else { return }
+        let pts = polyline.points()
+        let line = ManeuverGeometry.bearing(from: pts[i].coordinate, to: pts[i + 1].coordinate)
+        let offLine = abs(ManeuverGeometry.signedDelta(from: line, to: fix.course))
+        wrongWaySince = Self.wrongWaySince(wrongWaySince, offLine: offLine, at: fix.timestamp)
+        let now = wrongWaySince.map { fix.timestamp.timeIntervalSince($0) >= self.wrongWayDelay } ?? false
+        guard now != isWrongWay else { return }
+        isWrongWay = now
+        let what = now ? "riding against the route, U-turn" : "cleared"
+        log.info("Wrong way: \(what, privacy: .public) (course \(Int(fix.course))°, line \(Int(line))°)")
+    }
+
+    /// Hysteresis for the wrong-way check: starts the clock past 120° off
+    /// the line, clears it under 60°, keeps it in between (a bend, a turn).
+    static func wrongWaySince(_ since: Date?, offLine delta: Double, at t: Date) -> Date? {
+        if delta > 120 { return since ?? t }
+        if delta < 60 { return nil }
+        return since
     }
 
     /// Index of the first route (Apple's order: best first) whose first
