@@ -202,7 +202,7 @@ enum ManeuverGeometry {
     /// Bearing of the rider's departure from the node: walk FORWARD from
     /// the node (= first vertex) until `anchor` meters is covered,
     /// then take the bearing from the node TO that anchor.
-    private static func outgoingBearing(_ curPts: [CLLocationCoordinate2D],
+    static func outgoingBearing(_ curPts: [CLLocationCoordinate2D],
                                         anchor anchorDist: CLLocationDistance) -> Double? {
         let node = curPts[0]
         var acc: CLLocationDistance = 0

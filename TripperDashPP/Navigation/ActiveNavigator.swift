@@ -287,6 +287,12 @@ final class ActiveNavigator {
     /// coordinate.
     private(set) var currentCoordinate: CLLocationCoordinate2D?
 
+    /// Last GPS course while actually moving (≥ `courseMinSpeed`), kept
+    /// through a stop at a junction. `nil` until the first one. Picks an
+    /// off-route reroute that carries on the way the rider is riding.
+    private var travelCourse: CLLocationDirection?
+    private let courseMinSpeed: CLLocationSpeed = 3   // m/s, below it GPS course is noise
+
     // MARK: - Route overview geometry (feat/nav-route-overview-map)
 
     /// Real GPS breadcrumb of where the rider has ACTUALLY been, thinned
@@ -933,6 +939,7 @@ final class ActiveNavigator {
         self.arrivalArmed = false
         self.minRemainingSinceArmed = .greatestFiniteMagnitude
         self.stationaryInRadiusSince = nil
+        self.travelCourse = nil
         // Overview geometry — drop breadcrumb + caches so the next ride
         // starts with an empty progress bar.
         self.traveledCoordinates = []
@@ -969,6 +976,7 @@ final class ActiveNavigator {
         let coord = fix.coordinate
         let previousCoordinate = self.currentCoordinate
         self.currentCoordinate = coord
+        if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = fix.course }
         // Record the travelled trace (thinned). Drives the grey
         // "where you've been" line on the overview map; held across
         // reroutes so the progress bar keeps its history.
@@ -1226,7 +1234,22 @@ final class ActiveNavigator {
         defer { isRerouting = false }
         lastRerouteAt = .now
         log.info("Requesting reroute to \(dest.name, privacy: .public)")
-        if let newRoute = await cb(coord, dest) {
+        // MKDirections takes no heading: from a bare point it often leads
+        // back the way the rider came. Ask for the alternatives and take
+        // Apple's best one that carries on in the direction of travel.
+        var needsUTurn = false
+        let rerouted: MKRoute?
+        if let course = travelCourse, let alternatives = onTrafficRoutesRequested {
+            let routes = await alternatives(coord, dest)
+            let ahead = Self.forwardRouteIndex(routes.map { $0.polyline.coordinateList() }, course: course)
+            needsUTurn = ahead == nil && !routes.isEmpty
+            rerouted = ahead.map { routes[$0] } ?? routes.first
+            let verdict = ahead.map { "option \($0 + 1) carries on ahead" } ?? "none ahead, U-turn"
+            log.info("Reroute: \(routes.count) option(s), course \(Int(course))° → \(verdict, privacy: .public)")
+        } else {
+            rerouted = await cb(coord, dest)
+        }
+        if let newRoute = rerouted {
             // The leg changed while routing (a stop removed from the dash,
             // a leg advance, the ride ended): this road leads to the old
             // stop. Drop it, and let the next off-route fix route the new
@@ -1240,6 +1263,12 @@ final class ActiveNavigator {
             }
             log.info("Reroute succeeded — swapping active route")
             await installSwappedRoute(newRoute)
+            // Every option turns back. A rider who rides on anyway gets a
+            // new try (maybe a road ahead by now) at the failure pace, not
+            // 30 s of dragging the line behind.
+            if needsUTurn {
+                lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
+            }
         } else {
             // Back-date the cooldown clock so the next attempt comes
             // `rerouteRetryAfterFailure` from NOW, not `rerouteCooldown` from
@@ -1549,6 +1578,22 @@ final class ActiveNavigator {
         defer { isRerouting = false }
         lastRerouteAt = .now
         await installSwappedRoute(best)
+    }
+
+    /// Index of the first route (Apple's order: best first) whose first
+    /// `departureAnchorMeters` leave within 90° of `course`; `nil` when
+    /// every route starts by turning back.
+    /// ponytail: judges the first 30 m only; a route that U-turns at the
+    /// next junction still counts as ahead. Check further if that shows up.
+    static func forwardRouteIndex(_ routes: [[CLLocationCoordinate2D]],
+                                  course: CLLocationDirection,
+                                  departureAnchorMeters: CLLocationDistance = 30) -> Int? {
+        routes.firstIndex { coords in
+            guard coords.count >= 2,
+                  let start = ManeuverGeometry.outgoingBearing(coords, anchor: departureAnchorMeters)
+            else { return false }
+            return abs(ManeuverGeometry.signedDelta(from: course, to: start)) < 90
+        }
     }
 
     /// Pure decision core for the live-traffic reroute — no MapKit calls,

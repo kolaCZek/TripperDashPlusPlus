@@ -67,8 +67,10 @@ def test_swift_failure_branch_backdates_cooldown_only_on_failure():
     nav = _src("Navigation/ActiveNavigator.swift")
     reroute = decl_body(nav, "private func requestReroute(")
     backdate = "lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)"
-    assert reroute.count(backdate) == 1
-    assert reroute.index("} else {") < reroute.index(backdate)
+    # Failure, plus a U-turn-only result (test_reroute_heading.py).
+    assert reroute.count(backdate) == 2
+    assert reroute.index("if needsUTurn {") < reroute.index(backdate)
+    assert reroute.rindex("} else {") < reroute.rindex(backdate)
     # Start of the attempt still stamps the clock (a success keeps 30 s).
     assert reroute.index("lastRerouteAt = .now") < reroute.index("await cb(")
 
