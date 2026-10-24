@@ -18,9 +18,22 @@ struct ShortcutPolicyTests {
                           requestPending: Bool = false,
                           planStaged: Bool = false,
                           link: BikeLink.LinkState = .idle,
+                          shortcutConnect: Bool = true,
                           canConnect: Bool = true) -> ShortcutPolicy.FreeRide {
         ShortcutPolicy.freeRide(rideActive: rideActive, requestPending: requestPending,
-                                planStaged: planStaged, link: link, canConnect: canConnect)
+                                planStaged: planStaged, link: link,
+                                shortcutConnect: shortcutConnect, canConnect: canConnect)
+    }
+
+    /// The app's own Wi-Fi join fires the automation: a connect the rider
+    /// started by hand (no plan, to pick a destination) stays theirs.
+    @Test func aHandStartedConnectIsLeftAlone() {
+        #expect(freeRide(link: .connecting, shortcutConnect: false) == .handConnecting)
+        #expect(freeRide(link: .handshaking, shortcutConnect: false) == .handConnecting)
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false) == .handConnecting)
+        #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
+        #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
+        #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)
     }
 
     @Test func rejoiningTheBikeWiFiMidRideDoesNothing() {
