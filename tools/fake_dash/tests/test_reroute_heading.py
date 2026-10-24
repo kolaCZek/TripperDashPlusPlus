@@ -123,18 +123,22 @@ class SwiftWiring(unittest.TestCase):
     def test_live_traffic_swap_never_turns_back(self):
         body = decl_body(self.nav, "private func checkLiveTrafficReroute(")
         filt = body.index("candidates.filter { Self.leavesAhead($0.polyline.coordinateList(), course: course) }")
-        self.assertLess(body.index("travelCourse.map"), filt)
+        self.assertLess(body.index("freshCourse.map"), filt)
         self.assertLess(filt, body.index("Self.trafficRerouteDecision("))
 
     def test_course_only_while_moving(self):
-        self.assertIn("if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = fix.course }",
+        self.assertIn("if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = (fix.course, .now) }",
                       decl_body(self.nav, "func ingest(fix: Fix)"))
+        # Forgotten after a while (review 2: turned round slowly in a forecourt).
+        fresh = decl_body(self.nav, "private var freshCourse")
+        self.assertIn("Date.now.timeIntervalSince(c.at) < courseMaxAge", fresh)
+        self.assertIn("private let courseMaxAge: TimeInterval = 45", self.nav)
         self.assertIn("self.travelCourse = nil", decl_body(self.nav, "func stop()"))
 
     def test_reroute_prefers_road_ahead(self):
         body = decl_body(self.nav, "private func requestReroute(")
         alts = body.index("await alternatives(coord, dest)")
-        self.assertLess(body.index("if let course = travelCourse, let alternatives = onTrafficRoutesRequested"), alts)
+        self.assertLess(body.index("if let course = freshCourse, let alternatives = onTrafficRoutesRequested"), alts)
         self.assertIn("rerouted = ahead.map { routes[$0] } ?? routes.first", body)
         # No course yet (standing start): Apple's single best, as before.
         self.assertLess(alts, body.index("rerouted = await cb(coord, dest)"))

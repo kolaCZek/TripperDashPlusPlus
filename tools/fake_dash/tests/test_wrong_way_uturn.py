@@ -77,16 +77,15 @@ class Hysteresis(unittest.TestCase):
 
 # --- nearestSegment with preferContinuity -----------------------------------
 
-WINDOW, MARGIN, KEEP = 300.0, 25.0, 60.0
+WINDOW, MARGIN, KEEP, TIE = 300.0, 25.0, 60.0, 10.0
 
 
-def nearest_segment(segs, rider, start, continuity=False):
-    """Mirror of PolylineMath.nearestSegment on a flat metre grid.
-    segs: [((x1, y1), (x2, y2)), ...]."""
+def nearest_segment(segs, rider, start, continuity=False, course=None):
+    """Mirror of PolylineMath.nearestSegment on a flat metre grid
+    (x = east, y = north). segs: [((x1, y1), (x2, y2)), ...]."""
     import math
-    best_d = near_d = float("inf")
-    best_i = near_i = start
-    along = 0.0
+    best_d, best_i = float("inf"), start
+    window, along = [], 0.0
     for i in range(start, len(segs)):
         (ax, ay), (bx, by) = segs[i]
         dx, dy = bx - ax, by - ay
@@ -95,11 +94,19 @@ def nearest_segment(segs, rider, start, continuity=False):
         if d < best_d:
             best_d, best_i = d, i
         if continuity and along <= WINDOW:
-            if d < near_d:
-                near_d, near_i = d, i
-            along += math.hypot(dx, dy)
-    if continuity and near_i != best_i and near_d <= KEEP and near_d - best_d < MARGIN:
-        return near_d, near_i
+            window.append((i, d, math.degrees(math.atan2(dx, dy)) % 360))
+            if i > start:
+                along += math.hypot(dx, dy)
+    if not continuity or not window:
+        return best_d, best_i
+    near = min(window, key=lambda w: w[1])
+    if course is not None:
+        aligned = [w for w in window
+                   if w[1] <= near[1] + TIE and abs((course - w[2] + 540) % 360 - 180) < 60]
+        if aligned:
+            near = min(aligned, key=lambda w: w[1])
+    if near[0] != best_i and near[1] <= KEEP and near[1] - best_d < MARGIN:
+        return near[1], near[0]
     return best_d, best_i
 
 
@@ -120,10 +127,10 @@ class CursorJump(unittest.TestCase):
 
     def test_riding_backwards_keeps_cursor_on_a(self):
         # Wrong way down A next to B: still A, so wrong-way is detected.
-        self.assertEqual(nearest_segment(ROUTE, (2, 380), 4, continuity=True)[1], 4)
+        self.assertEqual(nearest_segment(ROUTE, (2, 380), 4, continuity=True, course=180)[1], 4)
 
     def test_forward_progress(self):
-        self.assertEqual(nearest_segment(ROUTE, (0, 650), 4, continuity=True)[1], 6)
+        self.assertEqual(nearest_segment(ROUTE, (0, 650), 4, continuity=True, course=0)[1], 6)
 
     def test_lost_near_stretch_jumps_as_before(self):
         # Tunnel exit / cut corner: the near stretch is > 60 m away.
@@ -135,6 +142,32 @@ class CursorJump(unittest.TestCase):
         far = [((0, 0), (0, 100)), ((0, 100), (300, 100)), ((300, 100), (300, -200)),
                ((300, -200), (40, -200)), ((40, -200), (40, 50))]
         self.assertEqual(nearest_segment(far, (39, 50), 0, continuity=True)[1], 4)
+
+    def test_long_segment_does_not_freeze_the_cursor(self):
+        # Review 2: an 800 m approach, a 15 m median crossing, the return
+        # carriageway. Riding back down it after the instructed U-turn, the
+        # cursor must follow, not stay on the approach (false U-turn).
+        route = [((0, 0), (0, 800)), ((0, 800), (15, 800)), ((15, 800), (15, 0))]
+        for y in (790, 600, 300, 50):
+            self.assertEqual(nearest_segment(route, (15, y), 0, continuity=True, course=180)[1], 2, y)
+
+    def test_hairpin_after_a_long_straight(self):
+        # 400 m straight, then the hairpin's way back 20 m away: once on it,
+        # the cursor moves to it.
+        route = [((0, 0), (0, 400)), ((0, 400), (20, 400)), ((20, 400), (20, 0))]
+        self.assertEqual(nearest_segment(route, (20, 380), 0, continuity=True, course=180)[1], 2)
+
+    def test_out_and_back_inside_the_window(self):
+        # Review 2: 50 m vertices, ways out and back 3 m apart, rider heading
+        # out at y = 880 (fix 2 m towards the way back). Course keeps the
+        # cursor on the way out; without it the way back wins.
+        out = [((0, y), (0, y + 50)) for y in range(0, 1000, 50)]
+        back = [((0, 1000), (3, 1000))] + [((3, y), (3, y - 50)) for y in range(1000, 0, -50)]
+        route = out + back
+        self.assertGreater(nearest_segment(route, (2, 880), 16, continuity=True)[1], len(out))
+        self.assertEqual(nearest_segment(route, (2, 880), 16, continuity=True, course=0)[1], 17)
+        # Really on the way back (heading south): the way back.
+        self.assertGreater(nearest_segment(route, (2.5, 880), 16, continuity=True, course=180)[1], len(out))
 
 
 class SwiftWiring(unittest.TestCase):
@@ -153,7 +186,12 @@ class SwiftWiring(unittest.TestCase):
         poly = strip_comments((ROOT / "PolylineMath.swift").read_text(encoding="utf-8"))
         seg = decl_body(poly, "static func nearestSegment(")
         self.assertIn("if preferContinuity, along <= continuityWindow {", seg)
-        self.assertIn("nearDist <= continuityKeepWithin, nearDist - bestDist < continuityJumpMargin", seg)
+        # Window counted from the END of the cursor segment (review 2).
+        self.assertIn("if i > start { along += haversine(a, b) }", seg)
+        self.assertIn("$0.d <= nearest.d + continuityCourseTieMeters", seg)
+        self.assertIn("to: course)) < 60 })", seg)
+        self.assertIn("near.d <= continuityKeepWithin, near.d - bestDist < continuityJumpMargin", seg)
+        self.assertIn("continuityCourseTieMeters: CLLocationDistance = 10", poly)
         for const in ("continuityWindow: CLLocationDistance = 300",
                       "continuityJumpMargin: CLLocationDistance = 25",
                       "continuityKeepWithin: CLLocationDistance = 60"):
@@ -161,7 +199,8 @@ class SwiftWiring(unittest.TestCase):
 
     def test_ingest_matches_with_course_and_zeroes_distance(self):
         ingest = decl_body(self.nav, "func ingest(fix: Fix)")
-        self.assertIn("preferContinuity: true", ingest)
+        self.assertIn("preferContinuity: true,", ingest)
+        self.assertIn("course: fix.course >= 0 && fix.speed >= courseMinSpeed ? fix.course : nil", ingest)
         zero = ingest.index("if isWrongWay { self.distanceToNextStep = 0 }")
         self.assertLess(ingest.rindex("self.distanceToNextStep = remaining"), zero)
         self.assertLess(zero, ingest.index("let nowOff = distFromRoute > offRouteDistanceThreshold"))
@@ -186,6 +225,15 @@ class SwiftWiring(unittest.TestCase):
         self.assertIn("wrongWaySince = nil", reset)
         for decl in ("func stop()", "private func seed(", "private func installSwappedRoute("):
             self.assertIn("resetWrongWay()", decl_body(self.nav, decl), decl)
+
+    def test_u_turn_only_retry_keeps_the_u_turn(self):
+        # Review 2: a retry that again only turns back must not reset the
+        # U-turn (and re-speak it) every 10-15 s.
+        body = decl_body(self.nav, "private func requestReroute(")
+        keep = body.index("let wrongWay = (isWrongWay, wrongWaySince)")
+        self.assertLess(keep, body.index("await installSwappedRoute(newRoute)"))
+        branch = body[body.index("if needsUTurn {"):]
+        self.assertIn("if wrongWay.0 { (isWrongWay, wrongWaySince) = wrongWay }", branch)
 
     def test_loop_speaks_once_and_hides_lookahead(self):
         self.assertIn("&& !nav.isWrongWay", self.loop)

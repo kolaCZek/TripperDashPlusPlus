@@ -293,8 +293,15 @@ final class ActiveNavigator {
     /// Last GPS course while actually moving (≥ `courseMinSpeed`), kept
     /// through a stop at a junction. `nil` until the first one. Picks an
     /// off-route reroute that carries on the way the rider is riding.
-    private var travelCourse: CLLocationDirection?
+    private var travelCourse: (degrees: CLLocationDirection, at: Date)?
     private let courseMinSpeed: CLLocationSpeed = 3   // m/s, below it GPS course is noise
+    /// Older than this, the course is forgotten: the rider may have turned
+    /// round slowly (a fuel-station forecourt) and ridden back out.
+    private let courseMaxAge: TimeInterval = 45
+    private var freshCourse: CLLocationDirection? {
+        guard let c = travelCourse, Date.now.timeIntervalSince(c.at) < courseMaxAge else { return nil }
+        return c.degrees
+    }
 
     /// The rider rides AGAINST the blue line where they are (≥ 120° off it
     /// for `wrongWayDelay`), e.g. after a reroute whose every option turns
@@ -991,7 +998,7 @@ final class ActiveNavigator {
         let coord = fix.coordinate
         let previousCoordinate = self.currentCoordinate
         self.currentCoordinate = coord
-        if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = fix.course }
+        if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = (fix.course, .now) }
         // Record the travelled trace (thinned). Drives the grey
         // "where you've been" line on the overview map; held across
         // reroutes so the progress bar keeps its history.
@@ -1001,7 +1008,8 @@ final class ActiveNavigator {
             on: route.polyline,
             from: lastSegmentIndex,
             to: coord,
-            preferContinuity: true
+            preferContinuity: true,
+            course: fix.course >= 0 && fix.speed >= courseMinSpeed ? fix.course : nil
         )
         self.lastSegmentIndex = segIdx
         updateWrongWay(fix: fix, on: route.polyline, segmentIndex: segIdx)
@@ -1258,7 +1266,7 @@ final class ActiveNavigator {
         // Apple's best one that carries on in the direction of travel.
         var needsUTurn = false
         let rerouted: MKRoute?
-        if let course = travelCourse, let alternatives = onTrafficRoutesRequested {
+        if let course = freshCourse, let alternatives = onTrafficRoutesRequested {
             let routes = await alternatives(coord, dest)
             let ahead = Self.forwardRouteIndex(routes.map { ($0.polyline.coordinateList(), $0.expectedTravelTime) },
                                                course: course)
@@ -1282,12 +1290,16 @@ final class ActiveNavigator {
                 return
             }
             log.info("Reroute succeeded — swapping active route")
+            let wrongWay = (isWrongWay, wrongWaySince)
             await installSwappedRoute(newRoute)
             // Every option turns back. A rider who rides on anyway gets a
             // new try (maybe a road ahead by now) at the failure pace, not
             // 30 s of dragging the line behind.
             if needsUTurn {
                 lastRerouteAt = Date.now.addingTimeInterval(rerouteRetryAfterFailure - rerouteCooldown)
+                // Still riding away from a road behind: the U-turn stays on
+                // screen and isn't spoken again on every retry.
+                if wrongWay.0 { (isWrongWay, wrongWaySince) = wrongWay }
             }
         } else {
             // Back-date the cooldown clock so the next attempt comes
@@ -1584,7 +1596,7 @@ final class ActiveNavigator {
         // end at this leg's destination.
         // A "faster" road that starts by turning back is no swap for a
         // rider riding on (Apple's origin has no heading either).
-        let candidates = travelCourse.map { course in
+        let candidates = freshCourse.map { course in
             candidates.filter { Self.leavesAhead($0.polyline.coordinateList(), course: course) }
         } ?? candidates
         let start = min(max(0, lastSegmentIndex), activeRouteCoordsCache.count - 1)
