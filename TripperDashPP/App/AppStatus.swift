@@ -1471,9 +1471,11 @@ final class AppStatus {
     /// Wire ActiveNavigator's reroute callback to our RoutingService
     /// and NavigationStore preferences. Done lazily after init.
     private func wireNavigation() {
-        // Off-route reroute + ETA-only refresh: both read `.first` only, so
-        // no alternates, and a hard timeout — MKDirections has none, and the
-        // dash shows "recalculating" for as long as a reroute waits.
+        // ETA-only refresh + an off-route reroute with no GPS course yet:
+        // both read `.first` only, so no alternates, and a hard timeout —
+        // MKDirections has none, and the dash shows "recalculating" for as
+        // long as a reroute waits. (With a course, the reroute asks the
+        // alternatives hook below to pick a road ahead.)
         activeNavigator.onRerouteRequested = { [weak self] origin, dest in
             guard let self else { return nil }
             do {

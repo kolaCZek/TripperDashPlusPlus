@@ -48,15 +48,24 @@ def outgoing_bearing(pts, anchor):
     return bearing(pts[0], end) if haversine(pts[0], end) >= 1.0 else None
 
 
-def forward_route_index(routes, course, anchor=30):
-    """Mirror of ActiveNavigator.forwardRouteIndex."""
-    for i, pts in enumerate(routes):
-        if len(pts) < 2:
-            continue
-        start = outgoing_bearing(pts, anchor)
-        if start is None:
-            continue
-        if abs((start - course + 540) % 360 - 180) < 90:
+def leaves_ahead(pts, course, anchor=30):
+    """Mirror of ActiveNavigator.leavesAhead."""
+    if len(pts) < 2:
+        return False
+    start = outgoing_bearing(pts, anchor)
+    return start is not None and abs((start - course + 540) % 360 - 180) < 90
+
+
+def forward_route_index(routes, course):
+    """Mirror of ActiveNavigator.forwardRouteIndex. routes: (pts, seconds)
+    best first; a bare pts list means 600 s."""
+    routes = [r if isinstance(r, tuple) else (r, 600.0) for r in routes]
+    if not routes:
+        return None
+    best = routes[0][1]
+    budget = best + max(120, 0.15 * best)
+    for i, (pts, t) in enumerate(routes):
+        if t <= budget and leaves_ahead(pts, course):
             return i
     return None
 
@@ -88,17 +97,34 @@ class ForwardRouteIndex(unittest.TestCase):
     def test_degenerate_routes_skipped(self):
         self.assertEqual(forward_route_index([[O], [O, O], NORTH], course=0), 2)
 
+    def test_long_detour_ahead_loses_to_u_turn(self):
+        # Missed turn on a rural road: U-turn 10 min, forward option 22 min.
+        self.assertIsNone(forward_route_index([(SOUTH, 600), (NORTH, 1320)], course=0))
+        # Short trip: 120 s floor. 5 min vs 6:50 still ok, 7:10 is not.
+        self.assertEqual(forward_route_index([(SOUTH, 300), (NORTH, 410)], course=0), 1)
+        self.assertIsNone(forward_route_index([(SOUTH, 300), (NORTH, 430)], course=0))
+        # Long trip: 15 %. 1 h vs 1 h 8 min ok.
+        self.assertEqual(forward_route_index([(SOUTH, 3600), (NORTH, 4080)], course=0), 1)
+
 
 class SwiftWiring(unittest.TestCase):
     def setUp(self):
         self.nav = strip_comments(NAV.read_text(encoding="utf-8"))
 
     def test_mirror_matches_swift(self):
-        body = decl_body(self.nav, "static func forwardRouteIndex(")
+        ahead = decl_body(self.nav, "static func leavesAhead(")
         self.assertIn("departureAnchorMeters: CLLocationDistance = 30", self.nav)
-        self.assertIn("guard coords.count >= 2", body)
-        self.assertIn("abs(ManeuverGeometry.signedDelta(from: course, to: start)) < 90", body)
-        self.assertIn("routes.firstIndex", body)
+        self.assertIn("guard coords.count >= 2", ahead)
+        self.assertIn("abs(ManeuverGeometry.signedDelta(from: course, to: start)) < 90", ahead)
+        body = decl_body(self.nav, "static func forwardRouteIndex(")
+        self.assertIn("let budget = best + max(120, 0.15 * best)", body)
+        self.assertIn("routes.firstIndex { $0.time <= budget && leavesAhead($0.coords, course: course) }", body)
+
+    def test_live_traffic_swap_never_turns_back(self):
+        body = decl_body(self.nav, "private func checkLiveTrafficReroute(")
+        filt = body.index("candidates.filter { Self.leavesAhead($0.polyline.coordinateList(), course: course) }")
+        self.assertLess(body.index("travelCourse.map"), filt)
+        self.assertLess(filt, body.index("Self.trafficRerouteDecision("))
 
     def test_course_only_while_moving(self):
         self.assertIn("if fix.course >= 0, fix.speed >= courseMinSpeed { travelCourse = fix.course }",

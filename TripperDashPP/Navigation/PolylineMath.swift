@@ -19,21 +19,44 @@ import MapKit
 
 enum PolylineMath {
 
+    /// `nearestSegment(preferContinuity:)`: how far along the route counts
+    /// as "where the rider is" (> 1 s at 200 km/h plus a GPS gap), how much
+    /// closer a later stretch must be to take the cursor (above typical GPS
+    /// error), and past which distance the near stretch is lost anyway
+    /// (= the navigator's 60 m off-route corridor; a tunnel exit or a cut
+    /// corner jumps as before).
+    static let continuityWindow: CLLocationDistance = 300
+    static let continuityJumpMargin: CLLocationDistance = 25
+    static let continuityKeepWithin: CLLocationDistance = 60
+
     /// Perpendicular distance (meters) from `coord` to the nearest
     /// segment of `polyline`, plus the index of that segment in the
     /// polyline's `points()` array.
     ///
     /// `searchFrom` lets the caller skip segments already passed
     /// (forward-only walking). Pass 0 for a cold lookup.
+    ///
+    /// `preferContinuity` (the live cursor): keep the best segment within
+    /// `continuityWindow` of `searchFrom` unless a later one is
+    /// `continuityJumpMargin` closer, or the near one is off the route. A
+    /// later stretch of the route close by (the far carriageway after a
+    /// turnaround, the way back of an out-and-back, the next leg of a
+    /// hairpin) could otherwise steal the cursor through a few metres of GPS
+    /// error, and the cursor never comes back: progress, turns and the
+    /// wrong-way check then read the wrong stretch.
     static func nearestSegment(on polyline: MKPolyline,
                                from searchFrom: Int,
-                               to coord: CLLocationCoordinate2D)
+                               to coord: CLLocationCoordinate2D,
+                               preferContinuity: Bool = false)
                               -> (distanceMeters: CLLocationDistance, segmentIndex: Int) {
         let count = polyline.pointCount
         guard count >= 2 else { return (.greatestFiniteMagnitude, 0) }
         let points = polyline.points()
         var bestDist = CLLocationDistance.greatestFiniteMagnitude
         var bestIdx = max(0, searchFrom)
+        var nearDist = CLLocationDistance.greatestFiniteMagnitude
+        var nearIdx = bestIdx
+        var along: CLLocationDistance = 0
         let start = max(0, searchFrom)
         for i in start..<(count - 1) {
             let a = points[i].coordinate
@@ -43,7 +66,19 @@ enum PolylineMath {
                 bestDist = d
                 bestIdx = i
             }
+            if preferContinuity, along <= continuityWindow {
+                if d < nearDist {
+                    nearDist = d
+                    nearIdx = i
+                }
+                along += haversine(a, b)
+            }
         }
+        if preferContinuity, nearIdx != bestIdx,
+           nearDist <= continuityKeepWithin, nearDist - bestDist < continuityJumpMargin {
+            return (nearDist, nearIdx)
+        }
+
         return (bestDist, bestIdx)
     }
 

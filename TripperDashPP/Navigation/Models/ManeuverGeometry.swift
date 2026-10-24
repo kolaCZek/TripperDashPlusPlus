@@ -203,7 +203,7 @@ enum ManeuverGeometry {
     /// the node (= first vertex) until `anchor` meters is covered,
     /// then take the bearing from the node TO that anchor.
     static func outgoingBearing(_ curPts: [CLLocationCoordinate2D],
-                                        anchor anchorDist: CLLocationDistance) -> Double? {
+                                anchor anchorDist: CLLocationDistance) -> Double? {
         let node = curPts[0]
         var acc: CLLocationDistance = 0
         var anchor = curPts[curPts.count - 1]

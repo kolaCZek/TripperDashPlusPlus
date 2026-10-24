@@ -117,7 +117,7 @@ def test_swift_route_race_cancels_timer_and_stays_on_main():
     assert race.index("race.timeoutTask = Task") < race.index("directions.calculate {")
 
 
-def test_swift_navigator_hooks_use_timeout_and_offroute_skips_alternates():
+def test_swift_navigator_hooks_use_timeout_and_best_only_hook_skips_alternates():
     app = _src("App/AppStatus.swift")
     offroute = decl_body(app, "activeNavigator.onRerouteRequested = {")
     assert "alternates: false" in offroute
