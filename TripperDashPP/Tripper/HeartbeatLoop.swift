@@ -83,7 +83,8 @@ nonisolated struct HeartbeatLoop: Sendable {
     static func isUnreachableSendError(_ error: Error) -> Bool {
         let ns = error as NSError
         guard ns.domain == "DashSocket" else { return false }
-        return [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN].contains(Int32(truncatingIfNeeded: ns.code))
+        // EADDRNOTAVAIL: en0 losing its address mid-blip (not seen yet).
+        return [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN, EADDRNOTAVAIL].contains(Int32(truncatingIfNeeded: ns.code))
     }
 
     /// Tick-to-tick gap logged as a heartbeat stall (the loop sleeps 1 s).

@@ -239,8 +239,14 @@ final class BikeLink {
     /// reconnect. AppStatus restarts a dead stream / re-latches projection,
     /// which the reconnect used to do.
     @ObservationIgnored var onBlipKept: (() -> Void)?
-    /// Last time a stream failure was kept (see `confirmWifiPathDown`).
+    /// Last in-place stream restart / last reconnect for a stream that failed
+    /// again soon after one (see `confirmWifiPathDown`). Not reset on a
+    /// reconnect, so a stream that fails on every start can't loop.
     @ObservationIgnored private var streamFailureKeptAt: Date?
+    @ObservationIgnored private var streamFailureDroppedAt: Date?
+    /// Why the pending `pathDownCheck` runs; a stream failure overrides a
+    /// path drop so the restart budget sees it.
+    @ObservationIgnored private var pathDownReason = "wifi-path-down"
 
     init() {
         let d = UserDefaults.standard
@@ -876,7 +882,6 @@ final class BikeLink {
 
             state = .connected
             connectedAt = Date()
-            streamFailureKeptAt = nil
             // Arm auto-reconnect for any FUTURE unexpected drop now that we
             // have a real established link.
             shouldAutoReconnect = true
@@ -1223,11 +1228,16 @@ final class BikeLink {
     /// the stream right. Back on another 192.168.1.x network (home Wi-Fi)
     /// the heartbeat's 10 s RX-silence check drops it.
     private func confirmWifiPathDown(reason: String = "wifi-path-down") {
-        guard pathDownCheck == nil else { return }
+        guard pathDownCheck == nil else {
+            if reason == "stream-failed" { pathDownReason = reason }
+            return
+        }
+        pathDownReason = reason
         pathDownCheck = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.pathDownCheck = nil
+            let reason = self.pathDownReason
             // Decided with no await in between. No auto-reconnect (demo
             // link): nothing to drop.
             guard self.state == .connected, self.shouldAutoReconnect else { return }
@@ -1238,11 +1248,19 @@ final class BikeLink {
                 return
             }
             if reason == "stream-failed" {
-                // ponytail: a stream that keeps failing on good Wi-Fi gets one
-                // in-place restart per 30 s; after that a full reconnect, which
-                // has its own budget.
-                if let t = self.streamFailureKeptAt, Date().timeIntervalSince(t) < 30 {
-                    self.log.info("Stream failed again within 30 s of an in-place restart")
+                // A stream that keeps failing on good Wi-Fi: one in-place
+                // restart, then one reconnect, then it stays down with the
+                // link up (as before this PR) instead of bouncing the dash
+                // to its no-phone screen for the whole reconnect budget.
+                // Each step's window is `stableLinkDuration`.
+                func recent(_ d: Date?) -> Bool { d.map { Date().timeIntervalSince($0) < K1G.stableLinkDuration } ?? false }
+                if recent(self.streamFailureKeptAt) {
+                    if recent(self.streamFailureDroppedAt) {
+                        self.log.error("Stream keeps failing after a restart and a reconnect — left down, link kept")
+                        return
+                    }
+                    self.log.info("Stream failed again within \(K1G.stableLinkDuration, privacy: .public) s of an in-place restart")
+                    self.streamFailureDroppedAt = Date()
                     self.handleLinkDropped(reason: reason)
                     return
                 }
@@ -1261,7 +1279,9 @@ final class BikeLink {
             guard self.state == .connected, let socket = kept, self.socket === socket else { return }
             let rx = await socket.secondsSinceLastRx()
             self.log.info("After the Wi-Fi blip: dash last answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago")
-            guard self.state == .connected, self.socket === socket, rx > K1G.wifiBlipGrace else { return }
+            // Not while Wi-Fi is down again: that blip gets its own grace.
+            guard self.state == .connected, self.socket === socket, self.pathDownCheck == nil,
+                  self.lastWifiSatisfied, rx > K1G.wifiBlipGrace else { return }
             self.handleLinkDropped(reason: "dash-silent-after-blip")
         }
     }

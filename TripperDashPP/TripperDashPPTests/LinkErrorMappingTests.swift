@@ -35,7 +35,7 @@ struct LinkErrorMappingTests {
 
     @Test func noRouteToTheDashWaitsForTheSilenceCheck() {
         // A Wi-Fi blip: the 10 s RX-silence check decides, not one sendto.
-        for code in [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN] {
+        for code in [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN, EADDRNOTAVAIL] {
             #expect(HeartbeatLoop.isUnreachableSendError(sendError(code)))
         }
         #expect(!HeartbeatLoop.isUnreachableSendError(sendError(EBADF)))
