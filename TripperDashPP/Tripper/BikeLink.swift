@@ -239,11 +239,13 @@ final class BikeLink {
     /// reconnect. AppStatus restarts a dead or stalled stream, which the
     /// reconnect used to do.
     @ObservationIgnored var onBlipKept: (() -> Void)?
-    /// Last in-place stream restart / last reconnect for a stream that failed
-    /// again soon after one (see `confirmWifiPathDown`). Not reset on a
-    /// reconnect, so a stream that fails on every start can't loop.
+    /// Last in-place stream restart (see `confirmWifiPathDown`). Not reset
+    /// by a drop or reconnect, so a stream that fails on every start can't
+    /// loop; reset by a user `disconnect()` (a user action, no loop).
     @ObservationIgnored private var streamFailureKeptAt: Date?
-    @ObservationIgnored private var streamFailureDroppedAt: Date?
+    /// When a Wi-Fi path blip was last ridden out: an RTP failure just after
+    /// it is that blip's, not a stream failing on good Wi-Fi.
+    @ObservationIgnored private var blipKeptAt: Date?
     /// Why the pending `pathDownCheck` runs; a path drop overrides a stream
     /// failure (only failures on good Wi-Fi are budgeted).
     @ObservationIgnored private var pathDownReason = "wifi-path-down"
@@ -417,6 +419,7 @@ final class BikeLink {
         // drop signal racing in right now can't re-arm the retry loop.
         log.info("BikeLink disconnected (auto-reconnect cleared)")
         pathDownCheck?.cancel(); pathDownCheck = nil
+        streamFailureKeptAt = nil
         shouldAutoReconnect = false
         reconnectDeadline = nil
         connectedAt = nil
@@ -1252,26 +1255,21 @@ final class BikeLink {
             }
             if reason == "stream-failed" {
                 // A stream that keeps failing on good Wi-Fi: one in-place
-                // restart, then one reconnect, then it stays down with the
-                // link up (as before this PR) instead of bouncing the dash
-                // to its no-phone screen for the whole reconnect budget.
-                // Each step's window is `stableLinkDuration`.
-                func recent(_ d: Date?) -> Bool { d.map { Date().timeIntervalSince($0) < K1G.stableLinkDuration } ?? false }
-                if recent(self.streamFailureKeptAt) {
-                    if recent(self.streamFailureDroppedAt) {
-                        self.log.error("Stream keeps failing after a restart and a reconnect — left down, link kept")
-                        return
-                    }
-                    self.log.info("Stream failed again within \(K1G.stableLinkDuration, privacy: .public) s of an in-place restart")
-                    self.streamFailureDroppedAt = Date()
-                    self.handleLinkDropped(reason: reason)
+                // restart; failing again within `stableLinkDuration` it stays
+                // down with the link up (as before this PR) rather than
+                // bouncing the dash to its no-phone screen on every start.
+                if let t = self.streamFailureKeptAt, Date().timeIntervalSince(t) < K1G.stableLinkDuration {
+                    self.log.error("Stream keeps failing after an in-place restart — left down, link kept")
                     return
                 }
                 self.streamFailureKeptAt = Date()
+            } else {
+                self.blipKeptAt = Date()
             }
             self.log.notice("Wi-Fi path blip — link kept (\(reason, privacy: .public))")
             // A call-state change sent in the blip was recorded as sent but
-            // lost; a reconnect used to re-push it (`runConnectFlow`).
+            // lost. A reconnect only clears the de-dup state (`runConnectFlow`),
+            // so re-push here for a card lost in the blip to come back.
             if let call = self.lastCallState {
                 self.lastCallState = nil
                 Task { await self.sendCallState(call) }
@@ -1301,7 +1299,10 @@ final class BikeLink {
     /// and `onBlipKept` restarts the stream; still down → reconnect.
     func reportStreamFailed() {
         guard state == .connected else { return }
-        confirmWifiPathDown(reason: "stream-failed")
+        // Just after a ridden-out blip it is that blip's failure (late), not
+        // a stream failing on good Wi-Fi: no budget, same restart.
+        let late = blipKeptAt.map { Date().timeIntervalSince($0) < K1G.wifiBlipGrace } ?? false
+        confirmWifiPathDown(reason: late ? "wifi-path-down" : "stream-failed")
     }
 
     private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {
