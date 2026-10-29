@@ -114,6 +114,12 @@ nonisolated enum K1G {
     /// p99.9 1 s, max 3.5 s. Raise it if another dash is quieter.
     static let rxSilenceTimeout: TimeInterval = 10.0
 
+    /// A Wi-Fi path that goes `.unsatisfied` on an established link is
+    /// re-checked after this long before the link is dropped: iOS also
+    /// reports blips that come straight back (field ride 2026-10-29: 7
+    /// drops of 15–37 s each where cellular fell back to EDGE).
+    static let wifiBlipGrace: TimeInterval = 3.0
+
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
     static let handshakeStepTimeout: TimeInterval = 5.0
 

@@ -33,6 +33,15 @@ struct LinkErrorMappingTests {
         #expect(!HeartbeatLoop.isTransientSendError(NSError(domain: "Other", code: Int(ENOBUFS))))
     }
 
+    @Test func noRouteToTheDashWaitsForTheSilenceCheck() {
+        // A Wi-Fi blip: the 10 s RX-silence check decides, not one sendto.
+        for code in [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN] {
+            #expect(HeartbeatLoop.isUnreachableSendError(sendError(code)))
+        }
+        #expect(!HeartbeatLoop.isUnreachableSendError(sendError(EBADF)))
+        #expect(!HeartbeatLoop.isUnreachableSendError(NSError(domain: "Other", code: Int(EHOSTDOWN))))
+    }
+
     @Test func silenceCountsOnlyAfterHeartbeatsWentOut() {
         // A phone-side stall (nothing sent) is not a silent dash.
         #expect(!HeartbeatLoop.isDashSilent(silence: 30, sentTicksWithoutRx: 0))

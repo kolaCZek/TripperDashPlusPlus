@@ -120,9 +120,20 @@ class FakeBikeLink:
         prev = self.last_wifi_satisfied
         self.last_wifi_satisfied = satisfied
         if not satisfied and self.state == LinkState.CONNECTED:
-            self.handle_link_dropped("wifi-path-down")
+            self.path_down_pending = True   # confirmWifiPathDown, wifiBlipGrace later
         elif satisfied and not prev and self.state == LinkState.RECONNECTING:
             self.wake_reconnect()
+
+    def confirm_wifi_path_down(self, subnet: bool = True, rx_age: float = 1.0) -> None:
+        """Mirror of confirmWifiPathDown's check, wifiBlipGrace after the
+        first unsatisfied update: a blip keeps the link."""
+        if not getattr(self, "path_down_pending", False):
+            return
+        self.path_down_pending = False
+        if self.state != LinkState.CONNECTED:
+            return
+        if not (self.last_wifi_satisfied and subnet and rx_age < 5):
+            self.handle_link_dropped("wifi-path-down")
 
     def disconnect(self) -> None:
         """Mirror of user-initiated disconnect()."""
@@ -240,7 +251,46 @@ def test_wifi_down_while_connected_triggers_reconnect():
     link = FakeBikeLink()
     link.connect_success()
     link.wifi_path_update(False)
+    assert link.state == LinkState.CONNECTED   # re-checked after the grace
+    link.confirm_wifi_path_down()
     assert link.state == LinkState.RECONNECTING
+
+
+def test_wifi_blip_keeps_the_link():
+    """Field ride 2026-10-29: path blips where cellular fell to EDGE each
+    cost a 15-37 s reconnect. Back within the grace, with the dash subnet
+    and a fresh RX, the session stays."""
+    link = FakeBikeLink()
+    link.connect_success()
+    link.wifi_path_update(False)
+    link.wifi_path_update(True)
+    link.confirm_wifi_path_down()
+    assert link.state == LinkState.CONNECTED
+    # Back but no dash-subnet address, or the dash quiet: drop.
+    for kw in ({"subnet": False}, {"rx_age": 6.0}):
+        link = FakeBikeLink()
+        link.connect_success()
+        link.wifi_path_update(False)
+        link.wifi_path_update(True)
+        link.confirm_wifi_path_down(**kw)
+        assert link.state == LinkState.RECONNECTING, kw
+
+
+def test_wifi_blip_swift_shape():
+    src = strip_comments(_bikelink_src())
+    handler = decl_body(src, "private func startPathMonitorIfNeeded")
+    assert "if !satisfied, self.state == .connected {\n                    self.confirmWifiPathDown()" in handler
+    assert 'handleLinkDropped(reason: "wifi-path-down")' not in handler
+    check = decl_body(src, "private func confirmWifiPathDown")
+    assert "K1G.wifiBlipGrace" in check
+    assert "guard self.state == .connected else { return }" in check
+    assert "if self.lastWifiSatisfied, subnet, rx < 5 {" in check
+    assert 'self.handleLinkDropped(reason: "wifi-path-down")' in check
+    # A stream that died in the blip still reconnects (that restarts RTP).
+    status = strip_comments((Path(__file__).resolve().parents[3] / "TripperDashPP/App/AppStatus.swift").read_text(encoding="utf-8"))
+    assert "if m.lastError != nil, let s, self.streamer === s, self.bikeLink.state == .connected {" in status
+    assert "self.bikeLink.reportStreamFailed()" in status
+    assert 'handleLinkDropped(reason: "stream-failed")' in decl_body(src, "func reportStreamFailed")
 
 
 def test_first_connect_failure_is_not_a_reconnect():

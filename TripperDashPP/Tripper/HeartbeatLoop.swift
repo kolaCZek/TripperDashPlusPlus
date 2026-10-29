@@ -77,6 +77,18 @@ nonisolated struct HeartbeatLoop: Sendable {
         return ns.code == Int(ENOBUFS) || ns.code == Int(EAGAIN) || ns.code == Int(EWOULDBLOCK)
     }
 
+    /// True for `sendto` errnos that mean "no route to the dash right now":
+    /// a short Wi-Fi blip (after a failed ARP the kernel answers EHOSTDOWN
+    /// for a while). Not a drop by itself — the RX-silence check decides.
+    static func isUnreachableSendError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == "DashSocket" else { return false }
+        return [EHOSTDOWN, EHOSTUNREACH, ENETUNREACH, ENETDOWN].contains(Int32(truncatingIfNeeded: ns.code))
+    }
+
+    /// Tick-to-tick gap logged as a heartbeat stall (the loop sleeps 1 s).
+    static let stallLogSeconds: TimeInterval = 2.5
+
     /// Heartbeats the dash must have had the chance to ACK before its
     /// silence counts. The dash only replies to what we send, so a stall on
     /// OUR side (busy main actor at tick 0, process suspension) is not a
@@ -95,7 +107,15 @@ nonisolated struct HeartbeatLoop: Sendable {
         var tick: UInt64 = 0
         var transientFailures = 0
         var sentTicksWithoutRx = 0
+        var lastTickAt: TimeInterval?
         while !Task.isCancelled {
+            // A gap here is the loop itself not running (process suspended,
+            // thread pool starved), not the dash or the Wi-Fi.
+            let tickAt = ProcessInfo.processInfo.systemUptime
+            if let lastTickAt, tickAt - lastTickAt > Self.stallLogSeconds {
+                Self.log.notice("Heartbeat stall \(Int((tickAt - lastTickAt) * 1000), privacy: .public) ms")
+            }
+            lastTickAt = tickAt
             // Phone status: re-read on every 1 Hz tick, like the stock
             // app's status frames. The
             // provider hops to the main actor, so only the first tick waits
@@ -147,6 +167,11 @@ nonisolated struct HeartbeatLoop: Sendable {
                 if Self.isTransientSendError(error), transientFailures < Self.maxTransientSendFailures {
                     transientFailures += 1
                     Self.log.notice("Heartbeat send hiccup (\(transientFailures)/\(Self.maxTransientSendFailures)): \(error.localizedDescription, privacy: .public) — retrying next tick")
+                } else if Self.isUnreachableSendError(error) {
+                    // Counts as sent: a dash that stays unreachable trips the
+                    // 10 s silence check below, a blip passes.
+                    sentTicksWithoutRx += 1
+                    Self.log.notice("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — waiting for the dash")
                 } else {
                     Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
                     return

@@ -500,8 +500,16 @@ final class AppStatus {
         let source = mapViewSource   // shared instance, lazily created
         let s = RtpStreamer(bikeHost: host, source: source)
         s.bikeLink = bikeLink
-        s.onMetrics = { [weak self] m in
+        s.onMetrics = { [weak self, weak s] m in
             guard let self else { return }
+            // `lastError` is set only by the streamer's fail(). With the
+            // link still up nothing would restart it (Wi-Fi blips no longer
+            // drop the link at once), so drop it: the reconnect restarts RTP.
+            // ponytail: also loops on an encoder that fails every start, until
+            // the reconnect budget runs out.
+            if m.lastError != nil, let s, self.streamer === s, self.bikeLink.state == .connected {
+                self.bikeLink.reportStreamFailed()
+            }
             self.metrics = StreamMetrics(
                 encodedFps: m.encodedFps,
                 kbpsOut: m.kbpsOut,

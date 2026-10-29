@@ -118,3 +118,8 @@ def test_heartbeat_tolerates_transient_send_errors_only() -> None:
     assert "transientFailures += 1" in catch
     tail = catch[catch.index("} else {"):]
     assert "return" in tail
+    # No route to the dash (Wi-Fi blip): no return, the tick counts toward
+    # the RX-silence check, which ends the loop if the dash stays gone.
+    unreach = catch[catch.index("} else if Self.isUnreachableSendError(error) {"):catch.index("} else {")]
+    assert "sentTicksWithoutRx += 1" in unreach
+    assert "return" not in unreach

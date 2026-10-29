@@ -183,6 +183,10 @@ final class BikeLink {
     private let pathMonitor = NWPathMonitor(requiredInterfaceType: .wifi)
     private var pathMonitorStarted = false
     private var lastWifiSatisfied = true
+    @ObservationIgnored private var wifiDownSince: Date?
+    @ObservationIgnored private var pathDownCheck: Task<Void, Never>?
+    /// When the current drop episode started, for "Reconnected after …".
+    @ObservationIgnored private var droppedAt: Date?
 
     /// True while `runConnectFlow` is actively executing (socket open,
     /// handshake in progress). Guards `wakeReconnect()` against tearing down
@@ -961,7 +965,9 @@ final class BikeLink {
             // Already reconnecting (or not in a droppable state) — ignore.
             return
         }
-        log.warning("Link dropped (\(reason, privacy: .public)) — starting auto-reconnect")
+        let up = connectedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
+        log.warning("Link dropped (\(reason, privacy: .public)) after \(up, privacy: .public) s up — starting auto-reconnect")
+        droppedAt = Date()
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
         Task { [socket] in await socket?.cancel() }
@@ -1045,7 +1051,8 @@ final class BikeLink {
                 let retryDelay: TimeInterval
                 switch result {
                 case .connected:
-                    self.log.info("Reconnected after \(attempt) attempt(s)")
+                    let took = self.droppedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
+                    self.log.info("Reconnected after \(attempt) attempt(s), \(took, privacy: .public) s after the drop")
                     self.consecutiveSilentAttempts = 0
                     return
                 case .bootRaceMissingReply:
@@ -1165,15 +1172,24 @@ final class BikeLink {
         guard !pathMonitorStarted else { return }
         pathMonitorStarted = true
         pathMonitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            let why = String(describing: path.unsatisfiedReason)
+            let interfaces = path.availableInterfaces.map(\.name).joined(separator: ",")
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let satisfied = path.status == .satisfied
                 defer { self.lastWifiSatisfied = satisfied }
                 if satisfied != self.lastWifiSatisfied {
-                    self.log.info("Wi-Fi path \(satisfied ? "up" : "down", privacy: .public) (link \(String(describing: self.state), privacy: .public))")
+                    let link = String(describing: self.state)
+                    if satisfied {
+                        let down = self.wifiDownSince.map { Date().timeIntervalSince($0) } ?? 0
+                        self.log.info("Wi-Fi path up after \(down, format: .fixed(precision: 1), privacy: .public) s (link \(link, privacy: .public))")
+                    } else {
+                        self.wifiDownSince = Date()
+                        self.log.info("Wi-Fi path down (reason \(why, privacy: .public), interfaces [\(interfaces, privacy: .public)], dash subnet \(Self.wifiHasDashSubnetIPv4() ? "yes" : "no", privacy: .public), link \(link, privacy: .public))")
+                    }
                 }
                 if !satisfied, self.state == .connected {
-                    self.handleLinkDropped(reason: "wifi-path-down")
+                    self.confirmWifiPathDown()
                 } else if satisfied, !self.lastWifiSatisfied, self.state == .reconnecting {
                     // Wi-Fi came back — try right now instead of waiting
                     // out the interval. NOTE: a `.satisfied` Wi-Fi path
@@ -1188,6 +1204,36 @@ final class BikeLink {
         }
         pathMonitor.start(queue: DispatchQueue(label: "BikeLink.pathMonitor"))
         log.info("Wi-Fi path monitor started")
+    }
+
+    /// One `.unsatisfied` update used to drop the link at once. Drop only if,
+    /// `wifiBlipGrace` later, the path is still down, the phone has lost its
+    /// dash-subnet address, or the dash has gone quiet; a blip keeps the
+    /// session (and the dash off its no-phone screen). A stream that died
+    /// in the blip drops the link anyway (`reportStreamFailed`).
+    private func confirmWifiPathDown() {
+        guard pathDownCheck == nil else { return }
+        pathDownCheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
+            guard let self else { return }
+            self.pathDownCheck = nil
+            let rx = await self.socket?.secondsSinceLastRx() ?? .infinity
+            guard self.state == .connected else { return }
+            let subnet = Self.wifiHasDashSubnetIPv4()
+            // 5 s: above the dash's worst measured RX gap (3.5 s).
+            if self.lastWifiSatisfied, subnet, rx < 5 {
+                self.log.notice("Wi-Fi path blip — link kept (dash answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
+            } else {
+                self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public), last RX \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
+                self.handleLinkDropped(reason: "wifi-path-down")
+            }
+        }
+    }
+
+    /// The RTP stream failed while the link looked up (its UDP connection
+    /// dies in a Wi-Fi blip): a reconnect is the path that restarts it.
+    func reportStreamFailed() {
+        handleLinkDropped(reason: "stream-failed")
     }
 
     private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {
