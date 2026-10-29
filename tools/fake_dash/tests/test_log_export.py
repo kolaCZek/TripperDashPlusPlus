@@ -1,4 +1,4 @@
-"""Settings -> Diagnostics -> Export log (Debug builds only).
+"""Settings -> Diagnostics -> Export log (Debug and TestFlight builds only).
 
 Field logs could only be read with Console.app on a Mac tethered to the
 phone, so a rider on the road had no way to send one. The app now writes its
@@ -50,18 +50,20 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert "import OSLog" in src
     view = decl_body(src, "struct StreamingView: View")
     assert "LogExportSection()" in view
-    # Debug only: Xcode Run uses Debug, Archive (TestFlight / App Store)
-    # uses Release, so the button never ships. Both the call site and the
-    # type are compiled out.
-    call = view.index("LogExportSection()")
-    assert view.rfind("#if DEBUG", 0, call) > view.rfind("#endif", 0, call)
-    assert view.index("#endif", call) > call
-    decl = src.index("private struct LogExportSection: View")
-    assert src.rfind("#if DEBUG", 0, decl) > src.rfind("#endif", 0, decl)
+    # Never in the App Store: TestFlight and the App Store both ship the
+    # Release archive, so a Release build asks StoreKit where it came from.
+    assert re.search(r"if canExportLog \{\s+LogExportSection\(\)\s+\}", view)
+    assert ".task { canExportLog = await LogExportSection.isAvailable() }" in view
+    assert "@State private var canExportLog = false" in view
+    section = decl_body(src, "private struct LogExportSection: View")
+    gate = decl_body(section, "nonisolated static func isAvailable(")
+    debug, release = gate.split("#else")
+    assert "#if DEBUG" in debug and "return true" in debug
+    assert "try? await AppTransaction.shared else { return false }" in release
+    assert "return result.unsafePayloadValue.environment != .production" in release
     scheme = (APP / "TripperDashPP.xcodeproj/xcshareddata/xcschemes/TripperDashPP.xcscheme").read_text()
     assert re.search(r'<LaunchAction\s+buildConfiguration = "Debug"', scheme)
     assert re.search(r'<ArchiveAction\s+buildConfiguration = "Release"', scheme)
-    section = decl_body(src, "private struct LogExportSection: View")
     assert "ShareLink(item: url)" in section
     write = decl_body(section, "@concurrent nonisolated private static func writeLog(")
     assert "OSLogStore(scope: .currentProcessIdentifier)" in write

@@ -11,6 +11,7 @@
 
 import CoreLocation
 import OSLog
+import StoreKit
 import SwiftUI
 
 struct StreamingView: View {
@@ -25,6 +26,8 @@ struct StreamingView: View {
 
     /// Presents the permissions checklist sheet.
     @State private var showPermissions = false
+    /// Debug and TestFlight builds only, see `LogExportSection.isAvailable`.
+    @State private var canExportLog = false
 
     /// Allow connecting/editing the garage only when we're not actively
     /// connected or mid-handshake. Idle and error states are both safe
@@ -265,11 +268,11 @@ struct StreamingView: View {
 
             MapCacheSection()
 
-            // Debug builds only (Xcode Run → Debug; Archive, so TestFlight
-            // and the App Store, → Release): the log carries GPS positions.
-            #if DEBUG
-            LogExportSection()
-            #endif
+            // Debug and TestFlight builds only, never the App Store: the log
+            // carries GPS positions.
+            if canExportLog {
+                LogExportSection()
+            }
 
             Section("About") {
                 // "1.0.3 (6) · abc1234": marketing version, CFBundleVersion
@@ -287,6 +290,7 @@ struct StreamingView: View {
             }
         }
         .navigationTitle("Settings")
+        .task { canExportLog = await LogExportSection.isAvailable() }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPermissions) {
             PermissionsView()
@@ -390,8 +394,7 @@ private struct MapCacheSection: View {
     }
 }
 
-#if DEBUG
-/// "Export log" (Debug builds only): the app's own log lines (every subsystem containing
+/// "Export log" (Debug and TestFlight builds only): the app's own log lines (every subsystem containing
 /// `kolaczek`, info level and up) since this launch, as a text file for
 /// the share sheet — so a rider can send a field log without a Mac.
 /// iOS only lets an app read its current process's entries, so this must
@@ -402,6 +405,20 @@ private struct LogExportSection: View {
     @State private var exportURL: URL?
     @State private var isPreparing = false
     @State private var failed = false
+
+    /// Debug build, or a Release build that StoreKit says isn't from the App
+    /// Store (TestFlight = `.sandbox`, an Xcode-signed Release = `.xcode`).
+    /// No answer (no App Store account, offline first launch) = hidden;
+    /// `.task` asks again the next time Settings opens.
+    nonisolated static func isAvailable() async -> Bool {
+        #if DEBUG
+        return true
+        #else
+        // Unverified payload is fine: it only shows a button.
+        guard let result = try? await AppTransaction.shared else { return false }
+        return result.unsafePayloadValue.environment != .production
+        #endif
+    }
 
     var body: some View {
         Section {
@@ -464,7 +481,6 @@ private struct LogExportSection: View {
         }
     }
 }
-#endif
 
 #Preview {
     NavigationStack { StreamingView() }
