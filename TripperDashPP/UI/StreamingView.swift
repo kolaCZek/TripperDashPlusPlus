@@ -438,7 +438,12 @@ private struct LogExportSection: View {
                         isPreparing = false
                     }
                 } label: {
-                    Label("Export log", systemImage: "doc.text")
+                    // Reading a long ride's log takes a while: show it's working.
+                    Label {
+                        Text(isPreparing ? "Preparing log…" : "Export log")
+                    } icon: {
+                        if isPreparing { ProgressView() } else { Image(systemName: "doc.text") }
+                    }
                 }
                 .disabled(isPreparing)
             }

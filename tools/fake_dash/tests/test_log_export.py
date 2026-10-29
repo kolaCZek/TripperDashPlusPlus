@@ -69,6 +69,10 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert re.search(r'<LaunchAction\s+buildConfiguration = "Debug"', scheme)
     assert re.search(r'<ArchiveAction\s+buildConfiguration = "Release"', scheme)
     assert "ShareLink(item: url)" in section
+    # Feedback while the (slow) read runs, and no second tap.
+    assert 'isPreparing ? "Preparing log…" : "Export log"' in section
+    assert "if isPreparing { ProgressView() }" in section
+    assert ".disabled(isPreparing)" in section
     write = decl_body(section, "@concurrent nonisolated private static func writeLog(")
     assert "OSLogStore(scope: .currentProcessIdentifier)" in write
     # No NSPredicate: iOS's OSLogStore mishandles a subsystem predicate
