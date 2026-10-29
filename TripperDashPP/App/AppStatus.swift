@@ -14,6 +14,7 @@ import os
 import UIKit
 
 private let shareLog = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "ShareIntake")
+private let blipLog = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "AppStatus")
 
 /// High-level connection lifecycle as seen by the UI. Mirrors the
 /// `BikeLink` state machine.
@@ -269,20 +270,30 @@ final class AppStatus {
 
     /// BikeLink rode out a Wi-Fi blip without a reconnect, so the observer's
     /// resume branches don't run: a stream that died in it restarts the way
-    /// a reconnect restarts it. A live stream is left alone (the reference
-    /// app never re-sends START_NAV mid-stream); a dash that ended its
-    /// session in the blip is caught by BikeLink's after-blip RX check.
+    /// a reconnect restarts it. A running stream gets the after-blip window
+    /// to recover and is restarted only if still stalled; otherwise it's left
+    /// alone (the reference app never re-sends START_NAV mid-stream). A dash
+    /// that ended its session in the blip is caught by BikeLink's RX check.
     private func handleBlipKept() async {
-        if streamer?.state == .failed {
-            // Nav-stop out BEFORE the new start's route cards and nav-start:
-            // stopStreaming's own is detached and would land mid-burst.
-            await bikeLink.sendNavStop()
-            stopStreaming(sendNavStop: false)
-            if activeNavigator.isNavigating && !activeNavigator.hasArrived {
-                await startStreaming()
-            } else if isFreeRiding {
-                await resumeFreeRideAfterReconnect()
-            }
+        guard let s = streamer else { return }
+        if s.state != .failed {
+            guard s.state == .running else { return }
+            // ponytail: one send failure at this instant also counts as
+            // stalled; the cost is one ~5 s projection restart.
+            try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
+            guard streamer === s, bikeLink.state == .connected, s.state == .failed || s.isStalled else { return }
+            blipLog.notice("RTP still stalled after the Wi-Fi blip — restarting the stream")
+        }
+        // Nav-stop out BEFORE the new start's route cards and nav-start:
+        // stopStreaming's own is detached and would land mid-burst.
+        await bikeLink.sendNavStop()
+        // A Stop / Start in the await, or another blip's restart, owns it now.
+        guard streamer === s else { return }
+        stopStreaming(sendNavStop: false)
+        if activeNavigator.isNavigating && !activeNavigator.hasArrived {
+            await startStreaming()
+        } else if isFreeRiding {
+            await resumeFreeRideAfterReconnect()
         }
     }
 

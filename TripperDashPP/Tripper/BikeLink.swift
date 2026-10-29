@@ -236,16 +236,16 @@ final class BikeLink {
     var onButton: ((K1GPacket.DashButton) -> Void)?
 
     /// A Wi-Fi blip (or an RTP failure in one) was ridden out without a
-    /// reconnect. AppStatus restarts a dead stream / re-latches projection,
-    /// which the reconnect used to do.
+    /// reconnect. AppStatus restarts a dead or stalled stream, which the
+    /// reconnect used to do.
     @ObservationIgnored var onBlipKept: (() -> Void)?
     /// Last in-place stream restart / last reconnect for a stream that failed
     /// again soon after one (see `confirmWifiPathDown`). Not reset on a
     /// reconnect, so a stream that fails on every start can't loop.
     @ObservationIgnored private var streamFailureKeptAt: Date?
     @ObservationIgnored private var streamFailureDroppedAt: Date?
-    /// Why the pending `pathDownCheck` runs; a stream failure overrides a
-    /// path drop so the restart budget sees it.
+    /// Why the pending `pathDownCheck` runs; a path drop overrides a stream
+    /// failure (only failures on good Wi-Fi are budgeted).
     @ObservationIgnored private var pathDownReason = "wifi-path-down"
 
     init() {
@@ -1229,7 +1229,10 @@ final class BikeLink {
     /// the heartbeat's 10 s RX-silence check drops it.
     private func confirmWifiPathDown(reason: String = "wifi-path-down") {
         guard pathDownCheck == nil else {
-            if reason == "stream-failed" { pathDownReason = reason }
+            // A path-down in the same grace explains an RTP failure (which
+            // comes ~100 ms first): the blip, not a stream that keeps failing
+            // on good Wi-Fi, so it doesn't count against the restart budget.
+            if reason == "wifi-path-down" { pathDownReason = reason }
             return
         }
         pathDownReason = reason
@@ -1267,6 +1270,12 @@ final class BikeLink {
                 self.streamFailureKeptAt = Date()
             }
             self.log.notice("Wi-Fi path blip — link kept (\(reason, privacy: .public))")
+            // A call-state change sent in the blip was recorded as sent but
+            // lost; a reconnect used to re-push it (`runConnectFlow`).
+            if let call = self.lastCallState {
+                self.lastCallState = nil
+                Task { await self.sendCallState(call) }
+            }
             self.onBlipKept?()
             // Did the dash end its session in the blip? Then it stops ACKing
             // and sits on its no-phone screen; re-handshake now instead of at

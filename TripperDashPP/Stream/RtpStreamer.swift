@@ -74,6 +74,10 @@ final class RtpStreamer {
 
     private(set) var state: State = .idle
     private(set) var metrics = RtpStreamerMetrics()
+    /// The connection sits in `.waiting` (pinned to Wi-Fi, a blip can leave
+    /// it there instead of `.failed`) or the last datagram send failed.
+    var isStalled: Bool { isWaiting || pipe.isFailing }
+    private var isWaiting = false
     /// Hook the UI uses to redraw when metrics change. Fires on the main actor.
     var onMetrics: ((RtpStreamerMetrics) -> Void)?
 
@@ -184,6 +188,7 @@ final class RtpStreamer {
     private func handleConnectionState(_ s: NWConnection.State) {
         switch s {
         case .ready:
+            isWaiting = false
             log.info("UDP connection ready (\(self.bikeHost):\(self.bikePort))")
         case .failed(let err):
             // Transport only (not an encoder that won't start, which would
@@ -192,6 +197,7 @@ final class RtpStreamer {
             if state != .idle { bikeLink?.reportStreamFailed() }
             fail(reason: "UDP failed: \(err.localizedDescription)")
         case .waiting(let err):
+            isWaiting = true
             log.warning("UDP waiting: \(err.localizedDescription)")
         case .cancelled:
             log.info("UDP cancelled")
@@ -302,6 +308,9 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
             log.notice("rtp gap \(Int(pending * 1000), privacy: .public) ms (at stop)")
         }
     }
+
+    /// The last datagram send failed (see `failedRun`).
+    var isFailing: Bool { lock.withLock { failedRun > 0 } }
 
     /// Snapshot of the counters; restarts the fps / kbps window.
     func takeWindow() -> Counters {
