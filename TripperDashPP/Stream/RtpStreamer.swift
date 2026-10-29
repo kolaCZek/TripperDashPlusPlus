@@ -114,6 +114,10 @@ final class RtpStreamer {
             port: NWEndpoint.Port(integerLiteral: bikePort)
         )
         let params = NWParameters.udp
+        // The dash is only on Wi-Fi: in a blip, wait for it rather than send
+        // over cellular or stay on a cellular path after Wi-Fi returns. Not
+        // for a fake_dash elsewhere on the LAN.
+        if bikeHost == K1G.bikeIPv4 { params.requiredInterfaceType = .wifi }
         let conn = NWConnection(to: endpoint, using: params)
         conn.stateUpdateHandler = { [weak self] s in
             Task { @MainActor [weak self] in self?.handleConnectionState(s) }
@@ -182,6 +186,10 @@ final class RtpStreamer {
         case .ready:
             log.info("UDP connection ready (\(self.bikeHost):\(self.bikePort))")
         case .failed(let err):
+            // Transport only (not an encoder that won't start, which would
+            // reconnect in a loop): with the link still up nothing else
+            // restarts RTP, since a Wi-Fi blip no longer drops the link.
+            if state != .idle { bikeLink?.reportStreamFailed() }
             fail(reason: "UDP failed: \(err.localizedDescription)")
         case .waiting(let err):
             log.warning("UDP waiting: \(err.localizedDescription)")

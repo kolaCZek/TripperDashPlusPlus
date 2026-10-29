@@ -115,9 +115,10 @@ nonisolated enum K1G {
     static let rxSilenceTimeout: TimeInterval = 10.0
 
     /// A Wi-Fi path that goes `.unsatisfied` on an established link is
-    /// re-checked after this long before the link is dropped: iOS also
-    /// reports blips that come straight back (field ride 2026-10-29: 7
-    /// drops of 15–37 s each where cellular fell back to EDGE).
+    /// re-checked after this long before the link is dropped. Hypothesis,
+    /// not yet seen in a log: short Wi-Fi blips where cellular falls back
+    /// to EDGE caused the field ride's 7 drops (2026-10-29; 15–37 s each
+    /// from drop to stream back).
     static let wifiBlipGrace: TimeInterval = 3.0
 
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).

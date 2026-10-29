@@ -403,6 +403,7 @@ final class BikeLink {
         // User-initiated stop: clear the auto-reconnect intent FIRST so a
         // drop signal racing in right now can't re-arm the retry loop.
         log.info("BikeLink disconnected (auto-reconnect cleared)")
+        pathDownCheck?.cancel(); pathDownCheck = nil
         shouldAutoReconnect = false
         reconnectDeadline = nil
         connectedAt = nil
@@ -967,6 +968,7 @@ final class BikeLink {
         }
         let up = connectedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
         log.warning("Link dropped (\(reason, privacy: .public)) after \(up, privacy: .public) s up — starting auto-reconnect")
+        pathDownCheck?.cancel(); pathDownCheck = nil
         droppedAt = Date()
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
@@ -1207,21 +1209,21 @@ final class BikeLink {
     }
 
     /// One `.unsatisfied` update used to drop the link at once. Drop only if,
-    /// `wifiBlipGrace` later, the path is still down, the phone has lost its
-    /// dash-subnet address, or the dash has gone quiet; a blip keeps the
-    /// session (and the dash off its no-phone screen). A stream that died
-    /// in the blip drops the link anyway (`reportStreamFailed`).
+    /// `wifiBlipGrace` later, the path is still down or the phone has no
+    /// dash-subnet address; a blip keeps the session (and the dash off its
+    /// no-phone screen). Back on another 192.168.1.x network (home Wi-Fi)
+    /// the heartbeat's 10 s RX-silence check drops it. A stream whose UDP
+    /// connection died in the blip drops it at once (`reportStreamFailed`).
     private func confirmWifiPathDown() {
         guard pathDownCheck == nil else { return }
         pathDownCheck = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             self.pathDownCheck = nil
-            let rx = await self.socket?.secondsSinceLastRx() ?? .infinity
-            guard self.state == .connected else { return }
+            let rx = await self.socket?.secondsSinceLastRx() ?? .infinity   // log only
+            guard !Task.isCancelled, self.state == .connected else { return }
             let subnet = Self.wifiHasDashSubnetIPv4()
-            // 5 s: above the dash's worst measured RX gap (3.5 s).
-            if self.lastWifiSatisfied, subnet, rx < 5 {
+            if self.lastWifiSatisfied, subnet {
                 self.log.notice("Wi-Fi path blip — link kept (dash answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
             } else {
                 self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public), last RX \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
