@@ -123,4 +123,5 @@ def test_heartbeat_tolerates_transient_send_errors_only() -> None:
     unreach = catch[catch.index("} else if Self.isUnreachableSendError(error) {"):catch.index("} else {")]
     assert "sentTicksWithoutRx += 1" in unreach
     assert "transientFailures = 0" in unreach
+    assert "if unreachableRun == 1 {" in unreach   # one log line per run
     assert "return" not in unreach

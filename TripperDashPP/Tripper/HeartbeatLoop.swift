@@ -106,6 +106,7 @@ nonisolated struct HeartbeatLoop: Sendable {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0
         var transientFailures = 0
+        var unreachableRun = 0   // log the first unreachable send + a count, not one per tick
         var sentTicksWithoutRx = 0
         var lastTickAt: TimeInterval?
         var haveTelemetry = false
@@ -155,6 +156,10 @@ nonisolated struct HeartbeatLoop: Sendable {
                 try await socket.send(hb)
                 try await socket.send(md)
                 transientFailures = 0
+                if unreachableRun > 0 {
+                    Self.log.notice("Heartbeat sends back after \(unreachableRun, privacy: .public) failed")
+                    unreachableRun = 0
+                }
                 sentTicksWithoutRx += 1
                 tick &+= 1
                 if tick == 1 {
@@ -174,7 +179,10 @@ nonisolated struct HeartbeatLoop: Sendable {
                     // 10 s silence check below, a blip passes.
                     sentTicksWithoutRx += 1
                     transientFailures = 0
-                    Self.log.notice("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — waiting for the dash")
+                    unreachableRun += 1
+                    if unreachableRun == 1 {
+                        Self.log.notice("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — waiting for the dash")
+                    }
                 } else {
                     Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")
                     return

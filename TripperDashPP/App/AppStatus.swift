@@ -268,16 +268,16 @@ final class AppStatus {
     }
 
     /// BikeLink rode out a Wi-Fi blip without a reconnect, so the observer's
-    /// resume branches don't run. A stream that died in it restarts the way
-    /// a reconnect restarts it. A live one gets nav-start + PROJ_ON again in
-    /// case the dash left projection during the blip (unverified; both are
-    /// latches the dash already takes on every stream start).
+    /// resume branches don't run: a stream that died in it restarts the way
+    /// a reconnect restarts it. A live stream is left alone (the reference
+    /// app never re-sends START_NAV mid-stream); a dash that ended its
+    /// session in the blip is caught by BikeLink's after-blip RX check.
     private func handleBlipKept() async {
-        if isStreaming {
-            await bikeLink.sendNavStart()
-            await bikeLink.sendProjectionOn()
-        } else if streamer?.state == .failed {
-            stopStreaming()
+        if streamer?.state == .failed {
+            // Nav-stop out BEFORE the new start's route cards and nav-start:
+            // stopStreaming's own is detached and would land mid-burst.
+            await bikeLink.sendNavStop()
+            stopStreaming(sendNavStop: false)
             if activeNavigator.isNavigating && !activeNavigator.hasArrived {
                 await startStreaming()
             } else if isFreeRiding {
@@ -656,7 +656,7 @@ final class AppStatus {
         applyKeepAwake()
     }
 
-    func stopStreaming() {
+    func stopStreaming(sendNavStop: Bool = true) {
         // ── Demo mode teardown ──────────────────────────────────────────
         if isDemoStreaming {
             isDemoStreaming = false
@@ -686,7 +686,7 @@ final class AppStatus {
         // talking). ARRIVAL no longer comes through here — the stream stays
         // up and onArrived speaks its confirmation, so the line is not cut.
         voiceNavigator.stop()
-        Task { await link.sendNavStop() }
+        if sendNavStop { Task { await link.sendNavStop() } }
         streamer?.stop()
         streamer = nil
         rideStats.end()   // drop the fix subscription; totals stay on screen

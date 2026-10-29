@@ -876,6 +876,7 @@ final class BikeLink {
 
             state = .connected
             connectedAt = Date()
+            streamFailureKeptAt = nil
             // Arm auto-reconnect for any FUTURE unexpected drop now that we
             // have a real established link.
             shouldAutoReconnect = true
@@ -1249,14 +1250,19 @@ final class BikeLink {
             }
             self.log.notice("Wi-Fi path blip — link kept (\(reason, privacy: .public))")
             self.onBlipKept?()
-            // Log only: does the dash still answer, or did it end the session
-            // on its side during the blip (then it sits on its no-phone screen
-            // until the 10 s RX-silence drop, or longer if it keeps ACKing)?
+            // Did the dash end its session in the blip? Then it stops ACKing
+            // and sits on its no-phone screen; re-handshake now instead of at
+            // the 10 s RX-silence drop. ponytail: no answer for the whole
+            // window with Wi-Fi back = gone; the worst measured RX gap is
+            // 3.5 s, so a rare quiet spell costs one needless reconnect (the
+            // old behaviour). Raise the window if logs show that.
             let kept = self.socket
             try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
             guard self.state == .connected, let socket = kept, self.socket === socket else { return }
             let rx = await socket.secondsSinceLastRx()
             self.log.info("After the Wi-Fi blip: dash last answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago")
+            guard self.state == .connected, self.socket === socket, rx > K1G.wifiBlipGrace else { return }
+            self.handleLinkDropped(reason: "dash-silent-after-blip")
         }
     }
 

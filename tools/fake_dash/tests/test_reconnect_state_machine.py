@@ -75,6 +75,7 @@ class FakeBikeLink:
         self.state = LinkState.CONNECTED
         self.should_auto_reconnect = True
         self.reconnect_deadline = None
+        self.stream_failure_kept_at = None   # streamFailureKeptAt = nil
         self._log()
 
     # --- drop --------------------------------------------------------------
@@ -147,7 +148,7 @@ class FakeBikeLink:
         if not self.path_down_pending:
             return
         self.path_down_pending = False
-        if self.state != LinkState.CONNECTED:
+        if self.state != LinkState.CONNECTED or not self.should_auto_reconnect:
             return
         reason = self.path_down_reason
         if not (self.last_wifi_satisfied and subnet):
@@ -374,10 +375,16 @@ def test_wifi_blip_swift_shape():
     assert check.index("Date().timeIntervalSince(t) < 30") < check.index("self.onBlipKept?()")
     # The log-only tail judges the socket of the kept link, not a newer one.
     assert "guard self.state == .connected, let socket = kept, self.socket === socket else { return }" in check
+    # A dash silent for the whole window after the blip is re-handshaken.
+    tail = check[check.index("let kept = self.socket"):]
+    assert "rx > K1G.wifiBlipGrace else { return }" in tail
+    assert 'self.handleLinkDropped(reason: "dash-silent-after-blip")' in tail
+    # The in-place restart budget is per connection.
+    assert "connectedAt = Date()\n            streamFailureKeptAt = nil" in src
     # Cancelled on every way the link ends.
     for anchor in ("private func handleLinkDropped", "func disconnect()"):
         assert "pathDownCheck?.cancel(); pathDownCheck = nil" in decl_body(src, anchor), anchor
-    # A stream whose UDP connection died in the blip still reconnects (that
+    # A stream whose UDP connection died goes through the same grace (that
     # restarts RTP) — transport failures only, not an encoder start failure.
     rtp = strip_comments((Path(__file__).resolve().parents[3] / "TripperDashPP/Stream/RtpStreamer.swift").read_text(encoding="utf-8"))
     on_state = decl_body(rtp, "private func handleConnectionState")
@@ -398,11 +405,11 @@ def test_wifi_blip_swift_shape():
     status = strip_comments((Path(__file__).resolve().parents[3] / "TripperDashPP/App/AppStatus.swift").read_text(encoding="utf-8"))
     assert "bikeLink.onBlipKept = { [weak self] in Task { await self?.handleBlipKept() } }" in status
     kept = decl_body(status, "private func handleBlipKept")
-    live = kept[:kept.index("} else if streamer?.state == .failed {")]
-    assert "if isStreaming {" in live
-    assert "await bikeLink.sendNavStart()" in live and "await bikeLink.sendProjectionOn()" in live
-    dead = kept[kept.index("} else if streamer?.state == .failed {"):]
-    assert dead.index("stopStreaming()") < dead.index("await startStreaming()")
+    # A live stream is left alone: no START_NAV / PROJ_ON mid-stream.
+    assert "sendNavStart" not in kept and "sendProjectionOn" not in kept
+    dead = kept[kept.index("if streamer?.state == .failed {"):]
+    assert dead.index("await bikeLink.sendNavStop()") < dead.index("stopStreaming(sendNavStop: false)") < dead.index("await startStreaming()")
+    assert "if sendNavStop { Task { await link.sendNavStop() } }" in decl_body(status, "func stopStreaming(sendNavStop: Bool = true)")
     assert "await resumeFreeRideAfterReconnect()" in dead
 
 
