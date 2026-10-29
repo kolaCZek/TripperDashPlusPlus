@@ -243,11 +243,11 @@ final class BikeLink {
     /// by a drop or reconnect, so a stream that fails on every start can't
     /// loop; reset by a user `disconnect()` (a user action, no loop).
     @ObservationIgnored private var streamFailureKeptAt: Date?
-    /// When a Wi-Fi path blip was last ridden out: an RTP failure just after
-    /// it is that blip's, not a stream failing on good Wi-Fi.
-    @ObservationIgnored private var blipKeptAt: Date?
     /// Why the pending `pathDownCheck` runs; a path drop overrides a stream
-    /// failure (only failures on good Wi-Fi are budgeted).
+    /// failure (only failures on good Wi-Fi are budgeted). ponytail: an RTP
+    /// failure AFTER the grace of a kept blip is budgeted like any other; the
+    /// field log has it 100 ms BEFORE the path-down, and exempting a late one
+    /// loops (a restart failing within 3 s would keep exempting itself).
     @ObservationIgnored private var pathDownReason = "wifi-path-down"
 
     init() {
@@ -1263,8 +1263,6 @@ final class BikeLink {
                     return
                 }
                 self.streamFailureKeptAt = Date()
-            } else {
-                self.blipKeptAt = Date()
             }
             self.log.notice("Wi-Fi path blip — link kept (\(reason, privacy: .public))")
             // A call-state change sent in the blip was recorded as sent but
@@ -1299,10 +1297,7 @@ final class BikeLink {
     /// and `onBlipKept` restarts the stream; still down → reconnect.
     func reportStreamFailed() {
         guard state == .connected else { return }
-        // Just after a ridden-out blip it is that blip's failure (late), not
-        // a stream failing on good Wi-Fi: no budget, same restart.
-        let late = blipKeptAt.map { Date().timeIntervalSince($0) < K1G.wifiBlipGrace } ?? false
-        confirmWifiPathDown(reason: late ? "wifi-path-down" : "stream-failed")
+        confirmWifiPathDown(reason: "stream-failed")
     }
 
     private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {
