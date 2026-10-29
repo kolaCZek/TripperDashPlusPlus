@@ -435,14 +435,25 @@ private struct LogExportSection: View {
     @concurrent nonisolated private static func writeLog() async -> URL? {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let own = NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")
             let fmt = DateFormatter()
             fmt.locale = Locale(identifier: "en_US_POSIX")
             fmt.dateFormat = "HH:mm:ss.SSS"
             var text = ""
-            for case let entry as OSLogEntryLog in try store.getEntries(matching: own) {
+            var read = 0
+            // Filtered here, not with an NSPredicate: iOS's OSLogStore doesn't
+            // reliably honour a subsystem predicate (FB8518539) and returned
+            // nothing at all, so the export was an empty file.
+            for case let entry as OSLogEntryLog in try store.getEntries() {
+                read += 1
+                guard entry.subsystem.hasPrefix("eu.kolaczek") else { continue }
                 text += "\(fmt.string(from: entry.date)) [\(entry.category)] \(entry.composedMessage)\n"
             }
+            // Never an empty file again: if it's short, this says whether iOS
+            // gave us nothing or none of it was ours.
+            let info = Bundle.main.infoDictionary
+            text = "TripperDash++ \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?")), "
+                + "iOS \(ProcessInfo.processInfo.operatingSystemVersionString), "
+                + "\(read) log entries read\n" + text
             fmt.dateFormat = "yyyy-MM-dd-HHmm"
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("TripperDashPP-log-\(fmt.string(from: Date())).txt")
