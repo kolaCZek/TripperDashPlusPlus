@@ -111,3 +111,14 @@ def test_no_persisted_log_line_carries_a_position():
         if _POSITION.search(call)
     ]
     assert not hits, f"position in persisted log lines: {hits}"
+
+
+def test_field_log_has_cellular_radio_and_path_changes():
+    # Dash drops in an EDGE-only area: the export must show the radio
+    # (LTE / Edge) and both path monitors' changes at info level.
+    tele = strip_comments((APP / "Tripper/DeviceTelemetry.swift").read_text(encoding="utf-8"))
+    assert 'log.info("Cellular radio' in tele
+    assert "forName: .CTServiceRadioAccessTechnologyDidChange" in tele
+    assert 'log.info("Cellular path' in tele
+    link = strip_comments((APP / "Tripper/BikeLink.swift").read_text(encoding="utf-8"))
+    assert 'log.info("Wi-Fi path' in link

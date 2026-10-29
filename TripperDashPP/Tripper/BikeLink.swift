@@ -1169,6 +1169,9 @@ final class BikeLink {
                 guard let self else { return }
                 let satisfied = path.status == .satisfied
                 defer { self.lastWifiSatisfied = satisfied }
+                if satisfied != self.lastWifiSatisfied {
+                    self.log.info("Wi-Fi path \(satisfied ? "up" : "down", privacy: .public) (link \(String(describing: self.state), privacy: .public))")
+                }
                 if !satisfied, self.state == .connected {
                     self.handleLinkDropped(reason: "wifi-path-down")
                 } else if satisfied, !self.lastWifiSatisfied, self.state == .reconnecting {
