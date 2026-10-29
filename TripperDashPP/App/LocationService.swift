@@ -187,14 +187,14 @@ final class LocationService: NSObject {
     func start(mode: LocationMode) -> UUID {
         let token = UUID()
         consumers[token] = mode
-        log.info("Consumer \(token.uuidString.prefix(8)) added (mode=\(mode.rawValue), total=\(self.consumers.count))")
+        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) added (mode=\(mode.rawValue), total=\(self.consumers.count))")
         reconcile()
         return token
     }
 
     func stop(token: UUID) {
         guard consumers.removeValue(forKey: token) != nil else { return }
-        log.info("Consumer \(token.uuidString.prefix(8)) removed (remaining=\(self.consumers.count))")
+        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) removed (remaining=\(self.consumers.count))")
         reconcile()
     }
 
@@ -354,7 +354,7 @@ extension LocationService: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
-            self.log.warning("CLLocationManager error: \(error.localizedDescription)")
+            self.log.warning("CLLocationManager error: \(error.localizedDescription, privacy: .public)")
         }
     }
 

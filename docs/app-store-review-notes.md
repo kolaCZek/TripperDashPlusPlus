@@ -64,6 +64,14 @@ over cellular.
 The Wi-Fi link to the bike (192.168.1.1) carries only the rendered video; it has no
 internet. Two simultaneous networks (cellular + bike Wi-Fi) are by design.
 
+### Settings → Diagnostics → Export log (TestFlight / review builds only)
+
+You will see this section; App Store downloads do not (the app checks the StoreKit
+app-transaction environment and hides it in production). It lets a beta tester
+share the app's own log of the current session as a text file through the system
+share sheet, to report a bug. It only runs when the user taps it, the file goes
+only where the user sends it, and nothing is uploaded automatically.
+
 ### Privacy policy
 
 https://tripperdash.kolaczek.cz/privacy.html
