@@ -386,7 +386,7 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
                     defer { self.failedRun = 0 }
                     return self.failedRun
                 }
-                if run > 1 {
+                if run > 0 {
                     self.log.notice("UDP sends back after \(run, privacy: .public) failed")
                 }
             }

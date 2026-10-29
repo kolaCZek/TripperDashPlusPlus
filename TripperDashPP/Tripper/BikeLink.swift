@@ -235,7 +235,6 @@ final class BikeLink {
     /// logged, just not routed anywhere (e.g. before wiring, or in tests).
     var onButton: ((K1GPacket.DashButton) -> Void)?
 
-
     init() {
         let d = UserDefaults.standard
         self.bikeHost = d.string(forKey: Self.bikeHostKey) ?? K1G.bikeIPv4
@@ -1230,29 +1229,6 @@ final class BikeLink {
                 return
             }
             self.log.notice("Wi-Fi path blip — link kept")
-            // A call-state change sent in the blip was recorded as sent but
-            // lost. A reconnect only clears the de-dup state (`runConnectFlow`),
-            // so re-push here for a card lost in the blip to come back.
-            // Not if a newer state arrived meanwhile.
-            if let call = self.lastCallState {
-                self.lastCallState = nil
-                Task { if self.lastCallState == nil { await self.sendCallState(call) } }
-            }
-            // Did the dash end its session in the blip? Then it stops ACKing
-            // and sits on its no-phone screen; re-handshake now instead of at
-            // the 10 s RX-silence drop. ponytail: no answer for the whole
-            // window with Wi-Fi back = gone; the worst measured RX gap is
-            // 3.5 s, so a rare quiet spell costs one needless reconnect (the
-            // old behaviour). Raise the window if logs show that.
-            let kept = self.socket
-            try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
-            guard self.state == .connected, let socket = kept, self.socket === socket else { return }
-            let rx = await socket.secondsSinceLastRx()
-            self.log.info("After the Wi-Fi blip: dash last answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago")
-            // Not while Wi-Fi is down again: that blip gets its own grace.
-            guard self.state == .connected, self.socket === socket, self.pathDownCheck == nil,
-                  self.lastWifiSatisfied, rx > K1G.wifiBlipGrace else { return }
-            self.handleLinkDropped(reason: "dash-silent-after-blip")
         }
     }
 

@@ -65,8 +65,6 @@ class FakeBikeLink:
     handshake_succeeds: bool = False
     last_wifi_satisfied: bool = True
     path_down_pending: bool = False   # confirmWifiPathDown's task in flight
-    connection_id: int = 0            # a new DashSocket per connect
-    after_blip_socket: Optional[int] = None   # the tail's captured socket
     blips_kept: int = 0               # blips ridden out
 
     attempts: int = 0
@@ -79,7 +77,6 @@ class FakeBikeLink:
         self.state = LinkState.CONNECTED
         self.should_auto_reconnect = True
         self.reconnect_deadline = None
-        self.connection_id += 1
         self._log()
 
     # --- drop --------------------------------------------------------------
@@ -147,15 +144,6 @@ class FakeBikeLink:
             self.handle_link_dropped("wifi-path-down")
             return
         self.blips_kept += 1
-        self.after_blip_socket = self.connection_id
-
-    def after_blip_check(self, rx_age: float) -> None:
-        """Mirror of the tail, wifiBlipGrace after a kept blip."""
-        sock, self.after_blip_socket = self.after_blip_socket, None
-        if (self.state == LinkState.CONNECTED and sock == self.connection_id
-                and not self.path_down_pending and self.last_wifi_satisfied
-                and rx_age > WIFI_BLIP_GRACE):
-            self.handle_link_dropped("dash-silent-after-blip")
 
     def disconnect(self) -> None:
         """Mirror of user-initiated disconnect()."""
@@ -298,41 +286,6 @@ def test_wifi_blip_keeps_the_link():
     assert link.state == LinkState.RECONNECTING
 
 
-def test_dash_silent_after_a_kept_blip_is_rehandshaken():
-    link = FakeBikeLink()
-    link.connect_success()
-    link.wifi_path_update(False)
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()
-    link.after_blip_check(rx_age=6.0)
-    assert link.state == LinkState.RECONNECTING
-    # The dash answers: kept.
-    link = FakeBikeLink()
-    link.connect_success()
-    link.wifi_path_update(False)
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()
-    link.after_blip_check(rx_age=0.5)
-    assert link.state == LinkState.CONNECTED
-    # Wi-Fi down again: that blip gets its own grace, no early drop.
-    link.wifi_path_update(False)
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()
-    link.wifi_path_update(False)
-    link.after_blip_check(rx_age=6.0)
-    assert link.state == LinkState.CONNECTED
-    # A newer connection is not judged by the old tail.
-    link = FakeBikeLink()
-    link.connect_success()
-    link.wifi_path_update(False)
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()
-    link.handle_link_dropped("heartbeat")
-    link.connect_success()
-    link.after_blip_check(rx_age=6.0)
-    assert link.state == LinkState.CONNECTED
-
-
 def test_a_pending_blip_check_never_judges_the_next_link():
     """Disconnect + connect, or a drop + fast reconnect, inside the grace:
     the old check is cancelled and must not drop the new link."""
@@ -367,15 +320,9 @@ def test_wifi_blip_swift_shape():
     # Cancelled on every way the link ends.
     for anchor in ("private func handleLinkDropped", "func disconnect()"):
         assert "pathDownCheck?.cancel(); pathDownCheck = nil" in decl_body(src, anchor), anchor
-    # The lost call state is re-pushed unless a newer one arrived.
-    kept_branch = check[check.index('self.log.notice("Wi-Fi path blip'):check.index("let kept = self.socket")]
-    assert "self.lastCallState = nil" in kept_branch and "self.lastCallState == nil" in kept_branch
-    # A dash silent for the whole window after the blip is re-handshaken; the
-    # tail judges its own socket and yields to a newer blip.
-    tail = check[check.index("let kept = self.socket"):]
-    assert "self.socket === socket" in tail and "self.pathDownCheck == nil" in tail
-    assert "rx > K1G.wifiBlipGrace" in tail
-    assert 'self.handleLinkDropped(reason: "dash-silent-after-blip")' in tail
+    # Nothing runs after the keep: no after-blip dash check, no call-state
+    # re-push (neither is log-proven; the 10 s RX-silence check is the backstop).
+    assert "await" not in check[check.index('self.log.notice("Wi-Fi path blip'):]
     # An RTP transport failure reconnects at once (no grace, no in-place
     # restart: rides with RTP running are not covered, see the ponytail note).
     assert 'handleLinkDropped(reason: "stream-failed")' in decl_body(src, "func reportStreamFailed")
