@@ -235,20 +235,6 @@ final class BikeLink {
     /// logged, just not routed anywhere (e.g. before wiring, or in tests).
     var onButton: ((K1GPacket.DashButton) -> Void)?
 
-    /// A Wi-Fi blip (or an RTP failure in one) was ridden out without a
-    /// reconnect. AppStatus restarts a dead or stalled stream, which the
-    /// reconnect used to do.
-    @ObservationIgnored var onBlipKept: (() -> Void)?
-    /// Last in-place stream restart (see `confirmWifiPathDown`). Not reset
-    /// by a drop or reconnect, so a stream that fails on every start can't
-    /// loop; reset by a user `disconnect()` (a user action, no loop).
-    @ObservationIgnored private var streamFailureKeptAt: Date?
-    /// Why the pending `pathDownCheck` runs; a path drop overrides a stream
-    /// failure (only failures on good Wi-Fi are budgeted). ponytail: an RTP
-    /// failure AFTER the grace of a kept blip is budgeted like any other; the
-    /// field log has it 100 ms BEFORE the path-down, and exempting a late one
-    /// loops (a restart failing within 3 s would keep exempting itself).
-    @ObservationIgnored private var pathDownReason = "wifi-path-down"
 
     init() {
         let d = UserDefaults.standard
@@ -419,7 +405,6 @@ final class BikeLink {
         // drop signal racing in right now can't re-arm the retry loop.
         log.info("BikeLink disconnected (auto-reconnect cleared)")
         pathDownCheck?.cancel(); pathDownCheck = nil
-        streamFailureKeptAt = nil
         shouldAutoReconnect = false
         reconnectDeadline = nil
         connectedAt = nil
@@ -1224,55 +1209,35 @@ final class BikeLink {
         log.info("Wi-Fi path monitor started")
     }
 
-    /// One `.unsatisfied` update (or a failed RTP connection) used to drop
-    /// the link at once. Drop only if, `wifiBlipGrace` later, the path is
-    /// still down or the phone has no dash-subnet address; a blip keeps the
-    /// session (and the dash off its no-phone screen) and `onBlipKept` puts
-    /// the stream right. Back on another 192.168.1.x network (home Wi-Fi)
+    /// One `.unsatisfied` update used to drop the link at once. Drop only if,
+    /// `wifiBlipGrace` later, the path is still down or the phone has no
+    /// dash-subnet address; a blip keeps the session (and the dash off its
+    /// no-phone screen). Back on another 192.168.1.x network (home Wi-Fi)
     /// the heartbeat's 10 s RX-silence check drops it.
-    private func confirmWifiPathDown(reason: String = "wifi-path-down") {
-        guard pathDownCheck == nil else {
-            // A path-down in the same grace explains an RTP failure (which
-            // comes ~100 ms first): the blip, not a stream that keeps failing
-            // on good Wi-Fi, so it doesn't count against the restart budget.
-            if reason == "wifi-path-down" { pathDownReason = reason }
-            return
-        }
-        pathDownReason = reason
+    private func confirmWifiPathDown() {
+        guard pathDownCheck == nil else { return }
         pathDownCheck = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.pathDownCheck = nil
-            let reason = self.pathDownReason
             // Decided with no await in between. No auto-reconnect (demo
             // link): nothing to drop.
             guard self.state == .connected, self.shouldAutoReconnect else { return }
             let subnet = Self.wifiHasDashSubnetIPv4()
             guard self.lastWifiSatisfied, subnet else {
                 self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public))")
-                self.handleLinkDropped(reason: reason)
+                self.handleLinkDropped(reason: "wifi-path-down")
                 return
             }
-            if reason == "stream-failed" {
-                // A stream that keeps failing on good Wi-Fi: one in-place
-                // restart; failing again within `stableLinkDuration` it stays
-                // down with the link up (as before this PR) rather than
-                // bouncing the dash to its no-phone screen on every start.
-                if let t = self.streamFailureKeptAt, Date().timeIntervalSince(t) < K1G.stableLinkDuration {
-                    self.log.error("Stream keeps failing after an in-place restart — left down, link kept")
-                    return
-                }
-                self.streamFailureKeptAt = Date()
-            }
-            self.log.notice("Wi-Fi path blip — link kept (\(reason, privacy: .public))")
+            self.log.notice("Wi-Fi path blip — link kept")
             // A call-state change sent in the blip was recorded as sent but
             // lost. A reconnect only clears the de-dup state (`runConnectFlow`),
             // so re-push here for a card lost in the blip to come back.
+            // Not if a newer state arrived meanwhile.
             if let call = self.lastCallState {
                 self.lastCallState = nil
-                Task { await self.sendCallState(call) }
+                Task { if self.lastCallState == nil { await self.sendCallState(call) } }
             }
-            self.onBlipKept?()
             // Did the dash end its session in the blip? Then it stops ACKing
             // and sits on its no-phone screen; re-handshake now instead of at
             // the 10 s RX-silence drop. ponytail: no answer for the whole
@@ -1291,13 +1256,15 @@ final class BikeLink {
         }
     }
 
-    /// The RTP connection failed while the link looked up. Its UDP flow can
-    /// die in a Wi-Fi blip ~100 ms before the path monitor says so (field
-    /// log 8/2026), so it gets the same grace: Wi-Fi back → the link stays
-    /// and `onBlipKept` restarts the stream; still down → reconnect.
+    /// The RTP connection failed while the link looked up (its UDP flow dies
+    /// in a Wi-Fi loss ~100 ms before the path monitor says so, field log
+    /// 8/2026). Nothing else restarts RTP with the link up, and the reconnect
+    /// proves the dash answers before START_NAV goes out, so reconnect.
+    /// ponytail: no grace and no in-place restart; rides with RTP running
+    /// still end in a reconnect. Add them back only if a log shows RTP
+    /// failing in blips the link would have survived.
     func reportStreamFailed() {
-        guard state == .connected else { return }
-        confirmWifiPathDown(reason: "stream-failed")
+        handleLinkDropped(reason: "stream-failed")
     }
 
     private func runHandshake(socket: DashSocket, startedAt t0: Date) async throws -> HandshakeOutcome {

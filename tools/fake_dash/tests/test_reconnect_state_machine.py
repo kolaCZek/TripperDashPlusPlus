@@ -46,7 +46,6 @@ class LinkState:
     ERROR = "error"
 
 
-STABLE_LINK_DURATION = 60.0   # K1G.stableLinkDuration
 WIFI_BLIP_GRACE = 3.0         # K1G.wifiBlipGrace
 
 
@@ -66,11 +65,9 @@ class FakeBikeLink:
     handshake_succeeds: bool = False
     last_wifi_satisfied: bool = True
     path_down_pending: bool = False   # confirmWifiPathDown's task in flight
-    path_down_reason: str = "wifi-path-down"
-    stream_failure_kept_at: Optional[float] = None
     connection_id: int = 0            # a new DashSocket per connect
     after_blip_socket: Optional[int] = None   # the tail's captured socket
-    blips_kept: int = 0               # onBlipKept calls (AppStatus fixes the stream)
+    blips_kept: int = 0               # blips ridden out
 
     attempts: int = 0
     state_log: list[str] = field(default_factory=list)
@@ -133,22 +130,9 @@ class FakeBikeLink:
         prev = self.last_wifi_satisfied
         self.last_wifi_satisfied = satisfied
         if not satisfied and self.state == LinkState.CONNECTED:
-            self.confirm_later("wifi-path-down")
+            self.path_down_pending = True   # confirmWifiPathDown, wifiBlipGrace later
         elif satisfied and not prev and self.state == LinkState.RECONNECTING:
             self.wake_reconnect()
-
-    def confirm_later(self, reason: str) -> None:
-        """confirmWifiPathDown(reason:) scheduling: one check at a time."""
-        if not self.path_down_pending:
-            self.path_down_pending = True   # wifiBlipGrace later
-            self.path_down_reason = reason
-        elif reason == "wifi-path-down":
-            self.path_down_reason = reason   # the blip explains the failure
-
-    def report_stream_failed(self) -> None:
-        """Mirror of reportStreamFailed: the RTP connection went .failed."""
-        if self.state == LinkState.CONNECTED:
-            self.confirm_later("stream-failed")
 
     def confirm_wifi_path_down(self, subnet: bool = True) -> None:
         """Mirror of confirmWifiPathDown's check, wifiBlipGrace after the
@@ -159,16 +143,9 @@ class FakeBikeLink:
         self.path_down_pending = False
         if self.state != LinkState.CONNECTED or not self.should_auto_reconnect:
             return
-        reason = self.path_down_reason
         if not (self.last_wifi_satisfied and subnet):
-            self.handle_link_dropped(reason)
+            self.handle_link_dropped("wifi-path-down")
             return
-        if reason == "stream-failed":
-            def recent(t):
-                return t is not None and self.now - t < STABLE_LINK_DURATION
-            if recent(self.stream_failure_kept_at):
-                return   # gave up on the stream, link kept
-            self.stream_failure_kept_at = self.now
         self.blips_kept += 1
         self.after_blip_socket = self.connection_id
 
@@ -183,7 +160,6 @@ class FakeBikeLink:
     def disconnect(self) -> None:
         """Mirror of user-initiated disconnect()."""
         self.path_down_pending = False   # pathDownCheck?.cancel()
-        self.stream_failure_kept_at = None   # user action: fresh budget
         self.should_auto_reconnect = False
         self.reconnect_deadline = None
         self.state = LinkState.IDLE
@@ -322,94 +298,6 @@ def test_wifi_blip_keeps_the_link():
     assert link.state == LinkState.RECONNECTING
 
 
-def test_rtp_failure_before_path_down_rides_out_the_blip():
-    """Field log 8/2026: the RTP connection fails ~95 ms BEFORE the path
-    monitor reports the loss. That must not skip the grace while streaming;
-    with Wi-Fi back the link stays and AppStatus restarts the stream."""
-    link = FakeBikeLink()
-    link.connect_success()
-    link.report_stream_failed()
-    link.wifi_path_update(False)
-    assert link.state == LinkState.CONNECTED
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()
-    assert link.state == LinkState.CONNECTED
-    assert link.blips_kept == 1
-    # Bike switched off: still down after the grace → reconnect.
-    link = FakeBikeLink()
-    link.connect_success()
-    link.report_stream_failed()
-    link.wifi_path_update(False)
-    link.confirm_wifi_path_down()
-    assert link.state == LinkState.RECONNECTING
-    assert link.blips_kept == 0
-
-
-def test_a_stream_failing_on_good_wifi_does_not_restart_forever():
-    """One in-place restart, then the stream stays down with the link up (no
-    reconnect: that bounces the dash to its no-phone screen for 30 min)."""
-    link = FakeBikeLink()
-    link.connect_success()
-    link.report_stream_failed()
-    link.confirm_wifi_path_down()
-    assert link.state == LinkState.CONNECTED and link.blips_kept == 1
-    link.now += 10
-    link.report_stream_failed()
-    link.confirm_wifi_path_down()
-    assert link.state == LinkState.CONNECTED and link.blips_kept == 1   # gave up
-    # A minute later a failure gets its in-place restart again.
-    link.now += STABLE_LINK_DURATION
-    link.report_stream_failed()
-    link.confirm_wifi_path_down()
-    assert link.state == LinkState.CONNECTED and link.blips_kept == 2
-    # A user Disconnect / Connect starts a fresh budget.
-    link.now += 10
-    link.disconnect()
-    link.connect_success()
-    link.report_stream_failed()
-    link.confirm_wifi_path_down()
-    assert link.blips_kept == 3
-
-
-def test_a_stream_failing_right_after_a_restart_cannot_loop():
-    """A restart that fails again within seconds (dash slow to reopen
-    UDP/5000) is budgeted: one restart, then left down, never a loop."""
-    link = FakeBikeLink()
-    link.connect_success()
-    link.wifi_path_update(False)
-    link.wifi_path_update(True)
-    link.confirm_wifi_path_down()          # one real blip, kept
-    restarted = True                       # that blip restarted the stream
-    for _ in range(50):
-        link.now += 4.6
-        if not restarted:                  # a stream left down can't fail again
-            break
-        before = link.blips_kept
-        link.report_stream_failed()        # the restarted stream fails again
-        link.confirm_wifi_path_down()
-        restarted = link.blips_kept > before
-    assert not restarted                   # the loop ended: left down
-    assert link.state == LinkState.CONNECTED
-    assert link.blips_kept == 2            # the blip + ONE in-place restart
-
-
-def test_blip_caused_stream_failures_do_not_use_up_the_budget():
-    """Field order: RTP fails ~100 ms before the path-down. Blips in a
-    cluster (EDGE stretch) must each be ridden out with a stream restart,
-    not a reconnect or a stream left down."""
-    link = FakeBikeLink()
-    link.connect_success()
-    for _ in range(4):
-        link.report_stream_failed()
-        link.wifi_path_update(False)
-        link.wifi_path_update(True)
-        link.confirm_wifi_path_down()
-        link.now += 15
-    assert link.state == LinkState.CONNECTED
-    assert link.blips_kept == 4
-    assert link.stream_failure_kept_at is None
-
-
 def test_dash_silent_after_a_kept_blip_is_rehandshaken():
     link = FakeBikeLink()
     link.connect_success()
@@ -462,50 +350,35 @@ def test_a_pending_blip_check_never_judges_the_next_link():
 
 
 def test_wifi_blip_swift_shape():
+    """Pins the decision points only (a re-indent or rewording is free)."""
     src = strip_comments(_bikelink_src())
     handler = decl_body(src, "private func startPathMonitorIfNeeded")
     assert re.search(r"if !satisfied, self\.state == \.connected \{\s+self\.confirmWifiPathDown\(\)", handler)
     assert 'handleLinkDropped(reason: "wifi-path-down")' not in handler
     check = decl_body(src, "private func confirmWifiPathDown")
     assert "K1G.wifiBlipGrace" in check
-    assert "guard let self, !Task.isCancelled else { return }" in check
     # Decided before any await (disconnect can't cancel it after the nil).
     decide = check[check.index("self.pathDownCheck = nil"):check.index('self.log.notice("Wi-Fi path blip')]
     assert "await" not in decide
-    assert "guard self.state == .connected, self.shouldAutoReconnect else { return }" in decide
+    assert "!Task.isCancelled" in check
+    assert "self.state == .connected, self.shouldAutoReconnect" in decide
     assert "guard self.lastWifiSatisfied, subnet else {" in decide
-    assert "self.handleLinkDropped(reason: reason)" in decide
-    assert "private func confirmWifiPathDown(reason: String = \"wifi-path-down\")" in src
-    # Only a kept blip calls AppStatus back, after the decision.
-    assert check.count("self.onBlipKept?()") == 1
-    assert check.index("Date().timeIntervalSince(t) < K1G.stableLinkDuration") < check.index("self.onBlipKept?()")
-    assert "streamFailureDroppedAt" not in src   # no reconnect step: two would do
-    # A path-down inside a pending stream-failure check takes over the reason.
-    assert 'if reason == "wifi-path-down" { pathDownReason = reason }' in check[:check.index("pathDownCheck = Task")]
-    # Both budget timestamps are actually recorded.
-    assert "self.streamFailureKeptAt = Date()" in decide
-    assert "blipKeptAt" not in src   # a "late failure" exemption loops (see the ponytail note)
-    # The lost call state is re-pushed on a kept blip.
-    kept_branch = check[check.index('self.log.notice("Wi-Fi path blip'):check.index("self.onBlipKept?()")]
-    assert "self.lastCallState = nil" in kept_branch and "self.sendCallState(call)" in kept_branch
-    assert "let reason = self.pathDownReason" in decide
-    # The log-only tail judges the socket of the kept link, not a newer one.
-    assert "guard self.state == .connected, let socket = kept, self.socket === socket else { return }" in check
-    # A dash silent for the whole window after the blip is re-handshaken.
-    tail = check[check.index("let kept = self.socket"):]
-    assert re.search(r"guard self\.state == \.connected, self\.socket === socket, self\.pathDownCheck == nil,\s+self\.lastWifiSatisfied, rx > K1G\.wifiBlipGrace else \{ return \}", tail)
-    assert 'self.handleLinkDropped(reason: "dash-silent-after-blip")' in tail
-    # The restart budget survives a reconnect (else a stream failing on
-    # every start bounces the dash for the whole reconnect budget).
-    # A user disconnect (and only that) gives a fresh budget.
-    assert src.count("streamFailureKeptAt = nil") == 1
-    assert "streamFailureKeptAt = nil" in decl_body(src, "func disconnect()")
-    assert 'confirmWifiPathDown(reason: "stream-failed")' in decl_body(src, "func reportStreamFailed")
+    assert 'self.handleLinkDropped(reason: "wifi-path-down")' in decide
     # Cancelled on every way the link ends.
     for anchor in ("private func handleLinkDropped", "func disconnect()"):
         assert "pathDownCheck?.cancel(); pathDownCheck = nil" in decl_body(src, anchor), anchor
-    # A stream whose UDP connection died goes through the same grace (that
-    # restarts RTP) — transport failures only, not an encoder start failure.
+    # The lost call state is re-pushed unless a newer one arrived.
+    kept_branch = check[check.index('self.log.notice("Wi-Fi path blip'):check.index("let kept = self.socket")]
+    assert "self.lastCallState = nil" in kept_branch and "self.lastCallState == nil" in kept_branch
+    # A dash silent for the whole window after the blip is re-handshaken; the
+    # tail judges its own socket and yields to a newer blip.
+    tail = check[check.index("let kept = self.socket"):]
+    assert "self.socket === socket" in tail and "self.pathDownCheck == nil" in tail
+    assert "rx > K1G.wifiBlipGrace" in tail
+    assert 'self.handleLinkDropped(reason: "dash-silent-after-blip")' in tail
+    # An RTP transport failure reconnects at once (no grace, no in-place
+    # restart: rides with RTP running are not covered, see the ponytail note).
+    assert 'handleLinkDropped(reason: "stream-failed")' in decl_body(src, "func reportStreamFailed")
     rtp = strip_comments((Path(__file__).resolve().parents[3] / "TripperDashPP/Stream/RtpStreamer.swift").read_text(encoding="utf-8"))
     on_state = decl_body(rtp, "private func handleConnectionState")
     failed = on_state[on_state.index("case .failed(let err):"):on_state.index("case .waiting")]
@@ -516,26 +389,6 @@ def test_wifi_blip_swift_shape():
     # consumer, the encoder or the connection.
     fail = decl_body(rtp, "private func fail(")
     assert fail.index("stop()") < fail.index("state = .failed")
-    assert "if bikeHost == K1G.bikeIPv4 { params.requiredInterfaceType = .wifi }" in rtp
-    # A failed RTP connection gets the same grace instead of dropping at once.
-    report = decl_body(src, "func reportStreamFailed")
-    assert '"stream-failed"' in report and "confirmWifiPathDown(reason:" in report
-    assert "handleLinkDropped" not in report
-    # AppStatus: a dead or still-stalled stream restarts like a reconnect.
-    status = strip_comments((Path(__file__).resolve().parents[3] / "TripperDashPP/App/AppStatus.swift").read_text(encoding="utf-8"))
-    assert "bikeLink.onBlipKept = { [weak self] in Task { await self?.handleBlipKept() } }" in status
-    kept = decl_body(status, "private func handleBlipKept")
-    # A live stream is left alone: no START_NAV / PROJ_ON mid-stream.
-    assert "sendNavStart" not in kept and "sendProjectionOn" not in kept
-    assert "guard streamer === s, bikeLink.state == .connected, s.state == .failed || s.isStalled else { return }" in kept
-    dead = kept[kept.index("await bikeLink.sendNavStop()"):]
-    assert "if activeNavigator.isNavigating && !activeNavigator.hasArrived {" in dead
-    assert dead.index("guard streamer === s else { return }") < dead.index("stopStreaming(sendNavStop: false)") < dead.index("await startStreaming()")
-    assert "var isStalled: Bool { isWaiting || pipe.isFailing }" in rtp
-    on_state2 = decl_body(rtp, "private func handleConnectionState")
-    assert "isWaiting = true" in on_state2[on_state2.index("case .waiting"):] and "isWaiting = false" in on_state2[:on_state2.index("case .failed")]
-    assert "if sendNavStop { Task { await link.sendNavStop() } }" in decl_body(status, "func stopStreaming(sendNavStop: Bool = true)")
-    assert "await resumeFreeRideAfterReconnect()" in dead
 
 
 def test_first_connect_failure_is_not_a_reconnect():
