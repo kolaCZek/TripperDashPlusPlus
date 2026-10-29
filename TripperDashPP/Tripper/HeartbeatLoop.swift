@@ -108,6 +108,7 @@ nonisolated struct HeartbeatLoop: Sendable {
         var transientFailures = 0
         var sentTicksWithoutRx = 0
         var lastTickAt: TimeInterval?
+        var haveTelemetry = false
         while !Task.isCancelled {
             // A gap here is the loop itself not running (process suspended,
             // thread pool starved), not the dash or the Wi-Fi.
@@ -121,8 +122,9 @@ nonisolated struct HeartbeatLoop: Sendable {
             // provider hops to the main actor, so only the first tick waits
             // for it; later ticks send the latest snapshot and refresh it in
             // the background (at most one refresh in flight).
-            if tick == 0 {
+            if !haveTelemetry {
                 latest.finish(await telemetryProvider())
+                haveTelemetry = true
             } else if latest.beginRefresh() {
                 let box = latest, provider = telemetryProvider
                 Task { box.finish(await provider()) }
@@ -171,6 +173,7 @@ nonisolated struct HeartbeatLoop: Sendable {
                     // Counts as sent: a dash that stays unreachable trips the
                     // 10 s silence check below, a blip passes.
                     sentTicksWithoutRx += 1
+                    transientFailures = 0
                     Self.log.notice("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — waiting for the dash")
                 } else {
                     Self.log.error("Heartbeat send failed: \(error.localizedDescription, privacy: .public) — stopping loop")

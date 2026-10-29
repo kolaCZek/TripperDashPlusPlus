@@ -1220,15 +1220,23 @@ final class BikeLink {
             try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.pathDownCheck = nil
-            let rx = await self.socket?.secondsSinceLastRx() ?? .infinity   // log only
-            guard !Task.isCancelled, self.state == .connected else { return }
+            // Decided with no await in between. No auto-reconnect (demo
+            // link): nothing to drop.
+            guard self.state == .connected, self.shouldAutoReconnect else { return }
             let subnet = Self.wifiHasDashSubnetIPv4()
-            if self.lastWifiSatisfied, subnet {
-                self.log.notice("Wi-Fi path blip — link kept (dash answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
-            } else {
-                self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public), last RX \(rx, format: .fixed(precision: 1), privacy: .public) s ago)")
+            guard self.lastWifiSatisfied, subnet else {
+                self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public))")
                 self.handleLinkDropped(reason: "wifi-path-down")
+                return
             }
+            self.log.notice("Wi-Fi path blip — link kept")
+            // Log only: does the dash still answer, or did it end the session
+            // on its side during the blip (then it sits on its no-phone screen
+            // until the 10 s RX-silence drop, or longer if it keeps ACKing)?
+            try? await Task.sleep(nanoseconds: UInt64(K1G.wifiBlipGrace * 1_000_000_000))
+            guard self.state == .connected, let socket = self.socket else { return }
+            let rx = await socket.secondsSinceLastRx()
+            self.log.info("After the Wi-Fi blip: dash last answered \(rx, format: .fixed(precision: 1), privacy: .public) s ago")
         }
     }
 

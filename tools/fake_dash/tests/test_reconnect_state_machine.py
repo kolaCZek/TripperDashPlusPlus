@@ -262,8 +262,8 @@ def test_wifi_down_while_connected_triggers_reconnect():
 
 def test_wifi_blip_keeps_the_link():
     """Field ride 2026-10-29: path blips where cellular fell to EDGE each
-    cost a 15-37 s reconnect. Back within the grace, with the dash subnet
-    and a fresh RX, the session stays."""
+    cost a 15-37 s reconnect. Back within the grace, with the dash subnet,
+    the session stays."""
     link = FakeBikeLink()
     link.connect_success()
     link.wifi_path_update(False)
@@ -303,9 +303,12 @@ def test_wifi_blip_swift_shape():
     check = decl_body(src, "private func confirmWifiPathDown")
     assert "K1G.wifiBlipGrace" in check
     assert "guard let self, !Task.isCancelled else { return }" in check
-    assert "guard !Task.isCancelled, self.state == .connected else { return }" in check
-    assert "if self.lastWifiSatisfied, subnet {" in check
-    assert 'self.handleLinkDropped(reason: "wifi-path-down")' in check
+    # Decided before any await (disconnect can't cancel it after the nil).
+    decide = check[check.index("self.pathDownCheck = nil"):check.index('self.log.notice("Wi-Fi path blip')]
+    assert "await" not in decide
+    assert "guard self.state == .connected, self.shouldAutoReconnect else { return }" in decide
+    assert "guard self.lastWifiSatisfied, subnet else {" in decide
+    assert 'self.handleLinkDropped(reason: "wifi-path-down")' in decide
     # Cancelled on every way the link ends.
     for anchor in ("private func handleLinkDropped", "func disconnect()"):
         assert "pathDownCheck?.cancel(); pathDownCheck = nil" in decl_body(src, anchor), anchor
@@ -316,6 +319,11 @@ def test_wifi_blip_swift_shape():
     failed = on_state[on_state.index("case .failed(let err):"):on_state.index("case .waiting")]
     assert "if state != .idle { bikeLink?.reportStreamFailed() }" in failed
     assert rtp.count("reportStreamFailed()") == 1
+    # fail() tears down before marking .failed (stop() only runs from
+    # .running/.starting), so a failure doesn't leak the source's location
+    # consumer, the encoder or the connection.
+    fail = decl_body(rtp, "private func fail(")
+    assert fail.index("stop()") < fail.index("state = .failed")
     assert "if bikeHost == K1G.bikeIPv4 { params.requiredInterfaceType = .wifi }" in rtp
     assert 'handleLinkDropped(reason: "stream-failed")' in decl_body(src, "func reportStreamFailed")
 

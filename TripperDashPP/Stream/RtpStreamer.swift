@@ -204,8 +204,11 @@ final class RtpStreamer {
         log.error("\(reason)")
         metrics.lastError = reason
         onMetrics?(metrics)
-        state = .failed
+        // stop() first: it only tears down from .running/.starting, so the
+        // old order left the source (a location consumer), encoder, timer
+        // and connection running after every failure.
         stop()
+        state = .failed
     }
 
     // MARK: - Metrics
@@ -238,7 +241,7 @@ final class RtpStreamer {
 /// fragments that was dozens of main-actor jobs a second, and any of them
 /// queued behind a tile bake delayed the stream.
 ///
-/// `@unchecked Sendable`: `connection`, `onFrame`, `counters` and
+/// `@unchecked Sendable`: `connection`, `onFrame`, `counters`, `failedRun` and
 /// `lastFrameUptime` are only touched under `lock`; `packetizer` is not locked and is only used from
 /// `handle`, which runs on the one serial `sendQueue`.
 nonisolated final class RtpSendPipe: @unchecked Sendable {
@@ -260,6 +263,9 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
     private var connection: NWConnection?
     private var onFrame: (@Sendable () -> Void)?
     private var counters = Counters()
+    /// Failed datagram sends in a row: the log gets the first and a count,
+    /// not one line per datagram through a Wi-Fi blip.
+    private var failedRun: UInt64 = 0
     /// Uptime of the last coded frame sent, for the `rtp gap` log.
     private var lastFrameUptime: TimeInterval?
     /// Frame-to-frame gap that counts as an outbound stall (3 frame slots
@@ -371,10 +377,23 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
         lock.withLock { counters.windowBytes += UInt64(datagram.bytes.count) }
         connection.send(content: datagram.bytes, completion: .contentProcessed { err in
             if let err {
-                self.lock.withLock { self.counters.packetsDropped += 1 }
-                self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription)")
+                let first = self.lock.withLock { () -> Bool in
+                    self.counters.packetsDropped += 1
+                    self.failedRun += 1
+                    return self.failedRun == 1
+                }
+                if first {
+                    self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription)")
+                }
             } else {
-                self.lock.withLock { self.counters.packetsSent += 1 }
+                let run = self.lock.withLock { () -> UInt64 in
+                    self.counters.packetsSent += 1
+                    defer { self.failedRun = 0 }
+                    return self.failedRun
+                }
+                if run > 1 {
+                    self.log.notice("UDP sends back after \(run, privacy: .public) failed")
+                }
             }
         })
     }

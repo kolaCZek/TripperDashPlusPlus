@@ -122,4 +122,5 @@ def test_heartbeat_tolerates_transient_send_errors_only() -> None:
     # the RX-silence check, which ends the loop if the dash stays gone.
     unreach = catch[catch.index("} else if Self.isUnreachableSendError(error) {"):catch.index("} else {")]
     assert "sentTicksWithoutRx += 1" in unreach
+    assert "transientFailures = 0" in unreach
     assert "return" not in unreach

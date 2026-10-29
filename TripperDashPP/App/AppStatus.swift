@@ -313,7 +313,7 @@ final class AppStatus {
                     //
                     //   19:09:26.132  RtpStreamer failed: NWError 57
                     //                 (Socket is not connected)
-                    //                 → fail() → stop() → state = .idle
+                    //                 → fail() → stop() → state = .failed
                     //   19:09:26.227  Link dropped (wifi-path-down)   [+95 ms]
                     //
                     // The trigger is the ordinary, expected one: the rider

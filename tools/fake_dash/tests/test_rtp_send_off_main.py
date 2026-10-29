@@ -37,7 +37,11 @@ def test_send_path_has_no_main_actor_hop():
     # Datagrams go out in packetizer order, then the one per-frame kick.
     assert handle.index("for datagram in datagrams {") < handle.index("link.onFrame?()")
     send = decl_body(pipe, "private func send(")
-    assert "self.lock.withLock { self.counters.packetsSent += 1 }" in send
+    assert "self.counters.packetsSent += 1" in send
+    assert "self.counters.packetsDropped += 1" in send
+    # One log line per run of failures (first + count), not per datagram.
+    assert "return self.failedRun == 1" in send
+    assert 'self.log.notice("UDP sends back after' in send
 
     # Metrics reach the main actor only through the 1 Hz timer.
     assert "Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true)" in start
