@@ -264,6 +264,26 @@ final class AppStatus {
         wireDeviceTelemetry()
         wireRideAlerts()
         wireDashButtons()
+        bikeLink.onBlipKept = { [weak self] in Task { await self?.handleBlipKept() } }
+    }
+
+    /// BikeLink rode out a Wi-Fi blip without a reconnect, so the observer's
+    /// resume branches don't run. A stream that died in it restarts the way
+    /// a reconnect restarts it. A live one gets nav-start + PROJ_ON again in
+    /// case the dash left projection during the blip (unverified; both are
+    /// latches the dash already takes on every stream start).
+    private func handleBlipKept() async {
+        if isStreaming {
+            await bikeLink.sendNavStart()
+            await bikeLink.sendProjectionOn()
+        } else if streamer?.state == .failed {
+            stopStreaming()
+            if activeNavigator.isNavigating && !activeNavigator.hasArrived {
+                await startStreaming()
+            } else if isFreeRiding {
+                await resumeFreeRideAfterReconnect()
+            }
+        }
     }
 
     /// Re-registers itself on every state change — that's the standard
@@ -313,7 +333,7 @@ final class AppStatus {
                     //
                     //   19:09:26.132  RtpStreamer failed: NWError 57
                     //                 (Socket is not connected)
-                    //                 → fail() → stop() → state = .failed
+                    //                 → fail() → stop() → state = .idle
                     //   19:09:26.227  Link dropped (wifi-path-down)   [+95 ms]
                     //
                     // The trigger is the ordinary, expected one: the rider

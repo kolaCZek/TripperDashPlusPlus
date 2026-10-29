@@ -187,7 +187,7 @@ final class RtpStreamer {
             log.info("UDP connection ready (\(self.bikeHost):\(self.bikePort))")
         case .failed(let err):
             // Transport only (not an encoder that won't start, which would
-            // reconnect in a loop): with the link still up nothing else
+            // restart in a loop): with the link still up nothing else
             // restarts RTP, since a Wi-Fi blip no longer drops the link.
             if state != .idle { bikeLink?.reportStreamFailed() }
             fail(reason: "UDP failed: \(err.localizedDescription)")
