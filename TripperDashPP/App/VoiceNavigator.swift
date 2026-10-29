@@ -123,7 +123,7 @@ final class VoiceNavigator: NSObject {
         utt.rate = AVSpeechUtteranceDefaultSpeechRate * 0.96
         utt.postUtteranceDelay = 0.0
         speakingPriority = priority
-        log.info("speak[\(priority.rawValue, privacy: .public)] \(language, privacy: .public): \(trimmed, privacy: .public)")
+        log.info("speak[\(priority.rawValue)] \(language, privacy: .public): \(trimmed, privacy: .public)")
         synth.speak(utt)
     }
 

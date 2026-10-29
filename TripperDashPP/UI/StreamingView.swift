@@ -269,7 +269,7 @@ struct StreamingView: View {
             MapCacheSection()
 
             // Debug and TestFlight builds only, never the App Store: the log
-            // carries destination names and the bike's Wi-Fi name.
+            // carries destination and street names and Wi-Fi network names.
             if canExportLog {
                 LogExportSection()
             }
@@ -447,7 +447,7 @@ private struct LogExportSection: View {
         } footer: {
             Text(failed
                  ? "Couldn't read the log."
-                 : "Everything the app logged since it was last launched, including destination names and your bike's Wi-Fi name. Export it before you close the app.")
+                 : "Everything the app logged since it was last launched, including destination and street names and Wi-Fi network names. Export it before you close the app.")
         }
     }
 

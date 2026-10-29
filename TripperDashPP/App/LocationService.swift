@@ -187,7 +187,7 @@ final class LocationService: NSObject {
     func start(mode: LocationMode) -> UUID {
         let token = UUID()
         consumers[token] = mode
-        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) added (mode=\(mode.rawValue, privacy: .public), total=\(self.consumers.count))")
+        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) added (mode=\(mode.rawValue), total=\(self.consumers.count))")
         reconcile()
         return token
     }
@@ -310,7 +310,7 @@ final class LocationService: NSObject {
             manager.startUpdatingHeading()
         }
         if !isRunning {
-            log.info("LocationService started (mode=\(self.currentMode.rawValue, privacy: .public))")
+            log.info("LocationService started (mode=\(self.currentMode.rawValue))")
         }
         isRunning = true
     }
@@ -333,7 +333,7 @@ extension LocationService: CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor in
             self.authorizationStatus = status
-            self.log.info("Authorization changed → \(status.rawValue, privacy: .public)")
+            self.log.info("Authorization changed → \(status.rawValue)")
             switch status {
             case .authorizedWhenInUse:
                 self.manager.requestAlwaysAuthorization()

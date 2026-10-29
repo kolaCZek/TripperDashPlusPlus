@@ -167,7 +167,7 @@ final class H264Encoder {
         for (key, value) in props {
             let s = VTSessionSetProperty(session, key: key, value: value)
             if s != noErr {
-                log.warning("VTSessionSetProperty \(key as String, privacy: .public) failed: \(s, privacy: .public)")
+                log.warning("VTSessionSetProperty \(key as String, privacy: .public) failed: \(s)")
             }
         }
         VTCompressionSessionPrepareToEncodeFrames(session)
@@ -228,11 +228,11 @@ final class H264Encoder {
             // -12902 kVTSessionMalfunctionErr — same recovery path.
             if status == -12903 || status == -12902 {
                 if consecutiveEncodeErrors == 1 {
-                    log.notice("VTCompressionSessionEncodeFrame failed: \(status, privacy: .public) — rebuilding session")
+                    log.notice("VTCompressionSessionEncodeFrame failed: \(status) — rebuilding session")
                 }
                 rebuildSession()
             } else if consecutiveEncodeErrors == 1 {
-                log.error("VTCompressionSessionEncodeFrame failed: \(status, privacy: .public)")
+                log.error("VTCompressionSessionEncodeFrame failed: \(status)")
             }
         } else {
             consecutiveEncodeErrors = 0
