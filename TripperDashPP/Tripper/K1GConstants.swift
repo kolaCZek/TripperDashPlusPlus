@@ -114,6 +114,15 @@ nonisolated enum K1G {
     /// p99.9 1 s, max 3.5 s. Raise it if another dash is quieter.
     static let rxSilenceTimeout: TimeInterval = 10.0
 
+    /// A Wi-Fi path that goes `.unsatisfied` on an established link is
+    /// re-checked after this long before the link is dropped. Hypothesis,
+    /// not yet seen in a log: short Wi-Fi blips where cellular falls back
+    /// to EDGE caused the field ride's 7 drops (2026-10-29; 15–37 s each
+    /// from drop to stream back). With RTP running, a blip that fails the
+    /// RTP flow still drops the link at once (`stream-failed`), so the next
+    /// ride is a diagnostic run first.
+    static let wifiBlipGrace: TimeInterval = 3.0
+
     /// Single-step timeout for the handshake exchange (pubkey request → modulus).
     static let handshakeStepTimeout: TimeInterval = 5.0
 

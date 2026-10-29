@@ -212,6 +212,11 @@ When asked to add tests, **also add a fake-dash test** that exercises the same c
   - `render produced no frame`: a tick ran but rendered nothing; any `rtp gap` then is the renderer's.
   - `rtp gap` (> 750 ms): encoder or send path, `RtpStreamer`, when there's neither of the two above.
   - `dash rx gap` (> 2 s) / `Link dropped`: Wi-Fi / dash, `DashSocket` / `BikeLink`. A lone `dash rx gap` of 2–3.5 s also happens on healthy rides (measured max 3.5 s, `K1GConstants`).
+- **Dash link dropped / dash went to its no-phone screen** → same log. `Link dropped (reason) after N s up` and `Reconnected after N attempt(s), M s after the drop` frame each outage. Reasons:
+  - `wifi-path-down`: Wi-Fi still down (or no 192.168.1.x address) 3 s after `Wi-Fi path down (…)` (`K1G.wifiBlipGrace`). Back in time → `Wi-Fi path blip — link kept`. A real loss (or a bike switched off) is therefore noticed 3 s later than before.
+  - `stream-failed`: the RTP connection failed (it dies in a Wi-Fi loss ~100 ms before the path monitor says so); reconnects at once, with no grace, so a rider streaming through a short blip still gets the reconnect. If the log shows `stream-failed` right before a `Wi-Fi path up after N s` with N < 3, add a grace + in-place stream restart (see the `reportStreamFailed` note).
+  - `heartbeat`: the loop stopped. `Heartbeat send failed: … — stopping loop` (hard errno) or `No RX from dash for N s`. `Heartbeat send failed: … — waiting for the dash` is a tolerated unreachable errno (`Heartbeat sends back after N failed` when it recovers; a bike off while iOS still reports the path up now takes up to ~10 s to drop); `Heartbeat stall N ms` = the loop itself was late.
+  - Also read `Cellular radio X → Y`, `Cellular path up/down`, `UDP send failed` / `UDP sends back after N failed` (RTP) and `UDP receive error` (a hard receive error still drops at once).
   - Nothing logged: no stage paused past its threshold. Lost RTP packets on the dash side (a smear until the next keyframe) are likely, but not proven; shorter pauses and a failed per-frame `PROJ_FRAME` kick don't log either.
 - **iOS API question** → Apple's WWDC sessions on Network framework, VideoToolbox, MapKit, and CoreLocation Background.
 - **Anything else** → ask the user via an issue or PR comment.

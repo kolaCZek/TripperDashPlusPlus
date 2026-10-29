@@ -32,7 +32,10 @@ def test_heartbeat_only_waits_for_main_actor_on_first_tick():
     a background task — a busy main actor must not hold the send."""
     body = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run() async")
     first, rest = body.split("} else if latest.beginRefresh() {", 1)
-    assert "if tick == 0 {" in first
+    # A flag, not `tick == 0`: tick only counts successful sends, so a
+    # failed first send would make every later tick wait for main.
+    assert "if !haveTelemetry {" in first
+    assert "haveTelemetry = true" in first
     assert "await telemetryProvider()" in first
     refresh, after = rest.split("let t = latest.get()", 1)
     assert "Task { box.finish(await provider()) }" in refresh
