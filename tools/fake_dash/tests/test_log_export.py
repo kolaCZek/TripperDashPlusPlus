@@ -57,10 +57,14 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert "@State private var canExportLog = false" in view
     section = decl_body(src, "private struct LogExportSection: View")
     gate = decl_body(section, "nonisolated static func isAvailable(")
-    debug, release = gate.split("#else")
-    assert "#if DEBUG" in debug and "return true" in debug
-    assert "try? await AppTransaction.shared else { return false }" in release
-    assert "return result.unsafePayloadValue.environment != .production" in release
+    # The StoreKit path sits outside `#if`, so CI's Debug build compiles it.
+    assert "#else" not in gate
+    flag = gate[gate.index("#if DEBUG"):gate.index("#endif")]
+    assert "debug = true" in flag and "return" not in flag
+    store = gate[gate.index("#endif"):]
+    assert store.index("if debug { return true }") < store.index("AppTransaction.shared")
+    assert "try? await AppTransaction.shared else { return false }" in store
+    assert "return result.unsafePayloadValue.environment != .production" in store
     scheme = (APP / "TripperDashPP.xcodeproj/xcshareddata/xcschemes/TripperDashPP.xcscheme").read_text()
     assert re.search(r'<LaunchAction\s+buildConfiguration = "Debug"', scheme)
     assert re.search(r'<ArchiveAction\s+buildConfiguration = "Release"', scheme)
@@ -124,3 +128,20 @@ def test_field_log_has_cellular_radio_and_path_changes():
     assert 'log.info("Cellular path' in tele
     link = strip_comments((APP / "Tripper/BikeLink.swift").read_text(encoding="utf-8"))
     assert 'log.info("Wi-Fi path' in link
+
+
+def test_error_and_state_text_survives_a_release_export():
+    # Without a debugger attached, os_log redacts every dynamic string not
+    # marked `.public`, so a TestFlight export would show `<private>` for
+    # the error text and link state, the lines a field log is read for.
+    bad = []
+    for f in APP.rglob("*.swift"):
+        if "TripperDashPPTests" in f.parts:
+            continue
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if not _LOG_CALL.search(line):
+                continue
+            for expr in re.findall(r"\\\((localizedDescription|[^()]*?\.localizedDescription|String\(describing: [^)]*\))(?!, privacy)", line):
+                bad.append(f"{f.name}:{n} {expr}")
+    assert not bad, bad
+

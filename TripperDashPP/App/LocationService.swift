@@ -187,14 +187,14 @@ final class LocationService: NSObject {
     func start(mode: LocationMode) -> UUID {
         let token = UUID()
         consumers[token] = mode
-        log.info("Consumer \(token.uuidString.prefix(8)) added (mode=\(mode.rawValue), total=\(self.consumers.count))")
+        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) added (mode=\(mode.rawValue, privacy: .public), total=\(self.consumers.count))")
         reconcile()
         return token
     }
 
     func stop(token: UUID) {
         guard consumers.removeValue(forKey: token) != nil else { return }
-        log.info("Consumer \(token.uuidString.prefix(8)) removed (remaining=\(self.consumers.count))")
+        log.info("Consumer \(token.uuidString.prefix(8), privacy: .public) removed (remaining=\(self.consumers.count))")
         reconcile()
     }
 
@@ -310,7 +310,7 @@ final class LocationService: NSObject {
             manager.startUpdatingHeading()
         }
         if !isRunning {
-            log.info("LocationService started (mode=\(self.currentMode.rawValue))")
+            log.info("LocationService started (mode=\(self.currentMode.rawValue, privacy: .public))")
         }
         isRunning = true
     }
@@ -333,7 +333,7 @@ extension LocationService: CLLocationManagerDelegate {
         let status = manager.authorizationStatus
         Task { @MainActor in
             self.authorizationStatus = status
-            self.log.info("Authorization changed → \(status.rawValue)")
+            self.log.info("Authorization changed → \(status.rawValue, privacy: .public)")
             switch status {
             case .authorizedWhenInUse:
                 self.manager.requestAlwaysAuthorization()
@@ -354,7 +354,7 @@ extension LocationService: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
-            self.log.warning("CLLocationManager error: \(error.localizedDescription)")
+            self.log.warning("CLLocationManager error: \(error.localizedDescription, privacy: .public)")
         }
     }
 

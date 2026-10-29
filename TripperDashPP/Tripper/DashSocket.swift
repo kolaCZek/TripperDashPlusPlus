@@ -235,7 +235,7 @@ actor DashSocket {
         self.fd = s
         self.readSource = src
         self.state = .ready
-        log.info("DashSocket ready (POSIX fd=\(s), bound :\(self.localPort), dest \(self.host, privacy: .public):\(self.port))")
+        log.info("DashSocket ready (POSIX fd=\(s, privacy: .public), bound :\(self.localPort), dest \(self.host, privacy: .public):\(self.port))")
     }
 
     /// Send a single UDP datagram to the dash.

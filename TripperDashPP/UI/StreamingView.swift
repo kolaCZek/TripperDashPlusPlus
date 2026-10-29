@@ -269,7 +269,7 @@ struct StreamingView: View {
             MapCacheSection()
 
             // Debug and TestFlight builds only, never the App Store: the log
-            // carries GPS positions.
+            // carries destination names and the bike's Wi-Fi name.
             if canExportLog {
                 LogExportSection()
             }
@@ -406,18 +406,21 @@ private struct LogExportSection: View {
     @State private var isPreparing = false
     @State private var failed = false
 
-    /// Debug build, or a Release build that StoreKit says isn't from the App
-    /// Store (TestFlight = `.sandbox`, an Xcode-signed Release = `.xcode`).
-    /// No answer (no App Store account, offline first launch) = hidden;
-    /// `.task` asks again the next time Settings opens.
+    /// Debug build, or a build that StoreKit says isn't from the App Store
+    /// (TestFlight and App Review = `.sandbox`; a development-signed build =
+    /// `.sandbox`, or `.xcode` with a StoreKit config). No answer (no App
+    /// Store account, offline first launch) = hidden; `.task` asks again the
+    /// next time Settings opens. The StoreKit path compiles in Debug too, so
+    /// CI (Debug only) builds it.
     nonisolated static func isAvailable() async -> Bool {
+        var debug = false
         #if DEBUG
-        return true
-        #else
+        debug = true
+        #endif
+        if debug { return true }
         // Unverified payload is fine: it only shows a button.
         guard let result = try? await AppTransaction.shared else { return false }
         return result.unsafePayloadValue.environment != .production
-        #endif
     }
 
     var body: some View {
@@ -444,7 +447,7 @@ private struct LogExportSection: View {
         } footer: {
             Text(failed
                  ? "Couldn't read the log."
-                 : "Everything the app logged since it was last launched, including GPS positions. Export it before you close the app.")
+                 : "Everything the app logged since it was last launched, including destination names and your bike's Wi-Fi name. Export it before you close the app.")
         }
     }
 

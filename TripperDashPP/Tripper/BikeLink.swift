@@ -282,7 +282,7 @@ final class BikeLink {
             // through and begin the connect flow.
             break
         case .connecting, .handshaking, .connected:
-            log.warning("connect() called while in state \(String(describing: self.state))")
+            log.warning("connect() called while in state \(String(describing: self.state), privacy: .public)")
             return
         }
         // Demo mode: fake an established link. We skip the socket + RSA
@@ -463,7 +463,7 @@ final class BikeLink {
             }
             log.info("Sent 0x007e route card x\(K1G.routeCardBurstCount, privacy: .public) (title=\(title, privacy: .public))")
         } catch {
-            log.error("Route-card send failed: \(error.localizedDescription)")
+            log.error("Route-card send failed: \(error.localizedDescription, privacy: .public)")
             // Logged to os.log only. A send failure here means the dash's
             // nav-decoder-surface gate never even got asked to open.
         }
@@ -542,7 +542,7 @@ final class BikeLink {
             try await s.send(r)
             log.info("Sent nav-mode kick (START_NAV + NAV_CTX + EMPTY_LISTS)")
         } catch {
-            log.error("Nav-mode kick failed: \(error.localizedDescription)")
+            log.error("Nav-mode kick failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -557,7 +557,7 @@ final class BikeLink {
             try await s.send(w)
             log.info("Sent projection-on latch (PROJ_ON)")
         } catch {
-            log.error("Projection-on send failed: \(error.localizedDescription)")
+            log.error("Projection-on send failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -612,7 +612,7 @@ final class BikeLink {
             try await s.send(x)
             log.info("Sent nav-stop (PROJ_STOP + PROJ_OFF)")
         } catch {
-            log.error("Nav-stop send failed: \(error.localizedDescription)")
+            log.error("Nav-stop send failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -706,9 +706,9 @@ final class BikeLink {
         do {
             try await s.send(pkt)
             try await s.send(commit)
-            log.info("Sent call-state \(String(describing: state)) (05 21 + 05 4D commit)")
+            log.info("Sent call-state \(String(describing: state), privacy: .public) (05 21 + 05 4D commit)")
         } catch {
-            log.error("Call-state send failed: \(error.localizedDescription)")
+            log.error("Call-state send failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

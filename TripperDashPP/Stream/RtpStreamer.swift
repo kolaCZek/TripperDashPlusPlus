@@ -106,7 +106,7 @@ final class RtpStreamer {
         guard state == .idle || state == .failed else { return }
         state = .starting
         metrics = RtpStreamerMetrics()
-        log.info("RtpStreamer starting → udp://\(self.bikeHost):\(self.bikePort)")
+        log.info("RtpStreamer starting → udp://\(self.bikeHost, privacy: .public):\(self.bikePort)")
 
         // 1. UDP connection via Network.framework
         let endpoint = NWEndpoint.hostPort(
@@ -180,14 +180,14 @@ final class RtpStreamer {
     private func handleConnectionState(_ s: NWConnection.State) {
         switch s {
         case .ready:
-            log.info("UDP connection ready (\(self.bikeHost):\(self.bikePort))")
+            log.info("UDP connection ready (\(self.bikeHost, privacy: .public):\(self.bikePort))")
         case .failed(let err):
             // Transport only (not an encoder that won't start, which would
             // reconnect in a loop). Not for a stream we stopped ourselves.
             if state != .idle { bikeLink?.reportStreamFailed() }
             fail(reason: "UDP failed: \(err.localizedDescription)")
         case .waiting(let err):
-            log.warning("UDP waiting: \(err.localizedDescription)")
+            log.warning("UDP waiting: \(err.localizedDescription, privacy: .public)")
         case .cancelled:
             log.info("UDP cancelled")
         default:
@@ -196,7 +196,7 @@ final class RtpStreamer {
     }
 
     private func fail(reason: String) {
-        log.error("\(reason)")
+        log.error("\(reason, privacy: .public)")
         metrics.lastError = reason
         onMetrics?(metrics)
         // stop() first: it only tears down from .running/.starting, so the
@@ -378,7 +378,7 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
                     return self.failedRun == 1
                 }
                 if first {
-                    self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription)")
+                    self.log.warning("UDP send failed (seq=\(datagram.sequence)): \(err.localizedDescription, privacy: .public)")
                 }
             } else {
                 let run = self.lock.withLock { () -> UInt64 in
