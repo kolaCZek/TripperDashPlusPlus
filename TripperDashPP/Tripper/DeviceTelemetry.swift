@@ -51,6 +51,9 @@ import UIKit
 #if canImport(CoreLocation)
 import CoreLocation
 #endif
+#if canImport(CoreTelephony)
+import CoreTelephony
+#endif
 
 /// Sendable snapshot consumed by `HeartbeatLoop` once per tick. Plain
 /// value type so it can cross the actor hop from `DeviceTelemetry`
@@ -101,6 +104,12 @@ final class DeviceTelemetry {
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "DeviceTelemetry")
     private let pathMonitor = NWPathMonitor(requiredInterfaceType: .cellular)
     private let pathQueue = DispatchQueue(label: "eu.kolaczek.tripperdashpp.telemetry.path")
+    #if canImport(CoreTelephony)
+    /// Log only: which radio the cell link is on (LTE / EDGE …), to line
+    /// dash drops up with a fall-back to EDGE in the field log.
+    private let radio = CTTelephonyNetworkInfo()
+    private var lastRadio: String?
+    #endif
     private var started = false
     #if canImport(UIKit)
     private var notifTokens: [NSObjectProtocol] = []
@@ -134,6 +143,15 @@ final class DeviceTelemetry {
             MainActor.assumeIsolated { self?.refreshBattery() }
         })
         #endif
+        #if canImport(CoreTelephony)
+        logRadio()
+        notifTokens.append(NotificationCenter.default.addObserver(
+            forName: .CTServiceRadioAccessTechnologyDidChange,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.logRadio() }
+        })
+        #endif
 
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let present = (path.status == .satisfied)
@@ -141,13 +159,25 @@ final class DeviceTelemetry {
                 guard let self else { return }
                 if self.hasCellSignal != present {
                     self.hasCellSignal = present
-                    self.log.debug("Cellular path \(present ? "up" : "down")")
+                    self.log.info("Cellular path \(present ? "up" : "down", privacy: .public)")
                 }
             }
         }
         pathMonitor.start(queue: pathQueue)
         log.info("DeviceTelemetry started (battery monitoring + cellular path)")
     }
+
+    #if canImport(CoreTelephony)
+    /// "Cellular radio LTE → Edge", once per change.
+    private func logRadio() {
+        let now = radio.serviceCurrentRadioAccessTechnology?.values
+            .map { $0.replacingOccurrences(of: "CTRadioAccessTechnology", with: "") }
+            .sorted().joined(separator: "+") ?? "none"
+        guard now != lastRadio else { return }
+        log.info("Cellular radio \(self.lastRadio ?? "-", privacy: .public) → \(now, privacy: .public)")
+        lastRadio = now
+    }
+    #endif
 
     /// Stop monitoring and release OS resources. Idempotent.
     func stop() {

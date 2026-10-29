@@ -65,9 +65,14 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert "ShareLink(item: url)" in section
     write = decl_body(section, "@concurrent nonisolated private static func writeLog(")
     assert "OSLogStore(scope: .currentProcessIdentifier)" in write
-    # Every app subsystem contains "kolaczek" (the predicate matches them all).
-    assert 'NSPredicate(format: "subsystem CONTAINS %@", "kolaczek")' in write
-    assert "store.getEntries(matching: own)" in write
+    # No NSPredicate: iOS's OSLogStore mishandles a subsystem predicate
+    # (FB8518539) and the export came out as an empty file. Filtered in
+    # Swift; every app subsystem starts with "eu.kolaczek".
+    assert "NSPredicate" not in write
+    assert "try store.getEntries()" in write
+    assert 'entry.subsystem.hasPrefix("eu.kolaczek")' in write
+    # A header line, so a short export says whether iOS returned anything.
+    assert "log entries read" in write
     assert "FileManager.default.temporaryDirectory" in write
 
 
@@ -106,3 +111,14 @@ def test_no_persisted_log_line_carries_a_position():
         if _POSITION.search(call)
     ]
     assert not hits, f"position in persisted log lines: {hits}"
+
+
+def test_field_log_has_cellular_radio_and_path_changes():
+    # Dash drops in an EDGE-only area: the export must show the radio
+    # (LTE / Edge) and both path monitors' changes at info level.
+    tele = strip_comments((APP / "Tripper/DeviceTelemetry.swift").read_text(encoding="utf-8"))
+    assert 'log.info("Cellular radio' in tele
+    assert "forName: .CTServiceRadioAccessTechnologyDidChange" in tele
+    assert 'log.info("Cellular path' in tele
+    link = strip_comments((APP / "Tripper/BikeLink.swift").read_text(encoding="utf-8"))
+    assert 'log.info("Wi-Fi path' in link
