@@ -21,12 +21,14 @@ struct ShortcutPolicyTests {
                           shortcutConnect: Bool = true,
                           handSession: Bool = false,
                           linkSilent: Bool = false,
+                          bikeBack: Bool = true,
                           canConnect: Bool = true) -> ShortcutPolicy.FreeRide {
         ShortcutPolicy.freeRide(rideActive: rideActive, requestPending: requestPending,
                                 planStaged: planStaged, link: link,
                                 shortcutConnect: shortcutConnect,
                                 handSession: handSession,
-                                linkSilent: linkSilent, canConnect: canConnect)
+                                linkSilent: linkSilent, bikeBack: bikeBack,
+                                canConnect: canConnect)
     }
 
     /// The app's own Wi-Fi join fires the automation: a connect the rider
@@ -40,6 +42,9 @@ struct ShortcutPolicyTests {
         // A bike switched off and on came back: that starts the ride
         // whether the link sat in .reconnecting or went silent.
         #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true) == .waitForLink)
+        // A drop shorter than a dash boot is a Wi-Fi blip: the link comes
+        // back by itself and no free ride takes over.
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false, bikeBack: false) == .handConnecting)
         #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
         #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
         #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)

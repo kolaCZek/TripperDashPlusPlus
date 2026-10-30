@@ -31,7 +31,8 @@ class ShortcutWiringTests(unittest.TestCase):
         body = decl_body(STATUS, "private func freeRideDecision(")
         self.assertIn("planStaged: plannedRoute != nil", body)
         self.assertIn("shortcutConnect: shortcutConnect", body)
-        self.assertIn("silent = rx > Self.silentLinkSeconds", body)
+        self.assertIn("let silent = await linkIsSilent()", body)
+        self.assertIn("return rx > Self.silentLinkSeconds", decl_body(STATUS, "private func linkIsSilent("))
         self.assertIn("handSession: handSession,", body)
         self.assertIn("if self.hasStreamingIntent {\n                    self.handSession = false", decl_body(STATUS, "private func observeStreamingIntent("))
         # Only a connect the rider started marks the grace, not a reconnect.
@@ -95,7 +96,15 @@ class ShortcutWiringTests(unittest.TestCase):
 
     def test_reconnect_adopts_the_bike_the_phone_is_on(self):
         wake = decl_body(STATUS, "private func wakeSleepingReconnect(")
-        self.assertIn("await adoptCurrentBike()", wake)
+        # Checked before the bike is re-picked, and again after the await.
+        self.assertLess(wake.index("guard bikeLink.state == .reconnecting else { return }"), wake.index("await adoptCurrentBike()"))
+        self.assertEqual(wake.count("guard bikeLink.state == .reconnecting else { return }"), 2)
+        stage = decl_body(STATUS, "private func navigateFromShortcut(_ plan: PlannedRoute")
+        self.assertIn("if await linkIsSilent() {", stage)
+        decision = decl_body(STATUS, "private func freeRideDecision(")
+        self.assertIn("(bikeLink.secondsSinceDrop ?? 0) > Self.bikeBackAfterSeconds", decision)
+        recompute = decl_body(STATUS, "func recomputeDirtyLegs(")
+        self.assertIn("if ownPlanStaged, pendingRideRequest == .navigate { pendingRideRequest = nil }", recompute)
         body = decl_body(STATUS, "func startFreeRideFromShortcut(")
         silent = body[body.index("case .reconnectLink:"):]
         self.assertLess(silent.index("await adoptCurrentBike()"), silent.index("bikeLink.dropSilentLink()"))

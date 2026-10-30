@@ -1085,6 +1085,10 @@ final class BikeLink {
         }
     }
 
+    /// Seconds since the link last dropped (wall clock, so it counts while
+    /// the app is suspended), nil before any drop.
+    var secondsSinceDrop: TimeInterval? { droppedAt.map { Date().timeIntervalSince($0) } }
+
     /// Seconds since the dash last answered, nil with no socket (demo).
     func secondsSinceDashAnswered() async -> TimeInterval? {
         guard let socket else { return nil }
