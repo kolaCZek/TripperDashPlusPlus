@@ -408,12 +408,17 @@ final class AppStatus {
                 // the phone. A failed or cancelled connect drops it.
                 switch state {
                 case .idle, .error:
+                    // A shortcut's navigation whose connect failed (bike off at
+                    // home): drop its plan, or it would block the bike's Wi-Fi
+                    // automation later ("A planned route is…").
+                    if case .error = state, self.shortcutConnect, self.ownPlanStaged { self.cancelPlanning() }
                     self.pendingRideRequest = nil
                     self.shortcutConnect = false
                     self.handConnect = false
                     self.handSession = false
                 case .connected:
-                    if self.handConnect { self.handSession = true }
+                    // Not when the connect resumed a ride already running.
+                    if self.handConnect && !self.hasStreamingIntent { self.handSession = true }
                     self.handConnect = false
                     self.shortcutConnect = false
                     if self.pendingRideRequest == .freeRide {
@@ -1002,10 +1007,8 @@ final class AppStatus {
         // A shortcut's connect (the Wi-Fi automation fires at AP-up, ~28 s
         // before the dash answers) or a ride's reconnect after a give-up
         // runs through these: a phone pocketed meanwhile was suspended
-        // mid-handshake and the ride never started. ponytail: a shortcut's
-        // navigation waits for its route after .connected without the
-        // wakelock (the picker holds that request); hold it there too if a
-        // log shows a pocketed start stalling at that step.
+        // mid-handshake and the ride never started. A pending request holds
+        // it on to the ride's start (a navigation's clears when it runs).
         let linkComingUp = bikeLink.state == .connecting || bikeLink.state == .handshaking
         let rideWanted = isStreaming || hasStreamingIntent || pendingRideRequest != nil
         let shouldRun = keepAwakeWhileStreaming
@@ -1569,18 +1572,28 @@ final class AppStatus {
         guard shortcutConnect else { return }
         switch bikeLink.state {
         case .idle, .error: break
-        default: return
+        default: shortcutConnect = false; return   // someone else connected
         }
         if let bike = savedBikes.bikes.first(where: { $0.ssid == ssid }) ?? savedBikes.selected ?? savedBikes.bikes.first {
             connect(to: bike, fromShortcut: true)
         }
     }
 
+    /// The phone is on another saved bike's Wi-Fi than the link's: every dash
+    /// is 192.168.1.1, so the reconnect handshakes as that bike instead.
+    private func adoptCurrentBike() async {
+        guard let ssid = await wifiJoiner.currentSSID(), ssid != bikeLink.ssid,
+              let bike = savedBikes.bikes.first(where: { $0.ssid == ssid }) else { return }
+        savedBikes.select(id: bike.id)
+        bikeLink.ssid = bike.ssid
+    }
+
     /// The bike came back while the app slept on a `.reconnecting` link:
     /// fresh budget (it may have run out meanwhile) and retry now. Marked as
     /// the shortcut's, so the wakelock holds and Stop Ride may cancel it.
     /// Never from a pre-join `.connecting`, which would handshake early.
-    private func wakeSleepingReconnect() {
+    private func wakeSleepingReconnect() async {
+        await adoptCurrentBike()
         guard bikeLink.state == .reconnecting else { return }
         shortcutConnect = true
         bikeLink.renewReconnectBudget()
@@ -1629,9 +1642,10 @@ final class AppStatus {
             await startFreeRide()
         case .waitForLink:
             pendingRideRequest = .freeRide
-            wakeSleepingReconnect()
+            await wakeSleepingReconnect()
         case .reconnectLink:
             pendingRideRequest = .freeRide
+            await adoptCurrentBike()
             bikeLink.dropSilentLink()
         case .connect:
             pendingRideRequest = .freeRide
@@ -1717,7 +1731,7 @@ final class AppStatus {
             pendingRideRequest = .navigate
             switch bikeLink.state {
             case .idle, .error: await connectSelectedBike()
-            default: wakeSleepingReconnect()
+            default: await wakeSleepingReconnect()
             }
             return "Starting navigation to \(dest)."
         }
@@ -1800,6 +1814,13 @@ final class AppStatus {
         plannedRoute = nil
         recomputingLegs = []
         planError = nil
+        // A navigation a shortcut was starting is gone with its plan: let go
+        // of its request and of a reconnect it woke (wakelock).
+        if pendingRideRequest == .navigate { pendingRideRequest = nil }
+        if shortcutConnect {
+            shortcutConnect = false
+            applyKeepAwake()
+        }
     }
 
     /// Wire ActiveNavigator's reroute callback to our RoutingService
@@ -1887,7 +1908,10 @@ final class AppStatus {
             Task { @MainActor in
                 // A ride ran on the rider's session: later rejoins are the
                 // bike coming back, as for a shortcut's session.
-                if self.hasStreamingIntent { self.handSession = false }
+                if self.hasStreamingIntent {
+                    self.handSession = false
+                    if self.pendingRideRequest == .navigate { self.pendingRideRequest = nil }
+                }
                 self.applyKeepAwake()
                 self.observeStreamingIntent()
             }

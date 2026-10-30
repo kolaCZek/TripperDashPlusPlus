@@ -37,7 +37,9 @@ struct ShortcutPolicyTests {
         // A handshake that finished before the automation ran, or a rejoin
         // later on the rider's session (no ride on it yet).
         #expect(freeRide(link: .connected, handSession: true) == .handConnected)
-        #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true) == .handConnected)
+        // A bike switched off and on came back: that starts the ride
+        // whether the link sat in .reconnecting or went silent.
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true) == .waitForLink)
         #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
         #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
         #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)

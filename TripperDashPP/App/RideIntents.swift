@@ -65,8 +65,8 @@ enum ShortcutPolicy {
         case .connected: return handSession ? .handConnected : .startNow
         case .connecting, .handshaking: return shortcutConnect ? .waitForLink : .handConnecting
         // A reconnect never joins Wi-Fi, so the join came from the bike
-        // coming back, never from the rider; still their session.
-        case .reconnecting: return handSession ? .handConnected : .waitForLink
+        // coming back, never from the rider: start, as for a silent link.
+        case .reconnecting: return .waitForLink
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }
