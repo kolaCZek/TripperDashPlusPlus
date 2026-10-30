@@ -1316,7 +1316,15 @@ final class AppStatus {
             // A shortcut's navigation with no route can't start: drop its
             // request, or it would hold the wakelock and every later
             // automation would answer "Already starting".
-            if ownPlanStaged, pendingRideRequest == .navigate { pendingRideRequest = nil }
+            if ownPlanStaged, pendingRideRequest == .navigate {
+                // Its connect still running (rider not looking): drop the plan
+                // too, or it blocks the bike's automation ("A planned route…").
+                if shortcutConnect {
+                    cancelPlanning()
+                } else {
+                    pendingRideRequest = nil
+                }
+            }
         }
     }
 
@@ -1541,6 +1549,7 @@ final class AppStatus {
     /// blip) fires a "joined the bike's Wi-Fi" automation, which must not
     /// turn the rider's session into a free ride.
     @ObservationIgnored private var handSession = false
+    @ObservationIgnored private var hadStreamingIntent = false
     /// A connect the rider started (`connect(to:)` not from a shortcut);
     /// a reconnect after a drop isn't one.
     @ObservationIgnored private var handConnect = false
@@ -1664,7 +1673,7 @@ final class AppStatus {
         case .reconnectLink:
             pendingRideRequest = .freeRide
             await adoptCurrentBike()
-            bikeLink.dropSilentLink()
+            await bikeLink.dropSilentLink()
         case .connect:
             pendingRideRequest = .freeRide
             await connectSelectedBike()
@@ -1754,7 +1763,7 @@ final class AppStatus {
                 // rather than send the route to a dead session.
                 if await linkIsSilent() {
                     await adoptCurrentBike()
-                    bikeLink.dropSilentLink()
+                    await bikeLink.dropSilentLink()
                 }
             default: await wakeSleepingReconnect()
             }
@@ -1936,7 +1945,14 @@ final class AppStatus {
                 if self.hasStreamingIntent {
                     self.handSession = false
                     if self.pendingRideRequest == .navigate { self.pendingRideRequest = nil }
+                } else if self.hadStreamingIntent, self.bikeLink.state == .connected {
+                    // The rider ended the ride on a live link: a Wi-Fi blip
+                    // the link rides out must not start it again. A bike
+                    // switched off and on comes back silent or reconnecting,
+                    // which ignore this.
+                    self.handSession = true
                 }
+                self.hadStreamingIntent = self.hasStreamingIntent
                 self.applyKeepAwake()
                 self.observeStreamingIntent()
             }

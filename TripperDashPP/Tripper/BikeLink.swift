@@ -969,7 +969,9 @@ final class BikeLink {
     /// or the Wi-Fi path dropped). Tear down the dead socket + loops but
     /// NOT the reconnect intent, then start the retry loop. Idempotent:
     /// a second drop signal while already `.reconnecting` is ignored.
-    private func handleLinkDropped(reason: String) {
+    /// `quietFor`: how long the dash had already been silent, so the drop is
+    /// dated from its last answer (a resumed app notices it seconds late).
+    private func handleLinkDropped(reason: String, quietFor: TimeInterval = 0) {
         guard shouldAutoReconnect else { return }
         guard state == .connected else {
             // Already reconnecting (or not in a droppable state) — ignore.
@@ -978,7 +980,7 @@ final class BikeLink {
         let up = connectedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
         log.warning("Link dropped (\(reason, privacy: .public)) after \(up, privacy: .public) s up — starting auto-reconnect")
         pathDownCheck?.cancel(); pathDownCheck = nil
-        droppedAt = Date()
+        droppedAt = Date().addingTimeInterval(-quietFor)
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
         Task { [socket] in await socket?.cancel() }
@@ -1063,7 +1065,7 @@ final class BikeLink {
                 switch result {
                 case .connected:
                     let took = self.droppedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
-                    self.log.info("Reconnected after \(attempt) attempt(s), \(took, privacy: .public) s after the drop")
+                    self.log.info("Reconnected after \(attempt) attempt(s), \(took, privacy: .public) s after the dash went quiet")
                     self.consecutiveSilentAttempts = 0
                     return
                 case .bootRaceMissingReply:
@@ -1106,9 +1108,10 @@ final class BikeLink {
     /// A `.connected` link the dash stopped answering (the app was suspended
     /// and the bike rebooted meanwhile): reconnect now instead of after the
     /// heartbeat's silence check.
-    func dropSilentLink() {
-        guard state == .connected, shouldAutoReconnect else { return }
-        handleLinkDropped(reason: "silent-at-shortcut")
+    func dropSilentLink() async {
+        guard state == .connected, shouldAutoReconnect,
+              let quiet = await secondsSinceDashAnswered() else { return }
+        handleLinkDropped(reason: "silent-at-shortcut", quietFor: quiet)
     }
 
     /// Short-circuit the retry interval — restart the loop immediately so
@@ -1508,7 +1511,8 @@ final class BikeLink {
             // unexpected drop worth reconnecting on.
             guard let self else { return }
             if !Task.isCancelled {
-                await MainActor.run { self.handleLinkDropped(reason: "heartbeat") }
+                let quiet = await socket.secondsSinceLastRx()
+                await MainActor.run { self.handleLinkDropped(reason: "heartbeat", quietFor: quiet) }
             }
         }
     }
