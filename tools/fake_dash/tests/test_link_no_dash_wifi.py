@@ -104,7 +104,8 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     link = strip_comments(decl_body(BIKE_LINK.read_text(encoding="utf-8"), "private func startHeartbeat"))
     drop = link[link.index("await loop.run()"):]
     guard = drop[drop.index("if !Task.isCancelled {"):]
-    assert 'handleLinkDropped(reason: "heartbeat", quietFor: quiet)' in guard[: guard.index("}")]
+    # Re-checked after the await: a disconnect meanwhile isn't a drop.
+    assert 'guard !Task.isCancelled else { return }\n                    self.handleLinkDropped(reason: "heartbeat", quietFor: quiet)' in guard
     # Checked every tick, before the sleep.
     assert check < run.index("try? await Task.sleep")
     # The measurement-only minute log it replaced is gone.
