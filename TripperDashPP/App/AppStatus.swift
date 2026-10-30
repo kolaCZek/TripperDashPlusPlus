@@ -411,8 +411,9 @@ final class AppStatus {
                     self.pendingRideRequest = nil
                     self.shortcutConnect = false
                     self.handConnect = false
+                    self.handSession = false
                 case .connected:
-                    if self.handConnect { self.handConnectedAt = Date() }
+                    if self.handConnect { self.handSession = true }
                     self.handConnect = false
                     self.shortcutConnect = false
                     if self.pendingRideRequest == .freeRide {
@@ -1528,17 +1529,14 @@ final class AppStatus {
     /// A connect a shortcut started, which Stop Ride may cancel; a connect
     /// the rider started by hand is left alone.
     @ObservationIgnored private var shortcutConnect = false
-    /// When a link the rider brought up by hand reached `.connected`. The
-    /// app's own Wi-Fi join fires a "joined the bike's Wi-Fi" automation,
-    /// which can run after a fast handshake has already finished.
-    @ObservationIgnored private var handConnectedAt: Date?
+    /// The link was brought up by the rider's own Connect and no ride has
+    /// run on it since. The app's own Wi-Fi join (and any rejoin after a
+    /// blip) fires a "joined the bike's Wi-Fi" automation, which must not
+    /// turn the rider's session into a free ride.
+    @ObservationIgnored private var handSession = false
     /// A connect the rider started (`connect(to:)` not from a shortcut);
     /// a reconnect after a drop isn't one.
     @ObservationIgnored private var handConnect = false
-    /// How long after a hand connect a Start Free Ride is taken for that
-    /// automation and refused. ponytail: a time window, so a Siri "start
-    /// free ride" spoken within it is refused too (says so; ask again).
-    static let handConnectGraceSeconds: TimeInterval = 30
     /// No answer from the dash for this long on a `.connected` link: the app
     /// was suspended and the dash rebooted meanwhile (worst healthy RX gap
     /// measured: 3.5 s; the heartbeat drops it after ~10 s of silence anyway).
@@ -1595,13 +1593,12 @@ final class AppStatus {
         if bikeLink.state == .connected, let rx = await bikeLink.secondsSinceDashAnswered() {
             silent = rx > Self.silentLinkSeconds
         }
-        let handRecently = handConnectedAt.map { Date().timeIntervalSince($0) < Self.handConnectGraceSeconds } ?? false
         return ShortcutPolicy.freeRide(rideActive: rideActive,
                                        requestPending: pendingRideRequest != nil,
                                        planStaged: plannedRoute != nil,
                                        link: bikeLink.state,
                                        shortcutConnect: shortcutConnect,
-                                       handConnectedRecently: handRecently,
+                                       handSession: handSession,
                                        linkSilent: silent,
                                        canConnect: canConnect)
     }
@@ -1616,7 +1613,7 @@ final class AppStatus {
         case .alreadyStarting: "Already starting your ride."
         case .planStaged: "A planned route is in TripperDash++, so free ride wasn't started."
         case .handConnecting: "TripperDash++ is connecting to your bike, so free ride wasn't started."
-        case .handConnected: "You just connected to your bike in TripperDash++, so free ride wasn't started."
+        case .handConnected: "You connected to your bike in TripperDash++, so free ride wasn't started. Start it in the app."
         case .noBike: "Add your bike in TripperDash++ first."
         case .startNow, .waitForLink, .connect, .reconnect, .reconnectLink: nil
         }
@@ -1737,7 +1734,10 @@ final class AppStatus {
         // First: the ride branches below return, and a connect a shortcut
         // started for a ride (after a give-up) must not finish without one.
         switch bikeLink.state {
-        case .connecting, .handshaking, .reconnecting: if ownConnect { bikeLink.disconnect() }
+        case .connecting, .handshaking: if ownConnect { bikeLink.disconnect() }
+        // A reconnect the shortcut only woke was there before it: keep it,
+        // and let the wakelock go (`shortcutConnect` isn't observed).
+        case .reconnecting: if ownConnect { applyKeepAwake() }
         default: break
         }
         if activeNavigator.isNavigating, let exit = activeNavigator.onExitNavRequested {
@@ -1885,6 +1885,9 @@ final class AppStatus {
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
+                // A ride ran on the rider's session: later rejoins are the
+                // bike coming back, as for a shortcut's session.
+                if self.hasStreamingIntent { self.handSession = false }
                 self.applyKeepAwake()
                 self.observeStreamingIntent()
             }

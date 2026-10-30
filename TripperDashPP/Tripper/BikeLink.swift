@@ -331,6 +331,7 @@ final class BikeLink {
         // A shortcut's connect starts at AP-up, about as long before the
         // dash answers as the normal retries last; give it twice the tries.
         let maxAttempts = K1G.bootRaceMaxAttempts * (patientBootRace ? 2 : 1)
+        patientBootRace = false   // one connect only
         var attempt = 0
         while true {
             attempt += 1
@@ -1082,21 +1083,6 @@ final class BikeLink {
         }
     }
 
-    /// Short-circuit the retry interval — restart the loop immediately so
-    /// we attempt a connection right now (e.g. the rider walked back into
-    /// Wi-Fi range, or tapped Connect). Preserves the existing
-    /// `reconnectDeadline`, so the reconnect budget is not extended.
-    ///
-    /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
-    /// NOT stop an attempt that's already inside `runConnectFlow` at once —
-    /// its receive loop only ends on cancellation, and the flow still has to
-    /// unwind and close its socket — so restarting the loop while one is
-    /// live would open a SECOND DashSocket on the same port and race the
-    /// abandoned one for the dash's replies, corrupting both (field-tested
-    /// 8/2026: visible attempt-counter reset + rx=0 timeouts on both flows
-    /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
-    /// just let that attempt run to completion; the path-monitor / Connect-tap
-    /// triggers that call this are best-effort nudges, not a queue.
     /// Seconds since the dash last answered, nil with no socket (demo).
     func secondsSinceDashAnswered() async -> TimeInterval? {
         guard let socket else { return nil }
@@ -1119,6 +1105,21 @@ final class BikeLink {
         handleLinkDropped(reason: "silent-at-shortcut")
     }
 
+    /// Short-circuit the retry interval — restart the loop immediately so
+    /// we attempt a connection right now (e.g. the rider walked back into
+    /// Wi-Fi range, or tapped Connect). Preserves the existing
+    /// `reconnectDeadline`, so the reconnect budget is not extended.
+    ///
+    /// Guarded on `!connectFlowInFlight`: cancelling `reconnectTask` here does
+    /// NOT stop an attempt that's already inside `runConnectFlow` at once —
+    /// its receive loop only ends on cancellation, and the flow still has to
+    /// unwind and close its socket — so restarting the loop while one is
+    /// live would open a SECOND DashSocket on the same port and race the
+    /// abandoned one for the dash's replies, corrupting both (field-tested
+    /// 8/2026: visible attempt-counter reset + rx=0 timeouts on both flows
+    /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
+    /// just let that attempt run to completion; the path-monitor / Connect-tap
+    /// triggers that call this are best-effort nudges, not a queue.
     func wakeReconnect() {
         guard state == .reconnecting, shouldAutoReconnect else { return }
         guard !connectFlowInFlight else {
