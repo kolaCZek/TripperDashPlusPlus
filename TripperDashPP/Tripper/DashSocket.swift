@@ -67,11 +67,16 @@ actor DashSocket {
     private var rxDatagramCount: UInt64 = 0
     /// Uptime of the last datagram (socket creation until the first one),
     /// for the heartbeat's RX-silence check.
-    private var lastRxUptime = ProcessInfo.processInfo.systemUptime
+    /// Keeps counting while the device sleeps (`systemUptime` doesn't), so a
+    /// dash that rebooted while the phone slept shows as silent.
+    nonisolated static func now() -> TimeInterval {
+        Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1_000_000_000
+    }
+    private var lastRxUptime = DashSocket.now()
 
     /// Seconds since the dash last sent anything on this socket.
     func secondsSinceLastRx() -> TimeInterval {
-        ProcessInfo.processInfo.systemUptime - lastRxUptime
+        DashSocket.now() - lastRxUptime
     }
     /// IO queue for the DispatchSourceRead handler and any blocking
     /// `sendto` calls. Off-main, isolated per socket instance.
@@ -326,7 +331,7 @@ actor DashSocket {
             }
             if n > 0 {
                 rxDatagramCount &+= 1
-                let now = ProcessInfo.processInfo.systemUptime
+                let now = DashSocket.now()
                 // The dash answers the 1 Hz heartbeat, so a quiet spell
                 // over 2 s means the link (or the dash) stalled. The
                 // heartbeat drops the link only after 10 s; this catches

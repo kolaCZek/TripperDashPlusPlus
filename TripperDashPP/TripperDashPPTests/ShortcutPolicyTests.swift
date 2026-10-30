@@ -19,13 +19,13 @@ struct ShortcutPolicyTests {
                           planStaged: Bool = false,
                           link: BikeLink.LinkState = .idle,
                           shortcutConnect: Bool = true,
-                          handConnectedRecently: Bool = false,
+                          handSession: Bool = false,
                           linkSilent: Bool = false,
                           canConnect: Bool = true) -> ShortcutPolicy.FreeRide {
         ShortcutPolicy.freeRide(rideActive: rideActive, requestPending: requestPending,
                                 planStaged: planStaged, link: link,
                                 shortcutConnect: shortcutConnect,
-                                handConnectedRecently: handConnectedRecently,
+                                handSession: handSession,
                                 linkSilent: linkSilent, canConnect: canConnect)
     }
 
@@ -34,8 +34,10 @@ struct ShortcutPolicyTests {
     @Test func aHandStartedConnectIsLeftAlone() {
         #expect(freeRide(link: .connecting, shortcutConnect: false) == .handConnecting)
         #expect(freeRide(link: .handshaking, shortcutConnect: false) == .handConnecting)
-        // A handshake that finished before the automation ran.
-        #expect(freeRide(link: .connected, handConnectedRecently: true) == .handConnected)
+        // A handshake that finished before the automation ran, or a rejoin
+        // later on the rider's session (no ride on it yet).
+        #expect(freeRide(link: .connected, handSession: true) == .handConnected)
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true) == .handConnected)
         #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
         #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
         #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)
@@ -47,7 +49,7 @@ struct ShortcutPolicyTests {
         #expect(freeRide(link: .reconnecting, shortcutConnect: false) == .waitForLink)
         // The app slept on a .connected link and the dash rebooted.
         #expect(freeRide(link: .connected, linkSilent: true) == .reconnectLink)
-        #expect(freeRide(link: .connected, handConnectedRecently: true, linkSilent: true) == .reconnectLink)
+        #expect(freeRide(link: .connected, handSession: true, linkSilent: true) == .reconnectLink)
         #expect(freeRide(rideActive: true, link: .connected, linkSilent: true) == .alreadyRiding)
     }
 

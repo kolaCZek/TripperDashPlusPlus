@@ -31,15 +31,17 @@ enum ShortcutPolicy {
         case alreadyRiding, alreadyStarting, planStaged, handConnecting, handConnected, noBike, startNow, waitForLink, connect, reconnect, reconnectLink
     }
 
-    /// `handConnectedRecently`: the rider brought the link up by hand moments
-    /// ago (its own Wi-Fi join fires the automation). `linkSilent`: the link
-    /// is `.connected` but the dash hasn't answered for a while.
+    /// `handSession`: the rider brought the link up by hand and hasn't ridden
+    /// on it (its own Wi-Fi join, or a rejoin after a blip, fires the
+    /// automation). `linkSilent`: the link is `.connected` but the dash
+    /// hasn't answered for a while. ponytail: a Siri "start free ride" on a
+    /// hand session is refused too (the reply says to start it in the app).
     static func freeRide(rideActive: Bool,
                          requestPending: Bool,
                          planStaged: Bool,
                          link: BikeLink.LinkState,
                          shortcutConnect: Bool,
-                         handConnectedRecently: Bool = false,
+                         handSession: Bool = false,
                          linkSilent: Bool = false,
                          canConnect: Bool) -> FreeRide {
         if rideActive {
@@ -60,11 +62,11 @@ enum ShortcutPolicy {
         // A link the rider brought up by hand is theirs: the app's own Wi-Fi
         // join fires a "joined the bike's Wi-Fi" automation, and a free ride
         // would take over a connect meant for picking a destination.
-        case .connected: return handConnectedRecently ? .handConnected : .startNow
+        case .connected: return handSession ? .handConnected : .startNow
         case .connecting, .handshaking: return shortcutConnect ? .waitForLink : .handConnecting
         // A reconnect never joins Wi-Fi, so the join came from the bike
-        // coming back, never from the rider.
-        case .reconnecting: return .waitForLink
+        // coming back, never from the rider; still their session.
+        case .reconnecting: return handSession ? .handConnected : .waitForLink
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }
