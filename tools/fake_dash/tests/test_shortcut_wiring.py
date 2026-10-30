@@ -28,9 +28,34 @@ PICKER = strip_comments((ROOT / "UI/MapPickerView.swift").read_text())
 class ShortcutWiringTests(unittest.TestCase):
 
     def test_free_ride_decision_inputs(self):
-        body = decl_body(STATUS, "private var freeRideDecision:")
+        body = decl_body(STATUS, "private func freeRideDecision(")
         self.assertIn("planStaged: plannedRoute != nil", body)
         self.assertIn("shortcutConnect: shortcutConnect", body)
+        self.assertIn("silent = rx > Self.silentLinkSeconds", body)
+        self.assertIn("handConnectedAt.map { Date().timeIntervalSince($0) < Self.handConnectGraceSeconds }", body)
+        # Only a connect the rider started marks the grace, not a reconnect.
+        self.assertIn("handConnect = !shortcutConnect", decl_body(STATUS, "func connect(to bike: SavedBike)"))
+
+    def test_shortcut_connect_and_request_hold_the_wakelock(self):
+        # The automation fires at AP-up, ~28 s before the dash answers: a
+        # phone pocketed meanwhile must not be suspended mid-handshake.
+        body = decl_body(STATUS, "private func applyKeepAwake(")
+        self.assertIn("let linkComingUp = bikeLink.state == .connecting || bikeLink.state == .handshaking", body)
+        self.assertIn("let rideWanted = isStreaming || hasStreamingIntent || pendingRideRequest != nil", body)
+        self.assertIn("|| (shortcutConnect && linkComingUp))", body)
+        obs = decl_body(STATUS, "private func observeStreamingIntent(")
+        self.assertIn("_ = pendingRideRequest", obs)
+
+    def test_shortcut_connect_prefers_the_bike_it_is_on(self):
+        body = decl_body(STATUS, "private func connectSelectedBike(")
+        self.assertIn("savedBikes.bikes.first(where: { $0.ssid == ssid }) ?? savedBikes.selected", body)
+        self.assertIn("guard shortcutConnect else { return }", body)
+
+    def test_reconnecting_wait_wakes_the_retry(self):
+        body = decl_body(STATUS, "func startFreeRideFromShortcut(")
+        wait = body[body.index("case .waitForLink:"):body.index("case .reconnectLink:")]
+        self.assertIn("if bikeLink.state == .reconnecting { bikeLink.connect() }", wait)
+        self.assertIn("bikeLink.dropSilentLink()", body)
 
     def test_pending_free_ride_needs_no_ride_and_no_plan(self):
         self.assertIn("if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }", STATUS)
