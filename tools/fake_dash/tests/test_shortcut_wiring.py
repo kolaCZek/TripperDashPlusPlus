@@ -23,6 +23,7 @@ from tests.swift_source import decl_body, strip_comments
 ROOT = pathlib.Path(__file__).resolve().parents[3] / "TripperDashPP"
 STATUS = strip_comments((ROOT / "App/AppStatus.swift").read_text())
 PICKER = strip_comments((ROOT / "UI/MapPickerView.swift").read_text())
+LINK = strip_comments((ROOT / "Tripper/BikeLink.swift").read_text())
 
 
 class ShortcutWiringTests(unittest.TestCase):
@@ -104,7 +105,20 @@ class ShortcutWiringTests(unittest.TestCase):
         decision = decl_body(STATUS, "private func freeRideDecision(")
         self.assertIn("(bikeLink.secondsSinceDrop ?? 0) > Self.bikeBackAfterSeconds", decision)
         recompute = decl_body(STATUS, "func recomputeDirtyLegs(")
-        self.assertIn("if ownPlanStaged, pendingRideRequest == .navigate { pendingRideRequest = nil }", recompute)
+        failed = recompute[recompute.index("if ownPlanStaged, pendingRideRequest == .navigate {"):]
+        self.assertLess(failed.index("if shortcutConnect {"), failed.index("cancelPlanning()"))
+
+    def test_drop_dated_from_the_dash_last_answer(self):
+        # A resumed app notices a silent dash seconds late; dated from then,
+        # a bike off/on would look like a short blip and start no ride.
+        self.assertIn("droppedAt = Date().addingTimeInterval(-quietFor)", LINK)
+        self.assertIn('handleLinkDropped(reason: "heartbeat", quietFor: quiet)', LINK)
+        self.assertIn('handleLinkDropped(reason: "silent-at-shortcut", quietFor: quiet)', LINK)
+
+    def test_ended_ride_on_a_live_link_is_the_riders(self):
+        obs = decl_body(STATUS, "private func observeStreamingIntent(")
+        self.assertIn("} else if self.hadStreamingIntent, self.bikeLink.state == .connected {", obs)
+        self.assertIn("self.hadStreamingIntent = self.hasStreamingIntent", obs)
         body = decl_body(STATUS, "func startFreeRideFromShortcut(")
         silent = body[body.index("case .reconnectLink:"):]
         self.assertLess(silent.index("await adoptCurrentBike()"), silent.index("bikeLink.dropSilentLink()"))
