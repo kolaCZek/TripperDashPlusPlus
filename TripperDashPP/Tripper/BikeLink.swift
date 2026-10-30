@@ -160,6 +160,9 @@ final class BikeLink {
     /// The running auto-reconnect retry loop, if any.
     private var reconnectTask: Task<Void, Never>?
 
+    /// Set by a shortcut's connect, which a Wi-Fi automation fires at AP-up.
+    var patientBootRace = false
+
     /// True while we should auto-reconnect on an unexpected drop. Armed
     /// when a connect succeeds; cleared by a user-initiated disconnect()
     /// so we never fight the user's explicit "stop".
@@ -325,6 +328,9 @@ final class BikeLink {
     /// auth processing, so 07/01 never arrived in time. Same root cause
     /// (dash mid-boot), same fix (retry the whole handshake fresh).
     private func runInitialConnect() async {
+        // A shortcut's connect starts at AP-up, about as long before the
+        // dash answers as the normal retries last; give it twice the tries.
+        let maxAttempts = K1G.bootRaceMaxAttempts * (patientBootRace ? 2 : 1)
         var attempt = 0
         while true {
             attempt += 1
@@ -342,14 +348,14 @@ final class BikeLink {
                 connectTask = nil
                 return
             case .bootRaceMissingReply(let msg):
-                if attempt >= K1G.bootRaceMaxAttempts {
+                if attempt >= maxAttempts {
                     log.warning("Boot-race retries exhausted (\(attempt) attempts) — surfacing error")
                     lastError = msg
                     state = .error(msg)
                     connectTask = nil
                     return
                 }
-                log.info("Dash not answering yet (boot race, attempt \(attempt)/\(K1G.bootRaceMaxAttempts)) — retrying silently")
+                log.info("Dash not answering yet (boot race, attempt \(attempt)/\(maxAttempts)) — retrying silently")
                 try? await Task.sleep(nanoseconds: UInt64(K1G.bootRaceRetryInterval * 1_000_000_000))
                 // `try?` swallows CancellationError from the sleep above, so
                 // disconnect() cancelling this Task mid-pause would otherwise
@@ -1095,6 +1101,14 @@ final class BikeLink {
     func secondsSinceDashAnswered() async -> TimeInterval? {
         guard let socket else { return nil }
         return await socket.secondsSinceLastRx()
+    }
+
+    /// A ride asked for while the reconnect loop slept (bike off, app
+    /// suspended): a fresh budget, so the next attempt doesn't give up on
+    /// a deadline that ran out meanwhile. Then `connect()` retries now.
+    func renewReconnectBudget() {
+        guard state == .reconnecting else { return }
+        reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
     }
 
     /// A `.connected` link the dash stopped answering (the app was suspended
