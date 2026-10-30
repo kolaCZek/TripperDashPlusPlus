@@ -92,8 +92,14 @@ final class AppStatus {
     /// internet, so we must be associated before the dash handshake), then
     /// start the K1G connect flow. Demo mode skips the Wi-Fi step entirely
     /// (there's no real AP to join).
-    func connect(to bike: SavedBike) {
-        handConnect = !shortcutConnect
+    func connect(to bike: SavedBike, fromShortcut: Bool = false) {
+        if !fromShortcut {
+            // The rider's own connect wins over a shortcut still starting.
+            shortcutConnect = false
+            if pendingRideRequest == .freeRide { pendingRideRequest = nil }
+        }
+        handConnect = !fromShortcut
+        bikeLink.patientBootRace = fromShortcut
         savedBikes.select(id: bike.id)
         bikeLink.ssid = bike.ssid
 
@@ -1003,7 +1009,7 @@ final class AppStatus {
         let rideWanted = isStreaming || hasStreamingIntent || pendingRideRequest != nil
         let shouldRun = keepAwakeWhileStreaming
             && ((rideWanted && (linkWorthStayingAwakeFor || linkComingUp))
-                || (shortcutConnect && linkComingUp))
+                || (shortcutConnect && (linkComingUp || bikeLink.state == .reconnecting)))
         // The audio session follows the wakelock EDGES, not every call: a
         // re-assert here would run `setCategory` without `.duckOthers` and
         // un-duck music mid-prompt (e.g. the arrival prompt, spoken just
@@ -1551,7 +1557,9 @@ final class AppStatus {
     /// Connect to the bike whose Wi-Fi the phone is on (the network that
     /// fired the automation), else the selected one, like the picker's
     /// Connect button without the chooser. Joining another saved bike would
-    /// pull the phone off this one behind a "Join …?" dialog.
+    /// pull the phone off this one behind a "Join …?" dialog. ponytail: iOS
+    /// often reads no SSID (`NEHotspotNetwork.fetchCurrent` nil), and then
+    /// it's the selected bike; ask the rider if that bites with two bikes.
     private func connectSelectedBike() async {
         shortcutConnect = true
         if bikeLink.demoMode {
@@ -1566,8 +1574,20 @@ final class AppStatus {
         default: return
         }
         if let bike = savedBikes.bikes.first(where: { $0.ssid == ssid }) ?? savedBikes.selected ?? savedBikes.bikes.first {
-            connect(to: bike)
+            connect(to: bike, fromShortcut: true)
         }
+    }
+
+    /// The bike came back while the app slept on a `.reconnecting` link:
+    /// fresh budget (it may have run out meanwhile) and retry now. Marked as
+    /// the shortcut's, so the wakelock holds and Stop Ride may cancel it.
+    /// Never from a pre-join `.connecting`, which would handshake early.
+    private func wakeSleepingReconnect() {
+        guard bikeLink.state == .reconnecting else { return }
+        shortcutConnect = true
+        bikeLink.renewReconnectBudget()
+        bikeLink.connect()
+        applyKeepAwake()
     }
 
     private func freeRideDecision() async -> ShortcutPolicy.FreeRide {
@@ -1612,9 +1632,7 @@ final class AppStatus {
             await startFreeRide()
         case .waitForLink:
             pendingRideRequest = .freeRide
-            // The bike came back while the app slept: retry now. Never from
-            // a pre-join .connecting, which would handshake before the join.
-            if bikeLink.state == .reconnecting { bikeLink.connect() }
+            wakeSleepingReconnect()
         case .reconnectLink:
             pendingRideRequest = .freeRide
             bikeLink.dropSilentLink()
@@ -1702,7 +1720,7 @@ final class AppStatus {
             pendingRideRequest = .navigate
             switch bikeLink.state {
             case .idle, .error: await connectSelectedBike()
-            default: break
+            default: wakeSleepingReconnect()
             }
             return "Starting navigation to \(dest)."
         }
@@ -1716,6 +1734,12 @@ final class AppStatus {
         // Also stops a shortcut connect still looking up the Wi-Fi name.
         let ownConnect = shortcutConnect
         shortcutConnect = false
+        // First: the ride branches below return, and a connect a shortcut
+        // started for a ride (after a give-up) must not finish without one.
+        switch bikeLink.state {
+        case .connecting, .handshaking, .reconnecting: if ownConnect { bikeLink.disconnect() }
+        default: break
+        }
         if activeNavigator.isNavigating, let exit = activeNavigator.onExitNavRequested {
             exit()
             return "Navigation stopped."
@@ -1735,10 +1759,6 @@ final class AppStatus {
             return plannedRoute != nil ? "Your planned route in TripperDash++ was left as is." : "No ride in progress."
         }
         if ownPlan { cancelPlanning() }
-        switch bikeLink.state {
-        case .connecting, .handshaking: if ownConnect { bikeLink.disconnect() }
-        default: break
-        }
         return "Ride cancelled."
     }
 
