@@ -1313,6 +1313,10 @@ final class AppStatus {
         } catch {
             guard plannedRoute === plan else { return }
             planError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            // A shortcut's navigation with no route can't start: drop its
+            // request, or it would hold the wakelock and every later
+            // automation would answer "Already starting".
+            if ownPlanStaged, pendingRideRequest == .navigate { pendingRideRequest = nil }
         }
     }
 
@@ -1544,6 +1548,9 @@ final class AppStatus {
     /// was suspended and the dash rebooted meanwhile (worst healthy RX gap
     /// measured: 3.5 s; the heartbeat drops it after ~10 s of silence anyway).
     static let silentLinkSeconds: TimeInterval = 10
+    /// A `.reconnecting` drop at least this old means the bike was switched
+    /// off and on (the dash boots for ~28 s after its AP is up), not a blip.
+    static let bikeBackAfterSeconds: TimeInterval = 28
 
     private var ownPlanStaged: Bool {
         plannedRoute.map { $0.waypoints.map(\.id) == shortcutStopIds } ?? false
@@ -1593,6 +1600,9 @@ final class AppStatus {
     /// the shortcut's, so the wakelock holds and Stop Ride may cancel it.
     /// Never from a pre-join `.connecting`, which would handshake early.
     private func wakeSleepingReconnect() async {
+        // Never re-pick the bike under a connect in flight (a hand connect
+        // to another bike would then fail its SSID preflight).
+        guard bikeLink.state == .reconnecting else { return }
         await adoptCurrentBike()
         guard bikeLink.state == .reconnecting else { return }
         shortcutConnect = true
@@ -1601,11 +1611,18 @@ final class AppStatus {
         applyKeepAwake()
     }
 
+    /// A `.connected` link the dash stopped answering (see `silentLinkSeconds`).
+    private func linkIsSilent() async -> Bool {
+        guard bikeLink.state == .connected, let rx = await bikeLink.secondsSinceDashAnswered() else { return false }
+        return rx > Self.silentLinkSeconds
+    }
+
     private func freeRideDecision() async -> ShortcutPolicy.FreeRide {
-        var silent = false
-        if bikeLink.state == .connected, let rx = await bikeLink.secondsSinceDashAnswered() {
-            silent = rx > Self.silentLinkSeconds
-        }
+        let silent = await linkIsSilent()
+        // A drop shorter than a dash boot is a Wi-Fi blip, not the bike
+        // switched off and on: the link comes back by itself.
+        let bikeBack = bikeLink.state == .reconnecting
+            && (bikeLink.secondsSinceDrop ?? 0) > Self.bikeBackAfterSeconds
         return ShortcutPolicy.freeRide(rideActive: rideActive,
                                        requestPending: pendingRideRequest != nil,
                                        planStaged: plannedRoute != nil,
@@ -1613,6 +1630,7 @@ final class AppStatus {
                                        shortcutConnect: shortcutConnect,
                                        handSession: handSession,
                                        linkSilent: silent,
+                                       bikeBack: bikeBack,
                                        canConnect: canConnect)
     }
 
@@ -1625,7 +1643,7 @@ final class AppStatus {
         case .alreadyRiding: "Already riding."
         case .alreadyStarting: "Already starting your ride."
         case .planStaged: "A planned route is in TripperDash++, so free ride wasn't started."
-        case .handConnecting: "TripperDash++ is connecting to your bike, so free ride wasn't started."
+        case .handConnecting: "TripperDash++ is connecting to your bike, so free ride wasn't started."   // also a reconnect after a short Wi-Fi drop
         case .handConnected: "You connected to your bike in TripperDash++, so free ride wasn't started. Start it in the app."
         case .noBike: "Add your bike in TripperDash++ first."
         case .startNow, .waitForLink, .connect, .reconnect, .reconnectLink: nil
@@ -1731,6 +1749,13 @@ final class AppStatus {
             pendingRideRequest = .navigate
             switch bikeLink.state {
             case .idle, .error: await connectSelectedBike()
+            case .connected:
+                // The dash rebooted while the app slept: reconnect now
+                // rather than send the route to a dead session.
+                if await linkIsSilent() {
+                    await adoptCurrentBike()
+                    bikeLink.dropSilentLink()
+                }
             default: await wakeSleepingReconnect()
             }
             return "Starting navigation to \(dest)."

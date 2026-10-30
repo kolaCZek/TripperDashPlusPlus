@@ -34,7 +34,8 @@ enum ShortcutPolicy {
     /// `handSession`: the rider brought the link up by hand and hasn't ridden
     /// on it (its own Wi-Fi join, or a rejoin after a blip, fires the
     /// automation). `linkSilent`: the link is `.connected` but the dash
-    /// hasn't answered for a while. ponytail: a Siri "start free ride" on a
+    /// hasn't answered for a while. `bikeBack`: a `.reconnecting` drop has
+    /// lasted longer than a dash boot. ponytail: a Siri "start free ride" on a
     /// hand session is refused too (the reply says to start it in the app).
     static func freeRide(rideActive: Bool,
                          requestPending: Bool,
@@ -43,6 +44,7 @@ enum ShortcutPolicy {
                          shortcutConnect: Bool,
                          handSession: Bool = false,
                          linkSilent: Bool = false,
+                         bikeBack: Bool = true,
                          canConnect: Bool) -> FreeRide {
         if rideActive {
             // The link gave up reconnecting (bike off past the reconnect
@@ -65,8 +67,9 @@ enum ShortcutPolicy {
         case .connected: return handSession ? .handConnected : .startNow
         case .connecting, .handshaking: return shortcutConnect ? .waitForLink : .handConnecting
         // A reconnect never joins Wi-Fi, so the join came from the bike
-        // coming back, never from the rider: start, as for a silent link.
-        case .reconnecting: return .waitForLink
+        // coming back (start, as for a silent link) or from a Wi-Fi blip
+        // the link rides out by itself (`bikeBack` false: leave it).
+        case .reconnecting: return bikeBack ? .waitForLink : .handConnecting
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }
