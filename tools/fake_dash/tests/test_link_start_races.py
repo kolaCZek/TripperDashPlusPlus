@@ -121,7 +121,7 @@ def test_observe_bike_link_rearms_before_await(app_src):
 
 
 def test_connect_join_task_drops_stale_outcome(app_src):
-    body = _body(app_src, "func connect(to bike: SavedBike)")
+    body = _body(app_src, "func connect(to bike: SavedBike")
     assert "joinTask?.cancel()" in body
     assert "joinTask = Task { @MainActor in" in body
     guard = "guard !Task.isCancelled, bikeLink.state == .connecting else { return }"
