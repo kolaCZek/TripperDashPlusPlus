@@ -382,6 +382,7 @@ final class BikeLink {
     /// Cancel (`.idle`) or once a newer connect flow owns the link, a late
     /// join failure must not flip it to `.error`.
     func reportJoinFailure(_ message: String) {
+        patientBootRace = false
         guard state == .connecting, connectTask == nil else {
             log.info("Wi-Fi join failure ignored — attempt no longer current (state=\(String(describing: self.state), privacy: .public))")
             return
@@ -410,6 +411,7 @@ final class BikeLink {
         // User-initiated stop: clear the auto-reconnect intent FIRST so a
         // drop signal racing in right now can't re-arm the retry loop.
         log.info("BikeLink disconnected (auto-reconnect cleared)")
+        patientBootRace = false
         pathDownCheck?.cancel(); pathDownCheck = nil
         shouldAutoReconnect = false
         reconnectDeadline = nil

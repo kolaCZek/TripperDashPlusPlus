@@ -33,7 +33,7 @@ class ShortcutWiringTests(unittest.TestCase):
         self.assertIn("shortcutConnect: shortcutConnect", body)
         self.assertIn("silent = rx > Self.silentLinkSeconds", body)
         self.assertIn("handSession: handSession,", body)
-        self.assertIn("if self.hasStreamingIntent { self.handSession = false }", decl_body(STATUS, "private func observeStreamingIntent("))
+        self.assertIn("if self.hasStreamingIntent {\n                    self.handSession = false", decl_body(STATUS, "private func observeStreamingIntent("))
         # Only a connect the rider started marks the grace, not a reconnect.
         hand = decl_body(STATUS, "func connect(to bike: SavedBike")
         self.assertIn("handConnect = !fromShortcut", hand)
@@ -63,7 +63,7 @@ class ShortcutWiringTests(unittest.TestCase):
         self.assertIn("wakeSleepingReconnect()", wait)
         self.assertIn("bikeLink.dropSilentLink()", body)
         stage = decl_body(STATUS, "private func navigateFromShortcut(_ plan: PlannedRoute")
-        self.assertIn("default: wakeSleepingReconnect()", stage)
+        self.assertIn("default: await wakeSleepingReconnect()", stage)
         # A budget that ran out while the app slept must not end the retry at once.
         wake = decl_body(STATUS, "private func wakeSleepingReconnect(")
         self.assertIn("guard bikeLink.state == .reconnecting else { return }", wake)
@@ -76,6 +76,29 @@ class ShortcutWiringTests(unittest.TestCase):
         self.assertIn("case .connecting, .handshaking: if ownConnect { bikeLink.disconnect() }", body)
         # A reconnect the shortcut only woke was the rider's: kept.
         self.assertIn("case .reconnecting: if ownConnect { applyKeepAwake() }", body)
+
+    def test_navigate_request_held_until_the_ride_runs(self):
+        # Cleared by the picker it would drop the wakelock at .connected,
+        # before the route and the start beat.
+        body = decl_body(PICKER, "private func consumeRideRequest(")
+        armed = body[body.index("default:"):]
+        self.assertNotIn("status.pendingRideRequest = nil", armed)
+        self.assertIn("pendingAutoStart = true", armed)
+        obs = decl_body(STATUS, "private func observeStreamingIntent(")
+        self.assertIn("if self.pendingRideRequest == .navigate { self.pendingRideRequest = nil }", obs)
+        cancel = decl_body(STATUS, "func cancelPlanning(")
+        self.assertIn("if pendingRideRequest == .navigate { pendingRideRequest = nil }", cancel)
+
+    def test_failed_shortcut_connect_drops_its_plan(self):
+        self.assertIn("if case .error = state, self.shortcutConnect, self.ownPlanStaged { self.cancelPlanning() }", STATUS)
+        self.assertIn("if self.handConnect && !self.hasStreamingIntent { self.handSession = true }", STATUS)
+
+    def test_reconnect_adopts_the_bike_the_phone_is_on(self):
+        wake = decl_body(STATUS, "private func wakeSleepingReconnect(")
+        self.assertIn("await adoptCurrentBike()", wake)
+        body = decl_body(STATUS, "func startFreeRideFromShortcut(")
+        silent = body[body.index("case .reconnectLink:"):]
+        self.assertLess(silent.index("await adoptCurrentBike()"), silent.index("bikeLink.dropSilentLink()"))
 
     def test_pending_free_ride_needs_no_ride_and_no_plan(self):
         self.assertIn("if !self.rideActive && self.plannedRoute == nil { await self.startFreeRide() }", STATUS)

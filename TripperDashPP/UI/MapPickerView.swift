@@ -449,7 +449,9 @@ struct MapPickerView: View {
         case .idle, .error:
             break
         default:   // fires on .connected; armed until then
-            status.pendingRideRequest = nil
+            // The request stays set until the navigation runs
+            // (`AppStatus.observeStreamingIntent` clears it), so it keeps the
+            // wakelock through .connected, the route and the start beat.
             pendingAutoStart = true
             tryAutoStartNavigation()
         }
