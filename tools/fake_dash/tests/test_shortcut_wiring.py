@@ -114,6 +114,12 @@ class ShortcutWiringTests(unittest.TestCase):
         self.assertIn("droppedAt = Date().addingTimeInterval(-quietFor)", LINK)
         self.assertIn('handleLinkDropped(reason: "heartbeat", quietFor: quiet)', LINK)
         self.assertIn('handleLinkDropped(reason: "silent-at-shortcut", quietFor: quiet)', LINK)
+        self.assertIn('quietFor: self.wifiDownSince.map { Date().timeIntervalSince($0) } ?? 0)', LINK)
+
+    def test_failed_route_mid_connect_cancels_the_connect(self):
+        recompute = decl_body(STATUS, "func recomputeDirtyLegs(")
+        failed = recompute[recompute.index("if shortcutConnect {"):]
+        self.assertLess(failed.index("case .connecting, .handshaking: bikeLink.disconnect()"), failed.index("cancelPlanning()"))
 
     def test_ended_ride_on_a_live_link_is_the_riders(self):
         obs = decl_body(STATUS, "private func observeStreamingIntent(")

@@ -1320,6 +1320,12 @@ final class AppStatus {
                 // Its connect still running (rider not looking): drop the plan
                 // too, or it blocks the bike's automation ("A planned route…").
                 if shortcutConnect {
+                    // and its connect: a dash with no ride and no message
+                    // after "Starting navigation" is worse than none.
+                    switch bikeLink.state {
+                    case .connecting, .handshaking: bikeLink.disconnect()
+                    default: break
+                    }
                     cancelPlanning()
                 } else {
                     pendingRideRequest = nil

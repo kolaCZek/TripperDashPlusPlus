@@ -1263,7 +1263,8 @@ final class BikeLink {
             let subnet = Self.wifiHasDashSubnetIPv4()
             guard self.lastWifiSatisfied, subnet else {
                 self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public))")
-                self.handleLinkDropped(reason: "wifi-path-down")
+                self.handleLinkDropped(reason: "wifi-path-down",
+                                       quietFor: self.wifiDownSince.map { Date().timeIntervalSince($0) } ?? 0)
                 return
             }
             self.log.notice("Wi-Fi path blip — link kept")
@@ -1512,7 +1513,10 @@ final class BikeLink {
             guard let self else { return }
             if !Task.isCancelled {
                 let quiet = await socket.secondsSinceLastRx()
-                await MainActor.run { self.handleLinkDropped(reason: "heartbeat", quietFor: quiet) }
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    self.handleLinkDropped(reason: "heartbeat", quietFor: quiet)
+                }
             }
         }
     }

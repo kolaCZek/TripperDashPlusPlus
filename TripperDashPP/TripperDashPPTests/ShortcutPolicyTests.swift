@@ -44,7 +44,9 @@ struct ShortcutPolicyTests {
         #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true) == .waitForLink)
         // A drop shorter than a dash boot is a Wi-Fi blip: the link comes
         // back by itself and no free ride takes over.
-        #expect(freeRide(link: .reconnecting, shortcutConnect: false, bikeBack: false) == .handConnecting)
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false, handSession: true, bikeBack: false) == .handConnecting)
+        // Not the rider's session: nothing to protect, start.
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false, bikeBack: false) == .waitForLink)
         #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
         #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
         #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)

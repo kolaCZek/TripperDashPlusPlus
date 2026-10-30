@@ -67,9 +67,11 @@ enum ShortcutPolicy {
         case .connected: return handSession ? .handConnected : .startNow
         case .connecting, .handshaking: return shortcutConnect ? .waitForLink : .handConnecting
         // A reconnect never joins Wi-Fi, so the join came from the bike
-        // coming back (start, as for a silent link) or from a Wi-Fi blip
-        // the link rides out by itself (`bikeBack` false: leave it).
-        case .reconnecting: return bikeBack ? .waitForLink : .handConnecting
+        // coming back: start, as for a silent link. Only the rider's own
+        // session asks whether it was a Wi-Fi blip the link rides out by
+        // itself (`bikeBack` false: leave it to them). ponytail: drop age
+        // is a proxy; a quick key off/on can come in under it.
+        case .reconnecting: return bikeBack || !handSession ? .waitForLink : .handConnecting
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }
