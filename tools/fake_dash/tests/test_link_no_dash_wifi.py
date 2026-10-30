@@ -84,7 +84,9 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     drain = decl_body(sock, "private func drainAllPendingOnActor")
     got = drain[drain.index("if n > 0 {"):]
     rx = got[: got.index("continue")]
-    assert "let now = ProcessInfo.processInfo.systemUptime" in rx
+    # A clock that counts through device sleep (not systemUptime).
+    assert "let now = DashSocket.now()" in rx
+    assert "clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)" in sock
     assert "lastRxUptime = now" in rx
     run = decl_body(_src("Tripper/HeartbeatLoop.swift"), "@concurrent func run")
     check = run.index("await socket.secondsSinceLastRx()")
@@ -102,7 +104,8 @@ def test_rx_silence_stops_the_heartbeat() -> None:
     link = strip_comments(decl_body(BIKE_LINK.read_text(encoding="utf-8"), "private func startHeartbeat"))
     drop = link[link.index("await loop.run()"):]
     guard = drop[drop.index("if !Task.isCancelled {"):]
-    assert 'handleLinkDropped(reason: "heartbeat")' in guard[: guard.index("}")]
+    # Re-checked after the await: a disconnect meanwhile isn't a drop.
+    assert 'guard !Task.isCancelled else { return }\n                    self.handleLinkDropped(reason: "heartbeat", quietFor: quiet)' in guard
     # Checked every tick, before the sleep.
     assert check < run.index("try? await Task.sleep")
     # The measurement-only minute log it replaced is gone.
