@@ -28,14 +28,19 @@ import Foundation
 enum ShortcutPolicy {
 
     enum FreeRide: Equatable {
-        case alreadyRiding, alreadyStarting, planStaged, handConnecting, noBike, startNow, waitForLink, connect, reconnect
+        case alreadyRiding, alreadyStarting, planStaged, handConnecting, handConnected, noBike, startNow, waitForLink, connect, reconnect, reconnectLink
     }
 
+    /// `handConnectedRecently`: the rider brought the link up by hand moments
+    /// ago (its own Wi-Fi join fires the automation). `linkSilent`: the link
+    /// is `.connected` but the dash hasn't answered for a while.
     static func freeRide(rideActive: Bool,
                          requestPending: Bool,
                          planStaged: Bool,
                          link: BikeLink.LinkState,
                          shortcutConnect: Bool,
+                         handConnectedRecently: Bool = false,
+                         linkSilent: Bool = false,
                          canConnect: Bool) -> FreeRide {
         if rideActive {
             // The link gave up reconnecting (bike off past the reconnect
@@ -50,11 +55,16 @@ enum ShortcutPolicy {
         // Don't throw away a route the rider planned.
         if planStaged { return .planStaged }
         switch link {
-        case .connected: return .startNow
+        // Silent: the app slept and the dash rebooted (bike off and on).
+        case .connected where linkSilent: return .reconnectLink
         // A link the rider brought up by hand is theirs: the app's own Wi-Fi
         // join fires a "joined the bike's Wi-Fi" automation, and a free ride
         // would take over a connect meant for picking a destination.
-        case .connecting, .handshaking, .reconnecting: return shortcutConnect ? .waitForLink : .handConnecting
+        case .connected: return handConnectedRecently ? .handConnected : .startNow
+        case .connecting, .handshaking: return shortcutConnect ? .waitForLink : .handConnecting
+        // A reconnect never joins Wi-Fi, so the join came from the bike
+        // coming back, never from the rider.
+        case .reconnecting: return .waitForLink
         case .idle, .error: return canConnect ? .connect : .noBike
         }
     }
@@ -144,9 +154,9 @@ struct StartFreeRideIntent: AppIntent, ForegroundContinuableIntent {
 
     @MainActor func perform() async throws -> some IntentResult & ProvidesDialog {
         let status = AppStatus.shared
-        if let refusal = status.freeRideShortcutRefusal { return .result(dialog: "\(refusal)") }
+        if let refusal = await status.freeRideShortcutRefusal() { return .result(dialog: "\(refusal)") }
         throw needsToContinueInForegroundError("Open TripperDash++ to start or continue your ride.") {
-            status.startFreeRideFromShortcut()
+            await status.startFreeRideFromShortcut()
         }
     }
 }

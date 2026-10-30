@@ -19,10 +19,14 @@ struct ShortcutPolicyTests {
                           planStaged: Bool = false,
                           link: BikeLink.LinkState = .idle,
                           shortcutConnect: Bool = true,
+                          handConnectedRecently: Bool = false,
+                          linkSilent: Bool = false,
                           canConnect: Bool = true) -> ShortcutPolicy.FreeRide {
         ShortcutPolicy.freeRide(rideActive: rideActive, requestPending: requestPending,
                                 planStaged: planStaged, link: link,
-                                shortcutConnect: shortcutConnect, canConnect: canConnect)
+                                shortcutConnect: shortcutConnect,
+                                handConnectedRecently: handConnectedRecently,
+                                linkSilent: linkSilent, canConnect: canConnect)
     }
 
     /// The app's own Wi-Fi join fires the automation: a connect the rider
@@ -30,10 +34,21 @@ struct ShortcutPolicyTests {
     @Test func aHandStartedConnectIsLeftAlone() {
         #expect(freeRide(link: .connecting, shortcutConnect: false) == .handConnecting)
         #expect(freeRide(link: .handshaking, shortcutConnect: false) == .handConnecting)
-        #expect(freeRide(link: .reconnecting, shortcutConnect: false) == .handConnecting)
+        // A handshake that finished before the automation ran.
+        #expect(freeRide(link: .connected, handConnectedRecently: true) == .handConnected)
         #expect(freeRide(planStaged: true, link: .connecting, shortcutConnect: false) == .planStaged)
         #expect(freeRide(rideActive: true, link: .reconnecting, shortcutConnect: false) == .alreadyRiding)
         #expect(freeRide(link: .idle, shortcutConnect: false) == .connect)
+    }
+
+    /// A reconnect never joins Wi-Fi: the join is the bike coming back
+    /// after a stop, so the free ride starts once the link is up.
+    @Test func aBikeBackAfterAStopStartsTheRide() {
+        #expect(freeRide(link: .reconnecting, shortcutConnect: false) == .waitForLink)
+        // The app slept on a .connected link and the dash rebooted.
+        #expect(freeRide(link: .connected, linkSilent: true) == .reconnectLink)
+        #expect(freeRide(link: .connected, handConnectedRecently: true, linkSilent: true) == .reconnectLink)
+        #expect(freeRide(rideActive: true, link: .connected, linkSilent: true) == .alreadyRiding)
     }
 
     @Test func rejoiningTheBikeWiFiMidRideDoesNothing() {

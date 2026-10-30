@@ -1091,6 +1091,20 @@ final class BikeLink {
     /// while the dash itself reported "iPhone connected"). If a wake signal arrives mid-attempt we
     /// just let that attempt run to completion; the path-monitor / Connect-tap
     /// triggers that call this are best-effort nudges, not a queue.
+    /// Seconds since the dash last answered, nil with no socket (demo).
+    func secondsSinceDashAnswered() async -> TimeInterval? {
+        guard let socket else { return nil }
+        return await socket.secondsSinceLastRx()
+    }
+
+    /// A `.connected` link the dash stopped answering (the app was suspended
+    /// and the bike rebooted meanwhile): reconnect now instead of after the
+    /// heartbeat's silence check.
+    func dropSilentLink() {
+        guard state == .connected, shouldAutoReconnect else { return }
+        handleLinkDropped(reason: "silent-at-shortcut")
+    }
+
     func wakeReconnect() {
         guard state == .reconnecting, shouldAutoReconnect else { return }
         guard !connectFlowInFlight else {
