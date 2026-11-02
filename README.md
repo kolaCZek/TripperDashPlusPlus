@@ -7,6 +7,10 @@
 [![Bike: Royal Enfield](https://img.shields.io/badge/bike-Royal%20Enfield-red.svg)]()
 [![fake_dash CI](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml/badge.svg)](https://github.com/kolaCZek/TripperDashPlusPlus/actions/workflows/fake_dash.yml)
 
+<a href="https://apps.apple.com/app/id6801485851"><img src="https://toolbox.marketingtools.apple.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store" height="50"></a>
+
+**Get it free on the [App Store](https://apps.apple.com/app/id6801485851).** Beta builds: [TestFlight](https://testflight.apple.com/join/QxnDKhMT). Website: [tripperdash.kolaczek.cz](https://tripperdash.kolaczek.cz).
+
 ---
 
 ## What is this?
