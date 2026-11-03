@@ -194,11 +194,14 @@ def _swift_lookahead_decision(
     threshold_meters: float,
     is_rerouting: bool = False,
     shown: bool = False,
+    is_wrong_way: bool = False,
 ) -> bool:
-    """Mirror of the conditional in ActiveNavLoop.swift line ~295."""
+    """Mirror of the conditional in ActiveNavLoop.swift (`emitSecondary`).
+    `shown` = the last packet showed a look-ahead for this same step."""
     return (
         lookahead_enabled
         and not is_rerouting
+        and not is_wrong_way
         and second_step_exists
         and (dist_next_meters <= threshold_meters
              or (shown and dist_next_meters <= threshold_meters + HYSTERESIS_M))
@@ -245,6 +248,7 @@ def test_lookahead_hysteresis_keeps_it_on_past_the_threshold() -> None:
     assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=True) is True
     assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=False) is False
     assert _swift_lookahead_decision(True, True, 331.0, 300.0, shown=True) is False
+    assert _swift_lookahead_decision(True, True, 250.0, 300.0, is_wrong_way=True) is False
 
 
 def test_swift_lookahead_has_hysteresis() -> None:
@@ -252,8 +256,15 @@ def test_swift_lookahead_has_hysteresis() -> None:
     repo_root = pathlib.Path(__file__).resolve().parents[3]
     src = (repo_root / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
     assert "nonisolated static let lookaheadHysteresisMeters: Double = 30" in src
-    assert "|| (lookaheadShown && distNext <= settings.lookaheadThresholdMeters + Self.lookaheadHysteresisMeters)" in src
-    assert "lookaheadShown = emitSecondary" in src
+    assert "|| (lookaheadShownFor == stepToken && distNext <= settings.lookaheadThresholdMeters + Self.lookaheadHysteresisMeters)" in src
+    assert "lookaheadShownFor = emitSecondary ? stepToken : nil" in src
+    # Reset on stop() and in the free-ride branch, so a new route doesn't
+    # start with a stretched threshold.
+    stop = src[src.index("    func stop() {"):src.index("\n    }\n", src.index("    func stop() {"))]
+    assert "lookaheadShownFor = nil" in stop
+    free = src[src.index("guard nav.isNavigating else {"):]
+    free = free[:free.index("return")]
+    assert "lookaheadShownFor = nil" in free
 
 
 def test_lookahead_default_threshold_is_300m() -> None:
