@@ -81,7 +81,6 @@ def _swift_packet_source() -> str:
 def make_active_nav_order(
     *,
     road_name: bool = False,
-    secondary: bool = False,
     eta: bool = False,
     remaining: bool = False,
 ) -> list[tuple[int, int]]:
@@ -95,10 +94,11 @@ def make_active_nav_order(
     segs.append((NAV_INFO, SUB_PRIMARY_MANEUVER))
     segs.append((NAV_INFO, SUB_PRIMARY_DISTANCE))
     segs.append((NAV_INFO, SUB_PRIMARY_UNIT))
-    if secondary:
-        segs.append((NAV_INFO, SUB_SECONDARY_MANEUVER))
-        segs.append((NAV_INFO, SUB_SECONDARY_DISTANCE))
-        segs.append((NAV_INFO, SUB_SECONDARY_UNIT))
+    # Look-ahead group in every packet (a hidden glyph when there is
+    # none), so a look-ahead that ends is overwritten, not latched.
+    segs.append((NAV_INFO, SUB_SECONDARY_MANEUVER))
+    segs.append((NAV_INFO, SUB_SECONDARY_DISTANCE))
+    segs.append((NAV_INFO, SUB_SECONDARY_UNIT))
     if eta:
         segs.append((NAV_INFO, SUB_ETA))
         segs.append((NAV_INFO, SUB_ETA_FORMAT))        # MUST follow ETA
@@ -125,41 +125,45 @@ def _assert_adjacent(order: list[tuple[int, int]], value_sub: int, unit_sub: int
     )
 
 
-@pytest.mark.parametrize("road_name,secondary,eta,remaining", [
-    (False, False, False, False),  # minimal 8-TLV packet
-    (False, False, True, False),   # + ETA
-    (True, True, True, False),     # road name + secondary + ETA
-    (False, False, False, True),   # + remaining time
-    (True, True, True, True),      # everything
+@pytest.mark.parametrize("road_name,eta,remaining", [
+    (False, False, False),  # minimal packet
+    (False, True, False),   # + ETA
+    (True, True, False),    # road name + ETA
+    (False, False, True),   # + remaining time
+    (True, True, True),     # everything
 ])
-def test_total_distance_unit_immediately_follows_value(road_name, secondary, eta, remaining):
+def test_total_distance_unit_immediately_follows_value(road_name, eta, remaining):
     order = make_active_nav_order(
-        road_name=road_name, secondary=secondary, eta=eta, remaining=remaining
+        road_name=road_name, eta=eta, remaining=remaining
     )
     _assert_adjacent(order, SUB_TOTAL_DISTANCE, SUB_TOTAL_DISTANCE_UNIT)
 
 
-@pytest.mark.parametrize("road_name,secondary,remaining", [
-    (False, False, False),
-    (True, True, False),
-    (False, False, True),
-    (True, True, True),
+@pytest.mark.parametrize("road_name,remaining", [
+    (False, False),
+    (True, False),
+    (False, True),
+    (True, True),
 ])
-def test_eta_format_immediately_follows_eta(road_name, secondary, remaining):
+def test_eta_format_immediately_follows_eta(road_name, remaining):
     order = make_active_nav_order(
-        road_name=road_name, secondary=secondary, eta=True, remaining=remaining
+        road_name=road_name, eta=True, remaining=remaining
     )
     _assert_adjacent(order, SUB_ETA, SUB_ETA_FORMAT)
 
 
 def test_minimal_packet_exact_order():
-    """Pin the canonical 8-TLV order against the better-dash authority
+    """Pin the minimal order: the better-dash authority
     `build_active_nav_packet` (primary man/dist/unit → total → total-unit
-    → decimal-sep → projection → decimal-flag)."""
+    → decimal-sep → projection → decimal-flag) plus the look-ahead group,
+    always sent, in its `_NAV_FULL` place after the primary block."""
     assert make_active_nav_order() == [
         (NAV_INFO, SUB_PRIMARY_MANEUVER),
         (NAV_INFO, SUB_PRIMARY_DISTANCE),
         (NAV_INFO, SUB_PRIMARY_UNIT),
+        (NAV_INFO, SUB_SECONDARY_MANEUVER),
+        (NAV_INFO, SUB_SECONDARY_DISTANCE),
+        (NAV_INFO, SUB_SECONDARY_UNIT),
         (NAV_INFO, SUB_TOTAL_DISTANCE),
         (NAV_INFO, SUB_TOTAL_DISTANCE_UNIT),
         (NAV_INFO, SUB_DECIMAL_SEPARATOR),
@@ -266,7 +270,7 @@ def test_swift_append_order_matches_python_mirror():
     swift_subs = [_BUILDER_SUB[n] for n in names]
     mirror_subs = [
         sub for (_t, sub) in make_active_nav_order(
-            road_name=True, secondary=True, eta=True, remaining=True
+            road_name=True, eta=True, remaining=True
         )
     ]
     assert swift_subs == mirror_subs, (

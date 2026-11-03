@@ -472,9 +472,9 @@ extension K1GPacket {
             //
             // Omitted, with the reason each is unfixable-by-overwrite:
             //   05 03 / 05 05 / 05 07  secondary maneuver + distance + unit
-            //                          — written only when a secondary turn
-            //                          exists; template's 0x34 is the
-            //                          roundabout glyph the rider saw.
+            //                          — never written in free ride (now
+            //                          in every nav packet); template's
+            //                          0x34 is the roundabout the rider saw.
             //   05 08 / 05 54          ETA + ETA format — written only when
             //                          an ETA exists; template's "0303".
             //   05 0B / 05 55          remaining time + unit — written only
@@ -737,6 +737,9 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code]))
     }
 
+    /// Hidden glyph: clears a look-ahead the dash still shows.
+    static let noSecondaryManeuver: UInt8 = 0xFF
+
     /// `05 05 0002 <meters_BE>` — distance to the secondary
     /// maneuver. Same wire shape as `tlvPrimaryDistance` (2-byte BE
     /// meters). The dash uses this to render the small "in 1.2 km"
@@ -928,14 +931,22 @@ extension K1GPacket {
         // two would be ill-defined. Insert immediately after the
         // primary block, before ETA, to match the better-dash `_NAV_FULL`
         // field order.
-        if let code = secondaryManeuver,
-           let dist = secondaryDistanceMeters,
-           let unit = secondaryUnit
-        {
-            segs.append(tlvSecondaryManeuver(code: code))
-            segs.append(tlvSecondaryDistance(meters: dist))
-            segs.append(tlvSecondaryUnit(unit))
-        }
+        //
+        // Sent in EVERY packet: the dash latches the last value it got
+        // (the stuck roundabout sub-icon, 8/2026), so a look-ahead that
+        // ends must be overwritten. With none, send the hidden glyph
+        // `noSecondaryManeuver` (0x5A..0xFF hide the primary bubble).
+        // ponytail: that 0xFF also hides the secondary is inferred from
+        // the primary; a ride confirms it.
+        let secondary: (code: UInt8, dist: UInt16, unit: UInt8) = {
+            if let code = secondaryManeuver, let dist = secondaryDistanceMeters, let unit = secondaryUnit {
+                return (code, dist, unit)
+            }
+            return (noSecondaryManeuver, 0, primaryUnit)
+        }()
+        segs.append(tlvSecondaryManeuver(code: secondary.code))
+        segs.append(tlvSecondaryDistance(meters: secondary.dist))
+        segs.append(tlvSecondaryUnit(secondary.unit))
         if let eta = eta {
             segs.append(tlvEta(date: eta, is24Hour: is24Hour))
             // ETA format flag MUST immediately follow the ETA value —

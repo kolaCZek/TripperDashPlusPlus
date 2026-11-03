@@ -75,6 +75,19 @@ def test_swift_secondary_maneuver_payload_is_one_byte() -> None:
     assert "payload: Data([code])" in m.group(2)
 
 
+def test_swift_clears_the_lookahead_when_there_is_none() -> None:
+    """The dash latches the last look-ahead (stuck sub-icon, 8/2026): with
+    none, makeActiveNav must still send 05 03, with the hidden glyph."""
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Tripper" / "K1GPacket.swift").read_text()
+    body = src[src.index("static func makeActiveNav("):src.index("return encode(segments: segs", src.index("static func makeActiveNav("))]
+    assert "return (noSecondaryManeuver, 0, primaryUnit)" in body
+    assert "segs.append(tlvSecondaryManeuver(code: secondary.code))" in body
+    assert "if let code = secondaryManeuver" not in body.split("segs.append(tlvSecondaryManeuver")[1].split("tlvEta")[0]
+    assert "static let noSecondaryManeuver: UInt8 = 0xFF" in src
+
+
 @pytest.mark.parametrize("code", [0x0B, 0x3C, 0x31, 0x46, 0x0A, 0x42])
 def test_tlv_secondary_maneuver_is_the_glyph_byte(code: int) -> None:
     seg = tlv_secondary_maneuver(code)
