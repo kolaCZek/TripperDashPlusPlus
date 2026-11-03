@@ -723,19 +723,18 @@ extension K1GPacket {
         K1GSegment(type: .navInfo, sub: 0x06, payload: Data([wireByte]))
     }
 
-    /// `05 03 0002 <code> <flags>` — secondary maneuver glyph,
-    /// the look-ahead chevron the dash renders when two turns are
-    /// stacked within a few hundred meters (e.g. "turn right onto X,
-    /// then immediately left onto Y"). The first byte is the same
-    /// glyph enum as the primary maneuver TLV (0x02). The second
-    /// byte is undocumented in better-dash and never seen non-zero in
-    /// any capture; we send 0x00 as a safe placeholder, which the dash
-    /// silently accepts for the primary case. If a future field test
-    /// ever decodes the second byte's semantics (reserved/padding,
-    /// secondary-roundabout exit counter, or handedness bit-flags),
-    /// pass it via `flags`; until then 0x00 is correct.
-    static func tlvSecondaryManeuver(code: UInt8, flags: UInt8 = 0x00) -> K1GSegment {
-        K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code, flags]))
+    /// `05 03 0001 <code>` — secondary maneuver glyph, the look-ahead
+    /// the dash shows when two turns are close together ("turn right,
+    /// then left"). Same glyph enum as the primary maneuver (`05 02`).
+    ///
+    /// One byte, as in the real-phone capture (`_NAV_FULL`:
+    /// `05 03 0001 34`). better-dash's field list says "2 bytes", and we
+    /// used to send `<code> 00`: the dash never drew it (test-pattern
+    /// photos 10/2026: a right turn with a roundabout look-ahead showed
+    /// the right turn only). The stuck roundabout sub-icon of 8/2026 was
+    /// traced to the 1-byte template value 0x34, so the 1-byte form shows.
+    static func tlvSecondaryManeuver(code: UInt8) -> K1GSegment {
+        K1GSegment(type: .navInfo, sub: 0x03, payload: Data([code]))
     }
 
     /// `05 05 0002 <meters_BE>` — distance to the secondary
@@ -905,7 +904,6 @@ extension K1GPacket {
         primaryDistanceMeters: UInt16,
         primaryUnit: UInt8,
         secondaryManeuver: UInt8? = nil,
-        secondaryFlags: UInt8 = 0x00,
         secondaryDistanceMeters: UInt16? = nil,
         secondaryUnit: UInt8? = nil,
         totalDistanceMeters: UInt16,
@@ -934,7 +932,7 @@ extension K1GPacket {
            let dist = secondaryDistanceMeters,
            let unit = secondaryUnit
         {
-            segs.append(tlvSecondaryManeuver(code: code, flags: secondaryFlags))
+            segs.append(tlvSecondaryManeuver(code: code))
             segs.append(tlvSecondaryDistance(meters: dist))
             segs.append(tlvSecondaryUnit(unit))
         }

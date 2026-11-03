@@ -10,7 +10,7 @@ The dashboard receives a single-byte maneuver code in the K1G TLV:
 
 ```
 05 02 00 01 <maneuver_byte>           # primary form
-05 03 00 02 <maneuver_byte> <unused>  # secondary form (observed)
+05 03 00 01 <maneuver_byte>           # secondary (look-ahead) form, as captured
 ```
 
 This document is the ground truth for what each byte renders as in the

@@ -5,16 +5,15 @@ The Swift code in TripperDashPP/Tripper/K1GPacket.swift builds these
 three TLVs when ActiveNavLoop decides the rider is close enough to
 the primary turn to benefit from a look-ahead chevron:
 
-  - `05 03 0002 <code> <flags>` — secondary maneuver glyph + flags
+  - `05 03 0001 <code>` — secondary maneuver glyph
   - `05 05 0002 <meters_BE>` — secondary distance (same shape as primary)
   - `05 07 0001 <unit>` — secondary unit byte (same encoding as primary)
 
-Wire authority: better-dash `tripper_app_like_nav.py`, plus our own
-field test
-of the `<flags>` byte (pending — sent as 0x00 placeholder).
+Wire authority: the real-phone capture `_NAV_FULL` in better-dash
+`tripper_app_like_nav.py` (`05 03 0001 34`).
 
 This file pins the wire format so a future Swift edit that misorders
-the bytes (e.g. swaps code/flags) is caught here instead of by Martin
+the bytes (e.g. adds a padding byte again) is caught here instead of by Martin
 squinting at a dash on a moving bike.
 """
 
@@ -28,9 +27,9 @@ from fake_dash.protocol import Segment, build_envelope, decode_packet
 # --- Python mirrors of the Swift TLV builders --------------------------------
 
 
-def tlv_secondary_maneuver(code: int, flags: int = 0x00) -> Segment:
-    """`05 03 0002 <code> <flags>` — mirror of `K1GPacket.tlvSecondaryManeuver`."""
-    return Segment(type=0x05, sub=0x03, payload=bytes([code & 0xFF, flags & 0xFF]))
+def tlv_secondary_maneuver(code: int) -> Segment:
+    """`05 03 0001 <code>` — mirror of `K1GPacket.tlvSecondaryManeuver`."""
+    return Segment(type=0x05, sub=0x03, payload=bytes([code & 0xFF]))
 
 
 def tlv_secondary_distance(meters: int) -> Segment:
@@ -45,43 +44,41 @@ def tlv_secondary_unit(wire_byte: int) -> Segment:
 
 # --- Secondary maneuver glyph (0x05 / 0x03) ----------------------------------
 
-
-@pytest.mark.parametrize(
-    "code, flags, expected",
-    [
-        (0x0B, 0x00, b"\x0b\x00"),  # roundabout CCW exit 1, default flags
-        (0x3C, 0x00, b"\x3c\x00"),  # arrival pin
-        (0x31, 0x00, b"\x31\x00"),  # CW table entry (skill F2b)
-        (0x46, 0x00, b"\x46\x00"),  # CW table entry
-        (0x0A, 0x00, b"\x0a\x00"),  # CCW table entry
-        (0x42, 0x00, b"\x42\x00"),  # GPS lost (edge case — should still serialise)
-    ],
+# Real-phone active-nav capture (better-dash `_NAV_FULL`, nav_open_ok.pcap),
+# the same authority as test_eta_format_capture.py.
+NAV_FULL_HEX = (
+    "007e001100000000020100054b31472025050100145461696c6c65206465204d617320647520477200"
+    "050200013c050300013405050002000a05060001300507000130050800043033303305540001300509"
+    "0002004f0546000110050a000155050c000104050b0006303031303030055500012006050001aa060d0001aa"
 )
-def test_tlv_secondary_maneuver_byte_order(code: int, flags: int, expected: bytes) -> None:
-    """Code comes first, flags second. Critical — a swapped order
-    would render the wrong glyph and (worse) interpret a glyph byte
-    as a flag, potentially triggering undocumented dash behaviour."""
-    seg = tlv_secondary_maneuver(code, flags)
-    assert seg.type == 0x05
-    assert seg.sub == 0x03
-    assert seg.payload == expected
-    assert len(seg.payload) == 2
 
 
-def test_tlv_secondary_maneuver_default_flags_is_zero() -> None:
-    """F2c TODO: flags byte semantics are unknown — we send 0x00 as a
-    safe placeholder until field test reveals the real meaning. If
-    this test starts failing because we changed the default, audit
-    whether the bike actually accepts the new value."""
-    assert tlv_secondary_maneuver(0x0B).payload == bytes([0x0B, 0x00])
+def test_capture_secondary_maneuver_is_one_byte() -> None:
+    """The real phone sends `05 03 0001 34`: the glyph byte alone. The
+    2-byte `<code> 00` form we used to send never showed on the dash."""
+    import binascii
+    segs = decode_packet(binascii.unhexlify(NAV_FULL_HEX))
+    sec = [s for s in segs if s.type == 0x05 and s.sub == 0x03]
+    assert len(sec) == 1
+    assert sec[0].payload == bytes([0x34])
 
 
-def test_tlv_secondary_maneuver_nonzero_flags_round_trip() -> None:
-    """If/when field test reveals the flags byte semantics, this
-    test verifies we can still emit non-zero values without the
-    builder breaking."""
-    seg = tlv_secondary_maneuver(0x31, flags=0xAA)
-    assert seg.payload == bytes([0x31, 0xAA])
+def test_swift_secondary_maneuver_payload_is_one_byte() -> None:
+    """Pin the Swift builder to the capture (no Swift compiler here)."""
+    import pathlib
+    import re
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Tripper" / "K1GPacket.swift").read_text()
+    m = re.search(r"static func tlvSecondaryManeuver\(([^)]*)\)[^{]*\{(.*?)\n    \}", src, re.S)
+    assert m, "tlvSecondaryManeuver not found"
+    assert m.group(1).strip() == "code: UInt8"
+    assert "payload: Data([code])" in m.group(2)
+
+
+@pytest.mark.parametrize("code", [0x0B, 0x3C, 0x31, 0x46, 0x0A, 0x42])
+def test_tlv_secondary_maneuver_is_the_glyph_byte(code: int) -> None:
+    seg = tlv_secondary_maneuver(code)
+    assert (seg.type, seg.sub, seg.payload) == (0x05, 0x03, bytes([code]))
 
 
 # --- Secondary distance (0x05 / 0x05) ----------------------------------------
@@ -132,14 +129,14 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
     """Build a packet with all three secondary TLVs in the order
     Swift emits them, decode it, confirm shape and order survive."""
     pkt = build_envelope([
-        tlv_secondary_maneuver(0x31, flags=0x00),
+        tlv_secondary_maneuver(0x31),
         tlv_secondary_distance(1200),
         tlv_secondary_unit(0x10),
     ])
     decoded = decode_packet(pkt)
     assert len(decoded) == 3
     assert [(s.type, s.sub) for s in decoded] == [(0x05, 0x03), (0x05, 0x05), (0x05, 0x07)]
-    assert decoded[0].payload == bytes([0x31, 0x00])
+    assert decoded[0].payload == bytes([0x31])
     assert decoded[1].payload == bytes([0x04, 0xB0])
     assert decoded[2].payload == bytes([0x10])
 
