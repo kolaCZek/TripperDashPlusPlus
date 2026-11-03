@@ -446,11 +446,22 @@ final class ActiveNavLoop {
         )
 
         // 2. Push to video compositor.
+        // The on-route turn arrow sits at the upcoming node, for a real
+        // turn only. Not on a wrong-way U-turn: its node is the stale one.
+        let arrowNode: CLLocationCoordinate2D? = {
+            switch kind {
+            case .straight, .arrive, .arriveLeft, .arriveRight, .recalculating, .ferry, .railroad:
+                return nil
+            default:
+                return nav.isWrongWay ? nil : Self.maneuverNode(arrivingStep)
+            }
+        }()
         let overlay = MapViewSource.NavOverlayState(
             kind: kind,
             distanceMeters: distNext,
             roadName: roadName,
-            unitsImperial: settings.units == .imperial
+            unitsImperial: settings.units == .imperial,
+            maneuverNode: arrowNode
         )
         mapSource?.setNavOverlay(overlay)
 
@@ -729,15 +740,21 @@ final class ActiveNavLoop {
     /// GPS-driven polyline re-fetches don't spuriously reset the fired-tier
     /// set. Falls back to a sentinel when no step is known yet.
     private static func maneuverToken(_ step: MKRoute.Step?) -> Int {
-        guard let pl = step?.polyline, pl.pointCount > 0 else { return -1 }
-        var last = CLLocationCoordinate2D()
-        pl.getCoordinates(&last, range: NSRange(location: pl.pointCount - 1, length: 1))
+        guard let last = maneuverNode(step) else { return -1 }
         let latq = Int((last.latitude * 1e5).rounded())
         let lonq = Int((last.longitude * 1e5).rounded())
         var hasher = Hasher()
         hasher.combine(latq)
         hasher.combine(lonq)
         return hasher.finalize()
+    }
+
+    /// The maneuver node: the end of the arriving step's polyline.
+    private static func maneuverNode(_ step: MKRoute.Step?) -> CLLocationCoordinate2D? {
+        guard let pl = step?.polyline, pl.pointCount > 0 else { return nil }
+        var last = CLLocationCoordinate2D()
+        pl.getCoordinates(&last, range: NSRange(location: pl.pointCount - 1, length: 1))
+        return last
     }
 
     /// "<time> to <name>" for the multi-stop roadName-TLV label — TIME
