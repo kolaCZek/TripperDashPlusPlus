@@ -238,14 +238,24 @@ struct RouteArrowGeometryTests {
         #expect(a.shaft.dropLast().allSatisfy { $0.x <= 27 })
     }
 
+    @Test func headPointsAlongTheRouteAtTheTip() throws {
+        // A hairpin inside the head: base → tip is sideways, the route's
+        // last segment into the tip points down (+y).
+        let pts = [CGPoint(x: 0, y: 50), CGPoint(x: 0, y: 0), CGPoint(x: 8, y: 0), CGPoint(x: 8, y: 8)]
+        let a = try #require(arrow(pts, node: 1, after: 16))
+        #expect(near(a.head[0], CGPoint(x: 8, y: 8)))
+        #expect(abs(a.head[1].y - a.head[2].y) < 0.01)            // base across x
+        #expect(abs(a.head[1].y - (8 - 13)) < 0.01)               // 13 back along −y
+    }
+
     @Test func clampsToTheRouteEnds() throws {
         // Node at the start: no shaft before it. Short tail: tip at the end.
         let a = try #require(arrow([CGPoint(x: 0, y: 0), CGPoint(x: 0, y: -20)], node: 0))
         #expect(near(a.shaft.first!, CGPoint(x: 0, y: 0)))
         #expect(near(a.head[0], CGPoint(x: 0, y: -20)))
         // Not enough route after the node for a head (arrival): no arrow.
-        #expect(arrow([CGPoint(x: 0, y: 100), CGPoint(x: 0, y: 0), CGPoint(x: 5, y: 0)], node: 1) == nil)
-        #expect(arrow([CGPoint(x: 0, y: 0)], node: 3) == nil)
+        #expect(arrow([CGPoint(x: 0, y: 100), CGPoint(x: 0, y: 0), CGPoint(x: 5, y: 0)], node: 1)?.head == nil)
+        #expect(arrow([CGPoint(x: 0, y: 0)], node: 3)?.head == nil)
     }
 
     @Test func nodeIndexIsTheFirstPassAndTheClosestVertex() {
@@ -256,5 +266,11 @@ struct RouteArrowGeometryTests {
         let node = C(latitude: 50.0001, longitude: 14)   // vertex 10
         #expect(MapViewSource.routeIndex(nearest: node, in: route, withinMeters: 10) == 10)
         #expect(MapViewSource.routeIndex(nearest: C(latitude: 50.01, longitude: 14), in: route, withinMeters: 10) == nil)
+        // A small ring passing ~4 m from the node before reaching it: the
+        // exact vertex wins over the earlier near pass.
+        let ring = [C(latitude: 50, longitude: 14), C(latitude: 50.00004, longitude: 14),
+                    C(latitude: 50.00004, longitude: 14.0001), C(latitude: 50.00008, longitude: 14.0001),
+                    C(latitude: 50.00008, longitude: 14)]
+        #expect(MapViewSource.routeIndex(nearest: C(latitude: 50.00008, longitude: 14), in: ring, withinMeters: 10) == 4)
     }
 }

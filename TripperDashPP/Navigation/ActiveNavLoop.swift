@@ -447,13 +447,19 @@ final class ActiveNavLoop {
 
         // 2. Push to video compositor.
         // The on-route turn arrow sits at the upcoming node, for a real
-        // turn only. Not on a wrong-way U-turn: its node is the stale one.
+        // turn only. Not on a U-turn (the tip folds back over the shaft; a
+        // wrong-way one's node is the stale one), nor on a zero-length step
+        // (just after a route start/swap its node is the rider). Step and
+        // wrong-way read afresh: a route swap can land during the await
+        // above, and the route ahead is read after it too.
         let arrowNode: CLLocationCoordinate2D? = {
             switch kind {
-            case .straight, .arrive, .arriveLeft, .arriveRight, .recalculating, .ferry, .railroad:
+            case .straight, .arrive, .arriveLeft, .arriveRight, .recalculating, .ferry, .railroad,
+                 .uTurnLeft, .uTurnRight:
                 return nil
             default:
-                return nav.isWrongWay ? nil : Self.maneuverNode(arrivingStep)
+                guard !nav.isWrongWay, let step = nav.stepBeforeNext, step.distance > 0 else { return nil }
+                return Self.maneuverNode(step)
             }
         }()
         let overlay = MapViewSource.NavOverlayState(

@@ -2003,9 +2003,6 @@ extension MapViewSource {
         lastHeading = next
     }
 
-    /// Vector-only fallback: style background + polyline + puck.
-    /// Used when the tile cache is unavailable or the user has gone
-    /// off the cached corridor.
     /// Strokes the turn arrow on the route ahead at the upcoming maneuver,
     /// inside the caller's rotated + scaled map ctx: `zoom` is that ctx's
     /// scale, `project` its coordinate → path-space projection.
@@ -2014,8 +2011,9 @@ extension MapViewSource {
         guard let state = navOverlayState, let node = state.maneuverNode,
               let i = Self.routeIndex(nearest: node, in: routeAheadCoords, withinMeters: 10)
         else { return }
-        // Project only the stretch the arrow can cover (≤ 80 px at zoom 0.8
-        // is ~300 m; 400 vertices either side is far more than that).
+        // Project only the stretch the arrow can cover: 400 vertices either
+        // side. Zoomed far out (user bias) that can clip the arrow shorter;
+        // nothing breaks.
         let lo = max(0, i - 400), hi = min(routeAheadCoords.count, i + 401)
         let pts = routeAheadCoords[lo..<hi].map(project)
         var after = routeArrowAfterPx
@@ -2053,9 +2051,11 @@ extension MapViewSource {
         ctx.restoreGState()
     }
 
-    /// Index of the maneuver node in the route ahead: the first vertex
-    /// within `r` metres, moved on while the next one is closer. First, so
-    /// an out-and-back's return pass over the same node doesn't win.
+    /// Index of the maneuver node in the route ahead. The node is a route
+    /// vertex, so the first exact match (< 0.5 m) wins: a loop or small
+    /// roundabout passing near the node earlier doesn't. Fallback: the
+    /// first vertex within `r` metres, moved on while the next one is
+    /// closer. First, so an out-and-back's return pass doesn't win.
     nonisolated static func routeIndex(nearest c: CLLocationCoordinate2D,
                                        in coords: [CLLocationCoordinate2D],
                                        withinMeters r: Double) -> Int? {
@@ -2064,6 +2064,7 @@ extension MapViewSource {
             hypot((coords[i].latitude - c.latitude) * 111_320,
                   (coords[i].longitude - c.longitude) * mPerDegLon)
         }
+        if let exact = coords.indices.first(where: { dist($0) < 0.5 }) { return exact }
         guard var i = coords.indices.first(where: { dist($0) <= r }) else { return nil }
         while i + 1 < coords.count, dist(i + 1) < dist(i) { i += 1 }
         return i
@@ -2107,14 +2108,21 @@ extension MapViewSource {
         let toBase = walk(Array(line.reversed()), 0, 1, headLength)   // tip → head base
         let tip = line[line.count - 1], base = toBase[toBase.count - 1]
         let shaft = Array(line.prefix(line.count - toBase.count + 1)) + [base]
-        let len = hypot(tip.x - base.x, tip.y - base.y)
+        // Point the head along the route's last segment into the tip, not
+        // base → tip: a hairpin inside the head would turn it sideways.
+        let from = toBase.dropFirst().first { $0 != tip } ?? base
+        let len = hypot(tip.x - from.x, tip.y - from.y)
         guard len > 0 else { return nil }
-        let nx = -(tip.y - base.y) / len * headWidth / 2
-        let ny = (tip.x - base.x) / len * headWidth / 2
-        return (shaft, [tip, CGPoint(x: base.x + nx, y: base.y + ny),
-                        CGPoint(x: base.x - nx, y: base.y - ny)])
+        let ux = (tip.x - from.x) / len, uy = (tip.y - from.y) / len
+        let hb = CGPoint(x: tip.x - ux * headLength, y: tip.y - uy * headLength)
+        let nx = -uy * headWidth / 2, ny = ux * headWidth / 2
+        return (shaft, [tip, CGPoint(x: hb.x + nx, y: hb.y + ny),
+                        CGPoint(x: hb.x - nx, y: hb.y - ny)])
     }
 
+    /// Vector-only fallback: style background + polyline + puck.
+    /// Used when the tile cache is unavailable or the user has gone
+    /// off the cached corridor.
     private func drawVectorOnlyFrame(into ctx: CGContext) {
         // NOTE: heading/zoom lerps are advanced once per tick in
         // `tickOnMain`, never here — this path is also reached as the
