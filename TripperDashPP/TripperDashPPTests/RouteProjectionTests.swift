@@ -248,6 +248,17 @@ struct RouteArrowGeometryTests {
         #expect(abs(a.head[1].y - (8 - 13)) < 0.01)               // 13 back along −y
     }
 
+    @Test func headStaysOnTheShaftJustPastACorner() throws {
+        // The tip lands 0.5 px past a 90° corner: the head must keep pointing
+        // the way the arrow travels (+x) and sit on the shaft's end.
+        let pts = [CGPoint(x: -60, y: 0), CGPoint(x: 0, y: 0), CGPoint(x: 0, y: 10)]
+        let a = try #require(arrow(pts, node: 0, after: 60.5))
+        #expect(near(a.head[0], CGPoint(x: 0, y: 0.5)))
+        let mid = CGPoint(x: (a.head[1].x + a.head[2].x) / 2, y: (a.head[1].y + a.head[2].y) / 2)
+        #expect(hypot(mid.x - a.shaft.last!.x, mid.y - a.shaft.last!.y) < 1)
+        #expect(abs(a.head[1].x - a.head[2].x) < 2)               // base across y, not x
+    }
+
     @Test func clampsToTheRouteEnds() throws {
         // Node at the start: no shaft before it. Short tail: tip at the end.
         let a = try #require(arrow([CGPoint(x: 0, y: 0), CGPoint(x: 0, y: -20)], node: 0))

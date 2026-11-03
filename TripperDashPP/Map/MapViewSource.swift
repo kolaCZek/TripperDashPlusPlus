@@ -2108,9 +2108,11 @@ extension MapViewSource {
         let toBase = walk(Array(line.reversed()), 0, 1, headLength)   // tip → head base
         let tip = line[line.count - 1], base = toBase[toBase.count - 1]
         let shaft = Array(line.prefix(line.count - toBase.count + 1)) + [base]
-        // Point the head along the route's last segment into the tip, not
-        // base → tip: a hairpin inside the head would turn it sideways.
-        let from = toBase.dropFirst().first { $0 != tip } ?? base
+        // Point the head along the route over its last half-length, not
+        // base → tip (a hairpin inside the head turns that sideways) nor the
+        // last segment alone (a stub just past a corner flips it 90° and
+        // pulls it off the shaft).
+        let from = walk(Array(line.reversed()), 0, 1, headLength / 2).last ?? base
         let len = hypot(tip.x - from.x, tip.y - from.y)
         guard len > 0 else { return nil }
         let ux = (tip.x - from.x) / len, uy = (tip.y - from.y) / len

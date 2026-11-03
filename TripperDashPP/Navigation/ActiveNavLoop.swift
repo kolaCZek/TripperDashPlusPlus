@@ -449,21 +449,23 @@ final class ActiveNavLoop {
         // The on-route turn arrow sits at the upcoming node, for a real
         // turn only. Not on a U-turn (the tip folds back over the shaft; a
         // wrong-way one's node is the stale one), nor on a zero-length step
-        // (just after a route start/swap its node is the rider). Step and
-        // wrong-way read afresh: a route swap can land during the await
+        // (just after a route start/swap its node is the rider). Kind and
+        // step read afresh: a fix or route swap can land during the await
         // above, and the route ahead is read after it too.
+        // (A wrong-way ride's maneuver is a U-turn, so it is covered too.)
+        let arrowKind = nav.isRerouting ? nil : nav.upcomingManeuver
         let arrowNode: CLLocationCoordinate2D? = {
-            switch kind {
+            guard let arrowKind, let step = nav.stepBeforeNext, step.distance > 0 else { return nil }
+            switch arrowKind {
             case .straight, .arrive, .arriveLeft, .arriveRight, .recalculating, .ferry, .railroad,
                  .uTurnLeft, .uTurnRight:
                 return nil
             default:
-                guard !nav.isWrongWay, let step = nav.stepBeforeNext, step.distance > 0 else { return nil }
                 return Self.maneuverNode(step)
             }
         }()
         let overlay = MapViewSource.NavOverlayState(
-            kind: kind,
+            kind: arrowKind ?? kind,   // the arrow's kind (roundabout length) matches its node
             distanceMeters: distNext,
             roadName: roadName,
             unitsImperial: settings.units == .imperial,
