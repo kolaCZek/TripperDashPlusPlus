@@ -446,11 +446,30 @@ final class ActiveNavLoop {
         )
 
         // 2. Push to video compositor.
+        // The on-route turn arrow sits at the upcoming node, for a real
+        // turn only. Not on a U-turn (the tip folds back over the shaft; a
+        // wrong-way one's node is the stale one), nor on a zero-length step
+        // (just after a route start/swap its node is the rider). Kind and
+        // step read afresh: a fix or route swap can land during the await
+        // above, and the route ahead is read after it too.
+        // (A wrong-way ride's maneuver is a U-turn, so it is covered too.)
+        let arrowKind = nav.isRerouting ? nil : nav.upcomingManeuver
+        let arrowNode: CLLocationCoordinate2D? = {
+            guard let arrowKind, let step = nav.stepBeforeNext, step.distance > 0 else { return nil }
+            switch arrowKind {
+            case .straight, .arrive, .arriveLeft, .arriveRight, .recalculating, .ferry, .railroad,
+                 .uTurnLeft, .uTurnRight:
+                return nil
+            default:
+                return Self.maneuverNode(step)
+            }
+        }()
         let overlay = MapViewSource.NavOverlayState(
-            kind: kind,
+            kind: arrowKind ?? kind,   // the arrow's kind (roundabout length) matches its node
             distanceMeters: distNext,
             roadName: roadName,
-            unitsImperial: settings.units == .imperial
+            unitsImperial: settings.units == .imperial,
+            maneuverNode: arrowNode
         )
         mapSource?.setNavOverlay(overlay)
 
@@ -729,15 +748,21 @@ final class ActiveNavLoop {
     /// GPS-driven polyline re-fetches don't spuriously reset the fired-tier
     /// set. Falls back to a sentinel when no step is known yet.
     private static func maneuverToken(_ step: MKRoute.Step?) -> Int {
-        guard let pl = step?.polyline, pl.pointCount > 0 else { return -1 }
-        var last = CLLocationCoordinate2D()
-        pl.getCoordinates(&last, range: NSRange(location: pl.pointCount - 1, length: 1))
+        guard let last = maneuverNode(step) else { return -1 }
         let latq = Int((last.latitude * 1e5).rounded())
         let lonq = Int((last.longitude * 1e5).rounded())
         var hasher = Hasher()
         hasher.combine(latq)
         hasher.combine(lonq)
         return hasher.finalize()
+    }
+
+    /// The maneuver node: the end of the arriving step's polyline.
+    private static func maneuverNode(_ step: MKRoute.Step?) -> CLLocationCoordinate2D? {
+        guard let pl = step?.polyline, pl.pointCount > 0 else { return nil }
+        var last = CLLocationCoordinate2D()
+        pl.getCoordinates(&last, range: NSRange(location: pl.pointCount - 1, length: 1))
+        return last
     }
 
     /// "<time> to <name>" for the multi-stop roadName-TLV label — TIME

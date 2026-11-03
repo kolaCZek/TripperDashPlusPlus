@@ -520,6 +520,24 @@ final class MapViewSource: NSObject, FrameSource {
     /// tenkou černou linkou aby víc vynikla").
     private let routeCasingScreenPx: CGFloat = 4.0
 
+    /// Turn arrow drawn ON the route line at the upcoming maneuver
+    /// (Google-Maps style, rider request 11/2026). Screen px, divided by
+    /// the zoom at the draw site like the route line. It follows the
+    /// route's own shape from `before` px ahead of the node to `after` px
+    /// past it, so a roundabout arrow bends round the ring.
+    private let routeArrowBeforePx: CGFloat = 45
+    private let routeArrowAfterPx: CGFloat = 40
+    /// ponytail: one fixed length for every roundabout; MapKit's node may be
+    /// the entry, so this has to reach round to a typical exit. Tune on a ride.
+    private let routeArrowAfterRoundaboutPx: CGFloat = 80
+    private let routeArrowShaftPx: CGFloat = 6.5
+    private let routeArrowOutlinePx: CGFloat = 1.75   // each side
+    private let routeArrowHeadLengthPx: CGFloat = 13
+    private let routeArrowHeadWidthPx: CGFloat = 21
+    /// White with a dark outline: reads on the blue line in both palettes.
+    private let routeArrowFill = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+    private let routeArrowOutline = CGColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1)
+
     /// PiP wrapper.
     /// Phase 8d removed — tile cache + CGContext composite is BG-safe
     /// without PiP. The background CoreLocation wakelock keeps the
@@ -1642,6 +1660,8 @@ extension MapViewSource {
                 ctx.setLineWidth(lineW)
                 ctx.strokePath()
             }
+            // 6. Turn arrow on the route at the upcoming maneuver.
+            drawRouteArrow(into: ctx, zoom: drawZoom, project: project)
             // Via-stop pins are NOT drawn here — they must be upright +
             // constant-size, so they're rendered geo-anchored in the outer
             // (un-rotated) ctx below, same as the speed cameras.
@@ -1983,6 +2003,125 @@ extension MapViewSource {
         lastHeading = next
     }
 
+    /// Strokes the turn arrow on the route ahead at the upcoming maneuver,
+    /// inside the caller's rotated + scaled map ctx: `zoom` is that ctx's
+    /// scale, `project` its coordinate → path-space projection.
+    private func drawRouteArrow(into ctx: CGContext, zoom: CGFloat,
+                                project: (CLLocationCoordinate2D) -> CGPoint) {
+        guard let state = navOverlayState, let node = state.maneuverNode,
+              let i = Self.routeIndex(nearest: node, in: routeAheadCoords, withinMeters: 10)
+        else { return }
+        // Project only the stretch the arrow can cover: 400 vertices either
+        // side. Zoomed far out (user bias) that can clip the arrow shorter;
+        // nothing breaks.
+        let lo = max(0, i - 400), hi = min(routeAheadCoords.count, i + 401)
+        let pts = routeAheadCoords[lo..<hi].map(project)
+        var after = routeArrowAfterPx
+        if case .roundabout = state.kind { after = routeArrowAfterRoundaboutPx }
+        guard let arrow = Self.routeArrow(along: pts, node: i - lo,
+                                          before: routeArrowBeforePx / zoom,
+                                          after: after / zoom,
+                                          headLength: routeArrowHeadLengthPx / zoom,
+                                          headWidth: routeArrowHeadWidthPx / zoom)
+        else { return }
+        let shaft = CGMutablePath()
+        shaft.addLines(between: arrow.shaft)
+        let head = CGMutablePath()
+        head.addLines(between: arrow.head)
+        head.closeSubpath()
+        ctx.saveGState()
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        // Dark outline (shaft + head) first, then the white arrow on top.
+        ctx.setStrokeColor(routeArrowOutline)
+        ctx.setFillColor(routeArrowOutline)
+        ctx.setLineWidth((routeArrowShaftPx + 2 * routeArrowOutlinePx) / zoom)
+        ctx.addPath(shaft)
+        ctx.strokePath()
+        ctx.setLineWidth(2 * routeArrowOutlinePx / zoom)
+        ctx.addPath(head)
+        ctx.drawPath(using: .fillStroke)
+        ctx.setStrokeColor(routeArrowFill)
+        ctx.setFillColor(routeArrowFill)
+        ctx.setLineWidth(routeArrowShaftPx / zoom)
+        ctx.addPath(shaft)
+        ctx.strokePath()
+        ctx.addPath(head)
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
+    /// Index of the maneuver node in the route ahead. The node is a route
+    /// vertex, so the first exact match (< 0.5 m) wins: a loop or small
+    /// roundabout passing near the node earlier doesn't. Fallback: the
+    /// first vertex within `r` metres, moved on while the next one is
+    /// closer. First, so an out-and-back's return pass doesn't win.
+    nonisolated static func routeIndex(nearest c: CLLocationCoordinate2D,
+                                       in coords: [CLLocationCoordinate2D],
+                                       withinMeters r: Double) -> Int? {
+        let mPerDegLon = 111_320 * cos(c.latitude * .pi / 180)
+        func dist(_ i: Int) -> Double {
+            hypot((coords[i].latitude - c.latitude) * 111_320,
+                  (coords[i].longitude - c.longitude) * mPerDegLon)
+        }
+        if let exact = coords.indices.first(where: { dist($0) < 0.5 }) { return exact }
+        guard var i = coords.indices.first(where: { dist($0) <= r }) else { return nil }
+        while i + 1 < coords.count, dist(i + 1) < dist(i) { i += 1 }
+        return i
+    }
+
+    /// Turn-arrow geometry along polyline `pts` around vertex `node`, in
+    /// the polyline's own units: the shaft runs from `before` back to
+    /// `after` forward along the route, the head is a triangle (tip first)
+    /// at the forward end. nil when the route ends too soon after the node
+    /// for a head (e.g. the route's last vertex).
+    nonisolated static func routeArrow(along pts: [CGPoint], node: Int,
+                                       before: CGFloat, after: CGFloat,
+                                       headLength: CGFloat, headWidth: CGFloat)
+        -> (shaft: [CGPoint], head: [CGPoint])?
+    {
+        // Points from pts[from] walking `dist` along the line, step ±1,
+        // ending on an interpolated point (or the line's end).
+        func walk(_ p: [CGPoint], _ from: Int, _ step: Int, _ dist: CGFloat) -> [CGPoint] {
+            var out = [p[from]], i = from, left = dist
+            while left > 0, p.indices.contains(i + step) {
+                let a = p[i], b = p[i + step]
+                let seg = hypot(b.x - a.x, b.y - a.y)
+                if seg >= left {
+                    let t = left / seg
+                    out.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                    return out
+                }
+                out.append(b)
+                left -= seg
+                i += step
+            }
+            return out
+        }
+        func length(_ p: [CGPoint]) -> CGFloat {
+            zip(p, p.dropFirst()).reduce(CGFloat(0)) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+        }
+        guard pts.indices.contains(node) else { return nil }
+        let forward = walk(pts, node, 1, after)
+        guard length(forward) > headLength else { return nil }
+        let line = Array(walk(pts, node, -1, before).reversed()) + forward.dropFirst()
+        let toBase = walk(Array(line.reversed()), 0, 1, headLength)   // tip → head base
+        let tip = line[line.count - 1], base = toBase[toBase.count - 1]
+        let shaft = Array(line.prefix(line.count - toBase.count + 1)) + [base]
+        // Point the head along the route over its last half-length, not
+        // base → tip (a hairpin inside the head turns that sideways) nor the
+        // last segment alone (a stub just past a corner flips it 90° and
+        // pulls it off the shaft).
+        let from = walk(Array(line.reversed()), 0, 1, headLength / 2).last ?? base
+        let len = hypot(tip.x - from.x, tip.y - from.y)
+        guard len > 0 else { return nil }
+        let ux = (tip.x - from.x) / len, uy = (tip.y - from.y) / len
+        let hb = CGPoint(x: tip.x - ux * headLength, y: tip.y - uy * headLength)
+        let nx = -uy * headWidth / 2, ny = ux * headWidth / 2
+        return (shaft, [tip, CGPoint(x: hb.x + nx, y: hb.y + ny),
+                        CGPoint(x: hb.x - nx, y: hb.y - ny)])
+    }
+
     /// Vector-only fallback: style background + polyline + puck.
     /// Used when the tile cache is unavailable or the user has gone
     /// off the cached corridor.
@@ -2049,6 +2188,7 @@ extension MapViewSource {
         ctx.setStrokeColor(currentStyle.routeLineColor)
         ctx.setLineWidth(lineW)
         ctx.strokePath()
+        drawRouteArrow(into: ctx, zoom: currentZoom, project: project)
         ctx.restoreGState()
 
         // Via-stop pins upright + constant-size in the OUTER ctx (after the
@@ -2214,6 +2354,9 @@ extension MapViewSource {
         var distanceMeters: Double  // distance to next maneuver
         var roadName: String?       // current road, optional
         var unitsImperial: Bool     // for distance string formatting
+        /// Where the upcoming maneuver is: the on-route turn arrow is drawn
+        /// there. nil = no arrow (straight on, arrival, recalculating …).
+        var maneuverNode: CLLocationCoordinate2D? = nil
     }
 
     /// Caller (typically ActiveNavLoop) pushes the latest nav state.

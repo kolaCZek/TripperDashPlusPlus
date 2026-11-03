@@ -205,3 +205,83 @@ struct RerouteHeadingTests {
         #expect(ActiveNavigator.wrongWaySince(t0, offLine: 30, at: t0, active: true) == nil)
     }
 }
+
+/// The on-route turn arrow (`MapViewSource.routeArrow` / `routeIndex`):
+/// pure geometry, path units = pixels, Y down.
+struct RouteArrowGeometryTests {
+
+    private func arrow(_ pts: [CGPoint], node: Int, before: CGFloat = 45, after: CGFloat = 40) -> (shaft: [CGPoint], head: [CGPoint])? {
+        MapViewSource.routeArrow(along: pts, node: node, before: before, after: after,
+                                 headLength: 13, headWidth: 21)
+    }
+
+    private func near(_ a: CGPoint, _ b: CGPoint) -> Bool { hypot(a.x - b.x, a.y - b.y) < 0.01 }
+
+    @Test func rightTurnFollowsTheRoute() throws {
+        // Up the screen to (0,0), then right.
+        let a = try #require(arrow([CGPoint(x: 0, y: 100), CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0)], node: 1))
+        #expect(near(a.shaft.first!, CGPoint(x: 0, y: 45)))          // 45 before the node
+        #expect(a.shaft.contains { near($0, CGPoint(x: 0, y: 0)) })   // bends at the node
+        #expect(near(a.shaft.last!, CGPoint(x: 27, y: 0)))           // head base = tip − 13
+        #expect(near(a.head[0], CGPoint(x: 40, y: 0)))                // tip 40 past the node
+        #expect(near(a.head[1], CGPoint(x: 27, y: 10.5)) || near(a.head[1], CGPoint(x: 27, y: -10.5)))
+        #expect(abs(a.head[1].y + a.head[2].y) < 0.01 && abs(abs(a.head[1].y - a.head[2].y) - 21) < 0.01)
+    }
+
+    @Test func headSpansSeveralDenseVertices() throws {
+        // Dense vertices every 2 px after the node: the head base is 13 px
+        // back from the tip along the line, and no shaft vertex is in the head.
+        let pts = [CGPoint(x: 0, y: 50)] + (0...30).map { CGPoint(x: CGFloat($0) * 2, y: 0) }
+        let a = try #require(arrow(pts, node: 1))
+        #expect(near(a.head[0], CGPoint(x: 40, y: 0)))
+        #expect(near(a.shaft.last!, CGPoint(x: 27, y: 0)))
+        #expect(a.shaft.dropLast().allSatisfy { $0.x <= 27 })
+    }
+
+    @Test func headPointsAlongTheRouteAtTheTip() throws {
+        // A hairpin inside the head: base → tip is sideways, the route's
+        // last segment into the tip points down (+y).
+        let pts = [CGPoint(x: 0, y: 50), CGPoint(x: 0, y: 0), CGPoint(x: 8, y: 0), CGPoint(x: 8, y: 8)]
+        let a = try #require(arrow(pts, node: 1, after: 16))
+        #expect(near(a.head[0], CGPoint(x: 8, y: 8)))
+        #expect(abs(a.head[1].y - a.head[2].y) < 0.01)            // base across x
+        #expect(abs(a.head[1].y - (8 - 13)) < 0.01)               // 13 back along −y
+    }
+
+    @Test func headStaysOnTheShaftJustPastACorner() throws {
+        // The tip lands 0.5 px past a 90° corner: the head must keep pointing
+        // the way the arrow travels (+x) and sit on the shaft's end.
+        let pts = [CGPoint(x: -60, y: 0), CGPoint(x: 0, y: 0), CGPoint(x: 0, y: 10)]
+        let a = try #require(arrow(pts, node: 0, after: 60.5))
+        #expect(near(a.head[0], CGPoint(x: 0, y: 0.5)))
+        let mid = CGPoint(x: (a.head[1].x + a.head[2].x) / 2, y: (a.head[1].y + a.head[2].y) / 2)
+        #expect(hypot(mid.x - a.shaft.last!.x, mid.y - a.shaft.last!.y) < 1)
+        #expect(abs(a.head[1].x - a.head[2].x) < 2)               // base across y, not x
+    }
+
+    @Test func clampsToTheRouteEnds() throws {
+        // Node at the start: no shaft before it. Short tail: tip at the end.
+        let a = try #require(arrow([CGPoint(x: 0, y: 0), CGPoint(x: 0, y: -20)], node: 0))
+        #expect(near(a.shaft.first!, CGPoint(x: 0, y: 0)))
+        #expect(near(a.head[0], CGPoint(x: 0, y: -20)))
+        // Not enough route after the node for a head (arrival): no arrow.
+        #expect(arrow([CGPoint(x: 0, y: 100), CGPoint(x: 0, y: 0), CGPoint(x: 5, y: 0)], node: 1)?.head == nil)
+        #expect(arrow([CGPoint(x: 0, y: 0)], node: 3)?.head == nil)
+    }
+
+    @Test func nodeIndexIsTheFirstPassAndTheClosestVertex() {
+        typealias C = CLLocationCoordinate2D
+        // North in ~1.1 m steps, then back south over the same points.
+        let up = (0...20).map { C(latitude: 50 + Double($0) * 0.00001, longitude: 14) }
+        let route = up + up.reversed().dropFirst()
+        let node = C(latitude: 50.0001, longitude: 14)   // vertex 10
+        #expect(MapViewSource.routeIndex(nearest: node, in: route, withinMeters: 10) == 10)
+        #expect(MapViewSource.routeIndex(nearest: C(latitude: 50.01, longitude: 14), in: route, withinMeters: 10) == nil)
+        // A small ring passing ~4 m from the node before reaching it: the
+        // exact vertex wins over the earlier near pass.
+        let ring = [C(latitude: 50, longitude: 14), C(latitude: 50.00004, longitude: 14),
+                    C(latitude: 50.00004, longitude: 14.0001), C(latitude: 50.00008, longitude: 14.0001),
+                    C(latitude: 50.00008, longitude: 14)]
+        #expect(MapViewSource.routeIndex(nearest: C(latitude: 50.00008, longitude: 14), in: ring, withinMeters: 10) == 4)
+    }
+}
