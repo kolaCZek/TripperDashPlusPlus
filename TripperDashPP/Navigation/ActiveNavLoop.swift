@@ -50,6 +50,9 @@ final class ActiveNavLoop {
     /// diagnostic only logs on a nil↔non-nil transition (feat/nav-polish
     /// investigation into the label vanishing mid-leg). `nil` = no tick yet.
     private var lastRoadNameWasNil: Bool?
+    /// The last packet carried a look-ahead (drives its hysteresis).
+    private var lookaheadShown = false
+    nonisolated static let lookaheadHysteresisMeters: Double = 30
 
     /// Optional spoken-guidance sink. Nil when the app was built/wired
     /// without voice; otherwise AppStatus injects the shared instance.
@@ -300,11 +303,17 @@ final class ActiveNavLoop {
         // Distance/unit follow the same magnitude-based logic as the
         // primary block so units stay consistent across both chips.
         let lookahead: ManeuverKind? = nav.lookaheadManeuver
+        // Hysteresis: on at the threshold, off only 30 m past it, so GPS
+        // jitter around the threshold doesn't blink the look-ahead at 1 Hz
+        // (it is cleared every packet now, no longer latched).
+        let lookaheadInRange = distNext <= settings.lookaheadThresholdMeters
+            || (lookaheadShown && distNext <= settings.lookaheadThresholdMeters + Self.lookaheadHysteresisMeters)
         let emitSecondary = settings.lookaheadEnabled
             && !isRerouting   // stale route during reroute → no look-ahead
             && !nav.isWrongWay   // a U-turn first; the turn after it is far behind
             && lookahead != nil
-            && distNext <= settings.lookaheadThresholdMeters
+            && lookaheadInRange
+        lookaheadShown = emitSecondary
         let secondaryManeuverByte: UInt8?
         let secondaryDistanceMeters: UInt16?
         let secondaryUnitByte: UInt8?

@@ -91,13 +91,14 @@ def make_active_nav_order(
     segs: list[tuple[int, int]] = []
     if road_name:
         segs.append((NAV_INFO, SUB_ROAD_NAME))
+    # Primary and look-ahead interleaved per field, as in `_NAV_FULL`. The
+    # look-ahead is in every packet (a hidden glyph when there is none),
+    # so one that ends is overwritten, not latched.
     segs.append((NAV_INFO, SUB_PRIMARY_MANEUVER))
-    segs.append((NAV_INFO, SUB_PRIMARY_DISTANCE))
-    segs.append((NAV_INFO, SUB_PRIMARY_UNIT))
-    # Look-ahead group in every packet (a hidden glyph when there is
-    # none), so a look-ahead that ends is overwritten, not latched.
     segs.append((NAV_INFO, SUB_SECONDARY_MANEUVER))
+    segs.append((NAV_INFO, SUB_PRIMARY_DISTANCE))
     segs.append((NAV_INFO, SUB_SECONDARY_DISTANCE))
+    segs.append((NAV_INFO, SUB_PRIMARY_UNIT))
     segs.append((NAV_INFO, SUB_SECONDARY_UNIT))
     if eta:
         segs.append((NAV_INFO, SUB_ETA))
@@ -153,16 +154,15 @@ def test_eta_format_immediately_follows_eta(road_name, remaining):
 
 
 def test_minimal_packet_exact_order():
-    """Pin the minimal order: the better-dash authority
-    `build_active_nav_packet` (primary man/dist/unit → total → total-unit
-    → decimal-sep → projection → decimal-flag) plus the look-ahead group,
-    always sent, in its `_NAV_FULL` place after the primary block."""
+    """Pin the minimal order: primary and look-ahead interleaved as in
+    `_NAV_FULL`, then total → total-unit → decimal-sep → projection →
+    decimal-flag (better-dash `build_active_nav_packet`)."""
     assert make_active_nav_order() == [
         (NAV_INFO, SUB_PRIMARY_MANEUVER),
-        (NAV_INFO, SUB_PRIMARY_DISTANCE),
-        (NAV_INFO, SUB_PRIMARY_UNIT),
         (NAV_INFO, SUB_SECONDARY_MANEUVER),
+        (NAV_INFO, SUB_PRIMARY_DISTANCE),
         (NAV_INFO, SUB_SECONDARY_DISTANCE),
+        (NAV_INFO, SUB_PRIMARY_UNIT),
         (NAV_INFO, SUB_SECONDARY_UNIT),
         (NAV_INFO, SUB_TOTAL_DISTANCE),
         (NAV_INFO, SUB_TOTAL_DISTANCE_UNIT),
@@ -278,3 +278,23 @@ def test_swift_append_order_matches_python_mirror():
         f"  Swift : {[hex(s) for s in swift_subs]}\n"
         f"  Mirror: {[hex(s) for s in mirror_subs]}"
     )
+
+
+def test_swift_order_matches_the_real_phone_capture():
+    """The Swift nav-info order, with everything present, must be the
+    `_NAV_FULL` capture's order (the dash pairs fields by position). The
+    capture leaves out the zero primary distance (05 04) and the road name
+    is first in both; compare the capture's subs in Swift's emit order."""
+    import binascii
+    from tests.test_eta_format_capture import NAV_FULL_HEX
+    captured = [s.sub for s in decode_packet(binascii.unhexlify(NAV_FULL_HEX)) if s.type == NAV_INFO]
+    names = [n for n in _swift_make_active_nav_append_order()
+             if n not in ("tlvProjectionFlag", "tlvDecimalFlag")]   # type 0x06, not nav-info
+    swift_nav = [_BUILDER_SUB[n] for n in names]
+    common = [sub for sub in swift_nav if sub in captured]
+    assert common == [sub for sub in captured if sub in swift_nav], (
+        f"Swift {[hex(x) for x in common]} vs capture {[hex(x) for x in captured]}"
+    )
+    # The look-ahead block itself is in capture order.
+    assert swift_nav[1:7] == [SUB_PRIMARY_MANEUVER, SUB_SECONDARY_MANEUVER, SUB_PRIMARY_DISTANCE,
+                              SUB_SECONDARY_DISTANCE, SUB_PRIMARY_UNIT, SUB_SECONDARY_UNIT]

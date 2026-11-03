@@ -415,9 +415,9 @@ extension K1GPacket {
     /// 3. Third: even with the keep-alive fixed, the pre-z2 BURST still
     ///    replayed the full template once per stream start, and its
     ///    placeholders for OPTIONAL fields stuck permanently — because
-    ///    `sendActiveNav` writes the secondary-maneuver group, ETA and
-    ///    remaining-time ONLY when it has real values for them, and in
-    ///    free-ride never runs at all. Reported as a stuck roundabout
+    ///    `sendActiveNav` wrote the secondary-maneuver group (now always
+    ///    sent), ETA and remaining-time ONLY when it had real values for
+    ///    them, and in free-ride never runs at all. Reported as a stuck roundabout
     ///    sub-icon (template's `05 03` = 0x34) and a stuck ETA 03:03.
     ///
     /// The rule that came out of it: this packet may only carry TLVs that
@@ -464,17 +464,15 @@ extension K1GPacket {
             //
             // Field reports (8/2026) traced a stuck roundabout sub-icon and
             // a stuck "ETA 03:03" to exactly this. `sendActiveNav` only
-            // emits the secondary-maneuver group when there IS a secondary
-            // turn, only emits ETA when there IS an ETA, and only emits
-            // remaining-time when it has one — and in free-ride it is never
-            // called at all. So any placeholder the template writes into one
+            // emits ETA when there IS an ETA and remaining-time when it has
+            // one — and in free-ride it is never called at all. So any placeholder the template writes into one
             // of those optional fields is latched on the dash forever.
             //
             // Omitted, with the reason each is unfixable-by-overwrite:
             //   05 03 / 05 05 / 05 07  secondary maneuver + distance + unit
-            //                          — never written in free ride (now
-            //                          in every nav packet); template's
-            //                          0x34 is the roundabout the rider saw.
+            //                          — free ride never calls
+            //                          `sendActiveNav`; template's 0x34
+            //                          is the roundabout the rider saw.
             //   05 08 / 05 54          ETA + ETA format — written only when
             //                          an ETA exists; template's "0303".
             //   05 0B / 05 55          remaining time + unit — written only
@@ -898,9 +896,9 @@ extension K1GPacket {
     /// Caller passes any subset of optional fields. `primaryManeuver`,
     /// `primaryDistanceMeters`, `primaryUnit`, `totalDistanceMeters`,
     /// `totalDistanceUnit`, `useCommaDecimal`, `projectionOn` and
-    /// `decimalFmtOn` are required — they form the minimum viable
-    /// 8-TLV packet. Order of TLVs is fixed and matches the Python
-    /// authority byte-for-byte.
+    /// `decimalFmtOn` are required. The look-ahead group is always sent
+    /// (hidden when there is none), so the minimum packet is 11 TLVs.
+    /// Order of TLVs is fixed and follows the real-phone capture.
     static func makeActiveNav(
         seq: UInt8,
         primaryManeuver: UInt8 = 0x0B,
@@ -923,29 +921,28 @@ extension K1GPacket {
         if let rn = roadName, !rn.isEmpty {
             segs.append(tlvRoadName(rn))
         }
-        segs.append(tlvPrimaryManeuver(primaryManeuver))
-        segs.append(tlvPrimaryDistance(meters: primaryDistanceMeters))
-        segs.append(tlvPrimaryUnit(primaryUnit))
-        // F2c: secondary maneuver chevron (look-ahead). All three
-        // sub-TLVs go together — sending just one without the other
-        // two would be ill-defined. Insert immediately after the
-        // primary block, before ETA, to match the better-dash `_NAV_FULL`
-        // field order.
+        // Primary and secondary (look-ahead) interleaved per field —
+        // maneuver, distance, unit — the order of the real-phone capture
+        // `_NAV_FULL` (05 02, 05 03, [05 04], 05 05, 05 06, 05 07). The dash
+        // pairs fields by position (see 08→54 and 09→46 below).
         //
-        // Sent in EVERY packet: the dash latches the last value it got
-        // (the stuck roundabout sub-icon, 8/2026), so a look-ahead that
+        // The look-ahead goes in EVERY packet: the dash latches the last
+        // value it got (the stuck roundabout sub-icon, 8/2026), so one that
         // ends must be overwritten. With none, send the hidden glyph
         // `noSecondaryManeuver` (0x5A..0xFF hide the primary bubble).
-        // ponytail: that 0xFF also hides the secondary is inferred from
-        // the primary; a ride confirms it.
+        // ponytail: that 0xFF hides only the look-ahead is inferred from
+        // the primary slot; a ride confirms it.
         let secondary: (code: UInt8, dist: UInt16, unit: UInt8) = {
             if let code = secondaryManeuver, let dist = secondaryDistanceMeters, let unit = secondaryUnit {
                 return (code, dist, unit)
             }
             return (noSecondaryManeuver, 0, primaryUnit)
         }()
+        segs.append(tlvPrimaryManeuver(primaryManeuver))
         segs.append(tlvSecondaryManeuver(code: secondary.code))
+        segs.append(tlvPrimaryDistance(meters: primaryDistanceMeters))
         segs.append(tlvSecondaryDistance(meters: secondary.dist))
+        segs.append(tlvPrimaryUnit(primaryUnit))
         segs.append(tlvSecondaryUnit(secondary.unit))
         if let eta = eta {
             segs.append(tlvEta(date: eta, is24Hour: is24Hour))

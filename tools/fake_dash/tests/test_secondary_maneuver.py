@@ -84,7 +84,19 @@ def test_swift_clears_the_lookahead_when_there_is_none() -> None:
     body = src[src.index("static func makeActiveNav("):src.index("return encode(segments: segs", src.index("static func makeActiveNav("))]
     assert "return (noSecondaryManeuver, 0, primaryUnit)" in body
     assert "segs.append(tlvSecondaryManeuver(code: secondary.code))" in body
-    assert "if let code = secondaryManeuver" not in body.split("segs.append(tlvSecondaryManeuver")[1].split("tlvEta")[0]
+    # Unconditional: the six maneuver appends are one contiguous block at
+    # the function body's indentation, nothing (no `if`/`guard`) between.
+    block = "\n".join("        segs.append(" + c + ")" for c in (
+        "tlvPrimaryManeuver(primaryManeuver)",
+        "tlvSecondaryManeuver(code: secondary.code)",
+        "tlvPrimaryDistance(meters: primaryDistanceMeters)",
+        "tlvSecondaryDistance(meters: secondary.dist)",
+        "tlvPrimaryUnit(primaryUnit)",
+        "tlvSecondaryUnit(secondary.unit)",
+    ))
+    assert "\n" + block + "\n" in body
+    before = body[:body.index(block)]
+    assert before.rstrip().endswith("}()"), "the block must directly follow the `secondary` tuple"
     assert "static let noSecondaryManeuver: UInt8 = 0xFF" in src
 
 
@@ -172,19 +184,24 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
 # when-close behaviour we want.
 
 
+HYSTERESIS_M = 30.0
+
+
 def _swift_lookahead_decision(
     lookahead_enabled: bool,
     second_step_exists: bool,
     dist_next_meters: float,
     threshold_meters: float,
     is_rerouting: bool = False,
+    shown: bool = False,
 ) -> bool:
     """Mirror of the conditional in ActiveNavLoop.swift line ~295."""
     return (
         lookahead_enabled
         and not is_rerouting
         and second_step_exists
-        and dist_next_meters <= threshold_meters
+        and (dist_next_meters <= threshold_meters
+             or (shown and dist_next_meters <= threshold_meters + HYSTERESIS_M))
     )
 
 
@@ -218,6 +235,25 @@ def test_active_nav_loop_lookahead_decision(
     expected: bool,
 ) -> None:
     assert _swift_lookahead_decision(enabled, has_second, dist, threshold) == expected
+
+
+def test_lookahead_hysteresis_keeps_it_on_past_the_threshold() -> None:
+    """Once shown, it stays until 30 m past the threshold, so GPS jitter
+    around 300 m doesn't blink it at 1 Hz."""
+    on = _swift_lookahead_decision(True, True, 300.0, 300.0)
+    assert on
+    assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=True) is True
+    assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=False) is False
+    assert _swift_lookahead_decision(True, True, 331.0, 300.0, shown=True) is False
+
+
+def test_swift_lookahead_has_hysteresis() -> None:
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
+    assert "nonisolated static let lookaheadHysteresisMeters: Double = 30" in src
+    assert "|| (lookaheadShown && distNext <= settings.lookaheadThresholdMeters + Self.lookaheadHysteresisMeters)" in src
+    assert "lookaheadShown = emitSecondary" in src
 
 
 def test_lookahead_default_threshold_is_300m() -> None:
