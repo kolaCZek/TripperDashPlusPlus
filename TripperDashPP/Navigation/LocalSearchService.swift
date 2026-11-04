@@ -113,13 +113,19 @@ final class LocalSearchService: NSObject {
         }
     }
 
-    /// Nearest fuel station to `here`, or nil (none within 20 km, or the
-    /// search failed). ponytail: straight-line nearest, may be behind the
-    /// rider or across a river; rank by route ETA if riders hit that.
-    static func nearestFuel(to here: CLLocationCoordinate2D) async -> Destination? {
+    /// Nearest fuel station to `here`, nil when there is none within 20 km;
+    /// throws when the search fails (no network). ponytail: straight-line
+    /// nearest, may be behind the rider or across a river; rank by route
+    /// ETA if riders hit that.
+    static func nearestFuel(to here: CLLocationCoordinate2D) async throws -> Destination? {
         let request = MKLocalPointsOfInterestRequest(center: here, radius: 20_000)
         request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
-        guard let items = try? await MKLocalSearch(request: request).start().mapItems else { return nil }
+        let items: [MKMapItem]
+        do {
+            items = try await MKLocalSearch(request: request).start().mapItems
+        } catch let error as MKError where error.code == .placemarkNotFound {
+            return nil   // MapKit's "no results"
+        }
         let origin = CLLocation(latitude: here.latitude, longitude: here.longitude)
         func dist(_ item: MKMapItem) -> CLLocationDistance {
             let c = item.placemark.coordinate

@@ -199,6 +199,20 @@ struct MapPickerView: View {
                             .padding(.bottom, 12)
                     }
                 }
+
+                // Every mode: a widget tap can come in while browsing or riding.
+                // Below the planner's own banner (`planningBanner`).
+                if let notice = status.widgetNotice {
+                    VStack {
+                        Label(notice, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(.top, 48)
+                        Spacer()
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
