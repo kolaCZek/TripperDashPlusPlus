@@ -1696,10 +1696,11 @@ final class AppStatus {
 
     /// `running`: the navigation the intent decided to redirect (nil = it
     /// decided to start one). Acting on any other ride is refused.
-    func navigateFromShortcut(to dest: Destination, running: PlannedRoute?) async -> String {
+    func navigateFromShortcut(to dest: Destination, running: PlannedRoute?, riderOwned: Bool = false) async -> String {
         await waitForFirstFix()
         let origin = Waypoint.currentLocation(locationService.lastFix?.coordinate ?? dest.coordinate)
-        return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)), running: running)
+        return await navigateFromShortcut(PlannedRoute(origin: origin, destination: .from(destination: dest)), running: running,
+                                          riderOwned: riderOwned)
     }
 
     /// Ride a saved route, joining it at the nearest point when that skips
@@ -1719,7 +1720,11 @@ final class AppStatus {
     /// the running route, like Edit route; in free ride it ends the free
     /// ride and starts navigation; otherwise it stages the plan and
     /// connects, and the picker starts it.
-    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?) async -> String {
+    /// `riderOwned`: the rider is looking (a widget tap), so the staged plan
+    /// is theirs from the start: a route that fails, even during the
+    /// connect's first await, stays on screen with its error instead of the
+    /// unattended teardown (plan and connect dropped).
+    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?, riderOwned: Bool = false) async -> String {
         let dest = plan.waypoints.last?.name ?? "your destination"
         switch ShortcutPolicy.navigate(navigating: activeNavigator.isNavigating,
                                        arrived: activeNavigator.hasArrived,
@@ -1764,7 +1769,7 @@ final class AppStatus {
             }
             pendingShare = nil   // this ride supersedes a share parked earlier
             plannedRoute = plan
-            shortcutStopIds = plan.waypoints.map(\.id)
+            shortcutStopIds = riderOwned ? [] : plan.waypoints.map(\.id)
             if !plan.isComputed { Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) } }
             guard canConnect else { return "Route planned. Add your bike in TripperDash++ to start." }
             pendingRideRequest = .navigate
@@ -1789,12 +1794,17 @@ final class AppStatus {
     func runWidgetAction(_ to: String) async {
         let reply: String?
         if to == "free" {
-            // A deliberate tap: a link the rider brought up by hand is theirs
-            // to ride (that refusal is for a Wi-Fi-join automation).
-            if await freeRideDecision() == .handConnected {
+            // A deliberate tap: a link the rider brought up (or is bringing
+            // up) by hand is theirs to ride; those refusals are for a
+            // Wi-Fi-join automation.
+            switch await freeRideDecision() {
+            case .handConnected:
                 await startFreeRide()
                 reply = nil
-            } else {
+            case .handConnecting:
+                pendingRideRequest = .freeRide   // observeBikeLink starts it on .connected
+                reply = nil
+            default:
                 reply = await freeRideShortcutRefusal()
                 if reply == nil { await startFreeRideFromShortcut() }
             }
@@ -1823,11 +1833,10 @@ final class AppStatus {
                 }
             } else { return }
             if let dest {
-                let said = await navigateFromShortcut(to: dest, running: running)
-                // The rider is looking: the staged plan is theirs, so a failed
-                // route stays on screen with its error rather than taking the
-                // unattended shortcut's teardown (plan and connect dropped).
-                if ownPlanStaged { shortcutStopIds = [] }
+                // ponytail: mid-navigation Fuel replaces the route (the
+                // destination is planned again after refuelling); insert the
+                // station as a stop if riders ask.
+                let said = await navigateFromShortcut(to: dest, running: running, riderOwned: true)
                 reply = said.hasPrefix("Starting navigation") || said.hasPrefix("Rerouting to") ? nil : said
             } else {
                 reply = missing
@@ -1835,6 +1844,7 @@ final class AppStatus {
         }
         guard let reply else { return }
         widgetNotice = reply
+        UIAccessibility.post(notification: .announcement, argument: reply)
         widgetNoticeClear?.cancel()
         widgetNoticeClear = Task { [weak self] in
             try? await Task.sleep(for: .seconds(6))
@@ -1883,7 +1893,8 @@ final class AppStatus {
             return plannedRoute != nil ? "Your planned route in TripperDash++ was left as is." : "No ride in progress."
         }
         if ownPlan { cancelPlanning() }
-        return "Ride cancelled."
+        // A widget-staged plan is the rider's: only its connect is stopped.
+        return ownPlan || plannedRoute == nil ? "Ride cancelled." : "Connect stopped. Your planned route was left as is."
     }
 
     /// "How far to go?" — spoken by Siri, so whole words, no H:MM:SS.

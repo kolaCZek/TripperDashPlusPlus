@@ -118,7 +118,8 @@ final class LocalSearchService: NSObject {
     /// nearest, may be behind the rider or across a river; rank by route
     /// ETA if riders hit that.
     static func nearestFuel(to here: CLLocationCoordinate2D) async throws -> Destination? {
-        let request = MKLocalPointsOfInterestRequest(center: here, radius: 20_000)
+        let request = MKLocalPointsOfInterestRequest(center: here,
+                                                     radius: min(20_000, MKLocalPointsOfInterestRequest.maxRadius))
         request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
         let items: [MKMapItem]
         do {

@@ -34,11 +34,11 @@ class WidgetWiringTests(unittest.TestCase):
         for slot in ("home", "work"):
             self.assertRegex(STORE, rf"case {slot}\b")
 
-    def test_ride_host_caught_before_share_decode(self):
+    def test_quick_host_caught_before_share_decode(self):
         body = decl_body(STATUS, "func handleIncomingURL(")
-        ride = body.index('== "quick"')
-        self.assertLess(ride, body.index("SharedDeepLink.decode"))
-        self.assertIn("return", body[ride:body.index("SharedDeepLink.decode")])
+        quick = body.index('== "quick"')
+        self.assertLess(quick, body.index("SharedDeepLink.decode"))
+        self.assertIn("return", body[quick:body.index("SharedDeepLink.decode")])
 
     def test_hidden_success_replies_exist(self):
         body = decl_body(STATUS, "private func navigateFromShortcut(_ plan")
@@ -51,8 +51,15 @@ class WidgetWiringTests(unittest.TestCase):
         body = decl_body(STATUS, "func runWidgetAction(")
         # The hand-plan refusal is decided before any await (the fuel search).
         self.assertLess(body.index("handPlanStaged && !activeNavigator.isNavigating"), body.index("await waitForFirstFix()"))
-        # A widget-staged plan is the rider's: no unattended teardown.
-        self.assertIn("if ownPlanStaged { shortcutStopIds = [] }", body)
+        # A widget-staged plan is the rider's from the stage itself (before
+        # the connect's first await): no unattended teardown.
+        self.assertIn("riderOwned: true)", body)
+        stage = decl_body(STATUS, "private func navigateFromShortcut(_ plan")
+        self.assertIn("shortcutStopIds = riderOwned ? [] : plan.waypoints.map", stage)
+        self.assertLess(stage.index("shortcutStopIds = riderOwned"), stage.index("await connectSelectedBike()"))
+        # A deliberate Free Ride tap rides a hand link, or arms one coming up.
+        self.assertRegex(body, r"case \.handConnected:\s*await startFreeRide\(\)")
+        self.assertRegex(body, r"case \.handConnecting:\s*pendingRideRequest = \.freeRide")
         # The notice is drawn outside the planner, in every mode.
         picker = strip_comments((ROOT / "UI/MapPickerView.swift").read_text())
         self.assertIn("if let notice = status.widgetNotice", decl_body(picker, "var body: some View"))

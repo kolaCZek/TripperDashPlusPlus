@@ -208,7 +208,9 @@ struct MapPickerView: View {
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .padding(.horizontal, 12).padding(.vertical, 6)
+                            .multilineTextAlignment(.center)
                             .background(.regularMaterial, in: Capsule())
+                            .padding(.horizontal, 16)
                             .padding(.top, 48)
                         Spacer()
                     }
