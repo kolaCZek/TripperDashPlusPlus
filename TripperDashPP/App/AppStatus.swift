@@ -1507,7 +1507,7 @@ final class AppStatus {
     /// routes to us). Resolves and stages a plan. Async because a Google
     /// short-link may need a redirect follow.
     func handleIncomingURL(_ url: URL) {
-        if url.scheme?.lowercased() == "tripperdash", (url.host ?? "").lowercased() == "ride" {
+        if url.scheme?.lowercased() == "tripperdash", (url.host ?? "").lowercased() == "quick" {
             let to = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "to" })?.value ?? ""
             Task { await runWidgetAction(to) }
@@ -1783,37 +1783,69 @@ final class AppStatus {
         }
     }
 
-    /// Home-screen widget tap (`tripperdash://ride?to=home|work|free|fuel`):
+    /// Home-screen widget tap (`tripperdash://quick?to=home|work|free|fuel`):
     /// the same start paths as the Shortcuts actions, the app already in
-    /// the foreground. Only a refusal or failure is shown, for 6 s in the
-    /// planner banner.
+    /// the foreground. Only a refusal or failure is shown (`widgetNotice`).
     func runWidgetAction(_ to: String) async {
         let reply: String?
         if to == "free" {
-            reply = await freeRideShortcutRefusal()
-            if reply == nil { await startFreeRideFromShortcut() }
+            // A deliberate tap: a link the rider brought up by hand is theirs
+            // to ride (that refusal is for a Wi-Fi-join automation).
+            if await freeRideDecision() == .handConnected {
+                await startFreeRide()
+                reply = nil
+            } else {
+                reply = await freeRideShortcutRefusal()
+                if reply == nil { await startFreeRideFromShortcut() }
+            }
+        } else if handPlanStaged && !activeNavigator.isNavigating {
+            // Decided at the tap, like the intents: a Start the rider taps
+            // during the fuel search must not then be redirected.
+            reply = Self.planStagedReply
         } else {
-            let dest: Destination?
+            let running = activeNavigator.isNavigating ? activeNavigator.plan : nil
+            var dest: Destination?
+            let missing: String
             if let slot = QuickAccessSlot(rawValue: to) {
                 dest = navigationStore.favorite(in: slot)?.asDestination
+                missing = "\(slot.displayName) isn't set yet. Set it in Quick Access."
             } else if to == "fuel" {
                 await waitForFirstFix()
-                if let here = locationService.lastFix?.coordinate {
-                    dest = await LocalSearchService.nearestFuel(to: here)
-                } else { dest = nil }
+                if let fix = locationService.lastFix, -fix.timestamp.timeIntervalSinceNow < 30 {
+                    do {
+                        dest = try await LocalSearchService.nearestFuel(to: fix.coordinate)
+                        missing = "No fuel station within 20 km."
+                    } catch {
+                        missing = "Couldn't search for fuel stations. Check your connection."
+                    }
+                } else {
+                    missing = "No GPS fix yet. Try again in a moment."
+                }
             } else { return }
             if let dest {
-                let said = await navigateFromShortcut(to: dest, running: activeNavigator.isNavigating ? activeNavigator.plan : nil)
+                let said = await navigateFromShortcut(to: dest, running: running)
+                // The rider is looking: the staged plan is theirs, so a failed
+                // route stays on screen with its error rather than taking the
+                // unattended shortcut's teardown (plan and connect dropped).
+                if ownPlanStaged { shortcutStopIds = [] }
                 reply = said.hasPrefix("Starting navigation") || said.hasPrefix("Rerouting to") ? nil : said
             } else {
-                reply = to == "fuel" ? "No fuel station found nearby." : "\(to == "home" ? "Home" : "Work") isn't set yet. Set it in Quick Access."
+                reply = missing
             }
         }
         guard let reply else { return }
-        planError = reply
-        try? await Task.sleep(for: .seconds(6))
-        if planError == reply { planError = nil }
+        widgetNotice = reply
+        widgetNoticeClear?.cancel()
+        widgetNoticeClear = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.widgetNotice = nil
+        }
     }
+
+    /// A widget tap's refusal or failure, shown for 6 s over the map.
+    var widgetNotice: String?
+    @ObservationIgnored private var widgetNoticeClear: Task<Void, Never>?
 
     /// "Stop ride": the same teardown as the dash's exit button or the
     /// app's Stop, and drops a ride still waiting to start.

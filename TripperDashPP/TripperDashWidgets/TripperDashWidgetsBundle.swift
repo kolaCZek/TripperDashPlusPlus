@@ -18,8 +18,9 @@ struct TripperDashWidgetsBundle: WidgetBundle {
 }
 
 /// Home-screen widget: four buttons that open the app on
-/// `tripperdash://ride?to=…` (`AppStatus.runWidgetAction`). Static: it
+/// `tripperdash://quick?to=…` (`AppStatus.runWidgetAction`). Static: it
 /// shows no app data, so it needs no App Group or timeline refresh.
+/// Medium only: a small widget is one tap target (`Link` needs medium+).
 struct QuickRideWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "QuickRide", provider: QuickRideProvider()) { _ in
@@ -27,7 +28,7 @@ struct QuickRideWidget: Widget {
         }
         .configurationDisplayName("Quick Ride")
         .description("Ride home or to work, start a free ride, or go to the nearest fuel station.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemMedium])
     }
 }
 
@@ -46,37 +47,29 @@ nonisolated struct QuickRideProvider: TimelineProvider {
 }
 
 struct QuickRideView: View {
-    @Environment(\.widgetFamily) private var family
-
     private struct Action: Identifiable {
-        let id: String, title: String, symbol: String
+        let id: String, title: String, symbol: String, label: String
     }
     private static let actions = [
-        Action(id: "home", title: "Home", symbol: "house.fill"),
-        Action(id: "work", title: "Work", symbol: "briefcase.fill"),
-        Action(id: "free", title: "Free Ride", symbol: "map.fill"),
-        Action(id: "fuel", title: "Fuel", symbol: "fuelpump.fill"),
+        Action(id: "home", title: "Home", symbol: "house.fill", label: "Navigate home"),
+        Action(id: "work", title: "Work", symbol: "briefcase.fill", label: "Navigate to work"),
+        Action(id: "free", title: "Free Ride", symbol: "map.fill", label: "Start a free ride"),
+        Action(id: "fuel", title: "Fuel", symbol: "fuelpump.fill", label: "Navigate to the nearest fuel station"),
     ]
 
     var body: some View {
-        let small = family == .systemSmall
-        let rows = small ? [Array(Self.actions.prefix(2)), Array(Self.actions.suffix(2))] : [Self.actions]
-        VStack(spacing: 8) {
-            ForEach(rows.indices, id: \.self) { r in
-                HStack(spacing: 8) {
-                    ForEach(rows[r]) { a in
-                        Link(destination: URL(string: "tripperdash://ride?to=\(a.id)")!) {
-                            VStack(spacing: 6) {
-                                Image(systemName: a.symbol).font(small ? .title3 : .title2)
-                                Text(a.title).font(.caption2.weight(.semibold)).lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                        .accessibilityLabel(a.title)
+        HStack(spacing: 8) {
+            ForEach(Self.actions) { a in
+                Link(destination: URL(string: "tripperdash://quick?to=\(a.id)")!) {
+                    VStack(spacing: 6) {
+                        Image(systemName: a.symbol).font(.title2).widgetAccentable()
+                        Text(a.title).font(.caption2.weight(.semibold)).lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .accessibilityLabel(a.label)
             }
         }
         .containerBackground(.background, for: .widget)
