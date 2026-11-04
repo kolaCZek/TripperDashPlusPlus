@@ -1598,10 +1598,13 @@ struct MapPickerView: View {
         arrivalTask?.cancel()
         arrivalTask = nil
         transitioning = true
+        let byRequest = status.pendingRideRequest == .navigate
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             // Stop Ride cancelled the plan during the beat: don't start it.
-            guard status.plannedRoute === plan else {
+            // A widget-staged plan stays staged, so Stop Ride only withdraws
+            // the request that started it.
+            guard status.plannedRoute === plan, !(byRequest && status.pendingRideRequest == nil) else {
                 transitioning = false
                 consumeRideRequest()   // a shortcut's plan that replaced it
                 return

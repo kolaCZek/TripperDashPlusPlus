@@ -1662,7 +1662,7 @@ final class AppStatus {
     func freeRideShortcutRefusal(_ decided: ShortcutPolicy.FreeRide? = nil) async -> String? {
         let decision: ShortcutPolicy.FreeRide
         if let decided { decision = decided } else { decision = await freeRideDecision() }
-        switch decision {
+        return switch decision {
         case .alreadyRiding: "Already riding."
         case .alreadyStarting: "Already starting your ride."
         case .planStaged: "A planned route is in TripperDash++, so free ride wasn't started."
@@ -1797,6 +1797,9 @@ final class AppStatus {
     /// the same start paths as the Shortcuts actions, the app already in
     /// the foreground. Only a refusal or failure is shown (`widgetNotice`).
     func runWidgetAction(_ to: String) async {
+        // A new tap: an earlier tap's notice no longer applies.
+        widgetNoticeClear?.cancel()
+        widgetNotice = nil
         let reply: String?
         if to == "free" {
             // A deliberate tap: a link the rider brought up (or is bringing
@@ -1868,6 +1871,7 @@ final class AppStatus {
     /// app's Stop, and drops a ride still waiting to start.
     func stopRideFromShortcut() -> String {
         let hadRequest = pendingRideRequest != nil
+        let hadNavigate = pendingRideRequest == .navigate
         pendingRideRequest = nil
         // Also stops a shortcut connect still looking up the Wi-Fi name.
         let ownConnect = shortcutConnect
@@ -1901,7 +1905,7 @@ final class AppStatus {
         }
         if ownPlan { cancelPlanning() }
         // A widget-staged plan is the rider's: only its connect is stopped.
-        return ownPlan || plannedRoute == nil ? "Ride cancelled." : "Navigation won't start. Your planned route was left as is."
+        return ownPlan || plannedRoute == nil || !hadNavigate ? "Ride cancelled." : "Navigation won't start. Your planned route was left as is."
     }
 
     /// "How far to go?" — spoken by Siri, so whole words, no H:MM:SS.
