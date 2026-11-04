@@ -5,16 +5,15 @@ The Swift code in TripperDashPP/Tripper/K1GPacket.swift builds these
 three TLVs when ActiveNavLoop decides the rider is close enough to
 the primary turn to benefit from a look-ahead chevron:
 
-  - `05 03 0002 <code> <flags>` — secondary maneuver glyph + flags
+  - `05 03 0001 <code>` — secondary maneuver glyph
   - `05 05 0002 <meters_BE>` — secondary distance (same shape as primary)
   - `05 07 0001 <unit>` — secondary unit byte (same encoding as primary)
 
-Wire authority: better-dash `tripper_app_like_nav.py`, plus our own
-field test
-of the `<flags>` byte (pending — sent as 0x00 placeholder).
+Wire authority: the real-phone capture `_NAV_FULL` in better-dash
+`tripper_app_like_nav.py` (`05 03 0001 34`).
 
 This file pins the wire format so a future Swift edit that misorders
-the bytes (e.g. swaps code/flags) is caught here instead of by Martin
+the bytes (e.g. adds a padding byte again) is caught here instead of by Martin
 squinting at a dash on a moving bike.
 """
 
@@ -28,9 +27,9 @@ from fake_dash.protocol import Segment, build_envelope, decode_packet
 # --- Python mirrors of the Swift TLV builders --------------------------------
 
 
-def tlv_secondary_maneuver(code: int, flags: int = 0x00) -> Segment:
-    """`05 03 0002 <code> <flags>` — mirror of `K1GPacket.tlvSecondaryManeuver`."""
-    return Segment(type=0x05, sub=0x03, payload=bytes([code & 0xFF, flags & 0xFF]))
+def tlv_secondary_maneuver(code: int) -> Segment:
+    """`05 03 0001 <code>` — mirror of `K1GPacket.tlvSecondaryManeuver`."""
+    return Segment(type=0x05, sub=0x03, payload=bytes([code & 0xFF]))
 
 
 def tlv_secondary_distance(meters: int) -> Segment:
@@ -45,43 +44,66 @@ def tlv_secondary_unit(wire_byte: int) -> Segment:
 
 # --- Secondary maneuver glyph (0x05 / 0x03) ----------------------------------
 
-
-@pytest.mark.parametrize(
-    "code, flags, expected",
-    [
-        (0x0B, 0x00, b"\x0b\x00"),  # roundabout CCW exit 1, default flags
-        (0x3C, 0x00, b"\x3c\x00"),  # arrival pin
-        (0x31, 0x00, b"\x31\x00"),  # CW table entry (skill F2b)
-        (0x46, 0x00, b"\x46\x00"),  # CW table entry
-        (0x0A, 0x00, b"\x0a\x00"),  # CCW table entry
-        (0x42, 0x00, b"\x42\x00"),  # GPS lost (edge case — should still serialise)
-    ],
+# Real-phone active-nav capture (better-dash `_NAV_FULL`, nav_open_ok.pcap),
+# the same authority as test_eta_format_capture.py.
+NAV_FULL_HEX = (
+    "007e001100000000020100054b31472025050100145461696c6c65206465204d617320647520477200"
+    "050200013c050300013405050002000a05060001300507000130050800043033303305540001300509"
+    "0002004f0546000110050a000155050c000104050b0006303031303030055500012006050001aa060d0001aa"
 )
-def test_tlv_secondary_maneuver_byte_order(code: int, flags: int, expected: bytes) -> None:
-    """Code comes first, flags second. Critical — a swapped order
-    would render the wrong glyph and (worse) interpret a glyph byte
-    as a flag, potentially triggering undocumented dash behaviour."""
-    seg = tlv_secondary_maneuver(code, flags)
-    assert seg.type == 0x05
-    assert seg.sub == 0x03
-    assert seg.payload == expected
-    assert len(seg.payload) == 2
 
 
-def test_tlv_secondary_maneuver_default_flags_is_zero() -> None:
-    """F2c TODO: flags byte semantics are unknown — we send 0x00 as a
-    safe placeholder until field test reveals the real meaning. If
-    this test starts failing because we changed the default, audit
-    whether the bike actually accepts the new value."""
-    assert tlv_secondary_maneuver(0x0B).payload == bytes([0x0B, 0x00])
+def test_capture_secondary_maneuver_is_one_byte() -> None:
+    """The real phone sends `05 03 0001 34`: the glyph byte alone. The
+    2-byte `<code> 00` form we used to send never showed on the dash."""
+    import binascii
+    segs = decode_packet(binascii.unhexlify(NAV_FULL_HEX))
+    sec = [s for s in segs if s.type == 0x05 and s.sub == 0x03]
+    assert len(sec) == 1
+    assert sec[0].payload == bytes([0x34])
 
 
-def test_tlv_secondary_maneuver_nonzero_flags_round_trip() -> None:
-    """If/when field test reveals the flags byte semantics, this
-    test verifies we can still emit non-zero values without the
-    builder breaking."""
-    seg = tlv_secondary_maneuver(0x31, flags=0xAA)
-    assert seg.payload == bytes([0x31, 0xAA])
+def test_swift_secondary_maneuver_payload_is_one_byte() -> None:
+    """Pin the Swift builder to the capture (no Swift compiler here)."""
+    import pathlib
+    import re
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Tripper" / "K1GPacket.swift").read_text()
+    m = re.search(r"static func tlvSecondaryManeuver\(([^)]*)\)[^{]*\{(.*?)\n    \}", src, re.S)
+    assert m, "tlvSecondaryManeuver not found"
+    assert m.group(1).strip() == "code: UInt8"
+    assert "payload: Data([code])" in m.group(2)
+
+
+def test_swift_clears_the_lookahead_when_there_is_none() -> None:
+    """The dash latches the last look-ahead (stuck sub-icon, 8/2026): with
+    none, makeActiveNav must still send 05 03, with the hidden glyph."""
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Tripper" / "K1GPacket.swift").read_text()
+    body = src[src.index("static func makeActiveNav("):src.index("return encode(segments: segs", src.index("static func makeActiveNav("))]
+    assert "return (noSecondaryManeuver, 0, primaryUnit)" in body
+    assert "segs.append(tlvSecondaryManeuver(code: secondary.code))" in body
+    # Unconditional: the six maneuver appends are one contiguous block at
+    # the function body's indentation, nothing (no `if`/`guard`) between.
+    block = "\n".join("        segs.append(" + c + ")" for c in (
+        "tlvPrimaryManeuver(primaryManeuver)",
+        "tlvSecondaryManeuver(code: secondary.code)",
+        "tlvPrimaryDistance(meters: primaryDistanceMeters)",
+        "tlvSecondaryDistance(meters: secondary.dist)",
+        "tlvPrimaryUnit(primaryUnit)",
+        "tlvSecondaryUnit(secondary.unit)",
+    ))
+    assert "\n" + block + "\n" in body
+    before = body[:body.index(block)]
+    assert before.rstrip().endswith("}()"), "the block must directly follow the `secondary` tuple"
+    assert "static let noSecondaryManeuver: UInt8 = 0xFF" in src
+
+
+@pytest.mark.parametrize("code", [0x0B, 0x3C, 0x31, 0x46, 0x0A, 0x42])
+def test_tlv_secondary_maneuver_is_the_glyph_byte(code: int) -> None:
+    seg = tlv_secondary_maneuver(code)
+    assert (seg.type, seg.sub, seg.payload) == (0x05, 0x03, bytes([code]))
 
 
 # --- Secondary distance (0x05 / 0x05) ----------------------------------------
@@ -132,14 +154,14 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
     """Build a packet with all three secondary TLVs in the order
     Swift emits them, decode it, confirm shape and order survive."""
     pkt = build_envelope([
-        tlv_secondary_maneuver(0x31, flags=0x00),
+        tlv_secondary_maneuver(0x31),
         tlv_secondary_distance(1200),
         tlv_secondary_unit(0x10),
     ])
     decoded = decode_packet(pkt)
     assert len(decoded) == 3
     assert [(s.type, s.sub) for s in decoded] == [(0x05, 0x03), (0x05, 0x05), (0x05, 0x07)]
-    assert decoded[0].payload == bytes([0x31, 0x00])
+    assert decoded[0].payload == bytes([0x31])
     assert decoded[1].payload == bytes([0x04, 0xB0])
     assert decoded[2].payload == bytes([0x10])
 
@@ -162,19 +184,27 @@ def test_secondary_tlvs_round_trip_through_envelope() -> None:
 # when-close behaviour we want.
 
 
+HYSTERESIS_M = 30.0
+
+
 def _swift_lookahead_decision(
     lookahead_enabled: bool,
     second_step_exists: bool,
     dist_next_meters: float,
     threshold_meters: float,
     is_rerouting: bool = False,
+    shown: bool = False,
+    is_wrong_way: bool = False,
 ) -> bool:
-    """Mirror of the conditional in ActiveNavLoop.swift line ~295."""
+    """Mirror of the conditional in ActiveNavLoop.swift (`emitSecondary`).
+    `shown` = the last packet showed a look-ahead for this same step."""
     return (
         lookahead_enabled
         and not is_rerouting
+        and not is_wrong_way
         and second_step_exists
-        and dist_next_meters <= threshold_meters
+        and (dist_next_meters <= threshold_meters
+             or (shown and dist_next_meters <= threshold_meters + HYSTERESIS_M))
     )
 
 
@@ -208,6 +238,33 @@ def test_active_nav_loop_lookahead_decision(
     expected: bool,
 ) -> None:
     assert _swift_lookahead_decision(enabled, has_second, dist, threshold) == expected
+
+
+def test_lookahead_hysteresis_keeps_it_on_past_the_threshold() -> None:
+    """Once shown, it stays until 30 m past the threshold, so GPS jitter
+    around 300 m doesn't blink it at 1 Hz."""
+    on = _swift_lookahead_decision(True, True, 300.0, 300.0)
+    assert on
+    assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=True) is True
+    assert _swift_lookahead_decision(True, True, 320.0, 300.0, shown=False) is False
+    assert _swift_lookahead_decision(True, True, 331.0, 300.0, shown=True) is False
+    assert _swift_lookahead_decision(True, True, 250.0, 300.0, is_wrong_way=True) is False
+
+
+def test_swift_lookahead_has_hysteresis() -> None:
+    import pathlib
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    src = (repo_root / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
+    assert "nonisolated static let lookaheadHysteresisMeters: Double = 30" in src
+    assert "|| (lookaheadShownFor == stepToken && distNext <= settings.lookaheadThresholdMeters + Self.lookaheadHysteresisMeters)" in src
+    assert "lookaheadShownFor = emitSecondary ? stepToken : nil" in src
+    # Reset on stop() and in the free-ride branch, so a new route doesn't
+    # start with a stretched threshold.
+    stop = src[src.index("    func stop() {"):src.index("\n    }\n", src.index("    func stop() {"))]
+    assert "lookaheadShownFor = nil" in stop
+    free = src[src.index("guard nav.isNavigating else {"):]
+    free = free[:free.index("return")]
+    assert "lookaheadShownFor = nil" in free
 
 
 def test_lookahead_default_threshold_is_300m() -> None:

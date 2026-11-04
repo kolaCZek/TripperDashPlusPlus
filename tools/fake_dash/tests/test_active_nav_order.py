@@ -81,7 +81,6 @@ def _swift_packet_source() -> str:
 def make_active_nav_order(
     *,
     road_name: bool = False,
-    secondary: bool = False,
     eta: bool = False,
     remaining: bool = False,
 ) -> list[tuple[int, int]]:
@@ -92,13 +91,15 @@ def make_active_nav_order(
     segs: list[tuple[int, int]] = []
     if road_name:
         segs.append((NAV_INFO, SUB_ROAD_NAME))
+    # Primary and look-ahead interleaved per field, as in `_NAV_FULL`. The
+    # look-ahead is in every packet (a hidden glyph when there is none),
+    # so one that ends is overwritten, not latched.
     segs.append((NAV_INFO, SUB_PRIMARY_MANEUVER))
+    segs.append((NAV_INFO, SUB_SECONDARY_MANEUVER))
     segs.append((NAV_INFO, SUB_PRIMARY_DISTANCE))
+    segs.append((NAV_INFO, SUB_SECONDARY_DISTANCE))
     segs.append((NAV_INFO, SUB_PRIMARY_UNIT))
-    if secondary:
-        segs.append((NAV_INFO, SUB_SECONDARY_MANEUVER))
-        segs.append((NAV_INFO, SUB_SECONDARY_DISTANCE))
-        segs.append((NAV_INFO, SUB_SECONDARY_UNIT))
+    segs.append((NAV_INFO, SUB_SECONDARY_UNIT))
     if eta:
         segs.append((NAV_INFO, SUB_ETA))
         segs.append((NAV_INFO, SUB_ETA_FORMAT))        # MUST follow ETA
@@ -125,41 +126,44 @@ def _assert_adjacent(order: list[tuple[int, int]], value_sub: int, unit_sub: int
     )
 
 
-@pytest.mark.parametrize("road_name,secondary,eta,remaining", [
-    (False, False, False, False),  # minimal 8-TLV packet
-    (False, False, True, False),   # + ETA
-    (True, True, True, False),     # road name + secondary + ETA
-    (False, False, False, True),   # + remaining time
-    (True, True, True, True),      # everything
+@pytest.mark.parametrize("road_name,eta,remaining", [
+    (False, False, False),  # minimal packet
+    (False, True, False),   # + ETA
+    (True, True, False),    # road name + ETA
+    (False, False, True),   # + remaining time
+    (True, True, True),     # everything
 ])
-def test_total_distance_unit_immediately_follows_value(road_name, secondary, eta, remaining):
+def test_total_distance_unit_immediately_follows_value(road_name, eta, remaining):
     order = make_active_nav_order(
-        road_name=road_name, secondary=secondary, eta=eta, remaining=remaining
+        road_name=road_name, eta=eta, remaining=remaining
     )
     _assert_adjacent(order, SUB_TOTAL_DISTANCE, SUB_TOTAL_DISTANCE_UNIT)
 
 
-@pytest.mark.parametrize("road_name,secondary,remaining", [
-    (False, False, False),
-    (True, True, False),
-    (False, False, True),
-    (True, True, True),
+@pytest.mark.parametrize("road_name,remaining", [
+    (False, False),
+    (True, False),
+    (False, True),
+    (True, True),
 ])
-def test_eta_format_immediately_follows_eta(road_name, secondary, remaining):
+def test_eta_format_immediately_follows_eta(road_name, remaining):
     order = make_active_nav_order(
-        road_name=road_name, secondary=secondary, eta=True, remaining=remaining
+        road_name=road_name, eta=True, remaining=remaining
     )
     _assert_adjacent(order, SUB_ETA, SUB_ETA_FORMAT)
 
 
 def test_minimal_packet_exact_order():
-    """Pin the canonical 8-TLV order against the better-dash authority
-    `build_active_nav_packet` (primary man/dist/unit → total → total-unit
-    → decimal-sep → projection → decimal-flag)."""
+    """Pin the minimal order: primary and look-ahead interleaved as in
+    `_NAV_FULL`, then total → total-unit → decimal-sep → projection →
+    decimal-flag (better-dash `build_active_nav_packet`)."""
     assert make_active_nav_order() == [
         (NAV_INFO, SUB_PRIMARY_MANEUVER),
+        (NAV_INFO, SUB_SECONDARY_MANEUVER),
         (NAV_INFO, SUB_PRIMARY_DISTANCE),
+        (NAV_INFO, SUB_SECONDARY_DISTANCE),
         (NAV_INFO, SUB_PRIMARY_UNIT),
+        (NAV_INFO, SUB_SECONDARY_UNIT),
         (NAV_INFO, SUB_TOTAL_DISTANCE),
         (NAV_INFO, SUB_TOTAL_DISTANCE_UNIT),
         (NAV_INFO, SUB_DECIMAL_SEPARATOR),
@@ -266,7 +270,7 @@ def test_swift_append_order_matches_python_mirror():
     swift_subs = [_BUILDER_SUB[n] for n in names]
     mirror_subs = [
         sub for (_t, sub) in make_active_nav_order(
-            road_name=True, secondary=True, eta=True, remaining=True
+            road_name=True, eta=True, remaining=True
         )
     ]
     assert swift_subs == mirror_subs, (
@@ -274,3 +278,23 @@ def test_swift_append_order_matches_python_mirror():
         f"  Swift : {[hex(s) for s in swift_subs]}\n"
         f"  Mirror: {[hex(s) for s in mirror_subs]}"
     )
+
+
+def test_swift_order_matches_the_real_phone_capture():
+    """The Swift nav-info order, with everything present, must be the
+    `_NAV_FULL` capture's order (the dash pairs fields by position). The
+    capture leaves out the zero primary distance (05 04) and the road name
+    is first in both; compare the capture's subs in Swift's emit order."""
+    import binascii
+    from tests.test_eta_format_capture import NAV_FULL_HEX
+    captured = [s.sub for s in decode_packet(binascii.unhexlify(NAV_FULL_HEX)) if s.type == NAV_INFO]
+    names = [n for n in _swift_make_active_nav_append_order()
+             if n not in ("tlvProjectionFlag", "tlvDecimalFlag")]   # type 0x06, not nav-info
+    swift_nav = [_BUILDER_SUB[n] for n in names]
+    common = [sub for sub in swift_nav if sub in captured]
+    assert common == [sub for sub in captured if sub in swift_nav], (
+        f"Swift {[hex(x) for x in common]} vs capture {[hex(x) for x in captured]}"
+    )
+    # The look-ahead block itself is in capture order.
+    assert swift_nav[1:7] == [SUB_PRIMARY_MANEUVER, SUB_SECONDARY_MANEUVER, SUB_PRIMARY_DISTANCE,
+                              SUB_SECONDARY_DISTANCE, SUB_PRIMARY_UNIT, SUB_SECONDARY_UNIT]

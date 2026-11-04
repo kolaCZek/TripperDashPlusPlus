@@ -43,7 +43,9 @@ the distance only.
 
 The rest of the active-nav packet (ETA, total distance, road name,
 second maneuver) is not drawn over the stream. The ETA shows in the gold
-band below the frame; the others did not show at all.
+band below the frame; the others did not show at all. The second
+maneuver was sent as 2 bytes then (`05 03 0002 <code> 00`); the real
+phone sends 1 byte, so it needs a retest with the 1-byte form.
 
 It was measured with "888 m" and a right-turn glyph. The disc itself is a
 fixed shape; only its content changes.
