@@ -1659,8 +1659,10 @@ final class AppStatus {
     /// one. Checked in the background, before the app is brought forward:
     /// a "joined the bike's Wi-Fi" automation fires again when the phone
     /// rejoins after a drop mid-ride, and that repeat must not open the app.
-    func freeRideShortcutRefusal() async -> String? {
-        switch await freeRideDecision() {
+    func freeRideShortcutRefusal(_ decided: ShortcutPolicy.FreeRide? = nil) async -> String? {
+        let decision: ShortcutPolicy.FreeRide
+        if let decided { decision = decided } else { decision = await freeRideDecision() }
+        switch decision {
         case .alreadyRiding: "Already riding."
         case .alreadyStarting: "Already starting your ride."
         case .planStaged: "A planned route is in TripperDash++, so free ride wasn't started."
@@ -1672,9 +1674,12 @@ final class AppStatus {
     }
 
     /// "Start free ride", with the app in the foreground. Re-decides: the
-    /// state may have changed while iOS asked to open the app.
-    func startFreeRideFromShortcut() async {
-        switch await freeRideDecision() {
+    /// state may have changed while iOS asked to open the app. `decided`:
+    /// a caller already in the foreground (a widget tap) decided once.
+    func startFreeRideFromShortcut(_ decided: ShortcutPolicy.FreeRide? = nil) async {
+        let decision: ShortcutPolicy.FreeRide
+        if let decided { decision = decided } else { decision = await freeRideDecision() }
+        switch decision {
         case .alreadyRiding, .alreadyStarting, .planStaged, .handConnecting, .handConnected, .noBike:
             return
         case .startNow:
@@ -1797,7 +1802,9 @@ final class AppStatus {
             // A deliberate tap: a link the rider brought up (or is bringing
             // up) by hand is theirs to ride; those refusals are for a
             // Wi-Fi-join automation.
-            switch await freeRideDecision() {
+            // Decided once: the app is already in the foreground.
+            let decision = await freeRideDecision()
+            switch decision {
             case .handConnected:
                 await startFreeRide()
                 reply = nil
@@ -1805,8 +1812,8 @@ final class AppStatus {
                 pendingRideRequest = .freeRide   // observeBikeLink starts it on .connected
                 reply = nil
             default:
-                reply = await freeRideShortcutRefusal()
-                if reply == nil { await startFreeRideFromShortcut() }
+                reply = await freeRideShortcutRefusal(decision)
+                if reply == nil { await startFreeRideFromShortcut(decision) }
             }
         } else if handPlanStaged && !activeNavigator.isNavigating {
             // Decided at the tap, like the intents: a Start the rider taps
@@ -1824,7 +1831,7 @@ final class AppStatus {
                 if let fix = locationService.lastFix, -fix.timestamp.timeIntervalSinceNow < 30 {
                     do {
                         dest = try await LocalSearchService.nearestFuel(to: fix.coordinate)
-                        missing = "No fuel station within 20 km."
+                        missing = "No fuel station nearby."
                     } catch {
                         missing = "Couldn't search for fuel stations. Check your connection."
                     }
@@ -1894,7 +1901,7 @@ final class AppStatus {
         }
         if ownPlan { cancelPlanning() }
         // A widget-staged plan is the rider's: only its connect is stopped.
-        return ownPlan || plannedRoute == nil ? "Ride cancelled." : "Connect stopped. Your planned route was left as is."
+        return ownPlan || plannedRoute == nil ? "Ride cancelled." : "Navigation won't start. Your planned route was left as is."
     }
 
     /// "How far to go?" — spoken by Siri, so whole words, no H:MM:SS.
