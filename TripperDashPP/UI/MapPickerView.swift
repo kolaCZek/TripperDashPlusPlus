@@ -209,7 +209,7 @@ struct MapPickerView: View {
                             .foregroundStyle(.red)
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .multilineTextAlignment(.center)
-                            .background(.regularMaterial, in: Capsule())
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .padding(.horizontal, 16)
                             .padding(.top, 48)
                         Spacer()
@@ -356,7 +356,13 @@ struct MapPickerView: View {
             handleLinkStateForAutoStart(newState)
             consumeRideRequest()
         }
-        .onChange(of: status.pendingRideRequest, initial: true) { _, _ in consumeRideRequest() }
+        .onChange(of: status.pendingRideRequest, initial: true) { old, new in
+            // A navigate request withdrawn (Stop Ride, a failed route, a
+            // dropped connect) also disarms the auto-start it armed: the
+            // widget's plan stays staged, so `isPlanning` doesn't disarm it.
+            if old == .navigate && new == nil { pendingAutoStart = false }
+            consumeRideRequest()
+        }
         .onChange(of: status.rideStats.state) { _, newState in
             // A new leg started folding again (begin() after a paused
             // post-arrival freeze) — clear a prior manual dismissal so

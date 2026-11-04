@@ -60,6 +60,12 @@ class WidgetWiringTests(unittest.TestCase):
         # A deliberate Free Ride tap rides a hand link, or arms one coming up.
         self.assertRegex(body, r"case \.handConnected:\s*await startFreeRide\(\)")
         self.assertRegex(body, r"case \.handConnecting:\s*pendingRideRequest = \.freeRide")
+        # Stop Ride withdrawing a widget plan's request disarms its auto-start.
+        picker_src = strip_comments((ROOT / "UI/MapPickerView.swift").read_text())
+        self.assertIn("if old == .navigate && new == nil { pendingAutoStart = false }", picker_src)
+        # Free Ride decides once and hands that decision on.
+        self.assertIn("freeRideShortcutRefusal(decision)", body)
+        self.assertIn("startFreeRideFromShortcut(decision)", body)
         # The notice is drawn outside the planner, in every mode.
         picker = strip_comments((ROOT / "UI/MapPickerView.swift").read_text())
         self.assertIn("if let notice = status.widgetNotice", decl_body(picker, "var body: some View"))
