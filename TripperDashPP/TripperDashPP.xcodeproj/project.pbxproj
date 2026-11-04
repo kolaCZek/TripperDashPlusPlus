@@ -32,6 +32,7 @@
 		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
 		7EED000000000000000000F1 /* ManeuverDistanceTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */; };
 		7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */; };
+		5C17000000000000000000B1 /* ShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C17000000000000000000B0 /* ShortcutPolicyTests.swift */; };
 		A486F0482FE2034700AA36C3 /* TripperDashPPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */; };
 		A486F0492FE2034700AA36C3 /* MapPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0442FE2034700AA36C3 /* MapPickerView.swift */; };
 		A486F04A2FE2034700AA36C3 /* AppStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0412FE2034700AA36C3 /* AppStatus.swift */; };
@@ -44,6 +45,7 @@
 		A486F06A2FE2DD0800AA36C3 /* K1GPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */; };
 		A486F06B2FE2DD0800AA36C3 /* K1GConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A486F0622FE2DD0800AA36C3 /* K1GConstants.swift */; };
 		A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B6F0002FE6000000AA36C3 /* LocationService.swift */; };
+		5C17000000000000000000A1 /* RideIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C17000000000000000000A0 /* RideIntents.swift */; };
 		A4C7000000000000000A1001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
 		A4C7000000000000000A2001 /* RideActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000A0001 /* RideActivityAttributes.swift */; };
 		A4C7000000000000000B1001 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C7000000000000000B0001 /* LiveActivityController.swift */; };
@@ -201,6 +203,7 @@
 		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverDistanceTextTests.swift; sourceTree = "<group>"; };
 		7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectBudgetTests.swift; sourceTree = "<group>"; };
+		5C17000000000000000000B0 /* ShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutPolicyTests.swift; sourceTree = "<group>"; };
 		A41A9C4D2FE20258009BF005 /* TripperDashPP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TripperDashPP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A486F0412FE2034700AA36C3 /* AppStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStatus.swift; sourceTree = "<group>"; };
 		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
@@ -215,6 +218,7 @@
 		A486F0632FE2DD0800AA36C3 /* K1GPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K1GPacket.swift; sourceTree = "<group>"; };
 		A486F0642FE2DD0800AA36C3 /* RsaHandshake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RsaHandshake.swift; sourceTree = "<group>"; };
 		A4B6F0002FE6000000AA36C3 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		5C17000000000000000000A0 /* RideIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideIntents.swift; sourceTree = "<group>"; };
 		A4C7000000000000000A0001 /* RideActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideActivityAttributes.swift; sourceTree = "<group>"; };
 		A4C7000000000000000B0001 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
 		A4C7000000000000000C0001 /* RideLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RideLiveActivity.swift; sourceTree = "<group>"; };
@@ -364,6 +368,7 @@
 				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */,
 				7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */,
+				5C17000000000000000000B0 /* ShortcutPolicyTests.swift */,
 				7E57000000000000000000A8 /* NextWaypointLabelTests.swift */,
 				A4F0FFFF000000000000E201 /* VoicePhraseTests.swift */,
 				A4F0FFFF000000000000E202 /* VoicePromptSchedulerTests.swift */,
@@ -427,6 +432,7 @@
 				A486F0412FE2034700AA36C3 /* AppStatus.swift */,
 				A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */,
 				A4B6F0002FE6000000AA36C3 /* LocationService.swift */,
+				5C17000000000000000000A0 /* RideIntents.swift */,
 				A4F0FFFF000000000000E001 /* VoiceNavigator.swift */,
 				A4DE70000000000000D00001 /* DemoDashModel.swift */,
 			);
@@ -808,6 +814,7 @@
 				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7EED000000000000000000F1 /* ManeuverDistanceTextTests.swift in Sources */,
 				7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */,
+				5C17000000000000000000B1 /* ShortcutPolicyTests.swift in Sources */,
 				7E57000000000000000000A9 /* NextWaypointLabelTests.swift in Sources */,
 				A4F0FFFF000000000000E301 /* VoicePhraseTests.swift in Sources */,
 				A4F0FFFF000000000000E302 /* VoicePromptSchedulerTests.swift in Sources */,
@@ -887,6 +894,7 @@
 				7E5700000000000000000A66 /* RideHistoryView.swift in Sources */,
 				A486F04C2FE2034700AA36C3 /* RootView.swift in Sources */,
 				A4B6F0012FE6000000AA36C3 /* LocationService.swift in Sources */,
+				5C17000000000000000000A1 /* RideIntents.swift in Sources */,
 				B1DEA1E700000000000000A1 /* WeatherAlertService.swift in Sources */,
 				B1DEA1E700000000000000B1 /* SpeedCameraService.swift in Sources */,
 				B1DEA1E700000000000000F1 /* SpeedCameraAnnouncer.swift in Sources */,
@@ -970,7 +978,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1001,7 +1009,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashShare;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1024,7 +1032,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1045,7 +1053,7 @@
 				DEVELOPMENT_TEAM = KGL8J75LNN;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPPTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1205,7 +1213,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1245,7 +1253,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1278,7 +1286,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1309,7 +1317,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.4;
+				MARKETING_VERSION = 1.0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = eu.kolaczek.TripperDashPP.TripperDashWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
