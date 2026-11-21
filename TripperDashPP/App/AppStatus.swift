@@ -438,6 +438,7 @@ final class AppStatus {
         if let s = _mapViewSource { return s }
         let s = MapViewSource(locationService: locationService,
                               activeNavigator: activeNavigator)
+        s.perspectiveEnabled = mapStyleSettings.perspective
         _mapViewSource = s
         return s
     }
@@ -2610,6 +2611,12 @@ final class AppStatus {
         effectiveMapStyle = next
         lastStyleSwitchAt = Date()
         mapViewSource.setMapStyle(next)
+    }
+
+    /// Settings → Map → 3D map. Persists and applies from the next frame.
+    func setMapPerspective(_ on: Bool) {
+        mapStyleSettings.perspective = on
+        mapViewSource.perspectiveEnabled = on
     }
 
     // MARK: - Build info (handy in the diagnostics overlay)

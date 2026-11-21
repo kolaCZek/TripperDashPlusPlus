@@ -172,6 +172,15 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
         }
     }
 
+    /// Sky of the tilted (3D) map, RGB 0–255: overhead, then at the
+    /// horizon. Day is a clear blue; night stays dark so it doesn't glare.
+    var skyColors: (top: SIMD3<Double>, horizon: SIMD3<Double>) {
+        switch self {
+        case .light: return (SIMD3(52, 120, 214), SIMD3(170, 205, 240))
+        case .dark:  return (SIMD3(6, 10, 24), SIMD3(26, 38, 64))
+        }
+    }
+
     /// Ink colour for the baked-in attribution text. Drawn AFTER the
     /// composite recolour, so it is in the FINAL palette: dark ink over
     /// the light map, light ink over the dark map.

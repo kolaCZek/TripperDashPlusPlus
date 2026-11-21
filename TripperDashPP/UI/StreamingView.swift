@@ -273,12 +273,18 @@ struct StreamingView: View {
                                    value: status.effectiveMapStyle == .dark ? "Dark" : "Light")
                 }
                 Toggle(isOn: Binding(
+                    get: { status.mapStyleSettings.perspective },
+                    set: { status.setMapPerspective($0) }
+                )) {
+                    Text("3D map")
+                }
+                Toggle(isOn: Binding(
                     get: { status.dashNavSettings.progressBarEnabled },
                     set: { status.dashNavSettings.progressBarEnabled = $0 }
                 )) {
                     Text("Route progress bar")
                 }
-                Text("Auto follows local sunrise and sunset from your GPS position.")
+                Text("Auto follows local sunrise and sunset from your GPS position. 3D tilts the map towards the road ahead and flattens it when you zoom out.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
