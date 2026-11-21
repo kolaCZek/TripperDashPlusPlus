@@ -43,7 +43,7 @@ on the distribution.
 
 ## Changelog
 
-`changelog/index.html` lists every version newest first, each with a label: **On the App Store**, **TestFlight only** or **In progress** (merged for the next version, in no build yet). When a build goes to TestFlight or a version is released, change its label and date; when a PR lands on `main`, add it to the In progress block.
+`site/changelog/index.html` has three sections: **In progress** (merged for the next version, in no build yet), **In testing** (in the TestFlight beta) and **Released** (on the App Store, with the older beta-only builds under "Earlier beta builds"). When a build goes to TestFlight or a version is released, move its block to the next section and fix its date; when a PR lands on `main`, add it to In progress.
 
 ## Content rules
 
