@@ -57,12 +57,12 @@ def test_export_reads_own_entries_off_main_and_shares_a_file():
     assert "@State private var canExportLog = false" in view
     section = decl_body(src, "private struct LogExportSection: View")
     gate = decl_body(section, "nonisolated static func isAvailable(")
-    # The StoreKit path sits outside `#if`, so CI's Debug build compiles it.
-    assert "#else" not in gate
-    flag = gate[gate.index("#if DEBUG"):gate.index("#endif")]
-    assert "debug = true" in flag and "return" not in flag
-    store = gate[gate.index("#endif"):]
-    assert store.index("if debug { return true }") < store.index("AppTransaction.shared")
+    # Debug always shows it; Release asks StoreKit. The StoreKit check is
+    # its own function outside `#if`, so CI's Debug build still compiles it
+    # (and Debug gets no "will never be executed" warning).
+    assert re.search(r"#if DEBUG\s+return true\s+#else\s+return await isNotAppStoreBuild\(\)\s+#endif", gate)
+    store = decl_body(section, "nonisolated private static func isNotAppStoreBuild(")
+    assert "#if" not in section[section.index("func isNotAppStoreBuild("):section.index("var body")]
     assert "try? await AppTransaction.shared else { return false }" in store
     assert "return result.unsafePayloadValue.environment != .production" in store
     scheme = (APP / "TripperDashPP.xcodeproj/xcshareddata/xcschemes/TripperDashPP.xcscheme").read_text()
