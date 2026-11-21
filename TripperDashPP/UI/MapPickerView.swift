@@ -199,6 +199,22 @@ struct MapPickerView: View {
                             .padding(.bottom, 12)
                     }
                 }
+
+                // Every mode: a widget tap can come in while browsing or riding.
+                // Below the planner's own banner (`planningBanner`).
+                if let notice = status.widgetNotice {
+                    VStack {
+                        Label(notice, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .multilineTextAlignment(.center)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .padding(.horizontal, 16)
+                            .padding(.top, 48)
+                        Spacer()
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -340,7 +356,13 @@ struct MapPickerView: View {
             handleLinkStateForAutoStart(newState)
             consumeRideRequest()
         }
-        .onChange(of: status.pendingRideRequest, initial: true) { _, _ in consumeRideRequest() }
+        .onChange(of: status.pendingRideRequest, initial: true) { old, new in
+            // A navigate request withdrawn (Stop Ride, a failed route, a
+            // dropped connect) also disarms the auto-start it armed: the
+            // widget's plan stays staged, so `isPlanning` doesn't disarm it.
+            if old == .navigate && new == nil { pendingAutoStart = false }
+            consumeRideRequest()
+        }
         .onChange(of: status.rideStats.state) { _, newState in
             // A new leg started folding again (begin() after a paused
             // post-arrival freeze) — clear a prior manual dismissal so
@@ -1576,10 +1598,13 @@ struct MapPickerView: View {
         arrivalTask?.cancel()
         arrivalTask = nil
         transitioning = true
+        let byRequest = status.pendingRideRequest == .navigate
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             // Stop Ride cancelled the plan during the beat: don't start it.
-            guard status.plannedRoute === plan else {
+            // A widget-staged plan stays staged, so Stop Ride only withdraws
+            // the request that started it.
+            guard status.plannedRoute === plan, !(byRequest && status.pendingRideRequest == nil) else {
                 transitioning = false
                 consumeRideRequest()   // a shortcut's plan that replaced it
                 return
