@@ -171,6 +171,13 @@ struct StreamingView: View {
                     )) {
                         Text("Speak speed-camera alerts")
                     }
+
+                    Toggle(isOn: Binding(
+                        get: { status.dashNavSettings.voiceSpeedLimitEnabled },
+                        set: { status.dashNavSettings.voiceSpeedLimitEnabled = $0 }
+                    )) {
+                        Text("Speak speed-limit warnings")
+                    }
                 }
             }
 

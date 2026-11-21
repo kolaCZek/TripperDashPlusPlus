@@ -371,3 +371,43 @@ struct SpeedSectionTracker {
             limitKmh: cur.section.maxspeedKmh)
     }
 }
+
+// MARK: - Speed-limit warning
+
+/// Pure "speak the speed limit now?" decision, fed once per tick while a
+/// sign is shown, with its number (display unit) and the renderer's
+/// over-limit state. Ticks without a sign are skipped by the caller and
+/// change nothing. Says it once per over-limit episode:
+///   - an episode ends only after `rearmSeconds` back under the limit;
+///   - a different posted limit re-arms at once (a new sign is news);
+///   - never two warnings within `cooldownSeconds`.
+struct SpeedLimitWarner {
+    static let rearmSeconds: TimeInterval = 10
+    static let cooldownSeconds: TimeInterval = 60
+
+    private var armed = true
+    private var lastLimit: Int?
+    private var underSince: Date?
+    private var lastSpoken: Date?
+
+    mutating func shouldSpeak(limit: Int, over: Bool, now: Date) -> Bool {
+        if limit != lastLimit {
+            lastLimit = limit
+            armed = true
+        }
+        guard over else {
+            let since = underSince ?? now
+            underSince = since
+            if now.timeIntervalSince(since) >= Self.rearmSeconds { armed = true }
+            return false
+        }
+        underSince = nil
+        guard armed else { return false }
+        if let lastSpoken, now.timeIntervalSince(lastSpoken) < Self.cooldownSeconds {
+            return false
+        }
+        armed = false
+        lastSpoken = now
+        return true
+    }
+}

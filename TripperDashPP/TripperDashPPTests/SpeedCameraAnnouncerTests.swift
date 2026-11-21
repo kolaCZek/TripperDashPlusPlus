@@ -377,3 +377,56 @@ struct SpeedCameraAnnouncerTests {
         #expect(!covered.contains(.init(south: 50.02, west: 14.02, north: 50.2, east: 14.08)))
     }
 }
+
+/// "Speak the speed limit now?" — once per over-limit episode, re-armed by
+/// time back under the limit or a new limit, with a global cooldown.
+struct SpeedLimitWarnerTests {
+
+    private let t0 = Date(timeIntervalSince1970: 1_000_000)
+    private func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
+
+    @Test func speaksOncePerEpisode() {
+        var w = SpeedLimitWarner()
+        #expect(!w.shouldSpeak(limit: 50, over: false, now: at(0)))
+        #expect(w.shouldSpeak(limit: 50, over: true, now: at(1)))
+        for s in 2...300 {
+            #expect(!w.shouldSpeak(limit: 50, over: true, now: at(TimeInterval(s))))
+        }
+    }
+
+    @Test func shortDipUnderDoesNotRearm() {
+        var w = SpeedLimitWarner()
+        #expect(w.shouldSpeak(limit: 50, over: true, now: at(0)))
+        #expect(!w.shouldSpeak(limit: 50, over: false, now: at(100)))
+        #expect(!w.shouldSpeak(limit: 50, over: false, now: at(105)))   // 5 s < rearm
+        #expect(!w.shouldSpeak(limit: 50, over: true, now: at(106)))
+    }
+
+    @Test func rearmsAfterTimeUnder() {
+        var w = SpeedLimitWarner()
+        #expect(w.shouldSpeak(limit: 50, over: true, now: at(0)))
+        #expect(!w.shouldSpeak(limit: 50, over: false, now: at(100)))
+        #expect(!w.shouldSpeak(limit: 50, over: false,
+                               now: at(100 + SpeedLimitWarner.rearmSeconds)))
+        #expect(w.shouldSpeak(limit: 50, over: true, now: at(115)))
+    }
+
+    @Test func limitChangeRearms() {
+        var w = SpeedLimitWarner()
+        #expect(w.shouldSpeak(limit: 90, over: true, now: at(0)))
+        #expect(!w.shouldSpeak(limit: 90, over: true, now: at(70)))
+        // Same episode, but a new sign → warn again (cooldown has passed).
+        #expect(w.shouldSpeak(limit: 50, over: true, now: at(71)))
+    }
+
+    @Test func cooldownHoldsEvenWhenRearmed() {
+        var w = SpeedLimitWarner()
+        #expect(w.shouldSpeak(limit: 90, over: true, now: at(0)))
+        // New limit re-arms, but only 20 s since the last warning.
+        #expect(!w.shouldSpeak(limit: 50, over: true, now: at(20)))
+        #expect(!w.shouldSpeak(limit: 50, over: true, now: at(59)))
+        // Still over, still armed: speaks once the cooldown is over.
+        #expect(w.shouldSpeak(limit: 50, over: true,
+                              now: at(SpeedLimitWarner.cooldownSeconds)))
+    }
+}

@@ -94,6 +94,10 @@ final class ActiveNavLoop {
     /// maneuver prompt scheduler.
     private var cameraAnnouncer = SpeedCameraAnnouncer()
 
+    /// "Speak the speed limit now?" state. Runs in free ride too; reset on
+    /// stop() only, so a nav ⇄ free-ride switch doesn't re-warn.
+    private var speedLimitWarner = SpeedLimitWarner()
+
     /// Speed cameras loaded for the current route, in the primitive form the
     /// announcer consumes. Pushed by AppStatus via `setSpeedCameras(_:)`
     /// when the loop is created (seeded from the last prefetch result),
@@ -171,6 +175,7 @@ final class ActiveNavLoop {
         sectionTracker.reset()
         mapSource?.setSpeedSection(nil)
         sunsetPill = nil
+        speedLimitWarner = SpeedLimitWarner()
     }
 
     // MARK: - Speed cameras
@@ -250,6 +255,7 @@ final class ActiveNavLoop {
                 toleranceKmh: settings.speedLimitOverToleranceKmh,
                 imperial: settings.units == .imperial
             )
+            emitSpeedLimitVoice()
             return
         }
 
@@ -618,6 +624,7 @@ final class ActiveNavLoop {
             toleranceKmh: settings.speedLimitOverToleranceKmh,
             imperial: settings.units == .imperial
         )
+        emitSpeedLimitVoice()
 
         // 3. (Removed) the per-maneuver file-based diagnostic writer.
     }
@@ -737,6 +744,31 @@ final class ActiveNavLoop {
 
         let lang = settings.voiceLanguage
         voice.speak(VoicePhrase.speedCamera(lang),
+                    language: lang.rawValue, priority: .maneuver)
+    }
+
+    // MARK: - Speed-limit voice
+
+    /// Speak "Speed limit N" once per over-limit episode. "Over" is the map
+    /// source's own `isOverSpeedLimit` (the state the dash sign uses: GPS
+    /// speed > limit + tolerance), so there is no second threshold; N is the
+    /// number the sign shows. `SpeedLimitWarner` decides when. Called from
+    /// both the navigating and the free-ride branch of `tick`.
+    private func emitSpeedLimitVoice() {
+        guard let voice, let mapSource,
+              settings.voiceEnabled,
+              settings.voiceSpeedLimitEnabled,
+              let kmh = mapSource.currentLimitKmh   // no sign → nothing to say
+        else { return }
+        let limit = MapViewSource.displayLimit(kmh: kmh, imperial: settings.units == .imperial)
+        guard speedLimitWarner.shouldSpeak(limit: limit,
+                                           over: mapSource.isOverSpeedLimit,
+                                           now: Date())
+        else { return }
+        let lang = settings.voiceLanguage
+        // ponytail: a busy synth drops this (equal priority) and the episode
+        // still counts as warned, same as camera callouts; queue if riders miss it.
+        voice.speak(VoicePhrase.speedLimit(limit, language: lang),
                     language: lang.rawValue, priority: .maneuver)
     }
 

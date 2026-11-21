@@ -221,6 +221,14 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
+    /// Also speak "Speed limit N" once when the rider goes over the posted
+    /// limit (same over-limit state as the dash sign, see
+    /// `SpeedLimitWarner`). Needs `voiceEnabled` and a speed-limit sign that
+    /// isn't `.off`. Defaults OFF — a nagging voice is opt-in.
+    var voiceSpeedLimitEnabled: Bool = false {
+        didSet { persist() }
+    }
+
     /// When to show the posted-speed-limit traffic sign. Defaults to
     /// `.always` — most riders want the current limit visible at a glance.
     /// `.off` skips the Overpass fetch entirely.
@@ -479,6 +487,7 @@ final class DashNavSettings {
         var voiceEnabled: Bool?
         var voiceLanguage: VoiceLanguage?
         var voiceSpeedCameraEnabled: Bool?
+        var voiceSpeedLimitEnabled: Bool?
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
@@ -505,6 +514,7 @@ final class DashNavSettings {
         self.voiceEnabled = p.voiceEnabled ?? false
         self.voiceLanguage = p.voiceLanguage ?? .deviceDefault
         self.voiceSpeedCameraEnabled = p.voiceSpeedCameraEnabled ?? true
+        self.voiceSpeedLimitEnabled = p.voiceSpeedLimitEnabled ?? false
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
         self.progressBarEnabled = p.progressBarEnabled ?? true
@@ -525,6 +535,7 @@ final class DashNavSettings {
             voiceEnabled: voiceEnabled,
             voiceLanguage: voiceLanguage,
             voiceSpeedCameraEnabled: voiceSpeedCameraEnabled,
+            voiceSpeedLimitEnabled: voiceSpeedLimitEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
             progressBarEnabled: progressBarEnabled
