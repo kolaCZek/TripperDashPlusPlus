@@ -1856,7 +1856,7 @@ final class AppStatus {
                 let said: String
                 let legIndex = activeNavigator.currentLegIndex
                 let ahead = running.map { PlannedRoute.remainingStops(of: $0, fromLegIndex: legIndex) } ?? []
-                if to == "fuel", let running, running.isEditableMidRide,
+                if to == "fuel", running?.isEditableMidRide == true,
                    let next = ahead.first, Self.isSameSpot(next.coordinate, dest.coordinate) {
                     // The next stop already is this station (a planned fuel
                     // stop): the rider is heading there, nothing to add.
