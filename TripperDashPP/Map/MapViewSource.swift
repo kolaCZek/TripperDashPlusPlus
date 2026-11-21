@@ -1549,6 +1549,9 @@ extension MapViewSource {
 
         // Map into the ground buffer when tilted, else into the frame.
         let target = activeGround ?? ctx
+        // Layer-compensated zoom (see the scale step below); outside the
+        // block because the markers after it need it too.
+        let drawZoom = drawScale(of: tile)
         do {
             let ctx = target
             ctx.saveGState()
@@ -1580,7 +1583,6 @@ extension MapViewSource {
             // `currentZoom` would render it too small (coarse) or too large
             // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
             // ground scale is identical whichever layer supplied the tile.
-            let drawZoom = drawScale(of: tile)
             ctx.scaleBy(x: drawZoom, y: drawZoom)
 
             // Draw the tile shifted by the delta from its own centre to the
