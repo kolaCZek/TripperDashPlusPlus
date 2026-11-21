@@ -8,7 +8,8 @@
 //  Shows every saved route (name, start → end, distance in the
 //  rider's unit), supports swipe-to-delete, and offers "Import GPX"
 //  which drives the system document picker. Tapping a route pushes
-//  `SavedRouteDetailView` (rename / delete / start navigation).
+//  `SavedRouteDetailView` (rename / edit points / export as GPX / delete /
+//  start navigation).
 //
 //  Persistence + import live in SavedRoutesStore / GPXImporter; this
 //  view is pure presentation + the .fileImporter glue.

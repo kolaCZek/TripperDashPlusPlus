@@ -34,7 +34,8 @@
 //  Capabilities:
 //   - long-press → drop pin → `onTap(coord)` callback
 //   - selected pin annotation rendered as a red mappin marker.
-//   - route polyline overlay rendered as a fat blue stroke
+//   - optional route polyline overlay rendered as a fat blue stroke
+//     (`routePolyline`; MapPickerView doesn't currently pass one)
 //
 
 import MapKit

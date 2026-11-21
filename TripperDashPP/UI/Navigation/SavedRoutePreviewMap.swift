@@ -2,13 +2,13 @@
 //  SavedRoutePreviewMap.swift
 //  TripperDashPP
 //
-//  feat/saved-routes-gpx — a static thumbnail of a saved route's shape
-//  for the detail screen.
+//  feat/saved-routes-gpx — a static thumbnail of a route's shape for the
+//  saved-route detail screen and the ride-history detail screen.
 //
-//  Deliberately NOT a live MKMapView. The detail view lives inside the
-//  Saved-routes sheet, which can be pushed/popped while the picker's own
-//  live InteractiveMapView and (when streaming) MapViewSource are also
-//  competing for Apple's shared Metal pool. A live MKMapView here risks
+//  Deliberately NOT a live MKMapView. The detail view lives inside a
+//  sheet, which can be pushed/popped while the picker's own live
+//  InteractiveMapView is still mounted underneath, competing for Apple's
+//  shared Metal pool. A live MKMapView here risks
 //  the MTLDebugDevice drain assertion on dismiss — the exact failure
 //  the (since-deleted) MapPreviewView was written to avoid. So we reuse
 //  that proven recipe:
@@ -17,8 +17,8 @@
 //  snapshotter in SnapshotterPark so its command buffer drains safely.
 //
 //  Unlike the old 1 Hz MapPreviewView this is a ONE-SHOT snapshot
-//  (routes don't move), re-taken only when the points or the pixel size
-//  change (the detail screen edits points in place).
+//  (routes don't move), re-taken only when the points, the pixel size or
+//  the colour scheme change (the detail screen edits points in place).
 //
 
 import CoreLocation

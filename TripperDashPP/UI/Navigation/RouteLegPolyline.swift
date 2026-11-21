@@ -6,7 +6,7 @@
 //  alternative picking.
 //
 //  Generalises the tap-to-select-route hit-test that previously lived
-//  inside RoutePreviewSheet. There a polyline was tagged with a single
+//  inside the since-removed RoutePreviewSheet. There a polyline was tagged with a single
 //  `routeId`; here it carries `(legIndex, optionIndex)` so a tap maps
 //  back to a specific leg's specific alternative — the core of "pick
 //  the route between two waypoints by tapping it on the map".
@@ -58,7 +58,7 @@ struct LegOptionPick: Equatable {
 /// (leg, option) it selects, or nil if the nearest line is beyond the
 /// tolerance.
 ///
-/// Heuristic (carried over from RoutePreviewSheet and proven good
+/// Heuristic (carried over from the since-removed RoutePreviewSheet and proven good
 /// enough for picking between a handful of candidates): find the
 /// polyline whose nearest VERTEX is closest to the tap, then accept it
 /// only if that distance is within `tolerancePoints` screen points
@@ -76,7 +76,7 @@ struct LegOptionPick: Equatable {
 ///     divided by `MKMapPointsPerMeterAtLatitude`). See
 ///     `metersPerScreenPoint(at:)` for the MKMapView convenience.
 ///   - tolerancePoints: screen-point radius to accept (default 22,
-///     matching the prior RoutePreviewSheet value).
+///     the value RoutePreviewSheet used).
 ///   - minToleranceMeters: floor so a very zoomed-out map still accepts
 ///     a deliberate tap (default 30 m).
 func pickLegOption(tap: CLLocationCoordinate2D,

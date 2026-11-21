@@ -3,14 +3,16 @@
 //  TripperDashPP
 //
 //  feat/saved-routes-gpx — actions for a single saved route: preview its
-//  shape on a map, rename, edit its points (add / reorder / delete), delete the
-//  route, and start navigation.
+//  shape on a map, rename, edit its points (add / reorder / delete), export
+//  it as GPX, delete the route, and start navigation.
 //
 //  Start flow (rider-confirmed design):
 //    1. Analyse the route's points against the live GPS fix
 //       (`RouteStartPlanner.analyze`).
 //    2. If the nearest point isn't the first AND starting from first
-//       would be a meaningful detour backwards, ask the rider:
+//       would be a meaningful detour backwards (more than
+//       `RouteStartPlanner.promptThresholdMeters`, 300 m, and the rider
+//       isn't already at the end), ask the rider:
 //       "From the first point" / "From the nearest point".
 //    3. Hand the chosen point list to
 //       `AppStatus.beginPlanningFromSavedRoute(...)`, which builds a

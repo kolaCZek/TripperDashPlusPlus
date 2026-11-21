@@ -3,8 +3,9 @@
 //  TripperDashPP
 //
 //  feat/nav-route-overview-map — a static "progress bar" thumbnail shown
-//  on the phone HUD during active navigation. Frames the WHOLE planned
-//  route and overlays:
+//  on the phone HUD during active navigation (and, with empty route lists,
+//  as the position-only map of the free-ride HUD). Frames the WHOLE
+//  planned route and overlays:
 //    - the travelled trace (grey)   — where the rider has actually been
 //    - the route ahead (blue)       — what's left to ride (post-reroute
 //                                     this is the NEW line; the grey past
@@ -16,9 +17,8 @@
 //  Design mirrors `SavedRoutePreviewMap` (the editor's route thumbnail
 //  the rider already knows) on purpose — same MKMapSnapshotter recipe,
 //  same SnapshotterPark drain-safety, same plain-CoreGraphics overlay,
-//  no live MKMapView (so no MTLDebugDevice drain assertion racing the
-//  picker's snapshotter / the dash MapViewSource for Apple's shared
-//  Metal pool).
+//  no live MKMapView (so no MTLDebugDevice drain assertion racing other
+//  MapKit users for Apple's shared Metal pool).
 //
 //  The ONE difference that matters for a live HUD: the basemap snapshot
 //  is taken ONCE per framing (an expensive GPU op) and cached, while the

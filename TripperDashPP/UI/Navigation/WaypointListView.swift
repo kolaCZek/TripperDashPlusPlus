@@ -9,9 +9,10 @@
 //  the minimal set of dirty leg indices; this view forwards them to
 //  `onRecompute` so only the affected legs hit MKDirections.
 //
-//  Pairs with PlanningMapView (shares the same PlannedRoute instance),
-//  so reordering here redraws the map and vice-versa with no manual
-//  sync.
+//  In the planner it pairs with PlanningMapView (shares the same
+//  PlannedRoute instance), so reordering here redraws the map and
+//  vice-versa with no manual sync. EditRouteSheet reuses the list without
+//  a map, with the origin row pinned (`pinsOrigin`).
 //
 
 import SwiftUI
@@ -26,7 +27,8 @@ struct WaypointListView: View {
     let onRecompute: (Set<Int>) -> Void
 
     /// Fired when the user taps "Add stop" — owner presents the search
-    /// sheet and, on pick, inserts the waypoint + triggers recompute.
+    /// sheet and, on pick, inserts the waypoint (the planner then triggers a
+    /// recompute; the mid-ride editor defers routing to Apply).
     let onAddStop: () -> Void
 
     /// Leg indices currently being recomputed — shows a spinner on the
@@ -105,7 +107,8 @@ struct WaypointListView: View {
         .padding(.vertical, 2)
     }
 
-    /// Badge: ▶ origin, numbered intermediate stops, ⚑ destination.
+    /// Badge: location glyph for the origin, numbered intermediate stops,
+    /// checkered flag for the destination.
     @ViewBuilder
     private func stopBadge(index: Int) -> some View {
         let isOrigin = index == 0

@@ -10,7 +10,8 @@
 //  only for the legs the edit touched plus the one from here, and hands it
 //  to `ActiveNavigator.replacePlan` — the stream, ride stats and the dash
 //  projection carry on. Cancel (or a routing failure) leaves the running
-//  route untouched. Phone-side only: nothing new goes over the wire.
+//  route untouched. No new dash message type: the new route reaches the
+//  dash through the same route-changed hook a reroute uses.
 //
 
 import CoreLocation
