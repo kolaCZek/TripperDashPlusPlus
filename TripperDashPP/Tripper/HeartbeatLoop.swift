@@ -26,9 +26,10 @@ import os
 /// `K1G.heartbeatInterval` seconds until the task is cancelled. The two
 /// packets carry their own rolling sequence bytes (consumed from `seq`).
 ///
-/// Phone status (battery / charging / GPS-fix / cell-signal presence) is
-/// pulled FRESH each tick from `telemetryProvider`, a `@Sendable` closure
-/// that hops to the main actor and snapshots `DeviceTelemetry`. When the
+/// Phone status (battery / charging / GPS-fix / cell-signal presence) comes
+/// from `telemetryProvider`, a `@Sendable` closure that hops to the main
+/// actor and snapshots `DeviceTelemetry`, refreshed every tick (see the
+/// last paragraph for which tick waits for it). When the
 /// app doesn't supply one (e.g. unit tests, or before the provider is
 /// wired), the default provider returns `PhoneTelemetry.placeholder` — the
 /// same "sane phone client" constants the loop shipped before live
@@ -102,7 +103,8 @@ nonisolated struct HeartbeatLoop: Sendable {
         silence > K1G.rxSilenceTimeout && sentTicksWithoutRx >= minSentTicksForSilence
     }
 
-    /// Run until cancelled. Suspends on cancellation cleanly.
+    /// Run until cancelled, or until a hard send error or RX silence ends it
+    /// (`BikeLink.startHeartbeat` treats an uncancelled return as a link drop).
     @concurrent func run() async {
         Self.log.info("Heartbeat loop started (interval=\(K1G.heartbeatInterval)s, shape=0044+0030, live-telemetry)")
         var tick: UInt64 = 0

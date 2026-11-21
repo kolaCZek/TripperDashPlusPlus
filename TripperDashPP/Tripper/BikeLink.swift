@@ -4,12 +4,18 @@
 //
 //  Top-level orchestrator that owns the K1G control-plane state machine.
 //
-//      idle ─→ connecting ─→ handshaking ─→ connected ─┐
-//        ↑                                              │
-//        └──────────────────── error / cancel ──────────┘
+//      idle ─→ connecting ─→ handshaking ─→ connected
+//                                              │   ↑
+//                          unexpected drop     ↓   │ reconnect succeeds
+//                                          reconnecting
 //
-//  - `connect()` opens the UDP socket, runs the RSA handshake, and starts
-//    the heartbeat loop. On success, `state` becomes `.connected` and we
+//  Any failure lands in `.error`; `connect()` or `disconnect()` clears it
+//  back to `.idle`. `.reconnecting` gives up into `.error` after
+//  `K1G.reconnectMaxDuration`.
+//
+//  - `connect()` (a fresh one) checks the Wi-Fi SSID, waits for a dash-subnet
+//    address, opens the UDP socket, runs the RSA handshake, and starts the
+//    inbound and heartbeat loops; demo mode fakes `.connected` instead. On success, `state` becomes `.connected` and we
 //    expose the negotiated `aesKey` (not currently used by anything;
 //    kept for future encrypted payloads).
 //  - `disconnect()` cancels everything and returns to `.idle`.
@@ -98,9 +104,9 @@ final class BikeLink {
     /// Last error description for the UI.
     private(set) var lastError: String?
 
-    /// Configuration — defaults match the real Tripper AP. Both are
-    /// persisted in UserDefaults so we don't reset to dev placeholders
-    /// every launch once the user has dialed in the real values.
+    /// Configuration. `bikeHost` defaults to the real Tripper AP address;
+    /// `ssid` starts empty and `AppStatus` sets it from the selected saved
+    /// bike. Both are persisted in UserDefaults.
     var bikeHost: String {
         didSet {
             UserDefaults.standard.set(bikeHost, forKey: Self.bikeHostKey)
@@ -234,7 +240,8 @@ final class BikeLink {
 
     /// Called on the main actor for each decoded joystick / button event
     /// from the dash (after the wire ack has been sent). AppStatus wires
-    /// this to drive map zoom etc. `nil` → events are still acked and
+    /// this to map zoom, music track skip, skipping the next stop and
+    /// ending the ride. `nil` → events are still acked and
     /// logged, just not routed anywhere (e.g. before wiring, or in tests).
     var onButton: ((K1GPacket.DashButton) -> Void)?
 
@@ -292,9 +299,10 @@ final class BikeLink {
         // handshake entirely, jump straight to `.connected`, and start NONE of
         // the real machinery (path monitor already armed above is harmless — it
         // never drives a demo link because we never arm `shouldAutoReconnect`).
-        // Everything downstream keys off `state == .connected` and the demo
-        // guards on the send helpers, so the rest of the app runs its real
-        // pipeline against a link that quietly swallows nothing (no socket).
+        // Everything downstream keys off `state == .connected`; the send
+        // helpers either check `demoMode` or no-op because there is no
+        // socket, so the rest of the app runs its real pipeline against a
+        // link that sends nothing.
         if demoMode {
             lastError = nil
             state = .connected
@@ -307,7 +315,8 @@ final class BikeLink {
     }
 
     /// Drive a FRESH (non-reconnect) connect attempt, silently retrying up to
-    /// `K1G.bootRaceMaxAttempts` times if — and only if — the failure is the
+    /// `K1G.bootRaceMaxAttempts` times (twice that for a shortcut's connect,
+    /// see `patientBootRace`) if — and only if — the failure is the
     /// dash-still-booting race (`.bootRaceMissingReply`, covering BOTH
     /// `HandshakeError.noReplyAtAll` — step1 got zero reply packets at all —
     /// AND `.authNotReady` — step3 got no auth-OK despite the dash actively
@@ -535,8 +544,8 @@ final class BikeLink {
     /// dropping EMPTY_LISTS since this function was written. Added while
     /// auditing the whole nav-entry sequence against the reference
     /// (8/2026) after the route-card discovery. "Lists are empty" is
-    /// permanently true for this app (no favourites
-    /// feature), so there is no case where omitting it is correct.
+    /// permanently true for this app (it never syncs its favourites to the
+    /// dash), so there is no case where omitting it is correct.
     func sendNavStart() async {
         guard !demoMode else { return }   // demo link has no socket — nothing to kick
         guard state == .connected, let s = socket else {
@@ -965,8 +974,9 @@ final class BikeLink {
 
     // MARK: - Reconnect machinery
 
-    /// An established link went away unexpectedly (heartbeat send failed,
-    /// or the Wi-Fi path dropped). Tear down the dead socket + loops but
+    /// An established link went away unexpectedly (the heartbeat loop ended on
+    /// a send error or RX silence, the Wi-Fi path stayed down, the RTP stream
+    /// failed, or a shortcut found the dash silent). Tear down the dead socket + loops but
     /// NOT the reconnect intent, then start the retry loop. Idempotent:
     /// a second drop signal while already `.reconnecting` is ignored.
     /// `quietFor`: how long the dash had already been silent, so the drop is
@@ -1206,8 +1216,9 @@ final class BikeLink {
     }
 
     /// Start the Wi-Fi path monitor once. A `.unsatisfied` Wi-Fi path on
-    /// an established link is treated as a drop; a `.satisfied` transition
-    /// while reconnecting wakes the retry immediately.
+    /// an established link is re-checked after `K1G.wifiBlipGrace` and
+    /// treated as a drop only if still down (`confirmWifiPathDown`); a
+    /// `.satisfied` transition while reconnecting wakes the retry immediately.
     private func startPathMonitorIfNeeded() {
         guard !pathMonitorStarted else { return }
         pathMonitorStarted = true
@@ -1430,8 +1441,8 @@ final class BikeLink {
     }
 
     /// Build the hostname the dash will show on its pairing screen.
-    /// Like the stock app's pairing label: prefers the device's user-set name,
-    /// falls back to "TripperDashPP" if iOS denies access.
+    /// Like the stock app's pairing label: uses `UIDevice.current.name`,
+    /// falls back to "TripperDashPP" when that is empty.
     private static func deviceHostname() -> String {
         #if canImport(UIKit)
         let name = UIDevice.current.name
@@ -1465,9 +1476,10 @@ final class BikeLink {
                     continue
                 }
                 for seg in segs {
-                    // Button segments (0x09 0x00 …) are the whole reason
-                    // this loop exists during bring-up. Log them at INFO
-                    // so they're visible in the default Xcode console.
+                    // Button segments (0x09 0x00 …) are the only inbound
+                    // segments acted on; the rest are just logged. Log
+                    // them at INFO so they're visible in the default Xcode
+                    // console.
                     if seg.type == 0x09 && seg.sub == 0x00 {
                         // The button code is the LAST byte of the segment
                         // payload — as the DashButton doc says: "the trailing

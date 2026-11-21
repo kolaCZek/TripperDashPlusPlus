@@ -13,8 +13,8 @@
 //    2. Live position feed for the map frame source — `MapViewSource`
 //       subscribes via `subscribeFixes` / `subscribeHeading` and re-centres the
 //       composited tile on every update.
-//    3. Turn-by-turn nav — the active-nav route engine consumes
-//       `lastFix` updates to advance maneuver state.
+//    3. Turn-by-turn nav — the active-nav route engine is fed these fixes
+//       (`AppStatus.navigatorIngest`) to advance maneuver state.
 //
 //  Owning a single CLLocationManager (instead of one per consumer)
 //  matters because:
@@ -148,7 +148,7 @@ final class LocationService: NSObject {
     /// consumers have released.
     private var consumers: [UUID: LocationMode] = [:]
 
-    /// Fix subscribers (map source, ride stats).
+    /// Fix subscribers (map source, ride stats, free-ride alert refetch).
     private var fixSubscribers: [UUID: (Fix) -> Void] = [:]
     private var headingSubscribers: [UUID: (Heading) -> Void] = [:]
 

@@ -5,7 +5,8 @@
 //  feat/voice-nav — spoken turn-by-turn guidance.
 //
 //  Speaks maneuver prompts ("In 300 metres, turn right", "Recalculating",
-//  "You have arrived") through the phone's speaker / connected Bluetooth
+//  "You have arrived"), plus the speed-camera and optional speed-limit
+//  warnings, through the phone's speaker / connected Bluetooth
 //  headset while the rider follows a route. Offline, keyless, account-free
 //  via `AVSpeechSynthesizer` — consistent with the app's keyless
 //  stance (no cloud TTS, no API key).
@@ -21,7 +22,8 @@
 //  Right before it speaks it re-asserts the category WITH `.duckOthers`
 //  so music dips for the prompt, then restores plain `.mixWithOthers` on
 //  `didFinish`. The session is activated on `startSession()` (called when
-//  streaming begins) and never torn down mid-ride, so there is no gap
+//  `AppStatus.applyKeepAwake` takes the location wakelock) and torn down by
+//  `stopSession()` when the wakelock is released, so there is no gap
 //  where a prompt would be routed to a dead session.
 //
 //  NOTE: the app's background survival does NOT depend on audio — that is
@@ -33,7 +35,8 @@
 //  Prompts are time-sensitive: a "in 300 m" cue is worthless once the rider
 //  is at the turn. So the queue is shallow and priority-ordered — a fresh
 //  maneuver/arrival/reroute prompt CANCELS whatever lower-priority thing is
-//  mid-sentence rather than waiting behind it. Same-or-lower priority
+//  mid-sentence rather than waiting behind it (the speed-limit warning is
+//  `.advisory`, so any other prompt cuts it off). Same-or-lower priority
 //  prompts are dropped if one is already speaking within the same beat to
 //  avoid stutter.
 //
@@ -132,8 +135,8 @@ final class VoiceNavigator: NSObject {
         return true
     }
 
-    /// Stop any in-flight speech and un-duck. Called on stop-streaming /
-    /// nav teardown so a half-spoken prompt doesn't hang the duck.
+    /// Stop any in-flight speech and un-duck. Called on stop-streaming
+    /// teardown and from `stopSession()` so a half-spoken prompt doesn't hang the duck.
     func stop() {
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
         speakingPriority = nil
@@ -143,7 +146,7 @@ final class VoiceNavigator: NSObject {
     // MARK: - Session lifecycle
 
     /// Activate the shared audio session for the ride. Called when
-    /// streaming starts. Configures `.playback` + `.mixWithOthers` and
+    /// `AppStatus` takes the location wakelock. Configures `.playback` + `.mixWithOthers` and
     /// activates it so spoken prompts can play over the locked screen
     /// (backed by the `audio` UIBackgroundMode). Idempotent — iOS
     /// tolerates re-activating an already-active session.
@@ -161,8 +164,10 @@ final class VoiceNavigator: NSObject {
         }
     }
 
-    /// Deactivate the shared audio session on nav/stream teardown so we
-    /// stop holding audio focus. Notifies others so their audio un-ducks.
+    /// Deactivate the shared audio session when `AppStatus` releases the
+    /// location wakelock (not right after arrival, so the arrival prompt
+    /// finishes), so we stop holding audio focus. Notifies others so their
+    /// audio un-ducks.
     func stopSession() {
         stop()
         let log = self.log
