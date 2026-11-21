@@ -82,75 +82,55 @@ https://tripperdash.kolaczek.cz/privacy.html
 
 ## Description (4000 chars max)
 
+As live for 1.0.5 (the copy in App Store Connect is the source of truth;
+update this block when it changes).
+
 ```
-Your Royal Enfield's Tripper Dash has a real colour screen and a hardware video
-decoder. TripperDash++ finally puts a proper moving map on it.
+TripperDash++ streams a live turn-by-turn navigation map to your Royal Enfield Tripper TFT dash.
 
-Plan a route on your phone, drop it in your pocket, and ride. The dash shows a
-full-colour map that follows you, the route line, the next turn and how far it
-is — and it keeps updating with your phone locked and the screen off.
+Your bike's Tripper display was built for the official app's basic arrow-and-distance navigation. TripperDash++ replaces that with a full moving map - the same view you'd get from a dedicated GPS unit - rendered on your phone and streamed to the dash over the bike's built-in Wi-Fi.
 
-WHAT YOU GET ON THE DASH
+Plan a route, drop your phone in your pocket, and ride. The dash shows a heading-up map with your route, the next maneuver, distance to the turn, road names, ETA, and progress - all while your phone stays locked.
 
-• A real moving map, heading-up, in full colour — not a lone arrow
-• The next-turn glyph and distance, drawn from a field-verified catalogue of
-  every symbol the dash can render
-• Your whole route at a glance, with progress along it
-• A posted speed-limit sign for the road you're actually on
-• A weather heads-up that looks down the route ahead, not just overhead —
-  "Rain 15 km" is worth knowing before you're in it
-• Speed-camera marks where the map data has them
-• Incoming-call cards and live phone status, mirrored like the factory app
-• Day and night map palettes, switching automatically at sunset
+What you get on the dash:
+• Full moving map, heading-up, with your route drawn in
+• Next-maneuver glyph, distance-to-turn, and road names, plus a turn arrow drawn right on the route line
+• Live ETA and remaining-distance progress
+• Alternative routes with their time difference, shown where they split off
+• Posted speed-limit sign for the road you're on
+• Speed cameras on the map, plus your average speed and distance left inside average-speed sections
+• Weather ahead along your route, not just overhead: rain, snow, ice, frost risk, storms, gusts, crosswind and fog, with how far away they are
+• Incoming-call card and phone battery, like the factory app
+• Light / Dark / Auto map themes (Auto follows local sunrise & sunset)
+• Dash buttons zoom the map and skip music tracks
 
-ON THE PHONE
+On your phone:
+• Search and route with Apple Maps directions, or share a place straight from Google Maps or Apple Maps
+• Multi-stop route planning, saved routes, and favorites - add, remove or reorder stops mid-ride without stopping
+• Off the route, rerouting picks a road that carries on in your direction of travel
+• Import GPX routes, and export your rides as GPX
+• Ride history: every ride of the last 30 days, with its map and stats
+• Optional auto-reroute when traffic makes a faster route worth it
+• Spoken turn-by-turn and speed-camera alerts in 8 languages, offline, over the locked screen
+• Trip computer: distance, moving time, average and top speed, elevation gained
+• Next turn and ETA on your Lock Screen and in the Dynamic Island
+• Quick Ride home-screen widget: one tap to ride Home, to Work, a free ride, or to the nearest fuel station
+• Shortcuts and Siri: start a free ride, navigate to a favorite, a saved route or a place, check your ride status, or stop the ride - hands-free
 
-• Search a destination, pick from favourites, or drop a pin on the map
-• Compare alternative routes before you commit
-• Import a GPX and ride it — prune and reorder points first if you like
-• Save routes you ride often
-• Optional spoken turn-by-turn in 8 languages, fully offline, ducking your
-  music instead of cutting it
-• A trip computer that runs off the GPS the map is already using: distance,
-  moving time, average and top speed, elevation gained
+Built to respect you and your bike:
+• No account, no sign-up, no tracking, no ads
+• Nothing about your rides is uploaded to us - routing is Apple Maps, maps are OpenStreetMap, and everything stays on your device
+• Runs with the screen locked and the phone in your pocket, on "Always" or "While Using" location
 
-BUILT FOR ACTUALLY RIDING
+TripperDash++ connects to your bike's Wi-Fi automatically, rides out short Wi-Fi blips, reconnects on its own after a call or a fuel stop, and gets you moving in seconds. Set up a Shortcuts automation and the free ride starts the moment your phone joins the bike. Want to try it first? Demo Mode in Settings runs the whole app without the bike.
 
-The dash buttons zoom the map and skip music tracks, so your hands stay where
-they belong. Reconnects are handled quietly — take a call, stop for fuel, and
-the stream comes back on its own. There are no accounts, no logins and no
-subscriptions, and nothing about your ride is uploaded to a server: the map is
-rendered on your phone and sent straight to the bike over its own Wi-Fi.
+Map tiles, routing and weather use your cellular data; the bike's Wi-Fi carries only the video. Streaming a live map uses noticeable battery on a long ride - keep the phone charging if you can.
 
-WORKS WITH
+Requires a Royal Enfield motorcycle with the round, map-capable Tripper Dash (Bear 650, Guerrilla 450 or Himalayan 450). Not compatible with the small arrow-only Tripper Navigation Pod.
 
-The large, map-capable Tripper Dash fitted to the Royal Enfield Himalayan 450,
-Guerrilla 450 and Bear 650. Developed and field-tested on a Guerrilla 450.
-
-It does NOT work with the small arrow-only Tripper Navigation Pod on the
-Meteor 350, Classic 350, Hunter 350, Shotgun 650 or Super Meteor 650 — that is
-different hardware speaking a different protocol.
-
-TRYING IT WITHOUT THE BIKE
-
-Turn on Demo Mode in Settings and the whole app runs on the phone alone, dash
-preview included. Handy before your first ride.
-
-A NOTE ON BATTERY AND DATA
-
-Streaming a live map is real work: expect meaningful battery use on a long
-ride, and keep the phone charging if you can. Map tiles and routing come over
-cellular; the bike's Wi-Fi carries only the video and has no internet of its
-own.
-
-TripperDash++ is an independent app. It is not affiliated with, endorsed by, or
-sponsored by Royal Enfield or Eicher Motors. "Royal Enfield" and "Tripper" are
-the trademarks of their respective owners and are used here only to say which
-hardware this app works with.
-
-Ride safe. Look at the dash, not the phone.
+TripperDash++ is an independent app, not affiliated with or endorsed by Royal Enfield. "Royal Enfield" and "Tripper" are trademarks of their respective owners.
 ```
-[2988]
+[3574]
 
 Why it is shaped this way:
 - The first two lines are what shows before "more" — they carry the whole
@@ -168,18 +148,27 @@ Why it is shaped this way:
 
 ## What's New (release notes, 4000 chars)
 
-For the first public release:
+Version 1.0.5:
 
 ```
-First public release.
+New in 1.0.5:
 
-Stream a full-colour turn-by-turn map from your phone to the Royal Enfield
-Tripper Dash, with the phone locked in your pocket. Route search, GPX import,
-saved routes, offline voice guidance, weather along the route, posted speed
-limits and a GPS trip computer.
+• Quick Ride widget - one tap on your Home Screen to ride Home, to Work, a free ride, or to the nearest fuel station.
+• Shortcuts and Siri - start a free ride, navigate to a favorite, a saved route or a place, check your ride status, or stop the ride, hands-free. Tip: a Shortcuts automation can start the free ride the moment your phone joins the bike's Wi-Fi.
+• Turn arrow on the route - the next turn is drawn right on the route line on the dash, easy to read at any zoom.
+• Smarter rerouting - off the route, the new route now carries on in your direction of travel instead of sending you back the way you came.
 
-Field-tested on a Guerrilla 450.
+Fixes:
+• A stop removed from the dash menu disappears at once, and the route is recalculated from where you are.
+• A route shared from Google Maps no longer shows a stale pin on its first stop.
+• A saved route's map preview updates when you edit its points.
+• Short Wi-Fi blips between the phone and the dash no longer drop the connection.
+• The second turn on the dash (look-ahead) now shows reliably.
 ```
+[1034]
+
+First public release (1.0.4) used a short "First public release" note.
+List user-visible changes only; skip fixes nobody can see.
 
 ---
 
@@ -190,10 +179,11 @@ Field-tested on a Guerrilla 450.
 The project is `TARGETED_DEVICE_FAMILY = 1` (iPhone only), so **one iPhone set
 is all that is needed** — no iPad shelf.
 
-- **Size:** one 6.9" set, portrait. Accepted: **1320×2868** (iPhone 17 Pro Max
-  / Air / 16 Pro Max — the newest and preferred), or 1290×2796, or 1260×2736.
-  App Store Connect scales that set down to every smaller iPhone class
-  automatically.
+- **Size:** one iPhone set, portrait. The live listing's screenshot slot is
+  the **6.5"** set, which accepts only **1242×2688** or **1284×2778** (App
+  Store Connect rejected a 1320×2868 file there in November 2026 with "File
+  dimensions are invalid"). A 6.9" set (1320×2868, 1290×2796 or 1260×2736)
+  is a separate slot. Check which slot you are uploading to.
 - **Count:** minimum 3, maximum 10 per shelf.
 - **Format:** sRGB PNG or JPEG, **no transparency** (an alpha channel is
   rejected).
@@ -202,9 +192,18 @@ is all that is needed** — no iPad shelf.
 - Screenshots must show the actual app. Device frames, marketing text and
   background colour are allowed as long as real app UI is underneath.
 
-Simplest capture path: run the app in the **iPhone 17 Pro Max simulator**
-(Device → Screenshot, or `xcrun simctl io booted screenshot shot.png`) — it
-saves at exactly 1320×2868 with no alpha.
+Simplest capture path: run the app in a simulator whose screen matches the
+slot (e.g. iPhone 17 Pro Max for 6.9" at 1320×2868), via Device → Screenshot
+or `xcrun simctl io booted screenshot shot.png`, which saves with no alpha.
+For the 6.5" slot, render or scale to exactly 1284×2778 (or 1242×2688).
+
+### Product page header and search results art
+
+Optional custom art (Apple's asset best practices), RGB with no alpha:
+- **Product page header:** 3840×1646; keep the key content in the centred
+  1646×661 art safe area.
+- **Search results:** 3840×2560 (1920×1280 minimum, 3:2); keep the key content
+  in the centred 2168×1030 art safe area.
 
 ### What to capture
 
