@@ -27,8 +27,8 @@
 //  Tripper just rendered "roundabout CCW exit 1" for every step, but
 //  it didn't matter because the burned-in arrow over the video was the
 //  primary signal. With the catalog mapped we can now drive both
-//  layers; the dash bubble becomes the authoritative glyph and the
-//  video burn-in is the fallback / secondary cue.
+//  layers; the dash bubble is the authoritative glyph and the video
+//  burn-in is kept (undrawn) as a possible fallback cue.
 //
 //  Coordinate convention for the drawer: Y-DOWN canvas where (0,0) is
 //  the top-left corner of a 70 × 70 box. Caller is responsible for
@@ -40,8 +40,8 @@ import MapKit
 import Foundation
 
 /// Semantic maneuver classification, decoupled from the K1G wire format
-/// and from the path renderer. The same value drives both the burned
-/// video glyph and the dash bubble glyph.
+/// and from the path renderer. The same value drives the dash bubble
+/// glyph (and the burned video glyph, which is currently not drawn).
 ///
 /// Cases are intentionally finer-grained than the legacy enum so the
 /// `wireByte` mapping can pick a distinct catalog entry per variant.

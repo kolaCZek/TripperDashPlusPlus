@@ -32,7 +32,7 @@ import CoreLocation
 import Foundation
 import os
 
-/// Result of parsing a GPX document, before reduction/persistence.
+/// Result of parsing a GPX document, before persistence.
 struct ParsedGPX {
     var name: String
     var kind: RouteKind
@@ -63,7 +63,8 @@ enum GPXImporter {
 
     private static let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "GPXImport")
 
-    /// Read + parse + reduce a GPX file URL into a `SavedRoute`.
+    /// Read + parse a GPX file URL into a `SavedRoute` (full point set,
+    /// no reduction — see `importRoute(from:filename:)`).
     ///
     /// Handles the security-scoped resource dance the document picker
     /// hands us (`startAccessingSecurityScopedResource`). Throws a

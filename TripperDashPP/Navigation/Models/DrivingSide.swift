@@ -45,7 +45,7 @@
 //  next to Pakistan, Rwanda/Burundi inside the East-Africa box). That is
 //  an acceptable trade for a keyless offline lookup; if a field report
 //  ever shows a roundabout drawn the wrong way at a specific border, add
-//  or tighten a box here (mirror it in `tools/fake_dash/.../driving_side.py`).
+//  or tighten a box here (mirror it in `tools/fake_dash/tests/driving_side.py`).
 //
 //  Mirrored 1:1 by the Python `driving_side.py` so the CI sync test can
 //  diff the two and stop them drifting, exactly like the maneuver
