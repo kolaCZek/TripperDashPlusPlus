@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog — TripperDash++</title>
+<meta name="description" content="What changed in every TripperDash++ version: live on the App Store, in TestFlight, and in progress.">
+<meta name="theme-color" content="#16181b">
+<link rel="canonical" href="https://tripperdash.kolaczek.cz/changelog">
+<meta name="apple-itunes-app" content="app-id=6801485851">
+<meta property="og:site_name" content="TripperDash++">
+<meta property="og:image" content="https://tripperdash.kolaczek.cz/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="TripperDash++ navigation on a Royal Enfield Tripper dash">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:title" content="Changelog — TripperDash++">
+<meta property="og:description" content="What changed in every TripperDash++ version: live on the App Store, in TestFlight, and in progress.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://tripperdash.kolaczek.cz/changelog">
+<link rel="icon" href="../favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" href="../logo.png">
+<link rel="apple-touch-icon" href="../logo.png">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../logo-96.png" alt="" width="38" height="38"><span>TripperDash++</span></a>
+    <nav aria-label="Main">
+      <ul class="nav">
+        <li class="opt"><a href="../#features">Features</a></li>
+        <li class="opt"><a href="../#screens">Screenshots</a></li>
+        <li class="opt"><a href="../#how">How it works</a></li>
+        <li class="opt"><a href="../changelog" aria-current="page">Changelog</a></li>
+        <li><a href="../support">Support</a></li>
+        <li class="opt"><a href="../privacy.html">Privacy</a></li>
+        <li><a class="btn" href="https://apps.apple.com/app/id6801485851">Get the app</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<div class="mast">
+  <div class="street plate">
+    <h1>Changelog</h1>
+    <p class="lead">What changed in every version of TripperDash++, newest first.</p>
+  </div>
+</div>
+
+<div class="page">
+  <div class="col">
+    <ul class="legend" aria-label="What the labels mean">
+      <li><span class="tag live">On the App Store</span> Public release, free for everyone.</li>
+      <li><span class="tag beta">TestFlight only</span> Built and in the beta; never released on the App Store. <a href="https://testflight.apple.com/join/QxnDKhMT">Join the beta</a>.</li>
+      <li><span class="tag wip">In progress</span> Merged for the next version, not in any build yet.</li>
+    </ul>
+    <section class="ver" aria-labelledby="v1-0-6">
+      <h2 id="v1-0-6">1.0.6 <span class="tag wip">In progress</span></h2>
+      <p class="when">Not in any build yet. Everything below is finished and merged; it ships in the next build.</p>
+      <h3>✨ New</h3>
+      <ul>
+        <li><strong>Sunset pill.</strong> A small sunset glyph and the local sunset time on the dash map when you will arrive after dark. It looks at where you will be along the route when the sun sets, not at your start or your destination, so a route across half a continent still gets the right time. It only appears when dusk (the sun 6° below the horizon) falls before your arrival, so there is no warning on a Nordic white night. It follows the <strong>Weather alerts</strong> switch.</li>
+        <li><strong>Spoken speed-limit warning.</strong> New setting <em>Speak speed-limit warnings</em> in Voice guidance (off by default). The app says “Speed limit 50” once when you go over the posted limit, by the same margin that lights the sign. It works in navigation and free ride, in all 8 voice languages, and a turn prompt always takes priority.</li>
+      </ul>
+      <h3>🧭 Navigation</h3>
+      <ul>
+        <li><strong>Fuel adds a stop.</strong> While navigating, the Quick Ride widget’s Fuel button now adds the nearest fuel station as the next stop and keeps your destination and later stops, instead of replacing the route.</li>
+      </ul>
+      <h3>🌦️ Weather</h3>
+      <ul>
+        <li><strong>Fixed:</strong> the weather pill (“Rain 10 km”) stayed on the dash after you stopped navigating and started a free ride, where “ahead” means nothing. It is now cleared on Stop, on arrival and when a free ride starts.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0-5">
+      <h2 id="v1-0-5">1.0.5 <span class="tag beta">TestFlight only</span></h2>
+      <p class="when">Built and in the TestFlight beta. Not on the App Store yet.</p>
+      <p>Shortcuts, a home-screen widget and a sturdier dash link.</p>
+      <h3>✨ New</h3>
+      <ul>
+        <li><strong>Shortcuts and Siri.</strong> Actions to start a free ride, navigate to a favorite, a saved route or a place, stop the ride and read the ride status. A running navigation can be redirected in the background. An automation can start the free ride as soon as the phone joins the bike’s Wi-Fi.</li>
+        <li><strong>Quick Ride widget.</strong> Home-screen buttons for Home, Work, Free Ride and Fuel (the nearest fuel station within 20 km).</li>
+        <li><strong>Turn arrow on the route line.</strong> The upcoming turn is drawn on the route in white, like in Google Maps, at the same size in town and at highway zoom.</li>
+      </ul>
+      <h3>🧭 Navigation</h3>
+      <ul>
+        <li><strong>Fixed:</strong> after leaving the route, the reroute often led straight back the way you came. It now prefers a route that carries on in your direction of travel. If none exists, the dash says U-turn and you get a fresh try sooner.</li>
+        <li><strong>Fixed:</strong> a stop removed from the dash menu was still drawn on the dash, and the route kept leading to it for several seconds. It is dropped at once and the route is recalculated from where you are.</li>
+        <li><strong>Fixed:</strong> a route shared from Google Maps no longer shows a stale pin on its first stop, and waits briefly for a GPS fix so that a first stop right where you stand is dropped.</li>
+        <li><strong>Fixed:</strong> the map preview of a saved route now updates when you edit its points.</li>
+      </ul>
+      <h3>🔌 Connection</h3>
+      <ul>
+        <li>Short Wi-Fi blips between the phone and the dash no longer end the session at once: the app waits a few seconds and drops the link only if it is really gone. The debug log now names the reason for every drop.</li>
+        <li>The look-ahead maneuver (the second turn on the dash) is now sent exactly like the real phone does, so the dash draws it reliably, and it is cleared when it no longer applies.</li>
+      </ul>
+      <h3>🧰 Diagnostics</h3>
+      <ul>
+        <li><strong>Export log</strong> (Settings → Diagnostics) now works and is available in TestFlight builds, so testers can send a log of a problem ride. It is hidden in the App Store build.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0-4">
+      <h2 id="v1-0-4">1.0.4 <span class="tag live">On the App Store</span></h2>
+      <p class="when">TestFlight 17 Oct 2026 · App Store 2 Nov 2026.</p>
+      <p>Ride history, editing the route mid-ride, a steadier dash picture and a sturdier bike connection.</p>
+      <h3>🕘 Ride history</h3>
+      <ul>
+        <li><strong>Every ride of the last 30 days</strong> is kept, with its map, distance, moving time and average speed. Save it as a route or export it as GPX.</li>
+        <li><strong>Fixed:</strong> standing still with poor GPS (garage, under a roof) no longer adds distance.</li>
+      </ul>
+      <h3>🧭 Planning &amp; navigation</h3>
+      <ul>
+        <li><strong>Edit the route while navigating:</strong> add, remove or reorder stops without stopping the ride. The stream, ride stats and dash stay up.</li>
+        <li>Save a planned route straight from the planner, and add a stop to a saved route from its detail view.</li>
+        <li><strong>Fixed:</strong> the dash and the Lock Screen Live Activity said “Free ride” during navigation; they now show your destination.</li>
+      </ul>
+      <h3>📺 Dash picture</h3>
+      <ul>
+        <li>The stream now runs at 4 fps with a keyframe every second, matching the stock app. The picture no longer freezes or breaks into fragments.</li>
+        <li>GPS runs in car-navigation mode while riding, so fewer fixes are missed and the map jumps less.</li>
+        <li>Overlay text has a solid backdrop, stays inside the dash’s round visible area and is no longer clipped.</li>
+        <li><strong>Fixed:</strong> a blurry map after a manual zoom-out at highway speed, and “You’ve arrived” drawn upside down.</li>
+      </ul>
+      <h3>🔌 Connection</h3>
+      <ul>
+        <li>If iOS stays on another Wi-Fi, the app tells you to join the bike’s network in Settings.</li>
+        <li>A dash that stops answering while the link looks fine is detected and reconnected; a link that keeps dropping no longer retries forever; start, stop and reconnect races are closed.</li>
+      </ul>
+      <h3>🛡️ Ride safety</h3>
+      <ul>
+        <li>Stopping a ride needs a 1-second hold, so a gloved tap or a bump of the mount can’t end it. Cancelling an unsaved plan asks first.</li>
+      </ul>
+      <h3>✨ Settings</h3>
+      <ul>
+        <li>Rename a saved bike. Demo mode now previews the real round dash.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0-3">
+      <h2 id="v1-0-3">1.0.3 <span class="tag beta">TestFlight only</span></h2>
+      <p class="when">Builds 1–7, 2 Sep – 28 Sep 2026. Replaced by 1.0.4; never on the App Store.</p>
+      <p>Stability: the map, the connection and the locked screen.</p>
+      <h3>🗺️ Map &amp; ride</h3>
+      <ul>
+        <li><strong>Fixed:</strong> the map going blank for 10–30 seconds, a mid-ride crash, and a blank map on the “While Using” location permission.</li>
+        <li>The dash keeps the link with the screen locked on “While Using”, so “Always” is no longer needed.</li>
+        <li>Free ride now shows posted speed limits and speed cameras. Heavier work runs off the main thread.</li>
+      </ul>
+      <h3>📷 Alerts</h3>
+      <ul>
+        <li>Average-speed sections get a panel with your average, a progress bar and the distance left.</li>
+        <li>The weather pill adds <strong>Frost risk</strong>, <strong>Ice</strong> and <strong>Crosswind</strong>.</li>
+      </ul>
+      <h3>🔌 Connection</h3>
+      <ul>
+        <li>A fresh connect retries through the dash’s boot delay, reconnects wait for the Wi-Fi address, and “Dash not responding — try the ignition” replaces an endless “Reconnecting…”.</li>
+        <li>Joining the wrong Wi-Fi is detected straight away. About shows the build number.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0-2">
+      <h2 id="v1-0-2">1.0.2 <span class="tag beta">TestFlight only</span></h2>
+      <p class="when">21 Aug 2026. Never on the App Store.</p>
+      <h3>🎯 Arrival</h3>
+      <ul>
+        <li>Riding past a roadside destination counts as arrival, short trips and a destination you already stand on register, and the dash keeps the live map with a centred “You’ve arrived” card.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0-1">
+      <h2 id="v1-0-1">1.0.1 <span class="tag beta">TestFlight only</span></h2>
+      <p class="when">16 Aug 2026. Never on the App Store.</p>
+      <h3>✨ New</h3>
+      <ul>
+        <li>Voice alert when approaching a speed camera; in free ride, nearby cameras are shown silently on the map.</li>
+      </ul>
+      <h3>🐛 Fixed</h3>
+      <ul>
+        <li>No more black map at route start on a weak connection, no dash timeout without connectivity, a crash when typing quickly in search, and Wi-Fi name validation.</li>
+      </ul>
+    </section>
+    <section class="ver" aria-labelledby="v1-0">
+      <h2 id="v1-0">1.0 <span class="tag beta">TestFlight only</span></h2>
+      <p class="when">14 Aug 2026. Never on the App Store.</p>
+      <p>First release: native iOS navigation streamed to the Royal Enfield Tripper dash over Wi-Fi.</p>
+    </section>
+  </div>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="row">
+      <a class="brand" href="../"><img src="../logo-96.png" alt="" width="38" height="38" loading="lazy"><span>TripperDash++</span></a>
+      <ul>
+        <li><a href="../">Home</a></li>
+        <li><a href="../changelog">Changelog</a></li>
+        <li><a href="../privacy.html">Privacy</a></li>
+        <li><a href="https://apps.apple.com/app/id6801485851">App Store</a></li>
+        <li><a href="https://testflight.apple.com/join/QxnDKhMT">TestFlight beta</a></li>
+      </ul>
+    </div>
+    <p class="legal">TripperDash++ is an independent app and is not affiliated with, endorsed by, or sponsored by Royal Enfield. "Royal Enfield" and "Tripper" are trademarks of their respective owners.</p>
+  </div>
+</footer>
+</body>
+</html>

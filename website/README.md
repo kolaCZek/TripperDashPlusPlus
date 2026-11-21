@@ -1,10 +1,10 @@
 # Website
 
-Source of https://tripperdash.kolaczek.cz: three static pages, no build step,
+Source of https://tripperdash.kolaczek.cz: four static pages, no build step,
 no JavaScript, no third-party requests.
 
 - `site/`: exactly what is served (S3 bucket behind CloudFront).
-  - `index.html`, `support/index.html`, `privacy.html`, `404.html`, `site.css`
+  - `index.html`, `support/index.html`, `changelog/index.html`, `privacy.html`, `404.html`, `site.css`
   - `robots.txt`, `sitemap.xml`, `googleff63d25268b6d683.html` (Search Console ownership check; keep it)
   - `fonts/`: Barlow and Barlow Condensed, latin subset (SIL OFL, see `licenses/`)
 - `src/`: sources of the generated images.
@@ -40,6 +40,10 @@ AWS_PROFILE=<profile> website/deploy.sh
 Credentials come from your AWS CLI setup and never go in this repo. The
 profile needs `s3:PutObject` on the bucket and `cloudfront:CreateInvalidation`
 on the distribution.
+
+## Changelog
+
+`changelog/index.html` lists every version newest first, each with a label: **On the App Store**, **TestFlight only** or **In progress** (merged for the next version, in no build yet). When a build goes to TestFlight or a version is released, change its label and date; when a PR lands on `main`, add it to the In progress block.
 
 ## Content rules
 
