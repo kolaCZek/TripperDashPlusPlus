@@ -1662,6 +1662,7 @@ struct MapPickerView: View {
         // outlive the ride (e.g. stopped from the dash button).
         prerenderActive = false
         status.activeNavigator.stop()
+        status.clearWeather()
         status.activeNavigator.onActiveRouteChanged = nil
         status.activeNavigator.onExitNavRequested = nil
         if status.isStreaming {
@@ -1692,6 +1693,7 @@ struct MapPickerView: View {
     /// cache + route geometry without restarting the RTP stream.
     private func finishArrival() async {
         status.activeNavigator.stop()
+        status.clearWeather()
         // Late bakes must not install the finished route, on every branch
         // below (the link-down one used to keep it current).
         status.mapViewSource.setCurrentRoute(nil)

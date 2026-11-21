@@ -175,7 +175,6 @@ final class WeatherAlertService {
 
     private var lastPollAt: Date?
     private var lastPollKey: String?
-    private var lastPollHadRoute = false
 
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default
@@ -203,22 +202,13 @@ final class WeatherAlertService {
         // 1 km) so a stationary rider doesn't re-poll, but crossing into
         // a new neighbourhood does.
         let key = String(format: "%.2f,%.2f", position.latitude, position.longitude)
-        // Starting or stopping navigation changes what "ahead" means. A
-        // hazard found along a route that is gone is meaningless: drop it,
-        // and skip the throttle when the route appears or goes away, so a
-        // new navigation polls along its own route at once instead of
-        // returning the previous ride's alert for up to 5 min.
-        let hasRoute = !routeAhead.isEmpty
-        if !hasRoute, current?.isAhead == true { current = nil }
         if let last = lastPollAt,
            Date().timeIntervalSince(last) < Self.pollInterval,
-           key == lastPollKey,
-           hasRoute == lastPollHadRoute {
+           key == lastPollKey {
             return current
         }
         lastPollAt = Date()
         lastPollKey = key
-        lastPollHadRoute = hasRoute
 
         // Rider position is sample 0 (distance 0), followed by the
         // along-route look-ahead points. All in one GET. The spacing is
@@ -254,13 +244,13 @@ final class WeatherAlertService {
         return current
     }
 
-    /// Clear any active alert and the poll throttle. Currently has no
-    /// callers; the pill is cleared via `setWeatherAlert(nil)` instead.
+    /// Clear any active alert and the poll throttle, so the next
+    /// navigation polls along its own route at once instead of getting the
+    /// previous ride's alert. Called via `AppStatus.clearWeather()`.
     func reset() {
         current = nil
         lastPollAt = nil
         lastPollKey = nil
-        lastPollHadRoute = false
     }
 
     // MARK: - Network
