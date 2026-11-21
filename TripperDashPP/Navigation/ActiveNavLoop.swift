@@ -170,6 +170,7 @@ final class ActiveNavLoop {
         cameraAnnouncer.reset()
         sectionTracker.reset()
         mapSource?.setSpeedSection(nil)
+        sunsetPill = nil
     }
 
     // MARK: - Speed cameras
@@ -231,6 +232,7 @@ final class ActiveNavLoop {
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
             mapSource?.setRideProgress(nil)   // free-ride / arrived → no bar
+            sunsetPill = nil                  // the next navigation starts fresh
             // Demo: no maneuver while free-riding / arrived → clear the
             // on-screen native bubble so the preview shows a clean map.
             demo?.bubble = nil
@@ -483,7 +485,8 @@ final class ActiveNavLoop {
             distanceMeters: distNext,
             roadName: roadName,
             unitsImperial: settings.units == .imperial,
-            maneuverNode: arrowNode
+            maneuverNode: arrowNode,
+            sunsetText: settings.weatherAlertsEnabled ? cachedSunsetText(nav: nav, eta: etaDate) : nil
         )
         mapSource?.setNavOverlay(overlay)
 
@@ -829,5 +832,75 @@ final class ActiveNavLoop {
             ? String(name.prefix(nameBudget - 1)) + "…"
             : name
         return timePart + joiner + clippedName
+    }
+
+    /// Last sunset-pill result: the route walk runs at most every 30 s, or
+    /// at once when the final ETA moves by > 2 min (reroute, traffic) or the
+    /// 12/24 h format changes. Cleared between rides (`stop()`, free ride).
+    private var sunsetPill: (text: String?, at: Date, eta: Date, is24Hour: Bool)?
+
+    private func cachedSunsetText(nav: ActiveNavigator, eta: Date?) -> String? {
+        guard let eta, let fix = location?.lastFix else {
+            sunsetPill = nil
+            return nil
+        }
+        let now = Date()
+        if let c = sunsetPill, now.timeIntervalSince(c.at) < 30,
+           abs(eta.timeIntervalSince(c.eta)) < 120, c.is24Hour == settings.is24Hour {
+            return c.text
+        }
+        let text = Self.sunsetPillText(route: [fix.coordinate] + nav.routeAheadCoordinates,
+                                       now: now, eta: eta, shown: sunsetPill?.text != nil,
+                                       is24Hour: settings.is24Hour)
+        sunsetPill = (text: text, at: now, eta: eta, is24Hour: settings.is24Hour)
+        return text
+    }
+
+    /// Text for the dash's sunset pill ("18:40"), or `nil` to hide it.
+    /// Shown when civil dusk (sun −6°) comes before the final ETA where the
+    /// rider will be by then along `route` (rider first, then the route
+    /// ahead incl. later legs); the text is the sunset (−0.833°) on that
+    /// same predicted track. Hidden once the sun is down at the rider, on a
+    /// white night (never −6°), on polar day and without an ETA. `shown`
+    /// adds a ±60 s hysteresis around the ETA so the pill doesn't flicker.
+    /// ponytail: free ride (no ETA) never shows it; could show within N min
+    /// of sunset if riders ask.
+    nonisolated static func sunsetPillText(route: [CLLocationCoordinate2D], now: Date,
+                                           eta: Date?, shown: Bool = false, is24Hour: Bool,
+                                           timeZone: TimeZone = .current) -> String? {
+        guard let eta, eta > now, let rider = route.first,
+              SolarClock.elevation(coord: rider, date: now) > SolarClock.sunsetElevation
+        else { return nil }
+        // ponytail: linear speed — the time left to the ETA is spread evenly
+        // over the distance left; per-leg expected travel times would be
+        // more exact on a mixed motorway/mountain plan.
+        var cum = [0.0]
+        for (a, b) in zip(route, route.dropFirst()) {
+            cum.append(cum[cum.count - 1] + WeatherAlertService.haversine(a, b))
+        }
+        let n = 64
+        var j = 0
+        var track: [(coord: CLLocationCoordinate2D, date: Date)] = []
+        for k in 0...n {
+            let f = Double(k) / Double(n)
+            let target = cum[cum.count - 1] * f
+            var coord = rider
+            if route.count > 1 {
+                while j < route.count - 2, cum[j + 1] < target { j += 1 }
+                let seg = cum[j + 1] - cum[j]
+                let t = seg > 0 ? min(1, max(0, (target - cum[j]) / seg)) : 0
+                coord = CLLocationCoordinate2D(
+                    latitude: route[j].latitude + (route[j + 1].latitude - route[j].latitude) * t,
+                    longitude: route[j].longitude + (route[j + 1].longitude - route[j].longitude) * t)
+            }
+            track.append((coord: coord, date: now.addingTimeInterval(eta.timeIntervalSince(now) * f)))
+        }
+        let hold: TimeInterval = 60
+        track.append((coord: route[route.count - 1], date: eta.addingTimeInterval(hold)))
+        guard let dusk = SolarClock.firstCrossing(along: track, below: SolarClock.civilDuskElevation),
+              dusk <= eta.addingTimeInterval(shown ? hold : -hold),
+              let sunset = SolarClock.firstCrossing(along: track, below: SolarClock.sunsetElevation)
+        else { return nil }
+        return LiveActivityController.clockText(sunset, is24Hour: is24Hour, timeZone: timeZone)
     }
 }

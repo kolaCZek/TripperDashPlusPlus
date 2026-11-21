@@ -168,11 +168,18 @@ final class LiveActivityController {
     }
 
     nonisolated static func etaText(date: Date?, is24Hour: Bool) -> String? {
-        guard let date else { return nil }
+        date.map { "ETA \(clockText($0, is24Hour: is24Hour))" }
+    }
+
+    /// "18:40" / "6:40 PM" in the rider's clock format (ASCII-only, so it is
+    /// dash-safe too). Also the dash sunset pill's text.
+    nonisolated static func clockText(_ date: Date, is24Hour: Bool,
+                                      timeZone: TimeZone = .current) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: is24Hour ? "en_GB" : "en_US")
+        f.timeZone = timeZone
         f.dateFormat = is24Hour ? "HH:mm" : "h:mm a"
-        return "ETA \(f.string(from: date))"
+        return f.string(from: date)
     }
 
     nonisolated static func remainingText(meters: Double?, imperial: Bool) -> String? {

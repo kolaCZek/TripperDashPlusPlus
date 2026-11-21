@@ -58,6 +58,7 @@ PILL = "fileprivate func drawWeatherAlert(into ctx: CGContext)"
 CARD = "fileprivate func drawNotice(into ctx: CGContext)"
 BAR = "fileprivate func drawProgressBar(into ctx: CGContext)"
 ZOOM = "private func drawZoomOsd(into ctx: CGContext)"
+SUNSET = "fileprivate func drawSunsetPill(into ctx: CGContext)"
 
 VIS_C, VIS_R = point("visibleCenter"), const("visibleRadius")
 NAV_C, NAV_R = point("navCardCenter"), const("navCardRadius")
@@ -141,7 +142,15 @@ def zoom_rect():
     return (cx - r, cy - r, cx + r, cy + r)
 
 
-def rects(sign, section, bar, notice, pill_w, notice_w) -> dict:
+def sunset_rect(text_w: float):
+    m = local(SUNSET, "margin")
+    chrome = 2 * local(SUNSET, "padX") + local(SUNSET, "glyphSize") + local(SUNSET, "gap")
+    y = H - m - PILL_H - (SIGN_D + 8) - 8 - PILL_H
+    max_x = min(W - m, visible_span(y, y + PILL_H)[1])
+    return (max_x - chrome - text_w, y, max_x, y + PILL_H)
+
+
+def rects(sign, section, bar, notice, pill_w, notice_w, sunset_w=0) -> dict:
     out = {"zoom_osd": zoom_rect(), "puck": PUCK}
     sign_top = H - SIGN_M - SIGN_D
     if sign:
@@ -155,11 +164,14 @@ def rects(sign, section, bar, notice, pill_w, notice_w) -> dict:
     out["pill"] = pill_rect(sign, section, bar, pill_w)
     if notice:
         out["notice"] = notice_rect(notice_w)
+    elif sunset_w:    # hidden while a notice is up
+        out["sunset"] = sunset_rect(sunset_w)
     return out
 
 
 PILL_WIDTHS = range(20, 420, 5)      # real labels ~110-210 px at 18 pt
 NOTICE_WIDTHS = range(40, 520, 20)
+SUNSET_WIDTHS = (0, 30, 60, 90, 110)  # 0 = no pill; "18:40" ~50, "12:59 PM" ~85 px
 
 
 def test_geometry_matches_measured_doc():
@@ -213,13 +225,37 @@ def test_layout_math_matches_source():
 def test_overlays_on_glass_off_card_and_not_overlapping():
     for combo in itertools.product([False, True], repeat=4):
         for pw in PILL_WIDTHS:
-            for nw in (NOTICE_WIDTHS if combo[3] else [0]):
-                r = rects(*combo, pw, nw)
+            for nw, sw in itertools.product(NOTICE_WIDTHS if combo[3] else [0],
+                                            [0] if combo[3] else SUNSET_WIDTHS):
+                r = rects(*combo, pw, nw, sw)
                 for name, rect in r.items():
-                    assert on_glass(rect), (combo, pw, nw, name, rect)
-                    assert off_nav_card(rect, name == "zoom_osd"), (combo, pw, nw, name, rect)
+                    assert on_glass(rect), (combo, pw, nw, sw, name, rect)
+                    assert off_nav_card(rect, name == "zoom_osd"), (combo, pw, nw, sw, name, rect)
                 for a, b in itertools.combinations(r, 2):
-                    assert not overlaps(r[a], r[b]), (combo, pw, nw, a, b)
+                    assert not overlaps(r[a], r[b]), (combo, pw, nw, sw, a, b)
+
+
+def test_sunset_pill_layout_matches_source():
+    # The sunset pill sits one slot above the weather pill's highest
+    # (sign-lifted) spot, at the glass edge, and steps aside for a notice.
+    body = strip_comments(decl_body(SRC, SUNSET))
+    assert "guard let text = navOverlayState?.sunsetText, activeNotice == nil else { return }" in body
+    assert ("let weatherTop = frameSize.height - margin - pillH"
+            " - (Self.speedLimitSignDiameter + 8)") in body
+    assert "let originY = weatherTop - 8 - pillH" in body
+    assert "Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound" in body
+    assert "let pill = CGRect(x: maxX - pillW, y: originY, width: pillW, height: pillH)" in body
+    assert "let pillH = Self.weatherPillHeight" in body
+    # The sign bump is the weather pill's tallest lift, so the slot holds.
+    assert SIGN_D + 8 >= BAR_ZONE + 4 - local(PILL, "margin")
+    # Fed by the nav overlay state, drawn in the compose pipeline.
+    assert "var sunsetText: String? = nil" in SRC
+    assert "drawSunsetPill(into: ctx)" in strip_comments(SRC)
+    loop = (ROOT / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
+    # The Weather alerts toggle gates it too: no separate sunset setting.
+    assert "sunsetText: settings.weatherAlertsEnabled ? cachedSunsetText(" in loop
+    assert "sunsetAlertEnabled" not in (
+        ROOT / "TripperDashPP" / "Navigation" / "Models" / "DashNavSettings.swift").read_text()
 
 
 TITLES = re.findall(r'WeatherAlert\(title: "([^"]+)"', (

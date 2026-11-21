@@ -28,9 +28,9 @@
 import CoreLocation
 import Foundation
 
-/// Stateless solar-position helper. The only value the map-style logic
-/// needs is the sun's elevation angle, so that's all we expose.
-enum SolarClock {
+/// Stateless solar-position helper: the sun's elevation angle (map style)
+/// and when it crosses a threshold along a track (dash sunset pill).
+nonisolated enum SolarClock {
 
     /// Sun elevation in degrees above the horizon (negative = below) for
     /// `coord` at `date`.
@@ -57,6 +57,39 @@ enum SolarClock {
             + cos(lat) * cos(decl) * cos(ha)
         )
         return elev * 180.0 / .pi
+    }
+
+    /// Elevation of the sun's centre at sunset: half the disc plus
+    /// standard atmospheric refraction below the horizon.
+    static let sunsetElevation = -0.833
+    /// End of civil twilight: below this it is dark (the sunset pill's
+    /// trigger; a Trondheim June night only reaches ~−3°).
+    static let civilDuskElevation = -6.0
+
+    /// First instant the sun drops below `degrees` along `track` (positions
+    /// with their times, in time order), or `nil` if it never does. The
+    /// bracketing pair of samples is bisected 12× (< 1 s for a step under
+    /// an hour), position and time interpolated together. Assumes the sun
+    /// starts above.
+    static func firstCrossing(along track: [(coord: CLLocationCoordinate2D, date: Date)],
+                              below degrees: Double) -> Date? {
+        for (a, b) in zip(track, track.dropFirst())
+        where elevation(coord: b.coord, date: b.date) < degrees {
+            func at(_ f: Double) -> (coord: CLLocationCoordinate2D, date: Date) {
+                (coord: CLLocationCoordinate2D(
+                    latitude: a.coord.latitude + (b.coord.latitude - a.coord.latitude) * f,
+                    longitude: a.coord.longitude + (b.coord.longitude - a.coord.longitude) * f),
+                 date: a.date.addingTimeInterval(b.date.timeIntervalSince(a.date) * f))
+            }
+            var lo = 0.0, hi = 1.0
+            for _ in 0..<12 {
+                let mid = (lo + hi) / 2
+                let p = at(mid)
+                if elevation(coord: p.coord, date: p.date) < degrees { hi = mid } else { lo = mid }
+            }
+            return at(hi).date
+        }
+        return nil
     }
 
     /// Convert a `Date` to its Julian Day number. The Unix epoch

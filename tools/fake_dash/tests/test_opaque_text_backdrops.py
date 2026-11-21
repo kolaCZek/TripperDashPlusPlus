@@ -25,6 +25,7 @@ FILL = re.compile(r"setFillColor\((?:CGColor\()?red: 0, green: 0, blue: 0, alpha
     "fileprivate func drawWeatherAlert(into ctx: CGContext)",
     "fileprivate func drawNotice(into ctx: CGContext)",
     "fileprivate func drawSpeedSectionPanel(into ctx: CGContext)",
+    "fileprivate func drawSunsetPill(into ctx: CGContext)",
 ])
 def test_text_backdrop_is_solid_black(fn):
     body = strip_comments(decl_body(SRC, fn))

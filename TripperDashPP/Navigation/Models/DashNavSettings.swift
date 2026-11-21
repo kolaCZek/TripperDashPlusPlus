@@ -177,7 +177,8 @@ final class DashNavSettings {
     /// streamed map. Sourced keyless from Open-Meteo (WeatherKit would add
     /// another entitlement + JWT signing — see CLAUDE.md). Defaults ON.
     /// When OFF, `WeatherAlertService` is never polled and the pill never
-    /// draws. Mirrors the OEM app's "Weather Alerts" notification.
+    /// draws. Mirrors the OEM app's "Weather Alerts" notification. Also
+    /// gates the sunset pill (sunset is weather too, owner 11/2026).
     var weatherAlertsEnabled: Bool = true {
         didSet { persist() }
     }
