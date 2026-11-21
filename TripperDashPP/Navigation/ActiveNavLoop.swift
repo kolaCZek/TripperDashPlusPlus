@@ -484,7 +484,7 @@ final class ActiveNavLoop {
             roadName: roadName,
             unitsImperial: settings.units == .imperial,
             maneuverNode: arrowNode,
-            sunsetText: settings.sunsetAlertEnabled
+            sunsetText: settings.weatherAlertsEnabled
                 ? location?.lastFix.flatMap {
                     Self.sunsetPillText(coord: $0.coordinate, now: Date(),
                                         eta: etaDate, is24Hour: settings.is24Hour)

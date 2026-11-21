@@ -177,16 +177,9 @@ final class DashNavSettings {
     /// streamed map. Sourced keyless from Open-Meteo (WeatherKit would add
     /// another entitlement + JWT signing — see CLAUDE.md). Defaults ON.
     /// When OFF, `WeatherAlertService` is never polled and the pill never
-    /// draws. Mirrors the OEM app's "Weather Alerts" notification.
+    /// draws. Mirrors the OEM app's "Weather Alerts" notification. Also
+    /// gates the sunset pill (sunset is weather too, owner 11/2026).
     var weatherAlertsEnabled: Bool = true {
-        didSet { persist() }
-    }
-
-    /// Ride-alerts: a sunset pill (sunset glyph + local sunset time) on the
-    /// right of the streamed map while navigating, when the ETA falls after
-    /// today's sunset at the rider's position. Pure solar math, no network.
-    /// Defaults ON.
-    var sunsetAlertEnabled: Bool = true {
         didSet { persist() }
     }
 
@@ -480,7 +473,6 @@ final class DashNavSettings {
         var lookaheadThresholdMeters: Double?
         var callStateEnabled: Bool?
         var weatherAlertsEnabled: Bool?
-        var sunsetAlertEnabled: Bool?
         var speedCamerasEnabled: Bool?
         var speedLimitDisplay: SpeedLimitDisplay?
         var speedLimitOverToleranceKmh: Double?
@@ -507,7 +499,6 @@ final class DashNavSettings {
         self.lookaheadThresholdMeters = p.lookaheadThresholdMeters ?? 300
         self.callStateEnabled = p.callStateEnabled ?? true
         self.weatherAlertsEnabled = p.weatherAlertsEnabled ?? true
-        self.sunsetAlertEnabled = p.sunsetAlertEnabled ?? true
         self.speedCamerasEnabled = p.speedCamerasEnabled ?? true
         self.speedLimitDisplay = p.speedLimitDisplay ?? .always
         self.speedLimitOverToleranceKmh = p.speedLimitOverToleranceKmh ?? 3
@@ -528,7 +519,6 @@ final class DashNavSettings {
             lookaheadThresholdMeters: lookaheadThresholdMeters,
             callStateEnabled: callStateEnabled,
             weatherAlertsEnabled: weatherAlertsEnabled,
-            sunsetAlertEnabled: sunsetAlertEnabled,
             speedCamerasEnabled: speedCamerasEnabled,
             speedLimitDisplay: speedLimitDisplay,
             speedLimitOverToleranceKmh: speedLimitOverToleranceKmh,

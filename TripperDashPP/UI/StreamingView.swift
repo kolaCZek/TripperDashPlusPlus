@@ -190,13 +190,6 @@ struct StreamingView: View {
                 }
 
                 Toggle(isOn: Binding(
-                    get: { status.dashNavSettings.sunsetAlertEnabled },
-                    set: { status.dashNavSettings.sunsetAlertEnabled = $0 }
-                )) {
-                    Text("Sunset before arrival")
-                }
-
-                Toggle(isOn: Binding(
                     get: { status.dashNavSettings.speedCamerasEnabled },
                     set: { status.dashNavSettings.speedCamerasEnabled = $0 }
                 )) {

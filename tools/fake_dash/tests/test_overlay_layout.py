@@ -252,7 +252,10 @@ def test_sunset_pill_layout_matches_source():
     assert "var sunsetText: String? = nil" in SRC
     assert "drawSunsetPill(into: ctx)" in strip_comments(SRC)
     loop = (ROOT / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
-    assert "sunsetText: settings.sunsetAlertEnabled" in loop
+    # The Weather alerts toggle gates it too: no separate sunset setting.
+    assert "sunsetText: settings.weatherAlertsEnabled" in loop
+    assert "sunsetAlertEnabled" not in (
+        ROOT / "TripperDashPP" / "Navigation" / "Models" / "DashNavSettings.swift").read_text()
 
 
 TITLES = re.findall(r'WeatherAlert\(title: "([^"]+)"', (
