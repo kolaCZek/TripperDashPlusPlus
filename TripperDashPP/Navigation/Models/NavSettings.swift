@@ -13,16 +13,16 @@
 //         with user-chosen names/icons).
 //   - v2: `pinnedHomeId` / `pinnedWorkId` — exactly two hard-coded
 //         pinned slots with fixed names ("Home", "Work") and fixed
-//         icons (house.fill, briefcase.fill). NavigationStore migrates
-//         v1 → v2 on load: first two non-nil v1 slots become Home/Work
+//         icons (house.fill, briefcase.fill). `init(from:)` migrates
+//         v1 → v2 on decode: first two non-nil v1 slots become Home/Work
 //         in that order; the rest fall back into the unpinned list.
 //
 
 import Foundation
 
 struct NavSettings: Codable, Sendable {
-    /// Bump this when the shape changes incompatibly. NavigationStore
-    /// runs migrators in `load()` on mismatch.
+    /// Bump this when the shape changes incompatibly. `init(from:)`
+    /// migrates older versions on decode and always normalises to this one.
     var schemaVersion: Int = 2
 
     var favorites: [Favorite] = []

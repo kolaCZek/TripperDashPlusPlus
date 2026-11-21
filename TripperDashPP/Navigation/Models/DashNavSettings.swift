@@ -176,9 +176,12 @@ final class DashNavSettings {
     /// gusts/fog) as a compact pill burned into the bottom-right of the
     /// streamed map. Sourced keyless from Open-Meteo (WeatherKit would add
     /// another entitlement + JWT signing — see CLAUDE.md). Defaults ON.
-    /// When OFF, `WeatherAlertService` is never polled and the pill never
-    /// draws. Mirrors the OEM app's "Weather Alerts" notification. Also
-    /// gates the sunset pill (sunset is weather too, owner 11/2026).
+    /// Polled along the route ahead while navigating only; the pill is
+    /// dropped when navigation stops. When OFF, `WeatherAlertService` is
+    /// never polled and the pill never draws. Mirrors the OEM app's
+    /// "Weather Alerts" notification. Also gates the sunset pill (shown
+    /// when civil dusk falls before the final ETA; see
+    /// `ActiveNavLoop.sunsetPillText`).
     var weatherAlertsEnabled: Bool = true {
         didSet { persist() }
     }
@@ -213,7 +216,7 @@ final class DashNavSettings {
         didSet { persist() }
     }
 
-    /// Also speak a chime/prompt when approaching a speed camera. Gated
+    /// Also speak a prompt when approaching a speed camera. Gated
     /// additionally on `speedCamerasEnabled` (no cameras loaded → nothing to
     /// announce) and on `voiceEnabled`. Defaults ON — a rider who turned
     /// voice on generally wants the safety callout too.
@@ -418,7 +421,7 @@ final class DashNavSettings {
     }
 
     /// Wire byte for the primary distance TLV (`05 06`).
-    /// 10 = km/10ths, 20 = mi/10ths, 30 = metres, 50 = feet.
+    /// 0x10 = km/10ths, 0x20 = mi/10ths, 0x30 = metres, 0x50 = feet.
     /// Chosen based on `units` AND distance magnitude — short distances
     /// render as plain metres / feet (no decimal), longer ones as tenths
     /// so the dash can show "1.2" or "0.7".

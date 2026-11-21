@@ -106,7 +106,7 @@ final class ActiveNavigator {
     /// Absolute wall-clock arrival time for the CURRENT LEG — the single
     /// source of truth `etaSeconds` reads from. Set from a real
     /// `MKRoute.expectedTravelTime` in `seed()` (start/leg-advance) and
-    /// in `requestReroute()`, and kept fresh mid-leg by
+    /// in `installSwappedRoute()` (reroute), and kept fresh mid-leg by
     /// `refreshEtaFromApple()` on the `etaRefreshInterval` timer. `nil`
     /// only before the first route is seeded.
     private var legArrivalDate: Date?
@@ -214,8 +214,9 @@ final class ActiveNavigator {
     /// The fully classified UPCOMING maneuver (text-family + geometry-
     /// direction). Text/family from the arriving step's instructions;
     /// direction from the angle between the arriving leg (into the node)
-    /// and the departing leg (`nextStep`, out of the node). `nil` only in
-    /// the pre-first-fix transient when no arriving step is known yet.
+    /// and the departing leg (`nextStep`, out of the node). A U-turn while
+    /// `isWrongWay`. `nil` only in the pre-first-fix transient when no
+    /// arriving step is known yet.
     var upcomingManeuver: ManeuverKind? {
         guard let arriving = stepBeforeNext else { return nil }
         if isWrongWay, let here = currentCoordinate {
@@ -275,7 +276,8 @@ final class ActiveNavigator {
 
     /// Bumped when an off-route recalculation starts and whenever the
     /// active route is swapped mid-ride (reroute result, live-traffic
-    /// swap, alternative auto-switch, waypoint removed from the dash).
+    /// swap, alternative auto-switch, waypoint removed from the dash,
+    /// mid-ride route edit).
     /// The nav loop ends the average-speed section on every change: its
     /// average is measured along the route line, so after a swap it can
     /// read nonsense. A counter rather than `isRerouting`, which a fast
@@ -305,8 +307,8 @@ final class ActiveNavigator {
         return c.degrees
     }
 
-    /// The rider rides AGAINST the blue line where they are (≥ 120° off it
-    /// for `wrongWayDelay`), e.g. after a reroute whose every option turns
+    /// The rider rides AGAINST the blue line where they are (more than
+    /// 120° off it for `wrongWayDelay`), e.g. after a reroute whose every option turns
     /// back. `upcomingManeuver` then shows a U-turn instead of the turn far
     /// behind them. Clears once they ride within 60° of the line.
     private(set) var isWrongWay = false
@@ -373,8 +375,9 @@ final class ActiveNavigator {
     private(set) var currentLegIndex: Int = 0
 
     /// Number of legs still to drive, INCLUDING the current one. 1 on
-    /// the final leg. 0 when not plan-navigating. Drives the HUD's
-    /// "stop N of M" pill.
+    /// the final leg. 0 when not plan-navigating. Gates the dash's
+    /// "next waypoint" label in `ActiveNavLoop` (the HUD's "stop N of M"
+    /// pill reads `currentLegIndex` and `plan.legs.count` instead).
     private(set) var remainingWaypoints: Int = 0
 
     /// Distance (m) to the current leg's end waypoint at which we
@@ -547,7 +550,9 @@ final class ActiveNavigator {
 
     /// Fired whenever `currentAlternatives` changes (`seed`: start, leg
     /// swap, alt auto-switch; `stop`: clear) so MapPickerView can push the
-    /// render models into MapViewSource. A reroute does NOT refire it.
+    /// render models into MapViewSource. A plan-leg reroute refires it
+    /// with `[]` (the leg's other options are dropped); a
+    /// single-destination reroute does not.
     /// The navigator itself never touches MapViewSource.
     var onAlternativesChanged: (@MainActor ([MKRoute]) -> Void)?
 
@@ -727,7 +732,8 @@ final class ActiveNavigator {
     }
 
     /// Seed all per-leg display + geometry state from a single route.
-    /// Shared by both entry points and by leg-advance. Does NOT flip
+    /// Shared by both entry points, leg-advance, `replacePlan` and the
+    /// alternative auto-switch. Does NOT flip
     /// `isNavigating` or fire `onActiveRouteChanged` — the caller owns
     /// those so it can order them correctly.
     private func seed(route: MKRoute, destination: Destination) {
@@ -761,10 +767,11 @@ final class ActiveNavigator {
         refreshOverviewCaches()
         refreshNextLegFirstStep()
         // F6: (re)start the periodic Apple ETA re-fetch pump. Called
-        // from the ONE place all three lifecycle entry points
-        // (start/start-plan/leg-advance) funnel through, so there's no
-        // extra call site to remember. Safe to "restart the clock" on a
-        // leg-advance — `legArrivalDate` was just set fresh above anyway.
+        // from the ONE place all the lifecycle entry points
+        // (start, start-plan, leg-advance, replacePlan, alt switch) funnel
+        // through, so there's no extra call site to remember. Safe to
+        // "restart the clock" on a leg-advance — `legArrivalDate` was
+        // just set fresh above anyway.
         startEtaRefreshLoop()
         // F3: recompute this leg's alternatives (non-selected options) so
         // the dash draws them grey and the rider can fork onto one.
@@ -1511,7 +1518,8 @@ final class ActiveNavigator {
 
     /// (Re)start the periodic MKDirections re-fetch pump for the
     /// CURRENT leg's ETA. Called from `seed()`, so it runs exactly once
-    /// per active-route swap (start / start-plan / leg-advance) — always
+    /// per `seed()` (start, leg-advance, replacePlan, alt switch; a reroute
+    /// keeps the running pump) — always
     /// cancels any prior pump first, so there's never more than one
     /// running. First beat is the sleep, not an immediate re-fetch:
     /// `seed()` just set `legArrivalDate` from a brand-new `MKRoute` a
@@ -1795,12 +1803,3 @@ final class ActiveNavigator {
         return String(format: "%.1f km", meters / 1000)
     }
 }
-
-// NOTE: The legacy `ManeuverGlyph.symbol(for:)` SF-symbol picker was
-// removed here. It NLP-classified the instruction string with the same
-// substring approach (and the same left-before-right / road-name bug)
-// that this change replaced. The single source of truth is now
-// `ManeuverKind.classify(arrivingStep:departingStep:precedingStep:)` →
-// `ManeuverKind.sfSymbol`
-// (geometry for direction, text for family), used by both the dash
-// bubble and the SwiftUI HUD.

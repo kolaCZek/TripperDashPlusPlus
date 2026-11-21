@@ -11,15 +11,21 @@
 //      applies the user's dash-display preferences (`DashNavSettings`),
 //      and sends a full active-nav K1G packet via `BikeLink.sendActiveNav`.
 //
-//   2. Pushes the same snapshot into `MapViewSource.setNavOverlay(...)`
-//      for the maneuver glyph + distance + road name video overlay
-//      (its `drawNavOverlay` call is currently commented out, so
-//      nothing is drawn).
+//   2. Pushes the same snapshot into `MapViewSource.setNavOverlay(...)`.
+//      Of that state only the on-route turn arrow (`maneuverNode`) and
+//      the sunset pill (`sunsetText`) are drawn; the maneuver glyph +
+//      distance + road name overlay is not (the `drawNavOverlay` call in
+//      `MapViewSource` is commented out).
+//
+//  The same tick also feeds the demo bubble and the Live Activity, the
+//  ride progress bar, spoken guidance (maneuver, reroute, U-turn, speed
+//  camera, speed limit) and the average-speed section panel.
 //
 //  Lifecycle is tied to streaming, not to having a route: when the
 //  rider isn't navigating but we're still streaming the map (e.g.
 //  free ride), the loop sends only the route-card keep-alive (no
-//  active-nav packet); the RTP streamer's per-frame
+//  active-nav packet), refreshes the speed-limit sign config and
+//  speaks the speed-limit warning; the RTP streamer's per-frame
 //  `sendProjectionFrame` keeps the dash's projection latch open.
 //
 //  All actor isolation: @MainActor. `ActiveNavigator` and `BikeLink`
@@ -233,7 +239,7 @@ final class ActiveNavLoop {
         // (that would draw a bogus "straight ahead, 0 m" turn card on the
         // dash) and must clear any stale video overlay so the composited
         // frame is a clean map. Speed-limit config is still refreshed so
-        // the limit sign / camera pills keep tracking the rider's settings.
+        // the limit sign keeps tracking the rider's settings.
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
             mapSource?.setRideProgress(nil)   // free-ride / arrived → no bar
@@ -292,8 +298,9 @@ final class ActiveNavLoop {
 
         // Pre-compute wire values.
         //
-        // Bucket the PRIMARY maneuver distance first (nearest 1/25/100 m
-        // by proximity — see `bucketedManeuverDistance`) so the bubble's
+        // Bucket the PRIMARY maneuver distance first (metric: nearest
+        // 1/25/100 m by proximity; imperial: feet / tenths of a mile — see
+        // `bucketedManeuverDistance`) so the bubble's
         // "in N m" line stops twitching every GPS tick. The unit byte and
         // wire value are both derived from the BUCKETED meters so the
         // metric m↔km crossover stays consistent. The total-distance-to-
@@ -311,6 +318,7 @@ final class ActiveNavLoop {
         //      exists — `nav.lookaheadManeuver != nil`; nil on the last leg).
         //   3. The primary maneuver is close enough that a look-ahead is
         //      actually useful — far enough out, the chevron is just noise.
+        //   4. Not rerouting and not riding the wrong way (see the gate).
         // Distance/unit follow the same magnitude-based logic as the
         // primary block so units stay consistent across both chips.
         let lookahead: ManeuverKind? = nav.lookaheadManeuver
@@ -352,14 +360,9 @@ final class ActiveNavLoop {
         // AND the remaining-time (05 0B) TLVs together in EVERY packet —
         // it does NOT omit one of them to pick the dash's bottom row.
         //
-        // The previous code gated ETA vs remaining-time on a `bottomLine`
-        // preference (an XOR), which had two field-confirmed bugs (Martin,
-        // 6/2026):
-        //   * choosing "distance remaining" dropped ETA and sent a
-        //     remaining-TIME duration instead of letting the dash show the
-        //     km-to-destination total — "switch to km doesn't work";
-        //   * it diverged from the OEM capture, the one wire layout we know
-        //     the dash accepts.
+        // There is no `bottomLine` preference gating ETA vs remaining-time
+        // (an XOR gate diverged from the OEM capture, the one wire layout
+        // we know the dash accepts; Martin, 6/2026).
         //
         // Always emit ETA + remaining-time together whenever we have a
         // positive estimate (total distance is already sent unconditionally
@@ -385,8 +388,7 @@ final class ActiveNavLoop {
         // Multi-stop "next waypoint" label (Martin, 7/2026 field request).
         // Repurposes the roadName TLV (`05 01`) — MKRoute.Step doesn't
         // expose a real road name (Apple bakes it into verb-heavy
-        // `instructions`), so this field sits unused/nil on a classic
-        // single-destination ride, same as always. `docs/maneuver-glyphs/
+        // `instructions`), so this field has no other use. `docs/maneuver-glyphs/
         // README.md` confirms this exact TLV is what rendered the burned
         // "SCAN 0xNN" label at the BOTTOM of the active-nav bubble during
         // the glyph-capture sessions — the same spot Martin's screenshot
@@ -395,10 +397,11 @@ final class ActiveNavLoop {
         //
         // `remainingWaypoints > 1` means at least one MORE leg follows the
         // one ending at `nav.destination` — i.e. `destination` is an
-        // INTERMEDIATE stop, not the final destination. On a
-        // single-destination route (remainingWaypoints == 0) this stays
-        // nil; on the last leg of a plan (remainingWaypoints == 1) it
-        // names the final destination (see the gate below).
+        // INTERMEDIATE stop, not the final destination. On the last leg
+        // of a plan (remainingWaypoints == 1) it names the final
+        // destination (see the gate below). Only the `start(route:)` path
+        // leaves remainingWaypoints at 0 (label nil); the app starts every
+        // ride, single-destination ones too, as a plan.
         //
         // `nav.destination` / `etaSec` (== `nav.etaSeconds`) are already
         // scoped to the CURRENT LEG (see ActiveNavigator's F6 doc-comment
@@ -428,12 +431,12 @@ final class ActiveNavLoop {
             // Show the label whenever there IS a named target ahead:
             //   • remainingWaypoints > 1 → an intermediate stop ("… to Kokořín")
             //   • remainingWaypoints == 1 → the FINAL destination on the last
-            //     leg. Previously suppressed (the dash's own ETA field already
-            //     shows time-to-arrival), but the rider wanted the "N min to
-            //     <place>" text to persist all the way to the goal, not vanish
-            //     after the last via-point (field request, 8/2026). On a
-            //     single-destination ride (remainingWaypoints == 0) the label
-            //     stays suppressed — no via-points, the ETA field is enough.
+            //     leg, so the "N min to <place>" text persists all the way to
+            //     the goal instead of vanishing after the last via-point
+            //     (field request, 8/2026). A one-leg plan (a plain
+            //     single-destination ride) therefore shows it too;
+            //     remainingWaypoints == 0 (the `start(route:)` path) stays
+            //     suppressed.
             guard nav.remainingWaypoints >= 1 else { return nil }
             return Self.nextWaypointLabel(name: nextName, etaSeconds: etaSec)
         }()
@@ -467,7 +470,8 @@ final class ActiveNavLoop {
             remainingSeconds: remainingSecs
         )
 
-        // 2. Push to video compositor.
+        // 2. Push to video compositor (turn arrow on the route + sunset
+        //    pill; the glyph/distance/road-name overlay is not drawn).
         // The on-route turn arrow sits at the upcoming node, for a real
         // turn only. Not on a U-turn (the tip folds back over the shaft; a
         // wrong-way one's node is the stale one), nor on a zero-length step
@@ -515,7 +519,7 @@ final class ActiveNavLoop {
         //     Dynamic Island). No-op inside the controller when the user has
         //     Live Activities disabled. The controller throttles internally, so
         //     the raw 1 Hz feed is fine — it only forwards changes a rider would
-        //     notice (glyph, distance bucket, ETA minute, ≥1% progress).
+        //     notice (glyph, reroute flag, distance bucket, ETA minute, progress, …).
         liveActivity?.update(
             symbol: kind.sfSymbol,
             distanceMeters: distNext,
@@ -602,8 +606,7 @@ final class ActiveNavLoop {
         }
 
         // 2b-cam. Spoken speed-camera proximity warning
-        //     (feat/speed-camera-voice-alert). The camera phrase existed but
-        //     nothing ever spoke it; this fires it ONCE per camera as the
+        //     (feat/speed-camera-voice-alert): fires ONCE per camera as the
         //     rider closes in on one that's ahead. Suppressed during a
         //     reroute (stale route → don't chase cameras off the old line).
         if !isRerouting {
@@ -625,8 +628,6 @@ final class ActiveNavLoop {
             imperial: settings.units == .imperial
         )
         emitSpeedLimitVoice()
-
-        // 3. (Removed) the per-maneuver file-based diagnostic writer.
     }
 
     // MARK: - Spoken guidance
@@ -637,6 +638,7 @@ final class ActiveNavLoop {
     ///
     /// Priority order on the wire:
     ///   - reroute "recalculating" → `.critical` (once per reroute episode)
+    ///   - wrong-way U-turn        → `.critical` (once per episode)
     ///   - maneuver tier prompts   → `.maneuver`
     /// Arrival is spoken separately off `ActiveNavigator.onArrived` (wired in
     /// AppStatus), not here — arrival kinds are skipped below.
@@ -836,11 +838,10 @@ final class ActiveNavLoop {
     /// phone and dash never show the same leg's ETA in different shapes.
     ///
     /// Clipping is by `Character` count (grapheme clusters), not UTF-8
-    /// bytes — safe here because the budget (28) times the worst case for
-    /// a Czech name (diacritics are 2 bytes in UTF-8) is still well inside
-    /// `K1GPacket.tlvRoadName`'s 60-byte wire cap, so this call site never
-    /// exercises that function's byte-prefix (which can otherwise split a
-    /// multi-byte character at the boundary).
+    /// bytes — safe here because `K1GPacket.tlvRoadName` folds the text to
+    /// ASCII (`dashSafe`) before its 60-byte cut, and a 28-character label
+    /// stays within that, so this call site does not exercise the
+    /// byte-prefix (which could otherwise split a multi-byte character).
     ///
     /// `nonisolated` — pure function of its arguments, no navigator/actor
     /// state touched. Mirrors the `RideStatsFormatting` / `MapViewSource.
@@ -878,6 +879,7 @@ final class ActiveNavLoop {
     /// Last sunset-pill result: the route walk runs at most every 30 s, or
     /// at once when the final ETA moves by > 2 min (reroute, traffic) or the
     /// 12/24 h format changes. Cleared between rides (`stop()`, free ride).
+    /// Only consulted when the Weather alerts switch is on (see `tick`).
     private var sunsetPill: (text: String?, at: Date, eta: Date, is24Hour: Bool)?
 
     private func cachedSunsetText(nav: ActiveNavigator, eta: Date?) -> String? {

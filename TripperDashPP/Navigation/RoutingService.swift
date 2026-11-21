@@ -6,8 +6,8 @@
 //  calculation between the current location (or a user-chosen origin)
 //  and a destination. Returns up to 3 alternatives.
 //
-//  Stateless — UI calls calculate(...) on demand and stores the
-//  resulting RouteOption array itself.
+//  Stateless — callers (the planner via `recompute`, AppStatus's
+//  navigator hooks) store the resulting RouteOption array themselves.
 //
 
 import CoreLocation
