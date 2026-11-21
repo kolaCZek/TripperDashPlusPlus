@@ -410,14 +410,18 @@ private struct LogExportSection: View {
     /// (TestFlight and App Review = `.sandbox`; a development-signed build =
     /// `.sandbox`, or `.xcode` with a StoreKit config). No answer (no App
     /// Store account, offline first launch) = hidden; `.task` asks again the
-    /// next time Settings opens. The StoreKit path compiles in Debug too, so
-    /// CI (Debug only) builds it.
+    /// next time Settings opens. The StoreKit check is its own function so
+    /// it compiles in Debug too (CI builds Debug only) without a "will never
+    /// be executed" warning there.
     nonisolated static func isAvailable() async -> Bool {
-        var debug = false
         #if DEBUG
-        debug = true
+        return true
+        #else
+        return await isNotAppStoreBuild()
         #endif
-        if debug { return true }
+    }
+
+    nonisolated private static func isNotAppStoreBuild() async -> Bool {
         // Unverified payload is fine: it only shows a button.
         guard let result = try? await AppTransaction.shared else { return false }
         return result.unsafePayloadValue.environment != .production
