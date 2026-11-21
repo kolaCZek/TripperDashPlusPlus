@@ -1450,7 +1450,8 @@ final class AppStatus {
     }
 
     /// Two coordinates within ~150 m of each other (used to detect that a
-    /// shared route's start point is just the rider's current location).
+    /// shared route's start point is just the rider's current location, or
+    /// that a widget Fuel station already is the next stop).
     private static func isSameSpot(_ a: CLLocationCoordinate2D,
                                    _ b: CLLocationCoordinate2D) -> Bool {
         let la = CLLocation(latitude: a.latitude, longitude: a.longitude)
@@ -1724,14 +1725,18 @@ final class AppStatus {
     /// Navigate `plan` (origin = live location). Mid-navigation it replaces
     /// the running route, like Edit route (a widget Fuel tap passes the
     /// running stops with the station first, so the rest of the ride
-    /// stays); in free ride it ends the free ride and starts navigation; otherwise it stages the plan and
-    /// connects, and the picker starts it.
+    /// stays); in free ride it ends the free ride and starts navigation;
+    /// otherwise it stages the plan and connects, and the picker starts it.
     /// `riderOwned`: the rider is looking (a widget tap), so the staged plan
     /// is theirs from the start: a route that fails, even during the
     /// connect's first await, stays on screen with its error instead of the
     /// unattended teardown (plan and connect dropped).
-    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?, riderOwned: Bool = false) async -> String {
-        let dest = plan.waypoints.last?.name ?? "your destination"
+    /// `legIndex`: the leg `plan` was built from (a Fuel stop); a stop
+    /// reached during routing makes it stale, like Edit route's `isStale`.
+    /// `label`: what the replies name, when not the final stop.
+    private func navigateFromShortcut(_ plan: PlannedRoute, running: PlannedRoute?, riderOwned: Bool = false,
+                                      legIndex: Int? = nil, label: String? = nil) async -> String {
+        let dest = label ?? plan.waypoints.last?.name ?? "your destination"
         switch ShortcutPolicy.navigate(navigating: activeNavigator.isNavigating,
                                        arrived: activeNavigator.hasArrived,
                                        handPlanStaged: handPlanStaged,
@@ -1744,17 +1749,20 @@ final class AppStatus {
             return "Just arrived. Try again in a moment."
         case .redirect:
             let nav = activeNavigator
+            let isLive: @MainActor () -> Bool = {
+                nav.plan === running && (legIndex == nil || nav.currentLegIndex == legIndex)
+            }
             do {
                 try await routingService.recompute(plan,
                                                    // Only the legs a carried-over plan (Fuel stop) lacks.
                                                    dirtyLegIndices: Set(plan.legs.indices.filter { !plan.legs[$0].isComputed }),
                                                    preferences: navigationStore.routePreferences,
                                                    timeout: ActiveNavigator.routeRequestTimeout,
-                                                   isStillLive: { nav.plan === running })
+                                                   isStillLive: isLive)
             } catch {
                 return "Couldn't find a route to \(dest). Your current route is unchanged."
             }
-            guard nav.plan === running, await nav.replacePlan(plan) else {
+            guard isLive(), await nav.replacePlan(plan) else {
                 return "Couldn't switch routes right now. Your current route is unchanged."
             }
             return "Rerouting to \(dest)."
@@ -1846,19 +1854,25 @@ final class AppStatus {
             } else { return }
             if let dest {
                 let said: String
+                let legIndex = activeNavigator.currentLegIndex
+                let ahead = running.map { PlannedRoute.remainingStops(of: $0, fromLegIndex: legIndex) } ?? []
                 if to == "fuel", let running, running.isEditableMidRide,
+                   let next = ahead.first, Self.isSameSpot(next.coordinate, dest.coordinate) {
+                    // The next stop already is this station (a planned fuel
+                    // stop): the rider is heading there, nothing to add.
+                    said = "Rerouting to \(dest.name)."
+                } else if to == "fuel", let running, running.isEditableMidRide,
                    let here = locationService.lastFix?.coordinate,
                    let wps = PlannedRoute.replacementWaypoints(
                        currentLocation: here,
-                       stops: [Waypoint.from(destination: dest)]
-                           + PlannedRoute.remainingStops(of: running, fromLegIndex: activeNavigator.currentLegIndex)) {
+                       stops: [Waypoint.from(destination: dest)] + ahead) {
                     // Mid-navigation the station becomes the next stop and the
                     // rest of the plan stays: the Edit route swap, untouched
                     // legs carried. ponytail: a track (or dense) plan isn't
                     // editable mid-ride, so there Fuel still replaces the route.
                     let plan = PlannedRoute(waypoints: wps)
                     PlannedRoute.carryComputedLegs(from: running, into: plan)
-                    said = await navigateFromShortcut(plan, running: running)
+                    said = await navigateFromShortcut(plan, running: running, legIndex: legIndex, label: dest.name)
                 } else {
                     said = await navigateFromShortcut(to: dest, running: running, riderOwned: true)
                 }
