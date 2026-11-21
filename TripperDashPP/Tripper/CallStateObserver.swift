@@ -30,6 +30,8 @@
 //
 //  BikeLink de-dups repeated identical states, so the several `callChanged`
 //  events CallKit fires for one logical transition collapse to one burst.
+//  It also honours the `callStateEnabled` setting (a `.none` clear always
+//  goes through).
 //
 
 import Foundation

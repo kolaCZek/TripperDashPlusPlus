@@ -41,7 +41,8 @@ import Observation
 /// preview needs so it renders units/clock identically to the real dash.
 struct DemoNavBubble: Equatable, Sendable {
     /// Upcoming maneuver — drives the SF Symbol glyph via `ManeuverKind.sfSymbol`.
-    /// nil during the brief pre-first-fix transient / free-ride heartbeat.
+    /// `ActiveNavLoop` always supplies one while navigating (`.straight` before
+    /// the first fix); with no navigation it clears the whole bubble instead.
     var maneuver: ManeuverKind?
     /// Final-destination ETA (already whole-trip scoped, matching the dash).
     var etaDate: Date?

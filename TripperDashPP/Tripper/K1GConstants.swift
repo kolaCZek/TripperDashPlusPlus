@@ -127,11 +127,12 @@ nonisolated enum K1G {
     static let handshakeStepTimeout: TimeInterval = 5.0
 
     /// Delay between auto-reconnect attempts after an established link
-    /// drops unexpectedly (heartbeat send error or Wi-Fi path down).
+    /// drops unexpectedly (see `BikeLink.handleLinkDropped`). A boot-race
+    /// failure retries after `bootRaceRetryInterval` instead.
     static let reconnectInterval: TimeInterval = 5.0
 
     /// Post-z2 warm-up: how long to wait after `sendNavStart()` (START_NAV +
-    /// NAV_CTX) before starting the RTP stream, giving the dash time to
+    /// NAV_CTX + EMPTY_LISTS) before starting the RTP stream, giving the dash time to
     /// actually ALLOCATE ITS NAV-DECODER SURFACE — not just receive the
     /// UDP packet. Captured from the reference `better-dash`
     /// `tripper_app_like_nav.py --pre-z2-wait` (default 0.45s, "captured
@@ -193,10 +194,11 @@ nonisolated enum K1G {
     /// retries after a step-1 handshake timeout with ZERO reply packets
     /// (the "dash still booting" race — see BikeLink.ConnectAttemptResult
     /// .bootRaceMissingReply). 4 attempts × handshakeStepTimeout(5s) +
-    /// bootRaceRetryInterval(2s) gaps ≈ 28s, comfortably inside how long
-    /// the Tripper's own boot sequence takes to bring its K1G control-plane
+    /// 3 × bootRaceRetryInterval(2s) gaps ≈ 26s, about the ~28s the
+    /// Tripper's own boot sequence takes to bring its K1G control-plane
     /// task up after its Wi-Fi AP (which is what let the phone associate
-    /// and the dash show "iPhone connected") is already alive.
+    /// and the dash show "iPhone connected") is already alive. A
+    /// shortcut's connect gets twice as many attempts (`patientBootRace`).
     static let bootRaceMaxAttempts = 4
 
     /// Delay between silent boot-race retries on a fresh connect.

@@ -14,7 +14,8 @@
 //  `dashSafe` folds any string down to plain 7-bit ASCII: diacritics
 //  are stripped to their base letter (á→a, ř→r, ž→z, ě→e), a handful of
 //  common typographic characters are mapped to ASCII equivalents, and
-//  anything still outside printable ASCII is dropped. Applied at the three
+//  anything still outside printable ASCII is replaced by a space (runs of
+//  spaces are collapsed). Applied at the three
 //  points where text actually leaves for the dash — `K1GPacket.tlvRoadName`
 //  (the control-plane road-name TLV), `K1GPacket.makeRouteCard` (the
 //  route-card title) and `MapViewSource.drawText` (the
@@ -29,7 +30,8 @@ extension String {
 
     /// Fold to plain printable 7-bit ASCII for the Tripper dash font.
     /// Strips diacritics, maps common typographic punctuation to ASCII,
-    /// and drops any remaining non-ASCII code points. No-op for strings
+    /// and replaces any remaining non-ASCII code points with a space
+    /// (runs of spaces collapse, the ends are trimmed). No-op for strings
     /// already within printable ASCII.
     var dashSafe: String {
         // Fast path: already clean.
@@ -61,8 +63,9 @@ extension String {
         let folded = mapped.folding(options: .diacriticInsensitive,
                                     locale: Locale(identifier: "en_US_POSIX"))
 
-        // 3. Drop anything still outside printable ASCII (0x20–0x7E),
-        //    keeping ordinary spaces. Tabs/newlines collapse to a space.
+        // 3. Replace anything still outside printable ASCII (0x20–0x7E)
+        //    with a space; ordinary spaces stay. Tabs/newlines also become
+        //    a space.
         let out = folded.unicodeScalars.map { scalar -> Character in
             if scalar.value == 0x09 || scalar.value == 0x0A || scalar.value == 0x0D {
                 return " "

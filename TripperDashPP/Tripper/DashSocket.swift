@@ -65,21 +65,22 @@ actor DashSocket {
     /// (info level) and at cancel, so timeouts can be diagnosed without
     /// digging through debug spam.
     private var rxDatagramCount: UInt64 = 0
-    /// Uptime of the last datagram (socket creation until the first one),
-    /// for the heartbeat's RX-silence check.
-    /// Keeps counting while the device sleeps (`systemUptime` doesn't), so a
-    /// dash that rebooted while the phone slept shows as silent.
+    /// Monotonic clock, in seconds. Keeps counting while the device sleeps
+    /// (`systemUptime` doesn't), so a dash that rebooted while the phone
+    /// slept shows as silent.
     nonisolated static func now() -> TimeInterval {
         Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1_000_000_000
     }
+    /// `now()` at the last datagram (socket creation until the first one),
+    /// for the heartbeat's RX-silence check.
     private var lastRxUptime = DashSocket.now()
 
     /// Seconds since the dash last sent anything on this socket.
     func secondsSinceLastRx() -> TimeInterval {
         DashSocket.now() - lastRxUptime
     }
-    /// IO queue for the DispatchSourceRead handler and any blocking
-    /// `sendto` calls. Off-main, isolated per socket instance.
+    /// IO queue for the DispatchSourceRead handler and the `sendto` calls.
+    /// Off-main, isolated per socket instance.
     private let ioQueue: DispatchQueue
 
     // MARK: - Init

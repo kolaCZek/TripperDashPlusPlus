@@ -34,6 +34,8 @@ struct TripperDashPPApp: App {
                     // tripperdash:// deep link; the OS may also hand us raw
                     // geo:/maps URLs. Both funnel through AppStatus, which
                     // resolves and stages a plan (pre-filling the planner).
+                    // A tripperdash://quick?to=… link comes from the home-
+                    // screen widgets and runs a widget action instead.
                     status.handleIncomingURL(url)
                 }
                 .task {

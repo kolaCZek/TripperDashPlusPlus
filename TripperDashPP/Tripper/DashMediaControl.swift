@@ -10,8 +10,8 @@
 //  zoom codes. `AppStatus.wireDashButtons()` routes those two cases here.
 //
 //  IMPLEMENTATION NOTE — what this can and cannot control:
-//  `MPMusicPlayerController.systemMusicPlayer` is the ONLY skip API a free
-//  Apple Developer account can use without private entitlements. It drives
+//  `MPMusicPlayerController.systemMusicPlayer` is the skip API used here; it
+//  needs no special entitlement. It drives
 //  the SYSTEM music player — Apple Music / the built-in Music app queue.
 //  It does NOT control third-party players (Spotify, YouTube Music, etc.);
 //  Apple exposes no public API to send next/previous to an arbitrary
@@ -46,11 +46,10 @@ final class DashMediaControl {
         player.skipToNextItem()
     }
 
-    /// Dash "previous track" (button 0x0a). Mirrors the hardware behaviour
-    /// of a double-press "previous": we jump straight to the PREVIOUS item
-    /// rather than restarting the current one, because the rider's intent
-    /// from the dash stick is "go back a song", not "seek to 0". (A single
-    /// `skipToPreviousItem` from mid-track already goes to the prior item.)
+    /// Dash "previous track" (button 0x0a). Calls `skipToPreviousItem` on
+    /// the system player. Not checked on a device whether a press well into
+    /// a song goes to the previous item or only restarts the current one.
+    /// No-op against third-party players (see file note).
     func skipToPrevious() {
         log.info("Dash → skip to PREVIOUS track (system music player)")
         player.skipToPreviousItem()

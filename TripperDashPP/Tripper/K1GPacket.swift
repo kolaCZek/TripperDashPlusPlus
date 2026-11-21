@@ -261,7 +261,7 @@ extension K1GPacket {
     ///
     /// Type byte is `0x08` (session, phone → bike), NOT `0x07` (auth, which
     /// is bike → phone only). Earlier revisions of this file used `0x07`
-    /// and matched `tools/fake_dash/tests/test_integration.py:65` — but
+    /// and matched the fake_dash integration test of the time — but
     /// the real Tripper dash silently drops 0x07 from the phone side.
     static func makeRequestPubkey(seq: UInt8) -> Data {
         let seg = K1GSegment(
@@ -303,7 +303,8 @@ extension K1GPacket {
     // preceded by the `0x007E` route-card burst (see `makeRouteCard`):
     //   1. `START_NAV`        — open the nav projection screen
     //   2. `NAV_CTX`          — enter nav context, then `EMPTY_LISTS`
-    //                           (see `makeEmptyLists`)
+    //                           (see `makeEmptyLists`); `AppStatus.startStreaming`
+    //                           then sends one more route card
     //   3. start the RTP/H.264 stream
     //   4. `PROJ_ON`          — latch projection-live flag
     //   5. then per frame, send `PROJ_FRAME` right after each
@@ -328,8 +329,8 @@ extension K1GPacket {
     /// 0001 00` TLVs in one envelope. Sent immediately after `NAV_CTX` as
     /// part of the nav-context handshake — better-dash `send_nav_mode_kick`
     /// always sends START_NAV, NAV_CTX and EMPTY_LISTS together, and
-    /// "empty" is permanently correct for us (this app has no favourites
-    /// feature).
+    /// "empty" is permanently correct for us (the app never syncs its
+    /// favourites to the dash).
     ///
     /// Verified byte-for-byte against the reference's
     /// `Q3C_R_EMPTY_LISTS` constant before wiring in.
@@ -386,16 +387,19 @@ extension K1GPacket {
     /// be close enough to unblock the decoder surface as a side effect on
     /// navigation reconnects, which is why the bug was invisible there.
     ///
-    /// `title` is truncated/null-terminated the same way the Python
-    /// authority does (`rt[:60] + b"\x00"`, so max 61 bytes on the wire).
-    /// `projectionOn` patches the LAST occurrence of the `06 05 00 01`
-    /// marker inside the suffix template to `0x55` (on) or `0xAA` (off),
-    /// mirroring `build_navigation_packet`'s `projection_on` flag — the
+    /// `title` is folded to ASCII (`dashSafe`), then truncated/null-terminated
+    /// the same way the Python authority does (`rt[:60] + b"\x00"`, so max
+    /// 61 bytes on the wire).
+    /// `projectionOn` sets the `06 05 00 01` flag to `0x55` (on) or `0xAA`
+    /// (off), mirroring `build_navigation_packet`'s `projection_on` flag — the
     /// dash reads this as part of the same packet rather than requiring a
     /// separate `PROJ_ON`/`PROJ_OFF` toggle for the route-card's own view.
     ///
-    /// `includeHudFields` controls whether the template's nav-data TLVs are
+    /// `includeHudFields` controls whether the nav-data TLVs are
     /// included (true = pre-z2 burst, false = 1 Hz keep-alive).
+    /// `includeManeuverPlaceholders` additionally keeps the five maneuver/
+    /// distance placeholders (`05 02/06/09/46/0A`); `AppStatus` leaves them
+    /// out for free ride.
     ///
     /// This function does NOT reproduce the reference template verbatim, and
     /// deliberately so — three successive field reports (8/2026) were all
@@ -588,6 +592,8 @@ extension K1GPacket {
     //   09 00 0001 14  LEFT   → echo 06 80 0001 14
     //   09 00 0001 15  DOWN   → echo 06 80 0001 15
     //   09 00 0001 18  CLICK  → echo 06 80 0001 18
+    //   (every code in `DashButton` is acked the same way, and so is an
+    //   unrecognised one: `BikeLink.handleButton`)
 
     /// The joystick / control inputs the Tripper sends while streaming.
     /// Raw values are the trailing byte of the `09 00 0001 XX` segment.
@@ -646,7 +652,8 @@ extension K1GPacket {
     //   2. the `05 4D 0001 32` commit/trailer suffix
     //
     // The idle value `0x32` is byte-identical to the `0521000132` tail
-    // better-dash already inlines in every 0044/0030 heartbeat. Full
+    // of the captured 0044 status frame (`INITIAL_BURST_HEX[8]`; our own 1 Hz
+    // heartbeat does not carry it). Full
     // wire-protocol writeup + the AES caller-name
     // caveat (why we ship state-only for now) live in the skill reference
     // `references/call-notification-wire-protocol.md`.
@@ -668,8 +675,8 @@ extension K1GPacket {
     /// `05 21 0001 <state>` — the standalone call-state TLV. One per state
     /// change. Goes through the normal `encode()`, so `seg_count` (=2) and
     /// `outer_len` (=0x16) follow the standard single-segment envelope.
-    /// Only the idle `0x32` is backed by a capture (the better-dash
-    /// heartbeat tail `0521000132`); `0x0A`/`0x14`/`0x1E` have no capture.
+    /// Only the idle `0x32` is backed by a capture (the captured 0044
+    /// tail `0521000132`); `0x0A`/`0x14`/`0x1E` have no capture.
     static func makeCallState(_ state: CallState, seq: UInt8) -> Data {
         let seg = K1GSegment(type: .navInfo, sub: 0x21, payload: Data([state.rawValue]))
         return encode(segments: [seg], seq: seq)
@@ -893,10 +900,10 @@ extension K1GPacket {
     /// TLVs (ETA + remaining time + road name + ETA format) so the dash
     /// can render its full nav bubble.
     ///
-    /// Caller passes any subset of optional fields. `primaryManeuver`,
-    /// `primaryDistanceMeters`, `primaryUnit`, `totalDistanceMeters`,
-    /// `totalDistanceUnit`, `useCommaDecimal`, `projectionOn` and
-    /// `decimalFmtOn` are required. The look-ahead group is always sent
+    /// Caller passes any subset of optional fields. `primaryDistanceMeters`,
+    /// `primaryUnit`, `totalDistanceMeters`, `totalDistanceUnit` and
+    /// `useCommaDecimal` have no default; `primaryManeuver` (0x0B),
+    /// `projectionOn` and `decimalFmtOn` do. The look-ahead group is always sent
     /// (hidden when there is none), so the minimum packet is 11 TLVs.
     /// Order of TLVs is fixed and follows the real-phone capture.
     static func makeActiveNav(
@@ -1029,10 +1036,10 @@ extension K1GPacket {
         // `seg_count = 0x000A` is a CONSTANT copied verbatim from the
         // captured 0044 and kept fixed; the dash accepts it with the TLVs
         // we send (field-tested). So adding/removing a TLV here does NOT
-        // change this byte. (The captured 0044 carries exactly 10 TLVs incl.
-        // `06 01` + the idle `05 21`/`05 4D`; we omit engine-temp's OEM
-        // absence quirk and the call-state pair lives on its own burst, so
-        // our real TLV count differs — intentionally — from this byte.)
+        // change this byte. (The captured 0044 carries 10 TLVs: no `06 10`
+        // engine temp, plus the idle `05 21`/`05 4D` tail. We send 9: we add
+        // `06 10`, and the call-state pair lives on its own burst, so our
+        // real TLV count differs — intentionally — from this byte.)
         body.append(contentsOf: [0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00])
         body.append(contentsOf: K1G.icHeaderMarker)
         body.append(contentsOf: K1G.magic)
@@ -1256,8 +1263,8 @@ enum InitialBurst {
         return makePacket3SetClock(hour: hour, minute: minute, second: second)
     }
 
-    /// Test seam — same as `makePacket3SetClock(now:)` but lets fake_dash
-    /// unit tests inject deterministic clock bytes without stubbing Date.
+    /// Same as `makePacket3SetClock(now:)` but takes the clock bytes
+    /// directly (the `now:` variant delegates here).
     static func makePacket3SetClock(hour: UInt8, minute: UInt8, second: UInt8) -> Data {
         var p = Data(capacity: 24)
         // Header + K1G magic + seq 0x02 (matches the captured greeting).
