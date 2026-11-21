@@ -6,7 +6,7 @@ Thanks for your interest! This project is small but ambitious, and **any kind of
 
 ### 🏍️ I have a non-Guerrilla Royal Enfield with a Tripper Dash
 
-This is the **most valuable** contribution right now. Until we know which bikes use the same K1G protocol, we can't claim broad compatibility.
+This is the **most valuable** contribution right now. The Guerrilla 450, Himalayan 450 and Bear 650 are confirmed; reports for other bikes, model years and firmware versions are what's still missing before we can claim broader compatibility.
 
 1. Try [better-dash](https://github.com/kolaCZek/better-dash) (Python reference impl) against your bike.
 2. If the handshake completes and you see frames on the dash, [open an issue](../../issues/new?template=tested-bike.md) with:
@@ -23,7 +23,7 @@ This is the **most valuable** contribution right now. Until we know which bikes 
 - Steps to reproduce
 - Expected vs actual behavior
 - App version from Settings → About (`version (build) · commit`)
-- Logs, if you can — Console.app on a Mac (subsystem `eu.kolaczek.tripperdashpp`); in a build run from Xcode (Debug) also Settings → Diagnostics → Export log (everything since the app was last launched, so export before closing it)
+- Logs, if you can — Console.app on a Mac (subsystem `eu.kolaczek.tripperdashpp`); in a Debug or TestFlight build also Settings → Diagnostics → Export log (App Store builds don't have it; the log is everything since the app was last launched, so export before closing it)
 
 ### 💡 I have a feature idea
 
@@ -45,7 +45,7 @@ See [README.md → Building](README.md#building). TL;DR:
 - Paid Apple Developer Program membership (the Hotspot Configuration entitlement can't be signed by a free Personal Team)
 - No API keys, no map SDK account — OSM tiles and MapKit need none
 - Real iPhone — the Simulator can't open Wi-Fi to the bike
-- Optional: Docker, to run the `fake_dash` harness (`make fake-dash-up`)
+- Optional: Docker, to run the `fake_dash` harness (`make fake-dash-up`); Python 3.11+ and `pip install -e "tools/fake_dash[dev]"` to run its tests (`make fake-dash-test`)
 
 ## Project conventions
 

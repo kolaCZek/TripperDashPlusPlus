@@ -7,6 +7,7 @@ no JavaScript, no third-party requests.
   - `index.html`, `support/index.html`, `privacy.html`, `404.html`, `site.css`
   - `robots.txt`, `sitemap.xml`, `googleff63d25268b6d683.html` (Search Console ownership check; keep it)
   - `fonts/`: Barlow and Barlow Condensed, latin subset (SIL OFL, see `licenses/`)
+  - `shots/`: the app screenshots (webp), `logo*.png`, `favicon.ico`, `appstore-badge.svg`, `og-image.jpg`, `dash-render*.webp`
 - `src/`: sources of the generated images.
   - `dash-render.html`: the hero image, a hand-drawn SVG of the Tripper dash (fonts: Inter, latin subset, SIL OFL).
   - `og.html`: the 1200×630 social share image.

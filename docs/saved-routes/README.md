@@ -6,8 +6,10 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
 
 ## Rider-facing flow
 
-1. **Map picker → toolbar** now has a *Saved routes* button (the
-   route-curve glyph) to the left of the gear/Settings button.
+1. **Map picker → toolbar** has a *Saved routes* button (the
+   route-curve glyph), followed by *Ride history* and the gear/Settings
+   button. The first two show only while browsing, not while planning or
+   navigating.
 2. Tapping it opens the **Saved routes** sheet:
    - empty state offers **Import GPX**;
    - the toolbar's down-arrow also imports.
@@ -20,7 +22,9 @@ navigation stack — a saved route is just a pre-seeded `PlannedRoute`.
      a glance before starting;
    - rename it;
    - **Edit** (top-right) to prune or reorder its points (see below);
-   - delete it, or **Start navigation**.
+   - **Add stop** (waypoint routes with room left under the 20-point
+     editing limit): search for a place, it's added before the end;
+   - **Export as GPX**, delete it, or **Start navigation**.
 5. **Start navigation** stages a `PlannedRoute` (origin = live GPS) and
    dismisses back to the picker, which shows the normal planning UI.
    From there the existing *Connect to dash → Start* path takes over
@@ -182,12 +186,18 @@ make fake-dash-test          # on the host (pip install -e "tools/fake_dash[dev]
 cd tools/fake_dash && python3 -m pytest tests/test_gpx_import.py -q
 ```
 
+## Saving a recorded ride
+
+*Ride history* (clock icon) and the trip panel offer **Save to routes** for a
+recorded ride: it's stored as a `.track` route built from the GPS trace
+(`RideStatsService.savedRoute(from:)`), and can be exported as GPX.
+
 ## Not done here / future
 
 - **"Open in TripperDash++" from another app** — would need a
   `UTImportedTypeDeclarations`/`CFBundleDocumentTypes` GPX entry in
   Info.plist. The current button-driven `.fileImporter` needs no plist
-  change. Left out of this PR deliberately.
+  change. Left out deliberately.
 - **Pixel-perfect GPX polyline following** — by design we route via
   MKDirections between reduced points, not by snapping to the raw GPX
   line. This keeps maneuver glyphs, reroute, and ETA working. A true

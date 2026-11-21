@@ -16,6 +16,8 @@ Configuration via env vars (overridable on the CLI):
   FAKE_DASH_SSID            (default: RE_FAKE_260616)
   FAKE_DASH_LOG_LEVEL       (default: INFO)
   FAKE_DASH_NO_BEACON       (default: unset; set to anything to disable beacon)
+  FAKE_DASH_CONTROL_SOCKET  (default: /run/fake_dash.sock; `button` IPC)
+  FAKE_DASH_BUTTON_TARGET   (default: 127.0.0.1; `button --raw` only)
 """
 
 from __future__ import annotations

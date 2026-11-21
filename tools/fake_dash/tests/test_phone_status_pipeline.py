@@ -36,7 +36,7 @@ tests therefore pin `06 01` to the exact OEM semantics and pin `06 08`
 only to the proxy contract the Swift side actually ships.
 
 Authoritative writeup: the `royal-enfield-tripper-dash` skill reference
-`phone-status-wire-protocol.md`.
+`phone-status-heartbeat-telemetry.md`.
 """
 
 from __future__ import annotations
