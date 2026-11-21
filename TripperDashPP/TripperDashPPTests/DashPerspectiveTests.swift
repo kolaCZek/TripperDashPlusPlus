@@ -109,9 +109,10 @@ struct DashPerspectiveTests {
         #expect(p.skyWeights(row: p.skyBand + 1).sky == 0)
         let bpr = 526 * 4
         var out = [UInt8](repeating: 128, count: bpr * 300)
+        var scratch: [Double] = []
         out.withUnsafeMutableBufferPointer { f in
             p.applySky(frame: f.baseAddress!, bytesPerRow: bpr,
-                       top: SIMD3(52, 120, 214), horizon: SIMD3(170, 205, 240))
+                       top: SIMD3(52, 120, 214), horizon: SIMD3(170, 205, 240), scratch: &scratch)
         }
         // Top-left pixel is the sky colour (BGRA)…
         #expect(abs(Int(out[0]) - 214) <= 1)

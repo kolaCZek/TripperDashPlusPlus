@@ -523,6 +523,13 @@ final class MapViewSource: NSObject, FrameSource {
     private var tiltCapped = false
     /// Reused flat-map buffer for the tilted view (`DashPerspective.groundSize`).
     private var groundContext: CGContext?
+    /// Reused blur scratch for the sky band (`DashPerspective.applySky`).
+    private var skyScratch: [Double] = []
+    /// z=13 tile baked around the rider while the route's coarse layer is
+    /// missing (free ride, before its first bake, after a reroute or a
+    /// palette switch), so the far tilted view still has map under it.
+    private var coarsePositionCache: RouteTileCache?
+    private var lastCoarsePositionAt: Date?
     /// This frame's map target when tilted; nil = draw straight into the frame.
     private var activeGround: CGContext?
     /// This frame's camera, set once the ground is warped; nil = flat.
@@ -642,7 +649,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// selects `.coarse` and it is missing. Coarse is only picked below
     /// ~0.77× zoom, which autozoom never reaches (floor 0.8) — only a
     /// manual LEFT press does — yet it used to be ~70 % of the image work
-    /// after every route change. Until this bake lands, `activeTileCache`
+    /// after every route change. The 3D map draws it under every frame, so
+    /// with 3D on it is baked on the first frame of each route (that cost
+    /// is back, by design). Until this bake lands, `activeTileCache`
     /// draws base (black frame edges at the extreme zoom-out for a few
     /// seconds). A route change or palette switch just drops the layer
     /// (`setTileCache` / `performStyleRebake` set it to nil); the next
@@ -1462,7 +1471,8 @@ extension MapViewSource {
             return
         }
         drawProjectedTile(refTile, image: cg, riderCoord: fix.coordinate, into: ctx,
-                          underlays: perspectiveUnderlays(rider: fix.coordinate, excluding: drawCache))
+                          underlays: perspectiveUnderlays(main: refTile, rider: fix.coordinate,
+                                                          excluding: drawCache))
     }
 
     /// Off-corridor rescue frame. Reached when the rider has left the
@@ -1500,7 +1510,8 @@ extension MapViewSource {
             return
         }
         drawProjectedTile(tile, image: cg, riderCoord: fix.coordinate, into: ctx,
-                          underlays: perspectiveUnderlays(rider: fix.coordinate, excluding: nil))
+                          underlays: perspectiveUnderlays(main: tile, rider: fix.coordinate,
+                                                          excluding: nil))
     }
 
     /// Shared projection + composite for a SINGLE stitched tile centred
@@ -1775,8 +1786,8 @@ extension MapViewSource {
         // drawVectorOnlyFrame so the puck stays put when we fall back
         // to vector-only. Coord system here is Y-DOWN (outer ctx). The
         // tilted view draws it at the ground buffer's anchor instead.
-        let cx = (center ?? puckCenter).x
-        let cy = (center ?? puckCenter).y
+        let c = center ?? puckCenter
+        let cx = c.x, cy = c.y
 
         ctx.saveGState()
         ctx.translateBy(x: cx, y: cy)
@@ -3853,10 +3864,11 @@ extension MapViewSource {
         drawHeadingArrow(into: g, at: DashPerspective.groundAnchor)
 
         let target = DashPerspective.targetTilt(zoom: currentZoom)
-        var tilt = min(target, displayedTilt + tiltStepUp)
+        var tilt = tiltCandidate
         if let tiles, let rider {
             let covered = maxCoveredTilt(upTo: tilt, tiles: tiles, rider: rider)
-            let capped = covered < target - 1
+            // Hysteresis so a tilt hovering at the edge logs once, not per frame.
+            let capped = covered < target - (tiltCapped ? 1 : 3)
             if capped != tiltCapped {
                 tiltCapped = capped
                 if capped {
@@ -3877,25 +3889,60 @@ extension MapViewSource {
                into: dst.assumingMemoryBound(to: UInt8.self), frameBytesPerRow: ctx.bytesPerRow)
         let sky = currentStyle.skyColors
         p.applySky(frame: dst.assumingMemoryBound(to: UInt8.self), bytesPerRow: ctx.bytesPerRow,
-                   top: sky.top, horizon: sky.horizon)
+                   top: sky.top, horizon: sky.horizon, scratch: &skyScratch)
     }
 
-    /// 3D only: the coarse and base tiles under the rider, drawn beneath the
-    /// frame's main tile (`excluding` its cache) so the far part of the
-    /// tilted view has map under it. Bakes the coarse layer on first use.
-    fileprivate func perspectiveUnderlays(rider: CLLocationCoordinate2D,
-                                          excluding main: RouteTileCache?) -> [(RouteTile, CGImage)] {
-        guard activeGround != nil else { return [] }
-        if coarseTileCache == nil { ensureCoarseLayer() }
+    /// The tilt this frame aims for before the coverage cap: the zoom curve,
+    /// climbing at most `tiltStepUp` per frame.
+    private var tiltCandidate: Double {
+        min(DashPerspective.targetTilt(zoom: currentZoom), displayedTilt + tiltStepUp)
+    }
+
+    /// 3D only: coarse and base tiles under the rider, drawn beneath the
+    /// frame's `main` tile (from cache `excluding`) so the far part of the
+    /// tilted view has map under it. Empty when `main` alone covers this
+    /// frame's footprint. Bakes the route's coarse layer on first use, and
+    /// a z=13 tile around the rider while that layer is missing.
+    fileprivate func perspectiveUnderlays(main: RouteTile, rider: CLLocationCoordinate2D,
+                                          excluding mainCache: RouteTileCache?) -> [(RouteTile, CGImage)] {
+        guard activeGround != nil,
+              !tileCovers(main, rider: rider, points: footprint(tilt: tiltCandidate)) else { return [] }
         var out: [(RouteTile, CGImage)] = []
+        if coarseTileCache == nil {
+            ensureCoarseLayer()
+            if let c = coarseAroundRider(rider), let tile = c.coveringPositionFallbackTile(for: rider),
+               let image = c.positionFallbackDecodedImage()?.cgImage {
+                out.append((tile, image))
+            }
+        } else {
+            coarsePositionCache = nil                // the route's layer took over; free the bitmap
+        }
         for cache in [coarseTileCache, routeTileCache] {
-            guard let cache, cache !== main,
+            guard let cache, cache !== mainCache,
                   let (tile, idx) = cache.nearestTile(to: rider),
                   tileCovers(tile, rider: rider, points: [.zero]),
                   let image = cache.image(for: tile, atIndex: idx)?.cgImage else { continue }
             out.append((tile, image))
         }
         return out
+    }
+
+    /// The z=13 position cache in the current palette, asked (throttled) to
+    /// keep a tile baked around the rider.
+    // ponytail: re-bakes on the base rescue tile's 400 m refresh ring, though
+    // a 22 km z=13 tile would last far longer; add a per-layer radius if
+    // those bakes show up on battery.
+    private func coarseAroundRider(_ rider: CLLocationCoordinate2D) -> RouteTileCache? {
+        if coarsePositionCache?.style != currentStyle {
+            coarsePositionCache = RouteTileCache(style: currentStyle, zoom: Self.coarseLayerZoom, gridSide: 7)
+        }
+        guard let cache = coarsePositionCache else { return nil }
+        let now = Date()
+        if lastCoarsePositionAt.map({ now.timeIntervalSince($0) >= Self.tileExtendThrottle }) ?? true {
+            lastCoarsePositionAt = now
+            Task { @MainActor in await cache.ensurePositionFallback(near: rider) }
+        }
+        return cache
     }
 
     /// The tile's bitmap rect in its own px, rider at the origin (Y-down),
@@ -3933,9 +3980,7 @@ extension MapViewSource {
     fileprivate func maxCoveredTilt(upTo limit: Double, tiles: [RouteTile],
                                     rider: CLLocationCoordinate2D) -> Double {
         func covered(_ tilt: Double) -> Bool {
-            let p = DashPerspective(tilt: tilt, frame: frameSize, puck: puckCenter)
-            let pts = p.visibleOutline(glassCenter: Self.visibleCenter, glassRadius: Self.visibleRadius)
-                .map(p.flat(fromScreen:))
+            let pts = footprint(tilt: tilt)
             return tiles.contains { tileCovers($0, rider: rider, points: pts) }
         }
         if covered(limit) { return limit }
@@ -3945,6 +3990,14 @@ extension MapViewSource {
             if covered(mid) { lo = mid } else { hi = mid }
         }
         return lo
+    }
+
+    /// The glass's visible area below the opaque sky at `tilt`, as flat-frame
+    /// points (convex outline).
+    private func footprint(tilt: Double) -> [CGPoint] {
+        let p = DashPerspective(tilt: tilt, frame: frameSize, puck: puckCenter)
+        return p.visibleOutline(glassCenter: Self.visibleCenter, glassRadius: Self.visibleRadius)
+            .map(p.flat(fromScreen:))
     }
 
     /// Where a puck-relative flat point (heading-up, Y-down px) lands on the

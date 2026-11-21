@@ -193,14 +193,15 @@ nonisolated struct DashPerspective: Sendable {
 
     /// Paint the sky over the top band: the map blurred (9×9 box), fading
     /// into a vertical gradient from `top` to `horizon` (RGB 0–255).
+    /// `scratch` is reused across frames so the render loop doesn't allocate.
     func applySky(frame out: UnsafeMutablePointer<UInt8>, bytesPerRow bpr: Int,
-                  top: SIMD3<Double>, horizon: SIMD3<Double>) {
+                  top: SIMD3<Double>, horizon: SIMD3<Double>, scratch horiz: inout [Double]) {
         let w = Int(frame.width)
         let band = min(Int(frame.height), Int(skyBand.rounded(.up)))
         guard band > 0 else { return }
         let r = 4
         // Box blur of the band (separable, edge-clamped), B G R only.
-        var horiz = [Double](repeating: 0, count: w * band * 3)
+        if horiz.count < w * band * 3 { horiz = [Double](repeating: 0, count: w * band * 3) }
         for y in 0..<band {
             let src = out + y * bpr
             for x in 0..<w {
@@ -216,7 +217,7 @@ nonisolated struct DashPerspective: Sendable {
             let wt = skyWeights(row: Double(y) + 0.5)
             let g = min(1, (Double(y) + 0.5) / skyLine)
             let rgb = top * (1 - g) + horizon * g
-            let bgr = [rgb.z, rgb.y, rgb.x]
+            let bgr = SIMD3(rgb.z, rgb.y, rgb.x)
             let dst = out + y * bpr
             for x in 0..<w {
                 for c in 0..<3 {
