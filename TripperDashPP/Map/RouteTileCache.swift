@@ -37,8 +37,11 @@
 //
 //  Pre-fetch budget:
 //
-//    * 35 km route → ~50 main anchors + ~100 lateral = ~150 anchors.
-//    * Each anchor fetches up to 25 OSM tiles, deduped against neighbouring
+//    * 35 km route → ~50 main anchors + ~100 lateral = ~150 anchors in
+//      total; only the fast-start window is baked up front, `extend(near:)`
+//      bakes the rest as the rider approaches.
+//    * Each anchor fetches up to 25 OSM tiles (49 on the 7×7 sibling
+//      layers), deduped against neighbouring
 //      anchors and the disk cache → in practice ~300-500 unique tiles
 //      for a brand-new region, ~0 for a re-bake of familiar territory.
 //    * Wall-clock: ~5-15 s on 4G cold, ~1-2 s warm-cache.
@@ -265,7 +268,7 @@ final class RouteTileCache {
     /// Lateral buffer distance — how far perpendicular to the route
     /// the wing anchor rows sit. 1500 m means the user can drift up
     /// to ~2 km from the centerline (lateral offset + ~half a tile
-    /// span) before the cache misses and the dark fallback kicks in.
+    /// span) before the cache misses and the off-corridor fallback kicks in.
     static let lateralOffset: CLLocationDistance = 1500
 
     /// Hard upper bound on how far a drawn tile's geographic centre may be
@@ -311,7 +314,7 @@ final class RouteTileCache {
     /// How far BEHIND the rider position we keep extending. Small
     /// margin so a temporary stop or u-turn doesn't immediately
     /// drop the trailing tile, which would look bad to the rider
-    /// (renderer would fall back to dark territory directly behind
+    /// (renderer would fall back to the vector-only frame directly behind
     /// them). Must stay below `evictBehindMeters`, or `extend` would
     /// re-bake what `bakeAnchors` just evicted.
     static let rollingTrailMeters: CLLocationDistance = 500
@@ -416,7 +419,7 @@ final class RouteTileCache {
     //        within the lookahead window of the rider's current
     //        position. Wings are baked along with their main anchor.
     //     4. `nearestTile(to:)` only returns baked tiles. Unbaked
-    //        anchors are invisible to the renderer — the dark
+    //        anchors are invisible to the renderer — the vector-only
     //        fallback you already see for off-route territory just
     //        extends to "ahead of the rolling window".
     //
@@ -497,7 +500,7 @@ final class RouteTileCache {
 
     /// Decoded image for `positionFallbackTile`, memoised so the
     /// off-corridor render path (which runs at 4 fps while it's active)
-    /// doesn't re-decode a 300-500 KB PNG every frame. Invalidated (set
+    /// doesn't re-decode a ~0.65 MB PNG every frame. Invalidated (set
     /// to nil) whenever a fresh position tile is installed — the standalone
     /// slot can't use the index-keyed `imageCache` (it has no array
     /// index), and a stale decode would paint the old off-route location.
@@ -621,8 +624,9 @@ final class RouteTileCache {
     /// actually is, not back at the origin they left an hour ago.
     ///
     /// Mirrors `prerender(route:progress:)` but picks the initial window
-    /// by route-offset proximity to `coord`: `[snap - trail,
-    /// snap + initialBakeAhead]`. The rolling `extend(near:)` then keeps
+    /// by route-offset proximity to `coord`: `[snap - rollingTrailMeters,
+    /// snap + bakeAheadMeters]`. Also used by the reroute re-bake and the
+    /// fine/coarse sibling layers. The rolling `extend(near:)` then keeps
     /// the buffer ahead exactly as in the start-of-ride case.
     func prerender(
         route: MKRoute,
@@ -662,8 +666,8 @@ final class RouteTileCache {
 
     /// Top up the cache to cover `near` + `lookaheadMeters` along the
     /// route. Idempotent — anchors already baked or in flight are
-    /// skipped. Safe to call from every GPS fix (the caller should
-    /// throttle to ~1 Hz to avoid logspam).
+    /// skipped. Safe to call from every GPS fix (`MapViewSource` throttles
+    /// it to once per `tileExtendThrottle`, 2 s).
     ///
     /// No progress callback: this is background work, the rider
     /// is already navigating and the progress sheet is gone.
@@ -815,7 +819,7 @@ final class RouteTileCache {
         // Ordering: primary key = routeOffsetMeters, secondary =
         // lateralRow. That groups every position into a (main,
         // left, right) triplet block ordered along the route, which
-        // gives `nearestTile`'s `idx ± 2` neighbourhood good
+        // gives `nearestTile`'s hint ± 4 window good
         // geometric locality.
         //
         // SIDE EFFECT: this reorders `tiles`, so any cached
@@ -979,8 +983,9 @@ final class RouteTileCache {
     // MARK: - Lookup
 
     /// Find the composite whose center is closest to `coord`. Returns
-    /// `nil` if `coord` is more than ~half a composite span from
-    /// every anchor (off-route, re-routing scenario).
+    /// `nil` if no tile centre is within `maxTileCentreDistance` (and, on
+    /// a layer without wing rows, no main-row tile within 1.5 km) — the
+    /// off-route / re-routing scenario.
     ///
     /// **Main-row preference**: a wing tile is centred 1.5 km lateral
     /// to the route. If the rider is on the route, both a main tile
@@ -1315,18 +1320,11 @@ final class RouteTileCache {
         // hits TileDiskCache first then OSMTileFetcher; misses are
         // rare on a re-bake of familiar territory.
         //
-        // DIAG (rider question, 8/2026: "does re-planning the same route
-        // re-download tiles that are already cached?"): tag each result
-        // hit/miss (3rd tuple element) so a re-bake of the same corridor
-        // can be checked numerically instead of going on
-        // gut feel. Expected/working: near-0 HTTP fetches on a second
-        // bake of the identical route. If the field log instead shows a
-        // high miss count on a re-plan, that's the actual repro to chase
-        // (candidates: `zoom` changing between bakes so the (z,x,y) key
-        // never matches, or eviction running between rides). Counted
-        // AFTER collection (below), not mutated from inside the
-        // concurrent `addTask` closures — a shared var would be a data
-        // race under strict concurrency.
+        // Each result is tagged disk-cache hit / HTTP fetch (4th tuple
+        // element, `wasCacheHit`), returned from the task rather than
+        // counted in a shared var (a data race under strict concurrency).
+        // Nothing reads the tag or logs a hit/miss count yet; it is there
+        // to check that a re-bake of the same corridor is served from disk.
         let tilesData: [(tx: Int, ty: Int, data: Data?, wasCacheHit: Bool)] = await withTaskGroup(
             of: (Int, Int, Data?, Bool).self
         ) { group in
@@ -1504,8 +1502,8 @@ final class RouteTileCache {
 
         guard let outImage = ctx.makeImage() else { return nil }
 
-        // PNG encode (lossless; OSM Carto's palette compresses well — typical composite is
-        // 200-500 KB). ImageIO rather than `UIImage.pngData()`: no UIKit
+        // PNG encode (lossless; OSM Carto's palette compresses well — a
+        // base composite measured ~0.65 MB). ImageIO rather than `UIImage.pngData()`: no UIKit
         // off the main actor.
         let pngBuffer = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(pngBuffer as CFMutableData, "public.png" as CFString, 1, nil) else {

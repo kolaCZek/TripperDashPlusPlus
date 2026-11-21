@@ -6,16 +6,16 @@
 //  navigation pipeline ships a single implementation (`MapViewSource`)
 //  that feeds CPU-composited frames from the pre-baked OSM tile cache
 //  into the encoder.
-//  The protocol stays generic so future sources (offline-tile renderer,
-//  diagnostic overlays, etc.) can drop in without touching the streamer.
+//  The protocol stays generic so other sources can drop in without
+//  touching the streamer.
 //
 //  Frames are delivered as `CVPixelBuffer` (BGRA, 526×300 — native
 //  Tripper TFT resolution per better-dash captures) at a caller-
 //  controlled cadence. The source owns its own render loop (MapViewSource:
 //  a Swift `Task` ticking on the main actor) and hands ready buffers to the
-//  supplied callback;
-//  the encoder downstream handles backpressure by dropping if its
-//  compression session is busy.
+//  supplied callback. The encoder gets every frame the source emits and
+//  does no pacing or dropping of its own, so the source sets the frame
+//  rate (MapViewSource: a fixed 4 fps).
 //
 
 import CoreGraphics

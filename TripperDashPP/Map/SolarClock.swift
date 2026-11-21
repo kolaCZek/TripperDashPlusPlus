@@ -4,7 +4,8 @@
 //
 //  Sun elevation angle for a coordinate + instant. Pure math, no
 //  dependencies — the input for the Auto map style (Light by day, Dark
-//  after dusk). We threshold elevation rather than building a
+//  after dusk) and for the dash sunset pill's crossing times
+//  (`firstCrossing`). We threshold elevation rather than building a
 //  sunrise/sunset *table* on purpose:
 //
 //    * no timezone database needed — we work in elevation, not local

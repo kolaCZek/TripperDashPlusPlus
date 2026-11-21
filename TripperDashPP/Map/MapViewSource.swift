@@ -143,7 +143,7 @@ final class MapViewSource: NSObject, FrameSource {
     fileprivate var alternativeRoutes: [AlternativeRouteRender] = []
 
     /// Latest active-nav overlay state pushed in by ActiveNavLoop.
-    /// `nil` while not navigating → drawNavOverlay short-circuits.
+    /// `nil` while not navigating → no route turn arrow, no sunset pill.
     fileprivate var navOverlayState: MapViewSource.NavOverlayState?
 
     /// Latest ride-progress state pushed in by the nav pump. `nil` while
@@ -282,7 +282,7 @@ final class MapViewSource: NSObject, FrameSource {
         // per layer): coarse z=13 covers the wide zoom-out AND overlaps up
         // into the base band (base z=15 only fully covers the frame from
         // ~0.77× out, so the coarse→base handoff sits at 0.85 where BOTH
-        // fine z=16 (gridSide 7) fully covers the frame from ~1.07× in
+        // cover it. Fine z=16 (gridSide 7) fully covers the frame from ~1.07× in
         // (verified test_composite_coverage per layer), so its edge sits
         // at 1.15 where base (covers to ~2.0×) still fully covers too.
         // Set low (1.15) so the sharp z=16 streets are engaged for
@@ -394,7 +394,7 @@ final class MapViewSource: NSObject, FrameSource {
     private var pendingStyleRebake: (route: MKRoute, style: MapStyle)?
     /// Speed-adaptive zoom factor applied to the rendered tile composite
     /// and polyline. 1.0 = native scale (~3 m/px at z=15, 50°N).
-    /// Lerped each frame toward `targetZoom(forSpeed:)` so the view
+    /// Lerped each frame toward `targetZoom(forSpeedMPS:)` so the view
     /// transitions smoothly between speed regimes (no flicker).
     private var currentZoom: CGFloat = 1.0
 
@@ -539,11 +539,6 @@ final class MapViewSource: NSObject, FrameSource {
     private let routeArrowFill = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
     private let routeArrowOutline = CGColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1)
 
-    /// PiP wrapper.
-    /// Phase 8d removed — tile cache + CGContext composite is BG-safe
-    /// without PiP. The background CoreLocation wakelock keeps the
-    /// process awake on lock screen.
-
     init(locationService: LocationService, activeNavigator: ActiveNavigator) {
         self.locationService = locationService
         self.activeNavigator = activeNavigator
@@ -685,9 +680,10 @@ final class MapViewSource: NSObject, FrameSource {
     }
 
     /// Remember the active route so a mid-ride style switch can re-bake
-    /// the new palette around the rider. Called by the picker right after
-    /// it builds the initial tile cache for `route`, and by the reroute
-    /// path. Pass nil when navigation stops.
+    /// the new palette around the rider. Called by the picker when it
+    /// installs a route's geometry (before the ride-start prerender);
+    /// `performPendingRebake` sets it itself for a reroute. Pass nil when
+    /// navigation stops.
     /// Also drops any reroute bake queued for the previous route: stop, free
     /// ride and ride start all come through here, and a queued route of a
     /// ride that ended must never be baked (it would reinstall that ride).
@@ -1280,7 +1276,8 @@ extension MapViewSource {
         drawWeatherAlert(into: ctx)
 
         // Sunset pill — right side, one slot above the weather pill. No-op
-        // unless the nav loop set `sunsetText` (arriving after dark).
+        // unless the nav loop set `sunsetText` (Weather alerts on, and civil
+        // dusk falls before the final ETA at the predicted position).
         drawSunsetPill(into: ctx)
 
         // Speed-limit sign — bottom-right corner, transform-independent
@@ -1294,7 +1291,7 @@ extension MapViewSource {
         // it. No-op outside a section.
         drawSpeedSectionPanel(into: ctx)
 
-        // Route progress bar — pinned to the BOTTOM EDGE, full width,
+        // Route progress bar — pinned to the BOTTOM EDGE (x 146…436),
         // transform-independent (flat outer ctx) like the pills above.
         // Drawn LAST of the map overlays so it sits on top of the tiles
         // at the very bottom where nothing else lives. No-op when the nav
@@ -1302,21 +1299,17 @@ extension MapViewSource {
         drawProgressBar(into: ctx)
 
         // Dash notice ("You've arrived" and friends) — drawn LAST so it sits
-        // above every map overlay, upper middle, transform-independent.
+        // above every map overlay, centred above the dash's turn card,
+        // transform-independent.
         // Self-expiring (time-based); no-op when no notice is active.
         drawNotice(into: ctx)
 
-        // Top-left maneuver overlay — burned into the video so the dash
-        // shows the right arrow regardless of how it interprets the
-        // primary-maneuver TLV (whose enum is largely undocumented).
-        // Nav overlay (maneuver glyph + distance + road name) used to
-        // be baked into the stream here. Removed: turn-by-turn info
-        // now travels to the dash via the K1G "active-nav" bubble
-        // (separate TLV channel), so drawing it on the video would
-        // duplicate the same information on the dash screen. Keep
-        // `drawNavOverlay`/`formatDistance` as dead code
-        // for now in case we want to reintroduce a video-side hint
-        // (e.g. for non-K1G dashes or for the in-app preview).
+        // The top-left nav overlay (maneuver glyph + distance + road name)
+        // is NOT baked into the stream: turn-by-turn info travels to the
+        // dash via the K1G "active-nav" bubble (separate TLV channel), so
+        // drawing it here would duplicate it. `drawNavOverlay` /
+        // `formatDistance` are kept, unused, in case a video-side hint is
+        // wanted again (e.g. for non-K1G dashes or the in-app preview).
         // drawNavOverlay(into: ctx)
 
         return buffer
@@ -1407,7 +1400,8 @@ extension MapViewSource {
         // `tickOnMain`. Do NOT re-run them here or a rendered frame would
         // step the animation twice.
 
-        // Each baked tile is already a 5×5 OSM grid stitch — a
+        // Each baked base-layer tile is already a 5×5 OSM grid stitch (the
+        // coarse / fine layers are 7×7 at z=13 / z=16) — a
         // 1280×1280 px composite covering ~3.9 km on a side at z=15
         // (mpp ≈ 3.07 m/px at 50°N × 1280 ≈ 3930 m). That single bitmap
         // is wider than the dash frame at every zoom level we use, AND
@@ -1622,16 +1616,16 @@ extension MapViewSource {
             ctx.setStrokeColor(currentStyle.routeCasingColor)
             ctx.setLineWidth(lineW + routeCasingScreenPx / drawZoom)
             ctx.strokePath()
-            // 3. Blue route fill on top.
+            // 2. Blue route fill on top.
             ctx.addPath(path)
             ctx.setStrokeColor(currentStyle.routeLineColor)
             ctx.setLineWidth(lineW)
             ctx.strokePath()
 
-            // 4. Travelled breadcrumb (grey "already ridden") OVER the blue —
+            // 3. Travelled breadcrumb (grey "already ridden") OVER the blue —
             //    progress-bar look: the covered stretch reads "done" in grey,
             //    the road ahead stays blue. Blue route-ahead is repainted on
-            //    top next (step 5) so an out-and-back's upcoming retrace wins
+            //    top next (step 4) so an out-and-back's upcoming retrace wins
             //    back the blue. Same Y-DOWN projection + width as the fill.
             if traveledCoords.count > 1 {
                 let tp = CGMutablePath()
@@ -1647,7 +1641,7 @@ extension MapViewSource {
                 ctx.strokePath()
             }
 
-            // 5. Route AHEAD in blue, OVER the grey travelled line. On an
+            // 4. Route AHEAD in blue, OVER the grey travelled line. On an
             //    out-and-back the road ahead retraces an already-ridden (now
             //    grey) segment; repainting the still-to-ride slice blue keeps
             //    it reading as "upcoming", not "done". No-op off an out-and-back
@@ -1665,7 +1659,7 @@ extension MapViewSource {
                 ctx.setLineWidth(lineW)
                 ctx.strokePath()
             }
-            // 6. Turn arrow on the route at the upcoming maneuver.
+            // 5. Turn arrow on the route at the upcoming maneuver.
             drawRouteArrow(into: ctx, zoom: drawZoom, project: project)
             // Via-stop pins are NOT drawn here — they must be upright +
             // constant-size, so they're rendered geo-anchored in the outer
@@ -1932,10 +1926,12 @@ extension MapViewSource {
     /// "wide" at highway speeds, so the rider sees more road ahead the
     /// faster they go.
     ///   0 km/h → 2.0×   (city — tight, street-level detail)
-    ///  60 km/h → 1.4×   (rural / regional)
+    ///  60 km/h → ~1.45× (rural / regional)
     /// 130+ km/h → 0.8×  (highway, wide field of view)
-    /// Returned value is clamped to [0.8, 2.0]; if speed is invalid
-    /// (CoreLocation reports < 0 when unknown) we keep the current zoom.
+    /// The speed term is clamped to [0.8, 2.0], then multiplied by
+    /// `maneuverZoomBoost()` and `userZoomBias`, so the result can leave
+    /// that band. If speed is invalid (CoreLocation reports < 0 when
+    /// unknown) we keep the current zoom.
     ///
     /// Tuned up from the original 0.6–1.5 range on rider feedback
     /// (2026-06: "city map is too zoomed out, hard to see where to go").
@@ -2128,8 +2124,9 @@ extension MapViewSource {
     }
 
     /// Vector-only fallback: style background + polyline + puck.
-    /// Used when the tile cache is unavailable or the user has gone
-    /// off the cached corridor.
+    /// Last rung of the degradation ladder: no tile cache, no GPS fix yet,
+    /// no decodable tile, or off the baked corridor with no covering
+    /// position-fallback tile baked yet.
     private func drawVectorOnlyFrame(into ctx: CGContext) {
         // NOTE: heading/zoom lerps are advanced once per tick in
         // `tickOnMain`, never here — this path is also reached as the
@@ -2182,8 +2179,8 @@ extension MapViewSource {
         ctx.setLineJoin(.round)
         // Constant on-screen thickness regardless of zoom (see the tile
         // path's note). Divide by currentZoom since we stroke inside the
-        // zoom scale. Casing under the blue line + via-stop dots, matching
-        // the tile-cache path.
+        // zoom scale. Casing under the blue line, matching the tile-cache
+        // path (via-stop pins follow below).
         let lineW = routeLineScreenPx / currentZoom
         ctx.addPath(path)
         ctx.setStrokeColor(currentStyle.routeCasingColor)
@@ -2344,14 +2341,14 @@ struct AlternativeRouteRender: Identifiable {
 
 // MARK: - Active-nav overlay (Phase 9e)
 //
-// Top-left maneuver glyph + "distance to next turn" text, burned into
-// the same pixel buffer that gets H.264-encoded. The dash sees these
-// as part of the projected map and can't tell them apart from the
-// underlying tiles.
-//
-// State is pushed in from ActiveNavLoop on every nav tick. We snapshot
-// just the values we need (kind + distance + road name) so we don't
-// have to keep a strong ref to the navigator.
+// State pushed in from ActiveNavLoop on every nav tick: the maneuver node
+// for the on-route turn arrow (`drawRouteArrow`) and the sunset pill text.
+// The top-left glyph + distance + road-name overlay (`drawNavOverlay`)
+// that this state was first made for is no longer drawn (see
+// `renderMapViewToPixelBuffer`); only `maneuverNode`, `sunsetText` and
+// `kind`'s roundabout check in `drawRouteArrow` are read today. We
+// snapshot just the values we need so we don't have to keep a strong ref
+// to the navigator.
 
 extension MapViewSource {
     struct NavOverlayState {
@@ -2362,8 +2359,9 @@ extension MapViewSource {
         /// Where the upcoming maneuver is: the on-route turn arrow is drawn
         /// there. nil = no arrow (straight on, arrival, recalculating …).
         var maneuverNode: CLLocationCoordinate2D? = nil
-        /// Sunset pill text ("18:40"), set while the rider will arrive after
-        /// dark (`ActiveNavLoop.sunsetPillText`). nil = no pill.
+        /// Sunset pill text ("18:40"), set while civil dusk falls before the
+        /// final ETA at the predicted position and Weather alerts is on
+        /// (`ActiveNavLoop.sunsetPillText`). nil = no pill.
         var sunsetText: String? = nil
     }
 
@@ -2505,8 +2503,8 @@ extension MapViewSource {
         }
     }
 
-    /// Weight of the bold overlay text (weather pill, notice card, notice
-    /// glyph letters). Callers that measure text for layout must use this
+    /// Weight of the bold overlay text (weather pill, sunset pill, notice
+    /// card, notice glyph letters). Callers that measure text for layout must use this
     /// same weight, or the pill/card is sized for a narrower font and
     /// `drawText`'s clip cuts the last glyph.
     fileprivate static let overlayTextWeight: UIFont.Weight = .bold
@@ -2556,10 +2554,10 @@ extension MapViewSource {
     }
 }
 
-// MARK: - Ride-alerts overlay (weather pill + speed cameras)
+// MARK: - Ride-alerts overlay (weather / sunset pills, notice, speed limit, cameras)
 //
-// Two burned-in overlays the rider asked for (6/2026), grouped here so
-// the map/nav code above stays focused:
+// Burned-in overlays grouped here so the map/nav code above stays focused.
+// The two first asked for by the rider (6/2026):
 //
 //   • Weather pill — a compact, glanceable badge in the BOTTOM-RIGHT
 //     corner (chosen by the rider: doesn't overlap the route or the
@@ -2591,7 +2589,8 @@ extension MapViewSource {
     /// Raise a notice on the dash for `notice.duration` seconds. The
     /// universal "tell the rider something" entry point — any caller (arrival,
     /// warnings, connection loss, future info) hands in a `DashNotice` and the
-    /// render loop burns it into the video (upper middle), then clears it once
+    /// render loop burns it into the video (centred above the dash's turn
+    /// card), then clears it once
     /// the duration elapses. Duration is clamped to a sane 1…15 s band.
     /// Passing `nil` clears any active notice immediately.
     func showNotice(_ notice: DashNotice?) {
@@ -2773,7 +2772,7 @@ extension MapViewSource {
 
         // Compose the pill text: bare hazard noun, plus the along-route
         // distance when the hazard is ahead (not at the rider). e.g.
-        // "Rain 15 km"; at the rider it's just "Rain". Decision #4.
+        // "Rain 15 km"; at the rider it's just "Rain".
         let distText = alert.distanceAhead
             .map { " " + Self.formatAheadDistance(meters: $0, imperial: weatherImperial) } ?? ""
         var label = alert.title + distText
@@ -2876,7 +2875,8 @@ extension MapViewSource {
     // MARK: Sunset pill
 
     /// "You'll arrive after dark" pill: sunset glyph + local sunset time, in
-    /// the weather pill's look. Fixed slot on the RIGHT, hugging the glass,
+    /// the weather pill's look. Drawn only while `NavOverlayState.sunsetText`
+    /// is set (see there for the gate). Fixed slot on the RIGHT, hugging the glass,
     /// one gap above the weather pill's highest (sign-lifted) spot, so it
     /// clears the weather pill, the sign, the section panel, the puck and
     /// the dash's turn card in every combination (test_overlay_layout.py).
@@ -3363,7 +3363,8 @@ extension MapViewSource {
     // MARK: Speed-limit sign
 
     /// Outer diameter (px) of the speed-limit sign disc. Exposed as a
-    /// constant so the weather pill can hop above it on a collision.
+    /// constant so the weather pill, sunset pill and section panel can
+    /// position against it.
     fileprivate static let speedLimitSignDiameter: CGFloat = 62
     /// Margin (px) from the frame edges, matched to the weather pill.
     fileprivate static let speedLimitSignMargin: CGFloat = 12
@@ -3599,7 +3600,7 @@ extension MapViewSource {
     /// Gap (px) fixed overlays keep from the glass edge, the turn card and
     /// the heading puck — covers the ±3 px measurement error.
     fileprivate static let overlayClearance: CGFloat = 4
-    /// Height (px) of the weather pill; the notice card stacks above it.
+    /// Height (px) of the weather and sunset pills.
     fileprivate static let weatherPillHeight: CGFloat = 40
 
     /// Visible x range, inset by `overlayClearance`, that holds for every
@@ -3614,8 +3615,8 @@ extension MapViewSource {
 
     /// Draw the ride-progress bar along the BOTTOM EDGE between the left/
     /// right insets (centred 66% fallback). DONE portion (left) is grey; the REMAINING
-    /// portion (right) is blue; a downward arrow marker sits above the
-    /// current position. No traffic tint — we have no per-segment live
+    /// portion (right) is blue; a red right-pointing chevron marks the
+    /// current position, overhanging the bar. No traffic tint — we have no per-segment live
     /// traffic, so the bar makes no green/amber/red claim (a BYOK provider
     /// would be needed; see routing-engines.md). Transform-independent —
     /// called on the flat outer `ctx` after the map is composited, in

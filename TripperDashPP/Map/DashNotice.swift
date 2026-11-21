@@ -54,8 +54,8 @@ enum DashNoticeLevel: String, Sendable, CaseIterable {
 /// it accepts the notice, so the same value is safe to build anywhere (the
 /// `duration` is what matters, not wall-clock at construction).
 struct DashNotice: Sendable {
-    /// One-line message. Folded to ASCII at draw time; keep it short so the
-    /// card fits the 526-px-wide dash without wrapping off-screen.
+    /// One-line message. Folded to ASCII at draw time; the renderer shrinks
+    /// the font to fit the round glass, so keep it short to stay legible.
     let text: String
 
     /// Severity → colour + glyph.
