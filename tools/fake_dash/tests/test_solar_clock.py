@@ -162,5 +162,14 @@ class TestSunsetPill:
         for needle in (f"let n = {PILL_SAMPLES}", f"let hold: TimeInterval = {PILL_HOLD_S}",
                        "dusk <= eta.addingTimeInterval(shown ? hold : -hold)",
                        "SolarClock.elevation(coord: rider, date: now) > SolarClock.sunsetElevation",
-                       "route: [fix.coordinate] + nav.routeAheadCoordinates"):
+                       "route: [fix.coordinate] + nav.routeAheadCoordinates",
+                       "c.is24Hour == settings.is24Hour"):
             assert needle in loop, needle
+        # The cache must not carry one ride's pill (or its hysteresis) into
+        # the next: cleared in stop() and in the free-ride branch.
+        stop = loop[loop.index("    func stop() {"):]
+        stop = stop[:stop.index("\n    }\n")]
+        assert "sunsetPill = nil" in stop
+        free = loop[loop.index("guard nav.isNavigating else {"):]
+        free = free[:free.index("return")]
+        assert "sunsetPill = nil" in free

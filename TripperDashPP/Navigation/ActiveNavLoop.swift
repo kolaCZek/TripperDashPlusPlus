@@ -170,6 +170,7 @@ final class ActiveNavLoop {
         cameraAnnouncer.reset()
         sectionTracker.reset()
         mapSource?.setSpeedSection(nil)
+        sunsetPill = nil
     }
 
     // MARK: - Speed cameras
@@ -231,6 +232,7 @@ final class ActiveNavLoop {
         guard nav.isNavigating else {
             mapSource?.setNavOverlay(nil)
             mapSource?.setRideProgress(nil)   // free-ride / arrived → no bar
+            sunsetPill = nil                  // the next navigation starts fresh
             // Demo: no maneuver while free-riding / arrived → clear the
             // on-screen native bubble so the preview shows a clean map.
             demo?.bubble = nil
@@ -833,8 +835,9 @@ final class ActiveNavLoop {
     }
 
     /// Last sunset-pill result: the route walk runs at most every 30 s, or
-    /// at once when the final ETA moves by > 2 min (reroute, traffic).
-    private var sunsetPill: (text: String?, at: Date, eta: Date)?
+    /// at once when the final ETA moves by > 2 min (reroute, traffic) or the
+    /// 12/24 h format changes. Cleared between rides (`stop()`, free ride).
+    private var sunsetPill: (text: String?, at: Date, eta: Date, is24Hour: Bool)?
 
     private func cachedSunsetText(nav: ActiveNavigator, eta: Date?) -> String? {
         guard let eta, let fix = location?.lastFix else {
@@ -842,13 +845,14 @@ final class ActiveNavLoop {
             return nil
         }
         let now = Date()
-        if let c = sunsetPill, now.timeIntervalSince(c.at) < 30, abs(eta.timeIntervalSince(c.eta)) < 120 {
+        if let c = sunsetPill, now.timeIntervalSince(c.at) < 30,
+           abs(eta.timeIntervalSince(c.eta)) < 120, c.is24Hour == settings.is24Hour {
             return c.text
         }
         let text = Self.sunsetPillText(route: [fix.coordinate] + nav.routeAheadCoordinates,
-                                       now: now, eta: eta, shown: sunsetPill?.text?.isEmpty == false,
+                                       now: now, eta: eta, shown: sunsetPill?.text != nil,
                                        is24Hour: settings.is24Hour)
-        sunsetPill = (text: text, at: now, eta: eta)
+        sunsetPill = (text: text, at: now, eta: eta, is24Hour: settings.is24Hour)
         return text
     }
 
