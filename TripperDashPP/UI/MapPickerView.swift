@@ -52,7 +52,8 @@ struct MapPickerView: View {
     @State private var showBikePicker = false
 
     /// Tile pre-render progress (0.0 = idle/done, 0…<1 = in flight).
-    /// We use a single shared sheet that watches `prerenderActive`.
+    /// A single full-screen cover (`PrerenderProgressView`) watches
+    /// `prerenderActive`.
     @State private var prerenderActive = false
     @State private var prerenderProgress: Double = 0
     /// The 4 s arrival auto-dismiss. Cancelled whenever navigation ends or
@@ -221,10 +222,11 @@ struct MapPickerView: View {
             controlButton
         }
         .toolbar {
-            // The saved-routes shortcut only belongs in the idle browsing
-            // state ("where do I want to go?"). Once a route is being
-            // planned for navigation — or navigation is already running —
-            // it has no logical place in the top bar, so hide it there.
+            // The saved-routes and ride-history shortcuts only belong in the
+            // idle browsing state ("where do I want to go?"). Once a route is
+            // being planned for navigation — or navigation is already
+            // running — they have no logical place in the top bar, so hide
+            // them there.
             if mode == .picking && !isPlanning {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSavedRoutes = true } label: {
@@ -993,8 +995,8 @@ struct MapPickerView: View {
 
     /// Free-ride phase: the live map is projecting to the dash with no
     /// route. The interactive map is intentionally NOT mounted here (the
-    /// streamed MapViewSource owns the render pool while streaming, same
-    /// rule as `.navigating`), so we show the same status page as
+    /// live MKMapView is unmounted while streaming, same rule as
+    /// `.navigating`), so we show the same status page as
     /// navigation — `FreeRideHUD` — with the maneuver/ETA slots swapped
     /// for a "Free ride" card + Duration/Distance + a position-only map.
     ///
@@ -1069,10 +1071,6 @@ struct MapPickerView: View {
         }
     }
 
-    /// "Connect to dash" CTA — shown while idle/errored. When a plan is
-    /// already laid out, tapping this arms `pendingAutoStart`: the rider
-    /// has signalled intent to ride, so navigation auto-starts the moment
-    /// the link reaches `.connected` (no second tap on "Start").
     /// CTA label — reflects demo mode (no dash to connect to) vs the real
     /// connect flow, and whether a plan is already laid out.
     private var connectLabel: String {
@@ -1098,6 +1096,10 @@ struct MapPickerView: View {
         status.connect(to: bike)
     }
 
+    /// "Connect to dash" CTA — shown while idle/errored. When a plan is
+    /// already laid out, tapping this arms `pendingAutoStart`: the rider
+    /// has signalled intent to ride, so navigation auto-starts the moment
+    /// the link reaches `.connected` (no second tap on "Start").
     @ViewBuilder
     private var connectControl: some View {
         Button {
@@ -1649,11 +1651,6 @@ struct MapPickerView: View {
             Task { @MainActor in await prerenderRouteTiles(firstLeg) }
         }
     }
-
-    /// Legacy single-route entry point removed: navigation now always
-    /// starts from a PlannedRoute (the n=2 case covers a single
-    /// destination). Reroute does not go through here — it's wired via
-    /// `AppStatus.activeNavigator.onRerouteRequested`.
 
     private func stopNavigation() {
         arrivalTask?.cancel()

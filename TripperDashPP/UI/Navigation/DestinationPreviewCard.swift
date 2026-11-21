@@ -15,9 +15,10 @@
 //     then nudge to a neighbour" is one fluid gesture.
 //
 //  Layout: a single rounded card pinned to the bottom safe area. Title
-//  + address on top, a tight action row (Add to favorites — only when
-//  not already saved — and Calculate routes) below. Deliberately short
-//  so the map dominates.
+//  + address on top, a tight action row below: "Add to favorites" (shown
+//  as a non-tappable "Saved" label when the place is already a favorite)
+//  and "Routes", which starts route planning. Deliberately short so the
+//  map dominates.
 //
 
 import CoreLocation

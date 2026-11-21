@@ -7,9 +7,13 @@
 //  picker live map → no GPU pool race).
 //
 //  Shows:
-//    - Next maneuver card (icon + instruction + distance)
+//    - Next maneuver card (icon + instruction + distance), with an
+//      "Off route" / "Rerouting…" badge when active
+//    - Multi-stop plans only: "Stop X of Y · next …" pill
 //    - ETA strip (arrival time, time remaining, distance remaining)
-//    - Rerouting indicator when active
+//    - Multi-stop plans only: final-destination ETA pill
+//    - Route overview thumbnail (RouteProgressMap)
+//    - "Edit route" button (when the plan is editable mid-ride)
 //    - Reconnecting banner when the dash link dropped mid-ride
 //    - "You've arrived" card on final-destination arrival
 //
@@ -43,7 +47,8 @@ struct NavigationHUD: View {
     var is24Hour: Bool = true
 
     /// Opens the mid-ride route editor (MapPickerView owns the sheet). nil
-    /// hides the button.
+    /// hides the button; it is also hidden for a plan that isn't
+    /// `isEditableMidRide` (a track, or too many points to edit).
     var onEditRoute: (() -> Void)? = nil
 
     var body: some View {
@@ -292,7 +297,8 @@ struct NavigationHUD: View {
                                              useCommaDecimal: useCommaDecimal)
     }
 
-    /// Same units as the dash's distance TLVs: feet only below 160 m.
+    /// Same units as the dash's distance TLVs: metres below 1 km (metric) or
+    /// feet below 160 m (imperial), tenths of km / mi above.
     private var distanceRemaining: String {
         let m = etaScopedToFinal ? nav.finalDestinationRemainingDistance : nav.remainingDistance
         return DashNavSettings.wireDistanceText(meters: m, imperial: imperial,
@@ -341,9 +347,7 @@ struct NavigationHUD: View {
     /// end-of-polyline instruction text (from the arriving step) with the
     /// arriving→departing turn geometry — so the HUD icon always agrees
     /// with the dash glyph AND with the instruction text directly below
-    /// it. (Previously this re-ran the classifier on `nav.nextStep`, the
-    /// DEPARTING step, which both duplicated the pairing logic and, via the
-    /// text source, sat one maneuver ahead of the arrow.)
+    /// it.
     private var upcomingManeuverSymbol: String {
         nav.upcomingManeuver?.sfSymbol ?? "arrow.up"
     }

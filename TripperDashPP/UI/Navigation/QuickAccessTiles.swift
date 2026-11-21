@@ -31,9 +31,10 @@ struct QuickAccessTiles: View {
     /// `store.setQuickAccess(slot, from: dest)`.
     let onFillSlot: (QuickAccessSlot) -> Void
 
-    /// Ceiling for the expanded favorites list, in points — how far it may
-    /// grow before it would run past the bottom of the screen. Supplied by
-    /// the host, which is the only thing that knows the real layout.
+    /// Height of the expanded favorites list, in points — the space down to
+    /// the bottom of the screen (floored at `minListHeight`); the List
+    /// scrolls inside it. Supplied by the host, which is the only thing that
+    /// knows the real layout.
     ///
     /// A CONCRETE height is required here. The obvious-looking
     /// `.frame(maxHeight: .infinity)` does not work: `List` is a scroll

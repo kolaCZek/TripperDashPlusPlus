@@ -5,8 +5,9 @@
 //  feat/route-waypoints — the interactive planning map.
 //
 //  Shows the whole multi-stop plan on one MKMapView (lives only in the
-//  picker's .picking phase, stream OFF — so it never races the
-//  MapViewSource snapshotter for Apple's shared GPU pool):
+//  picker's .picking phase, stream OFF — so this live map never overlaps
+//  the streaming HUD's MKMapSnapshotter thumbnail on Apple's shared GPU
+//  pool):
 //
 //   - every waypoint as a numbered pin (origin / via-N / destination),
 //     except a "Current location" origin, which the user-location dot marks,

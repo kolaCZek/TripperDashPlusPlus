@@ -15,8 +15,9 @@
 //       basemap + position puck) — no route line, because there is none.
 //
 //  Like NavigationHUD this replaces the live MKMapView while streaming
-//  (the dash MapViewSource owns Apple's shared Metal pool), so the map
-//  here is the CPU-composited RouteProgressMap thumbnail, not a live map.
+//  (the picker's live map is unmounted), so the map here is the
+//  RouteProgressMap thumbnail (a cached MKMapSnapshotter basemap with a
+//  CoreGraphics overlay), not a live map.
 //
 //  Stats come straight from the live RideStatsService accumulator — the
 //  same numbers the post-ride "Trip" card shows — so "Save ride"

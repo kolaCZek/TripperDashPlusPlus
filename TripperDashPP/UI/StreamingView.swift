@@ -255,9 +255,9 @@ struct StreamingView: View {
                 }
             }
 
-            // Route preferences live ONLY in the planning panel's
-            // sliders button now (feat/route-waypoints). Removed from
-            // here so there's a single source of truth the user edits.
+            // Route preferences (avoid highways / tolls) are deliberately not
+            // here: they live only behind the planning toolbar's sliders
+            // button, so there's a single place to edit them.
 
             Section("Map") {
                 Picker("Appearance", selection: Binding(
@@ -368,8 +368,8 @@ private struct MapCacheSection: View {
             .disabled(isClearing || stats.bytes == 0)
         }
         .task {
-            // First appearance: load real numbers. Cheap walk (~few
-            // hundred files at most), no need for a background queue.
+            // First appearance: load real numbers (the stats calls are
+            // actor-isolated, so the walks don't block the main thread).
             await refresh()
         }
     }
@@ -411,8 +411,8 @@ private struct MapCacheSection: View {
     }
 }
 
-/// "Export log" (Debug and TestFlight builds only): the app's own log lines (every subsystem containing
-/// `kolaczek`, info level and up) since this launch, as a text file for
+/// "Export log" (Debug and TestFlight builds only): the app's own log lines (every subsystem starting
+/// with `eu.kolaczek`, info level and up) since this launch, as a text file for
 /// the share sheet — so a rider can send a field log without a Mac.
 /// iOS only lets an app read its current process's entries, so this must
 /// be done before the app is quit or killed. `OSLogPreferences` in

@@ -16,6 +16,8 @@
 //  `@State` and clears it the moment the next leg starts folding
 //  (`RideStatsService.state == .running`), so the summary is back for
 //  the next arrival instead of staying hidden for the rest of the ride.
+//  Closing also drops the persisted copy (`acknowledgeSummary()`), so a
+//  closed summary doesn't come back on the next app launch.
 //
 
 import SwiftUI
@@ -29,7 +31,8 @@ struct RideStatsPanel: View {
 
     /// Tracks the post-ride "Save ride" action: nil = not yet saved,
     /// non-nil = the id of the SavedRoute we created (so the button flips
-    /// to a "Saved ✓" confirmation and won't double-save the same ride).
+    /// to a "Saved to routes" confirmation and won't double-save the same
+    /// ride).
     @State private var savedRouteId: UUID?
 
     private var stats: RideStats { status.rideStats.stats }

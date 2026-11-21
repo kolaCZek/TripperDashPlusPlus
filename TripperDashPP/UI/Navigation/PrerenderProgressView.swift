@@ -2,12 +2,15 @@
 //  PrerenderProgressView.swift
 //  TripperDashPP
 //
-//  Full-screen progress sheet shown while the route tile cache bakes
+//  Full-screen progress cover shown while the route tile cache bakes
 //  right after navigation starts (the stream is already live; see
-//  MapPickerView.prerenderRouteTiles). The bake takes ~10-20 s for a typical
-//  35 km route — long enough to need explicit progress feedback. On a weak
-//  signal it can take much longer, so "Continue" dismisses the cover (the
-//  bake keeps running and the dash keeps its map) to uncover the HUD.
+//  MapPickerView.prerenderRouteTiles). It covers the fast-start window
+//  (the first `RouteTileCache.initialBakeAheadMeters`, 8 km, of the route;
+//  tiles further on are baked as the ride progresses). That took roughly
+//  10-20 s on a good connection in the field (not measured in code) — long
+//  enough to need explicit progress feedback. On a weak signal it can take
+//  much longer, so "Continue" dismisses the cover (the bake keeps running
+//  and the dash keeps its map) to uncover the HUD.
 //
 
 import SwiftUI

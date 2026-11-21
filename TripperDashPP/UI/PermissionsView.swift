@@ -8,7 +8,9 @@
 //
 //  Presented from Settings → About → "Check permissions".
 //
-//  Permissions covered (matches TripperDashPP-Info.plist usage strings):
+//  Permissions covered (Location, Local Network and Apple Music have usage
+//  strings in TripperDashPP-Info.plist; Live Activities is declared there
+//  via NSSupportsLiveActivities; Cellular Data needs neither):
 //    • Location (When In Use → Always) — CLLocationManager. The app asks
 //      for Always, but While Using already keeps the map/wakelock running
 //      with the screen off.
