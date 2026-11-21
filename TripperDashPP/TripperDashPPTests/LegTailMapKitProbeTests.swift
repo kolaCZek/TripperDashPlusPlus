@@ -118,9 +118,10 @@ struct LegTailMapKitProbeTests {
         \(steps.enumerated().map { "  [\($0.offset)] pts=\($0.element.polyline.pointCount) \"\($0.element.instructions)\"" }.joined(separator: "\n"))
         """)
 
-        // The terminal "arrive" step with no polyline is the thing that
-        // makes nextStepIndex run out of steps early. If Apple ever stops
-        // emitting it, the whole leg-tail analysis needs revisiting.
+        // Sanity only. nextStepIndex skips steps with an empty polyline
+        // (typically the terminal "arrive" step) and can only return a step
+        // after the matched one, so it runs out of steps near the leg's end;
+        // see the RESULT note above for the general mechanism.
         #expect(!steps.isEmpty, "a routable leg must have at least one step")
 
         // Walk the route polyline exactly as ActiveNavigator does and find

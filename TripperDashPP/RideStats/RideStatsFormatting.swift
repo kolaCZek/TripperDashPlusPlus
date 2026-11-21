@@ -10,7 +10,7 @@
 //
 //  Rounding note: every numeric string goes through `String(format:)`
 //  (C printf). Test expectations are computed the way printf rounds, not
-//  by eye — a sub-km `(950/100).rounded()` case rounds to 1000, not 900.
+//  by eye.
 //
 
 import Foundation
@@ -66,7 +66,7 @@ nonisolated enum RideStatsFormatting {
                      : String(format: "%d:%02d", m, s)
     }
 
-    /// Clock time HH:MM for the app UI, honouring the rider's 24/12h
+    /// Clock time H:MM for the app UI, honouring the rider's 24/12h
     /// preference. 24-hour → "14:33"; 12-hour → "2:33 PM" (the app HUD has
     /// room for the meridiem, unlike the ASCII-only dash). Uses the phone's
     /// current calendar/timezone.

@@ -6,7 +6,9 @@
 //  camera selection it powers. The key scenario is the SHARP BEND: a camera
 //  just past a hairpin is only ~170 m away in a straight line yet ~600 m
 //  ahead ALONG THE ROAD, and the along-route distance is what must be
-//  reported. Pure value types, headless (no CoreLocation/MapKit).
+//  reported. Pure value types, headless (no CoreLocation/MapKit). The
+//  file also holds the reroute-heading / wrong-way clock and the on-route
+//  turn-arrow geometry tests (further down, on real MKPolylines / pixels).
 //
 //  Geometry note: 0.001° latitude ≈ 111 m; 0.001° longitude at ~50°N ≈
 //  71 m. Fixtures use a simple L-shaped / hairpin polyline so along-route

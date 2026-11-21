@@ -45,9 +45,11 @@ import OSLog
 /// fetches, used for de-duplication). `maxspeedKmh` is parsed from the
 /// `maxspeed` tag when present, via the shared `MaxspeedParser` — so an
 /// imperial "55 mph" camera is stored as 89 km/h, same as the limit
-/// service (bug #3). `isSection` flags average-speed / section-control
-/// cameras (OSM `enforcement=average_speed` or a Czech "úsekové měření"
-/// note), which the renderer can badge differently.
+/// service. `isSection` flags average-speed / section-control cameras
+/// (OSM `enforcement=average_speed` / `speed_camera=section`, a "section"
+/// / "average" / Czech "úsekové měření" note, or a `device` member of an
+/// average-speed relation); the renderer draws them in violet instead of
+/// the red of a spot camera.
 struct SpeedCamera: Equatable, Sendable, Identifiable {
     let id: Int64
     let coordinate: CLLocationCoordinate2D
@@ -142,8 +144,8 @@ actor SpeedCameraService {
         return cfg.makeSession()
     }()
 
-    /// Fetch every speed camera within the bounding box of `route`
-    /// (expanded by the corridor buffer). Disk-cache first; only the first
+    /// Fetch every speed camera and average-speed section within the
+    /// bounding box of `route` (expanded by the corridor buffer). Disk-cache first; only the first
     /// ride through a region hits the network. Returns nil on total
     /// failure (no network, no cache) so the caller can retry later — a
     /// missing radar layer must never break navigation.
@@ -172,7 +174,7 @@ actor SpeedCameraService {
     // MARK: - Network
 
     /// Fetch every speed camera within a square bbox of `radiusMeters`
-    /// around `center`. Used by FREE-RIDE (`AppStatus.startFreeRide`),
+    /// around `center`. Used by FREE-RIDE (`AppStatus.refreshFreeRideAlerts`),
     /// which has no route corridor to query along — instead it shows all
     /// cameras in the rider's vicinity on the map (map overlay only, NO
     /// voice: free-ride has no turn-by-turn, so the announcer is never
@@ -301,7 +303,7 @@ actor SpeedCameraService {
         // Shared parser with the limit service: handles "50", "50 km/h",
         // "80;100", and crucially "55 mph" → 89 (US/UK cameras). Before,
         // this took bare leading digits and rendered "55" for a 55 mph
-        // zone (bug #3).
+        // zone.
         let maxspeed: Int? = MaxspeedParser.kmh(tags["maxspeed"])
         let note = (tags["note"] ?? "").lowercased()
         let isSection = tags["enforcement"] == "average_speed"

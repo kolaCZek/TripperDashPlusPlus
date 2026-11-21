@@ -4,7 +4,8 @@
 //
 //  `ActiveNavLoop.sunsetPillText`: the dash's sunset pill shows the
 //  sunset time where the rider will be along the route, only when civil
-//  dusk (−6°) comes before the ETA. Expected times match the Python
+//  dusk (−6°) comes before the ETA (the caller additionally gates the
+//  pill on the Weather alerts switch). Expected times match the Python
 //  mirror (tools/fake_dash/tests/test_solar_clock.py, TestSunsetPill).
 //
 

@@ -10,7 +10,9 @@
 //  ice, thunderstorms, strong gusts, fog — we surface a compact pill
 //  burned into the bottom-right of the streamed map frame, reporting how
 //  far along the route the next hazard sits ("Rain 15 km"). See
-//  `MapViewSource.drawWeatherAlert`.
+//  `MapViewSource.drawWeatherAlert`. Polled only while navigating and
+//  only with the Weather alerts switch on (`AppStatus.refreshWeather`);
+//  the pill is dropped when navigation stops (`AppStatus.clearWeather`).
 //
 //  Why Open-Meteo (not WeatherKit):
 //    - WeatherKit needs its own entitlement + a signed JWT per request.
@@ -55,8 +57,8 @@ struct WeatherAlert: Equatable, Sendable {
     /// when there are competing conditions, which one wins (`>` by
     /// `rawValue`).
     nonisolated enum Severity: Int, Comparable, Sendable {
-        case caution = 1   // amber  — rain, fog, snow, moderate gusts
-        case warning = 2   // red    — storm, ice, heavy rain, strong gusts
+        case caution = 1   // amber  — frost risk, rain, snow, fog, gusty wind / crosswind
+        case warning = 2   // red    — ice, storm, heavy rain / snow, dense fog, strong wind / crosswind
 
         static func < (lhs: Severity, rhs: Severity) -> Bool {
             lhs.rawValue < rhs.rawValue
@@ -66,8 +68,10 @@ struct WeatherAlert: Equatable, Sendable {
     /// Short, glanceable label for the pill — the bare hazard noun
     /// ("Rain", "Storm", "Ice"). The renderer appends the distance
     /// ("Rain 15 km") from `distanceAhead`, so the label itself stays
-    /// free of "ahead" wording. Kept ≤ ~10 chars so label + distance
-    /// still fits the 526-px-wide frame's bottom-right corner.
+    /// free of "ahead" wording. Kept short (≤ ~11 chars) so label + distance
+    /// fits the pill's room on the 526-px-wide frame; when it still
+    /// doesn't, the renderer swaps in `MapViewSource.weatherShortTitle`
+    /// and finally shrinks the font.
     let title: String
 
     let severity: Severity
@@ -91,7 +95,7 @@ struct WeatherAlert: Equatable, Sendable {
     var distanceAhead: CLLocationDistance? = nil
 
     /// Along-route span (metres from the rider) of the CONTIGUOUS band of
-    /// same-or-higher-severity hazard the surfaced alert belongs to, or
+    /// same-glyph, same-or-higher-severity hazard the surfaced alert belongs to, or
     /// `nil` for a point/at-rider hazard. `start` is the near edge,
     /// `end` the far edge. Lets the progress bar paint the stretch where
     /// the weather actually is (e.g. rain from 15 km to 40 km ahead)
@@ -156,8 +160,9 @@ final class WeatherAlertService {
     /// 1 km on a ~20 km ride and saturates the 10 km ceiling by ~200 km —
     /// matching the rider's "short ~1 km, long ~10 km". Because we only
     /// ever SAMPLE the first `sampleRangeMeters` (100 km) of look-ahead,
-    /// the actual GET carries at most range/minSpacing = 100 points, well
-    /// within Open-Meteo's single-request budget.
+    /// the actual GET carries at most range/minSpacing = 100 look-ahead
+    /// points plus the rider's own, well within Open-Meteo's
+    /// single-request budget.
     nonisolated static let sampleTargetCount: Double = 20
     nonisolated static let sampleMinSpacingMeters: Double = 1_000
     nonisolated static let sampleMaxSpacingMeters: Double = 10_000
@@ -190,10 +195,11 @@ final class WeatherAlertService {
 
     /// Evaluate weather at `position` plus a series of points sampled
     /// along `routeAhead` (spacing chosen adaptively by `adaptiveSpacing`
-    /// out to `sampleRangeMeters`). Throttled to `pollInterval` and to ~1 km of
-    /// movement, so it's safe to call on every ~1 Hz GPS fix
-    /// (`AppStatus.navigatorIngest`) —
-    /// the actual fetch only fires when the throttle opens. Updates
+    /// out to `sampleRangeMeters`). Throttled: it re-polls only once
+    /// `pollInterval` has passed or the rider enters a new 0.01° (~1 km)
+    /// grid cell, so it's safe to call on every ~1 Hz GPS fix
+    /// (`AppStatus.navigatorIngest`) — the actual fetch only fires when
+    /// the throttle opens. Updates
     /// `current` in place; returns the new value.
     @discardableResult
     func refresh(position: CLLocationCoordinate2D,
@@ -280,7 +286,7 @@ final class WeatherAlertService {
         /// Direction the wind blows FROM, degrees (0 = north).
         var windDirectionDeg: Double? = nil
         /// Rider's direction of travel along the route at this sample,
-        /// degrees (0 = north). `nil` with no route (free ride), which
+        /// degrees (0 = north). `nil` without a usable route, which
         /// disables the crosswind rule for the sample.
         var travelBearingDeg: Double? = nil
     }
@@ -429,25 +435,6 @@ final class WeatherAlertService {
 
     // MARK: - Classification (pure, testable)
 
-    /// Map one weather `Sample` to a ride-relevant `WeatherAlert`, or `nil`
-    /// when there's nothing a motorcyclist needs to know (clear, cloudy,
-    /// light wind, good visibility). Pure and `nonisolated` so the logic
-    /// tests can pin the exact truth table without the network or the main
-    /// actor — same pattern as `CallStateObserver.callState`.
-    ///
-    /// The title is the bare hazard noun ("Rain", "Storm"); the pill's
-    /// renderer composes the distance suffix from `distanceAhead`. `isAhead`
-    /// is threaded onto the alert but no longer bakes into the title.
-    ///
-    /// WMO code reference (Open-Meteo `weather_code`):
-    ///   0 clear · 1–3 clouds · 45/48 fog · 51/53/55 drizzle ·
-    ///   56/57 freezing drizzle · 61/63/65 rain · 66/67 freezing rain ·
-    ///   71/73/75 snow · 77 snow grains · 80/81/82 rain showers ·
-    ///   85/86 snow showers · 95 thunderstorm · 96/99 thunderstorm+hail
-    ///
-    /// Severity ranking is biased for a motorcycle: ICE and THUNDERSTORM
-    /// always warn; gusts matter far more than they would in a car.
-    ///
     /// Temperature thresholds (Martin, 9/2026): below 4 °C the road can
     /// freeze even with the air above zero — the 2 m air reading runs
     /// several °C warmer than the surface on clear, calm nights, and
@@ -478,6 +465,24 @@ final class WeatherAlertService {
         s.precipitationMm > 0 || (51...99).contains(s.weatherCode)
     }
 
+    /// Map one weather `Sample` to a ride-relevant `WeatherAlert`, or `nil`
+    /// when there's nothing a motorcyclist needs to know (clear, cloudy,
+    /// light wind, good visibility). Pure and `nonisolated` so the logic
+    /// tests can pin the exact truth table without the network or the main
+    /// actor — same pattern as `CallStateObserver.callState`.
+    ///
+    /// The title is the bare hazard noun ("Rain", "Storm"); the pill's
+    /// renderer composes the distance suffix from `distanceAhead`. `isAhead`
+    /// is threaded onto the alert but no longer bakes into the title.
+    ///
+    /// WMO code reference (Open-Meteo `weather_code`):
+    ///   0 clear · 1–3 clouds · 45/48 fog · 51/53/55 drizzle ·
+    ///   56/57 freezing drizzle · 61/63/65 rain · 66/67 freezing rain ·
+    ///   71/73/75 snow · 77 snow grains · 80/81/82 rain showers ·
+    ///   85/86 snow showers · 95 thunderstorm · 96/99 thunderstorm+hail
+    ///
+    /// Severity ranking is biased for a motorcycle: ICE and THUNDERSTORM
+    /// always warn; gusts matter far more than they would in a car.
     nonisolated static func classify(_ s: Sample, isAhead: Bool) -> WeatherAlert? {
         let code = s.weatherCode
 
@@ -664,7 +669,7 @@ final class WeatherAlertService {
     /// along `coords` ahead of `from`: the bearing across a `spanMeters`
     /// window centred on that point (clamped at the route ends, so the
     /// last sample still gets a bearing). `nil` when there's no usable
-    /// route (free ride), which disables the crosswind rule.
+    /// route, which disables the crosswind rule.
     nonisolated static func travelBearing(_ coords: [CLLocationCoordinate2D],
                                           from: CLLocationCoordinate2D,
                                           atMeters: Double,
