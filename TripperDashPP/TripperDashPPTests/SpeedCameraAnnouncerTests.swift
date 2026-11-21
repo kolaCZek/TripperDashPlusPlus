@@ -378,53 +378,102 @@ struct SpeedCameraAnnouncerTests {
     }
 }
 
-/// "Speak the speed limit now?" — once per over-limit episode, re-armed by
-/// time back under the limit or a new limit, with a global cooldown.
+/// "Speak the speed limit now?" — once per over-limit episode (after two
+/// over ticks in a row), re-armed by time back under the limit or a new
+/// limit, with a global cooldown; only a spoken warning counts.
 struct SpeedLimitWarnerTests {
 
     private let t0 = Date(timeIntervalSince1970: 1_000_000)
     private func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
 
+    /// One loop tick: ask, and commit when told to speak (the phrase played).
+    private func step(_ w: inout SpeedLimitWarner, _ limit: Int?, over: Bool,
+                      _ s: TimeInterval) -> Bool {
+        let speak = w.shouldSpeak(limit: limit, over: over, now: at(s))
+        if speak { w.didSpeak(now: at(s)) }
+        return speak
+    }
+
     @Test func speaksOncePerEpisode() {
         var w = SpeedLimitWarner()
-        do { let spoke = w.shouldSpeak(limit: 50, over: false, now: at(0)); #expect(!spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(1)); #expect(spoke) }
-        for s in 2...300 {
-            do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(TimeInterval(s))); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: false, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 1); #expect(!spoke) }   // 1st over tick
+        do { let spoke = step(&w, 50, over: true, 2); #expect(spoke) }
+        for s in 3...300 {
+            do { let spoke = step(&w, 50, over: true, TimeInterval(s)); #expect(!spoke) }
         }
+    }
+
+    @Test func singleOverTickIsIgnored() {
+        var w = SpeedLimitWarner()
+        for s in 0..<20 {   // GPS spikes: over, under, over, under, …
+            do { let spoke = step(&w, 50, over: s % 2 == 0, TimeInterval(s)); #expect(!spoke) }
+        }
+        do { let spoke = step(&w, 50, over: true, 20); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 21); #expect(spoke) }
+    }
+
+    @Test func droppedWarningIsRetried() {
+        var w = SpeedLimitWarner()
+        do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(0)); #expect(!ask) }
+        do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(1)); #expect(ask) }
+        // Synth was busy, so no didSpeak: the next tick asks again.
+        do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(2)); #expect(ask) }
+        w.didSpeak(now: at(2))
+        do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(3)); #expect(!ask) }
     }
 
     @Test func shortDipUnderDoesNotRearm() {
         var w = SpeedLimitWarner()
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(0)); #expect(spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: false, now: at(100)); #expect(!spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: false, now: at(105)); #expect(!spoke) }   // 5 s < rearm
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(106)); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 1); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: false, 100); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: false, 105); #expect(!spoke) }   // 5 s < rearm
+        do { let spoke = step(&w, 50, over: true, 106); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 107); #expect(!spoke) }
     }
 
     @Test func rearmsAfterTimeUnder() {
         var w = SpeedLimitWarner()
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(0)); #expect(spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: false, now: at(100)); #expect(!spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: false, now: at(100 + SpeedLimitWarner.rearmSeconds)); #expect(!spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(115)); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 1); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: false, 100); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: false, 100 + SpeedLimitWarner.rearmSeconds); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 115); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 116); #expect(spoke) }
+    }
+
+    @Test func signGapIsNotTimeUnder() {
+        var w = SpeedLimitWarner()
+        do { let spoke = step(&w, 50, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 1); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: false, 100); #expect(!spoke) }
+        for s in 101...114 {   // sign drops out
+            do { let spoke = step(&w, nil, over: false, TimeInterval(s)); #expect(!spoke) }
+        }
+        // Back under for one tick only: the 15 s gap must not re-arm.
+        do { let spoke = step(&w, 50, over: false, 115); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 116); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 117); #expect(!spoke) }
     }
 
     @Test func limitChangeRearms() {
         var w = SpeedLimitWarner()
-        do { let spoke = w.shouldSpeak(limit: 90, over: true, now: at(0)); #expect(spoke) }
-        do { let spoke = w.shouldSpeak(limit: 90, over: true, now: at(70)); #expect(!spoke) }
+        do { let spoke = step(&w, 90, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 90, over: true, 1); #expect(spoke) }
+        do { let spoke = step(&w, 90, over: true, 70); #expect(!spoke) }
         // Same episode, but a new sign → warn again (cooldown has passed).
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(71)); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: true, 71); #expect(spoke) }
     }
 
     @Test func cooldownHoldsEvenWhenRearmed() {
         var w = SpeedLimitWarner()
-        do { let spoke = w.shouldSpeak(limit: 90, over: true, now: at(0)); #expect(spoke) }
+        do { let spoke = step(&w, 90, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 90, over: true, 1); #expect(spoke) }
         // New limit re-arms, but only 20 s since the last warning.
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(20)); #expect(!spoke) }
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(59)); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 21); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 60); #expect(!spoke) }
         // Still over, still armed: speaks once the cooldown is over.
-        do { let spoke = w.shouldSpeak(limit: 50, over: true, now: at(SpeedLimitWarner.cooldownSeconds)); #expect(spoke) }
+        do { let spoke = step(&w, 50, over: true, 1 + SpeedLimitWarner.cooldownSeconds); #expect(spoke) }
     }
 }

@@ -374,40 +374,57 @@ struct SpeedSectionTracker {
 
 // MARK: - Speed-limit warning
 
-/// Pure "speak the speed limit now?" decision, fed once per tick while a
-/// sign is shown, with its number (display unit) and the renderer's
-/// over-limit state. Ticks without a sign are skipped by the caller and
-/// change nothing. Says it once per over-limit episode:
+/// Pure "speak the speed limit now?" decision, fed once per tick with the
+/// sign's number (display unit, nil = no sign this tick) and the renderer's
+/// over-limit state. Says it once per over-limit episode:
+///   - only after `overTicksNeeded` over ticks in a row (one GPS spike is quiet);
 ///   - an episode ends only after `rearmSeconds` back under the limit;
 ///   - a different posted limit re-arms at once (a new sign is news);
 ///   - never two warnings within `cooldownSeconds`.
+/// A tick without a sign keeps the episode but restarts both counts, so the
+/// gap counts as neither over nor under time. `shouldSpeak` doesn't consume
+/// the warning: call `didSpeak` once the phrase was actually spoken, else
+/// the next over tick asks again.
 struct SpeedLimitWarner {
+    static let overTicksNeeded = 2
     static let rearmSeconds: TimeInterval = 10
     static let cooldownSeconds: TimeInterval = 60
 
     private var armed = true
     private var lastLimit: Int?
+    private var overTicks = 0
     private var underSince: Date?
     private var lastSpoken: Date?
 
-    mutating func shouldSpeak(limit: Int, over: Bool, now: Date) -> Bool {
+    mutating func shouldSpeak(limit: Int?, over: Bool, now: Date) -> Bool {
+        guard let limit else {
+            overTicks = 0
+            underSince = nil
+            return false
+        }
         if limit != lastLimit {
             lastLimit = limit
             armed = true
         }
         guard over else {
+            overTicks = 0
             let since = underSince ?? now
             underSince = since
             if now.timeIntervalSince(since) >= Self.rearmSeconds { armed = true }
             return false
         }
         underSince = nil
-        guard armed else { return false }
+        overTicks = min(overTicks + 1, Self.overTicksNeeded)
+        guard armed, overTicks >= Self.overTicksNeeded else { return false }
         if let lastSpoken, now.timeIntervalSince(lastSpoken) < Self.cooldownSeconds {
             return false
         }
+        return true
+    }
+
+    /// The warning was spoken: end the episode and start the cooldown.
+    mutating func didSpeak(now: Date) {
         armed = false
         lastSpoken = now
-        return true
     }
 }

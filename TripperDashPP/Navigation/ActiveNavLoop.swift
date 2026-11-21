@@ -757,19 +757,27 @@ final class ActiveNavLoop {
     private func emitSpeedLimitVoice() {
         guard let voice, let mapSource,
               settings.voiceEnabled,
-              settings.voiceSpeedLimitEnabled,
-              let kmh = mapSource.currentLimitKmh   // no sign → nothing to say
+              settings.voiceSpeedLimitEnabled
         else { return }
-        let limit = MapViewSource.displayLimit(kmh: kmh, imperial: settings.units == .imperial)
-        guard speedLimitWarner.shouldSpeak(limit: limit,
+        let imperial = settings.units == .imperial
+        // nil = no sign this tick; the warner treats it as a gap.
+        let shown = mapSource.currentLimitKmh.map {
+            MapViewSource.displayLimit(kmh: $0, imperial: imperial)
+        }
+        let now = Date()
+        guard speedLimitWarner.shouldSpeak(limit: shown,
                                            over: mapSource.isOverSpeedLimit,
-                                           now: Date())
+                                           now: now),
+              let limit = shown
         else { return }
         let lang = settings.voiceLanguage
-        // ponytail: a busy synth drops this (equal priority) and the episode
-        // still counts as warned, same as camera callouts; queue if riders miss it.
-        voice.speak(VoicePhrase.speedLimit(limit, language: lang),
-                    language: lang.rawValue, priority: .maneuver)
+        // `.advisory`: a turn prompt cuts this off instead of being dropped
+        // behind it. Only a phrase that was actually spoken ends the episode;
+        // one dropped as busy is retried on the next tick.
+        if voice.speak(VoicePhrase.speedLimit(limit, language: lang),
+                       language: lang.rawValue, priority: .advisory) {
+            speedLimitWarner.didSpeak(now: now)
+        }
     }
 
     /// Feed the section tracker and push its reading to the dash panel

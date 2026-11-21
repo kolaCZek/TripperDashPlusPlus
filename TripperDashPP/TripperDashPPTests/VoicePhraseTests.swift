@@ -125,7 +125,8 @@ struct VoicePhraseTests {
             #expect(!VoicePhrase.rerouting(lang).isEmpty)
             #expect(!VoicePhrase.arrived(lang).isEmpty)
             #expect(!VoicePhrase.speedCamera(lang).isEmpty)
-            #expect(VoicePhrase.speedLimit(50, language: lang).hasSuffix(" 50."))
+            #expect(!lang.lexicon.speedLimit.isEmpty)
+            #expect(VoicePhrase.speedLimit(50, language: lang) == "\(lang.lexicon.speedLimit) 50.")
             for k in kinds {
                 let p = VoicePhrase.maneuver(k, tier: .now, language: lang)
                 #expect(p != nil && !(p ?? "").isEmpty,

@@ -7,7 +7,10 @@ pins the wiring that a refactor could silently drop:
     and the sign's `displayLimit` number;
   - it is called from BOTH the navigating and the free-ride branch of `tick`;
   - it is gated on the global voice switch and its own OFF-by-default toggle;
-  - every language has a phrase.
+  - it speaks at the lowest (`.advisory`) priority so a turn prompt cuts it
+    off, and only a phrase that was actually spoken ends the episode;
+  - the tolerance stepper is visible whenever the voice uses it;
+  - every language has a non-empty phrase.
 """
 
 from __future__ import annotations
@@ -29,8 +32,10 @@ def test_speed_limit_voice_wiring():
     for needle in ("settings.voiceEnabled", "settings.voiceSpeedLimitEnabled",
                    "mapSource.isOverSpeedLimit", "mapSource.currentLimitKmh",
                    "MapViewSource.displayLimit(", "speedLimitWarner.shouldSpeak(",
-                   "VoicePhrase.speedLimit("):
+                   "VoicePhrase.speedLimit(", "priority: .advisory",
+                   "speedLimitWarner.didSpeak("):
         assert needle in emit, needle
+    assert "if voice.speak(" in emit, "commit only when the phrase was spoken"
     assert "toleranceKmh" not in emit, "must reuse the renderer's over-limit state"
 
     tick = strip_comments(decl_body(loop, "private func tick()"))
@@ -44,5 +49,15 @@ def test_speed_limit_voice_wiring():
     assert "p.voiceSpeedLimitEnabled ?? false" in settings
     assert "voiceSpeedLimitEnabled: voiceSpeedLimitEnabled" in settings
 
+    voice = strip_comments(_src("App/VoiceNavigator.swift"))
+    assert "case advisory = 0" in voice and "case maneuver = 1" in voice
+    assert "func speak(_ phrase: String, language: String, priority: Priority) -> Bool" in voice
+
+    ui = strip_comments(_src("UI/StreamingView.swift"))
+    stepper = ui[:ui.index('"Speeding tolerance')]
+    stepper = stepper[stepper.rindex("if status.dashNavSettings"):]
+    assert "voiceSpeedLimitEnabled" in stepper, "tolerance must show when the voice uses it"
+
     phrases = _src("Navigation/VoicePhrase.swift")
     assert phrases.count("        speedLimit: \"") == 8
+    assert 'speedLimit: ""' not in phrases

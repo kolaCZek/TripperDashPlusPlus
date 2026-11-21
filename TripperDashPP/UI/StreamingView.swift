@@ -178,6 +178,12 @@ struct StreamingView: View {
                     )) {
                         Text("Speak speed-limit warnings")
                     }
+                    .disabled(status.dashNavSettings.speedLimitDisplay == .off)
+                    if status.dashNavSettings.speedLimitDisplay == .off {
+                        Text("Needs the Speed limit sign (Notifications) on.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -211,7 +217,9 @@ struct StreamingView: View {
                         Text(mode.label).tag(mode)
                     }
                 }
-                if status.dashNavSettings.speedLimitDisplay == .overOnly {
+                // The spoken warning uses the same tolerance in every sign mode.
+                if status.dashNavSettings.speedLimitDisplay == .overOnly
+                    || status.dashNavSettings.voiceSpeedLimitEnabled {
                     Stepper(
                         "Speeding tolerance: +\(status.dashNavSettings.speedLimitOverToleranceDisplay) \(status.dashNavSettings.speedLimitToleranceUnit)",
                         value: Binding(
