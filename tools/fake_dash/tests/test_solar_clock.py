@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from tests.solar import elevation
+from tests.solar import elevation, next_sunset
 
 
 # ---------------------------------------------------------------------------
@@ -87,3 +87,37 @@ class TestDeadBandCrossings:
             assert b < a, f"elevation not decreasing: {elevs}"
         assert max(elevs) > 0.0, "sun should start above the horizon"
         assert min(elevs) < -6.0, "sun should drop below civil twilight"
+
+
+class TestNextSunset:
+    """`next_sunset` mirrors `SolarClock.nextSunset` (the dash sunset pill).
+    References: published Prague sunsets (timeanddate.com) — 21:15 CEST at
+    the summer solstice, 16:02 CET at the winter solstice, 18:15 CET at
+    the March equinox."""
+
+    @pytest.mark.parametrize("day,expected", [
+        (datetime(2026, 6, 21, 8, 0, tzinfo=timezone.utc), datetime(2026, 6, 21, 19, 15, tzinfo=timezone.utc)),
+        (datetime(2026, 12, 21, 8, 0, tzinfo=timezone.utc), datetime(2026, 12, 21, 15, 2, tzinfo=timezone.utc)),
+        (datetime(2026, 3, 20, 8, 0, tzinfo=timezone.utc), datetime(2026, 3, 20, 17, 15, tzinfo=timezone.utc)),
+    ])
+    def test_matches_published_sunset(self, day, expected):
+        got = next_sunset(*PRAHA, day)
+        assert got is not None and abs((got - expected).total_seconds()) < 4 * 60, got
+
+    def test_sun_already_down_is_none(self):
+        assert next_sunset(*PRAHA, datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc)) is None
+
+    def test_polar_day_and_night_are_none(self):
+        tromso = (69.65, 18.96)
+        assert next_sunset(*tromso, datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)) is None
+        assert next_sunset(*tromso, datetime(2026, 12, 21, 12, 0, tzinfo=timezone.utc)) is None
+
+    def test_swift_next_sunset_matches_this_mirror(self):
+        import pathlib
+        from tests.solar import HORIZON
+        src = (pathlib.Path(__file__).resolve().parents[3]
+               / "TripperDashPP" / "Map" / "SolarClock.swift").read_text()
+        assert f"static let sunsetElevation = {HORIZON}" in src
+        for needle in ("for _ in 0..<144", "lo.addingTimeInterval(600)", "for _ in 0..<10",
+                       "guard elevation(coord: coord, date: date) > h0 else { return nil }"):
+            assert needle in src, needle

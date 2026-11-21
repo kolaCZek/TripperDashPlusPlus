@@ -28,9 +28,9 @@
 import CoreLocation
 import Foundation
 
-/// Stateless solar-position helper. The only value the map-style logic
-/// needs is the sun's elevation angle, so that's all we expose.
-enum SolarClock {
+/// Stateless solar-position helper: the sun's elevation angle (map style)
+/// and the next sunset derived from it (dash sunset pill).
+nonisolated enum SolarClock {
 
     /// Sun elevation in degrees above the horizon (negative = below) for
     /// `coord` at `date`.
@@ -57,6 +57,32 @@ enum SolarClock {
             + cos(lat) * cos(decl) * cos(ha)
         )
         return elev * 180.0 / .pi
+    }
+
+    /// Elevation of the sun's centre at sunset: half the disc plus
+    /// standard atmospheric refraction below the horizon.
+    static let sunsetElevation = -0.833
+
+    /// The next instant within 24 h of `date` that the sun sets at `coord`,
+    /// or `nil` when it is already down or doesn't set in that window
+    /// (polar day / night). Scans in 10-min steps, then bisects the
+    /// crossing to < 1 s: ~150 `elevation` calls, cheap at the 1 Hz nav tick.
+    static func nextSunset(coord: CLLocationCoordinate2D, after date: Date) -> Date? {
+        let h0 = sunsetElevation
+        guard elevation(coord: coord, date: date) > h0 else { return nil }
+        var lo = date
+        for _ in 0..<144 {
+            var hi = lo.addingTimeInterval(600)
+            if elevation(coord: coord, date: hi) <= h0 {
+                for _ in 0..<10 {
+                    let mid = lo.addingTimeInterval(hi.timeIntervalSince(lo) / 2)
+                    if elevation(coord: coord, date: mid) > h0 { lo = mid } else { hi = mid }
+                }
+                return hi
+            }
+            lo = hi
+        }
+        return nil
     }
 
     /// Convert a `Date` to its Julian Day number. The Unix epoch

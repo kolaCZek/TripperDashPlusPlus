@@ -1278,6 +1278,10 @@ extension MapViewSource {
         // No-op when `weatherAlert == nil` (clear weather).
         drawWeatherAlert(into: ctx)
 
+        // Sunset pill — right side, one slot above the weather pill. No-op
+        // unless the nav loop set `sunsetText` (arriving after sunset).
+        drawSunsetPill(into: ctx)
+
         // Speed-limit sign — bottom-right corner, transform-independent
         // like the weather pill. Drawn AFTER the weather pill so the sign
         // owns the corner; when both are active the weather pill has
@@ -2357,6 +2361,9 @@ extension MapViewSource {
         /// Where the upcoming maneuver is: the on-route turn arrow is drawn
         /// there. nil = no arrow (straight on, arrival, recalculating …).
         var maneuverNode: CLLocationCoordinate2D? = nil
+        /// Sunset pill text ("18:40"), set while the rider will arrive after
+        /// sunset (`ActiveNavLoop.sunsetPillText`). nil = no pill.
+        var sunsetText: String? = nil
     }
 
     /// Caller (typically ActiveNavLoop) pushes the latest nav state.
@@ -2863,6 +2870,94 @@ extension MapViewSource {
         case "Frost risk": return "Frost"
         default: return title
         }
+    }
+
+    // MARK: Sunset pill
+
+    /// "You'll arrive after dark" pill: sunset glyph + local sunset time, in
+    /// the weather pill's look. Fixed slot on the RIGHT, hugging the glass,
+    /// one gap above the weather pill's highest (sign-lifted) spot, so it
+    /// clears the weather pill, the sign, the section panel, the puck and
+    /// the dash's turn card in every combination (test_overlay_layout.py).
+    /// Hidden while a notice is up: the notice card is wide enough to reach
+    /// this slot and only lasts seconds.
+    fileprivate func drawSunsetPill(into ctx: CGContext) {
+        guard let text = navOverlayState?.sunsetText, activeNotice == nil else { return }
+
+        let accent = CGColor(red: 1.00, green: 0.50, blue: 0.12, alpha: 1.0)   // sunset orange
+        let margin: CGFloat = 12
+        let padX: CGFloat = 9
+        let glyphSize: CGFloat = 26
+        let gap: CGFloat = 7
+        let fontSize: CGFloat = 18
+        let pillH = Self.weatherPillHeight
+
+        let weatherTop = frameSize.height - margin - pillH - (Self.speedLimitSignDiameter + 8)
+        let originY = weatherTop - 8 - pillH
+        let maxX = min(frameSize.width - margin,
+                       Self.visibleSpan(minY: originY, maxY: originY + pillH).upperBound)
+        let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
+        let textW = (text as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+        let pillW = padX + glyphSize + gap + textW + padX
+        let pill = CGRect(x: maxX - pillW, y: originY, width: pillW, height: pillH)
+
+        // Backdrop: solid black, 1.5 px coloured border (see the weather pill).
+        ctx.saveGState()
+        let path = CGPath(roundedRect: pill, cornerWidth: 9, cornerHeight: 9, transform: nil)
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.setStrokeColor(accent)
+        ctx.setLineWidth(1.5)
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.translateBy(x: pill.minX + padX, y: pill.midY - glyphSize / 2)
+        drawSunsetGlyph(in: ctx, size: glyphSize, tint: accent)
+        ctx.restoreGState()
+
+        let textOrigin = CGPoint(x: pill.minX + padX + glyphSize + gap,
+                                 y: pill.midY - fontSize / 2 - 1)
+        Self.drawText(text, in: ctx, at: textOrigin,
+                      width: textW + 4, fontSize: fontSize, bold: true)
+    }
+
+    /// Sunset pictograph in a `size`×`size` box at the current ctx origin
+    /// (caller has translated; Y-DOWN): the top half of the sun on a grey
+    /// horizon line, three rays, and a small down chevron under the line
+    /// (setting, not rising).
+    private func drawSunsetGlyph(in ctx: CGContext, size s: CGFloat, tint: CGColor) {
+        let grey = CGColor(red: 0.86, green: 0.88, blue: 0.92, alpha: 1.0)
+        let cx = s * 0.5, horizon = s * 0.62, r = s * 0.24
+
+        // Sun: a disc clipped to the sky above the horizon.
+        ctx.saveGState()
+        ctx.clip(to: CGRect(x: 0, y: 0, width: s, height: horizon))
+        ctx.setFillColor(tint)
+        ctx.fillEllipse(in: CGRect(x: cx - r, y: horizon - r, width: 2 * r, height: 2 * r))
+        ctx.restoreGState()
+
+        // Rays at 45°, 90°, 135° (up is -y).
+        ctx.setStrokeColor(tint)
+        ctx.setLineWidth(max(1.6, s * 0.07))
+        ctx.setLineCap(.round)
+        for deg: CGFloat in [45, 90, 135] {
+            let a = deg * .pi / 180
+            ctx.move(to: CGPoint(x: cx + r * 1.4 * cos(a), y: horizon - r * 1.4 * sin(a)))
+            ctx.addLine(to: CGPoint(x: cx + r * 1.85 * cos(a), y: horizon - r * 1.85 * sin(a)))
+        }
+        ctx.strokePath()
+
+        // Horizon line + down chevron.
+        ctx.setStrokeColor(grey)
+        ctx.move(to: CGPoint(x: s * 0.06, y: horizon))
+        ctx.addLine(to: CGPoint(x: s * 0.94, y: horizon))
+        ctx.move(to: CGPoint(x: s * 0.40, y: s * 0.78))
+        ctx.addLine(to: CGPoint(x: s * 0.50, y: s * 0.90))
+        ctx.addLine(to: CGPoint(x: s * 0.60, y: s * 0.78))
+        ctx.strokePath()
     }
 
     /// Draw the active notice ("You've arrived", warnings, etc.). No-op when

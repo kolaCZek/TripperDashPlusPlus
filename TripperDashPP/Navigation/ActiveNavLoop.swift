@@ -483,7 +483,13 @@ final class ActiveNavLoop {
             distanceMeters: distNext,
             roadName: roadName,
             unitsImperial: settings.units == .imperial,
-            maneuverNode: arrowNode
+            maneuverNode: arrowNode,
+            sunsetText: settings.sunsetAlertEnabled
+                ? location?.lastFix.flatMap {
+                    Self.sunsetPillText(coord: $0.coordinate, now: Date(),
+                                        eta: etaDate, is24Hour: settings.is24Hour)
+                }
+                : nil
         )
         mapSource?.setNavOverlay(overlay)
 
@@ -829,5 +835,22 @@ final class ActiveNavLoop {
             ? String(name.prefix(nameBudget - 1)) + "…"
             : name
         return timePart + joiner + clippedName
+    }
+
+    /// Text for the dash's sunset pill ("18:40"), or `nil` to hide it.
+    /// Shown while the sun is still up at the rider's position and the
+    /// final-destination ETA falls after today's sunset there: the rider
+    /// will arrive in the dark. Hidden once the sun is down, on a no-sunset
+    /// day (polar day / night) and without an ETA.
+    /// ponytail: free ride (no ETA) never shows it; could show within N min
+    /// of sunset if riders ask.
+    nonisolated static func sunsetPillText(coord: CLLocationCoordinate2D, now: Date,
+                                           eta: Date?, is24Hour: Bool,
+                                           timeZone: TimeZone = .current) -> String? {
+        guard let eta,
+              let sunset = SolarClock.nextSunset(coord: coord, after: now),
+              eta > sunset
+        else { return nil }
+        return LiveActivityController.clockText(sunset, is24Hour: is24Hour, timeZone: timeZone)
     }
 }

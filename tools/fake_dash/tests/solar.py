@@ -19,7 +19,7 @@ Keep this byte-for-byte equivalent to the Swift `SolarClock.elevation`.
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def _julian_day(dt: datetime) -> float:
@@ -50,3 +50,28 @@ def elevation(lat: float, lon: float, dt: datetime) -> float:
         + math.cos(latr) * math.cos(decl) * math.cos(ha)
     )
     return math.degrees(elev)
+
+
+HORIZON = -0.833   # standard sunset: half the disc + refraction
+
+
+def next_sunset(lat: float, lon: float, dt: datetime) -> datetime | None:
+    """Mirror of `SolarClock.nextSunset`: the next instant within 24 h of
+    `dt` the sun drops through `HORIZON`, or None when it is already down
+    or doesn't set in that window (polar day / night)."""
+    if elevation(lat, lon, dt) <= HORIZON:
+        return None
+    step = timedelta(seconds=600)
+    lo = dt
+    for _ in range(144):
+        hi = lo + step
+        if elevation(lat, lon, hi) <= HORIZON:
+            for _ in range(10):
+                mid = lo + (hi - lo) / 2
+                if elevation(lat, lon, mid) > HORIZON:
+                    lo = mid
+                else:
+                    hi = mid
+            return hi
+        lo = hi
+    return None
