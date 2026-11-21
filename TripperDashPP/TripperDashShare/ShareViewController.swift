@@ -6,14 +6,15 @@
 //  sheet for Google Maps / Apple Maps (and anything sharing a URL or a
 //  map location). It pulls the shared URL/text out of the extension
 //  context, resolves it into waypoints via the SAME SharedDestination
-//  Resolver the app uses (this file is a member of BOTH targets), then
+//  Resolver the app uses (that file is a member of BOTH targets), then
 //  hands the result to the main app by opening a `tripperdash://` deep
-//  link and closing itself. No custom UI — resolve, open, done.
+//  link and closing itself. No custom UI except an alert for shares it
+//  can't use (`showUnsupported`) — otherwise resolve, open, done.
 //
-//  IMPORTANT target-membership note: SharedDestinationResolver.swift and
-//  SharedDeepLink.swift must be added to THIS extension target too (check
-//  their File Inspector → Target Membership). They have no UIKit/AppStatus
-//  dependency, so they compile cleanly in the extension.
+//  Target membership: SharedDestinationResolver.swift and
+//  SharedDeepLink.swift are compiled into BOTH the app and this extension
+//  target. They have no UIKit/AppStatus dependency, so they compile
+//  cleanly in the extension.
 //
 
 import UIKit

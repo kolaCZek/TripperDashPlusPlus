@@ -10,7 +10,7 @@
 //  `MapStyle` is the RESOLVED palette the tile pipeline actually fetches
 //  and paints (`.light` / `.dark`). It is NOT the user's preference —
 //  that's `MapStyleSettings.mode`, which can additionally be `.auto`
-//  (sunrise/sunset). `MapStyleResolver` turns a mode + GPS + time into
+//  (sun elevation). `MapStyleResolver` turns a mode + GPS + time into
 //  one of these concrete styles.
 //
 //  Why ONE provider (OSM Carto) + a runtime recolour, not two providers:
@@ -192,10 +192,9 @@ nonisolated enum MapStyle: String, Codable, Sendable, CaseIterable, Identifiable
         }
     }
 
-    // MARK: - Route-line colours (drawn by MapViewSource at the polyline
-    // draw site, INSIDE the composite? No — the route line is stroked by
-    // the renderer OUTSIDE the tile composite recolour, so these are the
-    // FINAL on-screen colours per palette.)
+    // MARK: - Route-line colours (stroked by MapViewSource outside the
+    // tile composite, so never recoloured: these are the FINAL on-screen
+    // colours per palette.)
 
     /// Fill colour of the navigation route polyline. Bright blue on both
     /// palettes — legible over light OSM stone and over the dark recolour.

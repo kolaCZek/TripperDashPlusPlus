@@ -50,7 +50,7 @@ nonisolated struct TileColorTransform: Sendable {
     /// i.e. output channel `i` reads entries `matrix[0*4+i], matrix[1*4+i],
     /// matrix[2*4+i], matrix[3*4+i]` — the i-th *column*. Channels are in
     /// R, G, B, A memory order (the `premultipliedLast` ARGB8888 bitmap
-    /// `RouteTileCache.composite` allocates on little-endian iOS). No
+    /// `RouteTileCache.stitch` allocates on little-endian iOS). No
     /// pre/post bias vector. The human-readable per-channel formulas in
     /// `darkInvert` below therefore map to the **columns** of `matrix`,
     /// not its rows — the literal is the mathematical matrix transposed.
@@ -95,7 +95,7 @@ nonisolated struct TileColorTransform: Sendable {
 
     /// Recolour the pixels backing `context` **in place**.
     ///
-    /// Requirements (all satisfied by `RouteTileCache.composite`'s
+    /// Requirements (all satisfied by `RouteTileCache.stitch`'s
     /// context): 8-bit ARGB8888, `premultipliedLast`, a readable backing
     /// store (`context.data != nil`, true for a CG-allocated bitmap
     /// context). Safe to call *between* the tile draw and the attribution

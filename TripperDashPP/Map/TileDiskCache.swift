@@ -11,11 +11,11 @@
 //       the geometry: WebMercator.coordinate(forTile:y:zoom:) tells
 //       you exactly where each tile sits.
 //
-//    2. **Provider-neutral** — same disk format works whether tiles
-//       came from tile.openstreetmap.org, OpenTopoMap, or a future
-//       tiles.kolaczek.cz self-host. Switching providers doesn't
-//       invalidate the cache (it just becomes "wrong style" until
-//       OSM-ToS dictates re-fetch, see `clear(style:)`).
+//    2. **Provider-neutral** — same disk format works for any XYZ
+//       provider. The namespace (`MapStyle.tileCacheNamespace`) is the
+//       first path component, so changing provider means changing the
+//       namespace; old tiles are then simply never read (`clear(style:)` /
+//       `clearAll()` remove them).
 //
 //    3. **Browseable** — `Caches/RouteTiles/osm/15/8800/5512.png` is a
 //       real PNG you can open in Preview. Debugging is delightful.
@@ -38,7 +38,7 @@ import OSLog
 /// Thread-safe persistent PNG cache for OSM raster tiles.
 ///
 /// Use the shared singleton (`TileDiskCache.shared`) — it owns the
-/// cache directory, the size cap, and the background eviction queue.
+/// cache directory, the size cap, and the launch-time eviction.
 /// `RouteTileCache` calls `read` before triggering an `OSMTileFetcher`
 /// request and `write` after a successful HTTP fetch.
 actor TileDiskCache {
@@ -54,10 +54,9 @@ actor TileDiskCache {
     private let maxAgeDays: TimeInterval = 30
 
     /// Soft cap on total cache size. When exceeded, oldest-mtime
-    /// files are deleted until back under cap. Tuned for a typical
-    /// motorcyclist's cache: 30 km commute ~ 50 tiles + lateral wings
-    /// ≈ 150 tiles ≈ 4-6 MB; 200 MB holds ~40-60 distinct rides of
-    /// that size.
+    /// files are deleted until back under cap. A 35 km route is roughly
+    /// 300-500 unique 256-px tiles (see `RouteTileCache`), so 200 MB holds
+    /// many routes' worth.
     private let maxBytesOnDisk: Int = 200 * 1024 * 1024
 
     /// Cache directory. `Caches` is the right base — the OS may evict

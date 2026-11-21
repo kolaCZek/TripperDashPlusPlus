@@ -8,9 +8,9 @@
 //  more `EncodedNAL`s. Each NAL is delivered as raw bytes (no Annex-B
 //  start codes, no length prefix) along with metadata the RTP packetizer
 //  needs (type, isKey, timestamp). The encoder extracts SPS+PPS from the
-//  format description on keyframes and emits them as separate NALs so the
-//  packetizer can either bundle them with the IDR (Tripper expects this)
-//  or send them standalone.
+//  format description on keyframes and emits them as separate NALs ahead
+//  of the IDR; `RtpPacketizer` sends each as its own single-NAL packet
+//  (no STAP-A bundling).
 //
 //  Configuration: baseline profile, 512 kbps, a keyframe every second
 //  (`keyframeInterval` = fps), and a hard data-rate cap equal to the
@@ -146,7 +146,7 @@ final class H264Encoder {
         }
         self.session = session
 
-        // Property bag — baseline profile, low latency, fixed bitrate.
+        // Property bag — baseline profile, low latency, average bitrate capped by DataRateLimits.
         let props: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),

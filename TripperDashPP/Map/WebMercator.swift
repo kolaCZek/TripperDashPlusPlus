@@ -30,13 +30,15 @@ nonisolated enum WebMercator {
     /// Standard OSM tile size in pixels (logical, pre-Retina).
     static let tilePixels: Int = 256
 
-    /// Default zoom level for the TripperDash renderer.
+    /// Zoom level of the base layer in the TripperDash renderer
+    /// (`MapViewSource.baseLayerZoom`); the coarse (z=13) and fine (z=16)
+    /// sibling layers are chosen by the renderer.
     ///
     /// Picked empirically:
     ///   - z=15 → 1 tile ≈ 0.8 km × 0.8 km at 50°N (the old
     ///     MKMapSnapshotter setting was `tileSpanMeters = 1200`)
     ///   - z=16 → ~400 m / tile, very zoomed in (good for city streets
-    ///     but loses context on highways)
+    ///     but loses context on highways) — used for the fine layer
     ///   - z=14 → ~1.6 km / tile, too zoomed out for turn-by-turn
     nonisolated static let defaultZoom: Int = 15
 
@@ -45,8 +47,8 @@ nonisolated enum WebMercator {
     /// part = position within that tile [0.0, 1.0).
     ///
     /// Returning fractional tile coords (not just integers) is what
-    /// lets the stitcher pixel-align an arbitrary center inside a
-    /// 5×5 grid — without it we'd snap to tile corners and the user's
+    /// lets the stitcher pixel-align an arbitrary center inside its
+    /// gridSide × gridSide block (5×5 base, 7×7 coarse/fine) — without it we'd snap to tile corners and the user's
     /// position would jitter by ~150 m every time it crossed a tile
     /// boundary.
     static func tile(for coord: CLLocationCoordinate2D, zoom: Int) -> (x: Double, y: Double) {
@@ -125,8 +127,8 @@ nonisolated enum WebMercator {
 
     /// Pixels per degree of latitude at the given latitude and zoom.
     /// LATITUDE-DEPENDENT because Mercator stretches the y-axis as
-    /// you approach the poles. Used by the renderer to position the
-    /// chevron correctly along the y-axis.
+    /// you approach the poles. Stored on each `RouteTile`; the renderer
+    /// uses it to place the tile, route line and markers along the y-axis.
     ///
     /// We get this by numerical differentiation of the y-pixel
     /// formula — much shorter than expanding the closed form, and

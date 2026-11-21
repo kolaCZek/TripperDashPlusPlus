@@ -37,12 +37,14 @@ nonisolated struct RideActivityAttributes: ActivityAttributes {
         /// is in flight the app sends the recalculating spinner symbol.
         var maneuverSymbol: String
 
-        /// Distance to the next maneuver, pre-formatted honouring the rider's
-        /// units + the HUD's close-in bucketing, e.g. `300 m` / `1.2 mi`.
+        /// Distance to the next maneuver, pre-formatted in the rider's units
+        /// and bucketed like the dash's turn card
+        /// (`DashNavSettings.maneuverDistanceText`), e.g. `300 m` / `1.2 mi`.
         var distanceText: String
 
-        /// Optional secondary line — the multi-stop "N min to <place>" label.
-        /// nil on a classic single-destination ride.
+        /// Optional secondary line — the multi-stop "<time> to <place>" label
+        /// (the dash's road-name text). nil on a single-destination ride, a
+        /// track route, or without an ETA.
         var maneuverText: String?
 
         /// Optional ETA clock string honouring 24/12-hour, e.g. `ETA 14:30`.

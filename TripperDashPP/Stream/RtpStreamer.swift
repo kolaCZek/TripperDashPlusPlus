@@ -199,9 +199,8 @@ final class RtpStreamer {
         log.error("\(reason, privacy: .public)")
         metrics.lastError = reason
         onMetrics?(metrics)
-        // stop() first: it only tears down from .running/.starting, so the
-        // old order left the source (a location consumer), encoder, timer
-        // and connection running after every failure.
+        // stop() first: it only tears down from .running/.starting, and it
+        // ends in .idle, so .failed has to be set after it.
         stop()
         state = .failed
     }
@@ -231,10 +230,10 @@ final class RtpStreamer {
 }
 
 /// Encoded NAL → RTP datagrams → UDP, entirely on the streamer's
-/// `sendQueue`. Replaces the old per-NAL hop onto the main actor (and the
-/// per-datagram completion hop back to it): at the frame rate × several FU-A
-/// fragments that was dozens of main-actor jobs a second, and any of them
-/// queued behind a tile bake delayed the stream.
+/// `sendQueue`, never on the main actor: per-NAL and per-datagram hops
+/// would be dozens of main-actor jobs a second (frame rate × several FU-A
+/// fragments), and any of them queued behind a tile bake would delay the
+/// stream.
 ///
 /// `@unchecked Sendable`: `connection`, `onFrame`, `counters`, `failedRun` and
 /// `lastFrameUptime` are only touched under `lock`; `packetizer` is not locked and is only used from
@@ -315,7 +314,7 @@ nonisolated final class RtpSendPipe: @unchecked Sendable {
         let rtpTs = timestampBase &+ UInt32(truncatingIfNeeded: Int64(ptsSeconds * 90_000))
 
         // Mark the last fragment of an access unit (the IDR / non-IDR
-        // frame itself) with the marker bit, per RFC 3550.
+        // frame itself) with the marker bit, per RFC 6184.
         let markerOnLast: Bool
         let isFrame: Bool
         let isIDR: Bool

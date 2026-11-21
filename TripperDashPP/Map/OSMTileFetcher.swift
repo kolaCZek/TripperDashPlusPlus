@@ -105,9 +105,10 @@ actor OSMTileFetcher {
         ]
         // Allow tile fetches over cellular — this IS a motorbike nav app.
         config.allowsCellularAccess = true
-        // Don't background the URLSession itself — we want completion
-        // handlers on our normal queue, and TileDiskCache+the prerender
-        // pipeline already handle the "app goes to BG mid-bake" case.
+        // A request started during a signal drop waits for connectivity
+        // (bounded by the 16 s resource timeout) instead of failing at once.
+        // The session is not a background URLSession: completions stay on
+        // our normal queue, and the bake pipeline copes with BG itself.
         config.waitsForConnectivity = true
         return URLSession(configuration: config)
     }()

@@ -3,16 +3,17 @@
 //  TripperDashPP
 //
 //  Pack raw H.264 NAL units into RFC 6184 RTP payloads:
-//   - NALs ≤ MTU-12 (RTP header) ride alone as "single-NAL" packets.
+//   - NALs ≤ `maxPayloadSize` − 12 (RTP header) ride alone as "single-NAL" packets.
 //   - Bigger NALs split into FU-A fragments (NAL type 28) with the standard
 //     S/E/R bits in the FU header.
 //
 //  Each call to `packetize()` returns one or more ready-to-send UDP
-//  datagrams. The streamer manages sequence numbers and the RTP timestamp
-//  base; we just produce the byte layout.
+//  datagrams. The packetizer owns the sequence counter; the caller
+//  (`RtpSendPipe`) supplies the 90 kHz timestamp (PTS × 90000 + a random
+//  base).
 //
-//  We mirror fake_dash/rtp_sink.py's expectations (PT 96, NTP-style 90 kHz
-//  timestamps) so the round-trip works against the existing server.
+//  We mirror tools/fake_dash/fake_dash/rtp_sink.py's expectations (PT 96,
+//  single-NAL + FU-A) so the round-trip works against the fake dash.
 //
 
 import Foundation
