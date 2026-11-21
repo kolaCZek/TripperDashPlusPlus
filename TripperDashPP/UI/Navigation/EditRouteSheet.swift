@@ -133,7 +133,7 @@ struct EditRouteSheet: View {
         let stops = PlannedRoute.remainingStops(of: plan, fromLegIndex: nav.currentLegIndex)
         guard let wps = PlannedRoute.replacementWaypoints(currentLocation: coord, stops: stops) else { return }
         let d = PlannedRoute(waypoints: wps)
-        Self.carryComputedLegs(from: plan, into: d)
+        PlannedRoute.carryComputedLegs(from: plan, into: d)
         basePlan = plan
         baseLegIndex = nav.currentLegIndex
         baseStopIds = stops.map(\.id)
@@ -168,7 +168,7 @@ struct EditRouteSheet: View {
         // A fresh live origin, so leg 0 is always routed from where the
         // rider is NOW; untouched legs keep their routes.
         let newPlan = PlannedRoute(waypoints: wps)
-        Self.carryComputedLegs(from: draft, into: newPlan)
+        PlannedRoute.carryComputedLegs(from: draft, into: newPlan)
         let dirty = Set(newPlan.legs.indices.filter { !newPlan.legs[$0].isComputed })
         errorText = nil
         noticeText = nil
@@ -212,16 +212,4 @@ struct EditRouteSheet: View {
     }
 
     private static let reloadedNotice = "The route moved on — the list was refreshed."
-
-    /// Reuse the routes (and the rider's picked alternative) of legs whose
-    /// two stops are unchanged, so Apply asks Apple only for what changed.
-    private static func carryComputedLegs(from source: PlannedRoute, into target: PlannedRoute) {
-        for (i, leg) in target.legs.enumerated() {
-            guard let old = source.legs.first(where: {
-                $0.fromWaypointId == leg.fromWaypointId && $0.toWaypointId == leg.toWaypointId
-            }), old.isComputed else { continue }
-            target.setOptions(old.options, forLegIndex: i)
-            target.setSelectedOption(legIndex: i, optionIndex: old.selectedOptionIndex)
-        }
-    }
 }

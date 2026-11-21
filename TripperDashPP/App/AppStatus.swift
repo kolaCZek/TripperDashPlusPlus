@@ -1722,8 +1722,9 @@ final class AppStatus {
     }
 
     /// Navigate `plan` (origin = live location). Mid-navigation it replaces
-    /// the running route, like Edit route; in free ride it ends the free
-    /// ride and starts navigation; otherwise it stages the plan and
+    /// the running route, like Edit route (a widget Fuel tap passes the
+    /// running stops with the station first, so the rest of the ride
+    /// stays); in free ride it ends the free ride and starts navigation; otherwise it stages the plan and
     /// connects, and the picker starts it.
     /// `riderOwned`: the rider is looking (a widget tap), so the staged plan
     /// is theirs from the start: a route that fails, even during the
@@ -1745,7 +1746,8 @@ final class AppStatus {
             let nav = activeNavigator
             do {
                 try await routingService.recompute(plan,
-                                                   dirtyLegIndices: plan.allLegIndices,
+                                                   // Only the legs a carried-over plan (Fuel stop) lacks.
+                                                   dirtyLegIndices: Set(plan.legs.indices.filter { !plan.legs[$0].isComputed }),
                                                    preferences: navigationStore.routePreferences,
                                                    timeout: ActiveNavigator.routeRequestTimeout,
                                                    isStillLive: { nav.plan === running })
@@ -1843,10 +1845,23 @@ final class AppStatus {
                 }
             } else { return }
             if let dest {
-                // ponytail: mid-navigation Fuel replaces the route (the
-                // destination is planned again after refuelling); insert the
-                // station as a stop if riders ask.
-                let said = await navigateFromShortcut(to: dest, running: running, riderOwned: true)
+                let said: String
+                if to == "fuel", let running, running.isEditableMidRide,
+                   let here = locationService.lastFix?.coordinate,
+                   let wps = PlannedRoute.replacementWaypoints(
+                       currentLocation: here,
+                       stops: [Waypoint.from(destination: dest)]
+                           + PlannedRoute.remainingStops(of: running, fromLegIndex: activeNavigator.currentLegIndex)) {
+                    // Mid-navigation the station becomes the next stop and the
+                    // rest of the plan stays: the Edit route swap, untouched
+                    // legs carried. ponytail: a track (or dense) plan isn't
+                    // editable mid-ride, so there Fuel still replaces the route.
+                    let plan = PlannedRoute(waypoints: wps)
+                    PlannedRoute.carryComputedLegs(from: running, into: plan)
+                    said = await navigateFromShortcut(plan, running: running)
+                } else {
+                    said = await navigateFromShortcut(to: dest, running: running, riderOwned: true)
+                }
                 reply = said.hasPrefix("Starting navigation") || said.hasPrefix("Rerouting to") ? nil : said
             } else {
                 reply = missing

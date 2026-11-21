@@ -47,6 +47,20 @@ class WidgetWiringTests(unittest.TestCase):
         self.assertIn('said.hasPrefix("Starting navigation") || said.hasPrefix("Rerouting to")',
                       decl_body(STATUS, "func runWidgetAction("))
 
+    def test_mid_ride_fuel_adds_a_stop(self):
+        body = decl_body(STATUS, "func runWidgetAction(")
+        # Mid-navigation Fuel keeps the plan: station first, then the stops
+        # still ahead, swapped in through the Edit route path (replacePlan).
+        fuel = body[body.index('if to == "fuel", let running'):]
+        self.assertRegex(fuel, r"stops: \[Waypoint\.from\(destination: dest\)\]\s*\+ PlannedRoute\.remainingStops\(of: running")
+        self.assertIn("PlannedRoute.carryComputedLegs(from: running, into: plan)", fuel)
+        self.assertLess(fuel.index("navigateFromShortcut(plan, running: running)"),
+                        fuel.index("navigateFromShortcut(to: dest"))
+        redirect = decl_body(STATUS, "private func navigateFromShortcut(_ plan")
+        self.assertIn("nav.replacePlan(plan)", redirect)
+        # Carried legs aren't routed again.
+        self.assertIn("dirtyLegIndices: Set(plan.legs.indices.filter { !plan.legs[$0].isComputed })", redirect)
+
     def test_rider_facing_choices(self):
         body = decl_body(STATUS, "func runWidgetAction(")
         # The hand-plan refusal is decided before any await (the fuel search).
