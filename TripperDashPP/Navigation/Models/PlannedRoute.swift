@@ -363,6 +363,19 @@ final class PlannedRoute {
         return [Waypoint.currentLocation(currentLocation)] + real
     }
 
+    /// Reuse the routes (and the rider's picked alternative) of legs whose
+    /// two stops are unchanged, so an Edit route Apply (or a widget Fuel
+    /// stop) asks Apple only for what changed.
+    static func carryComputedLegs(from source: PlannedRoute, into target: PlannedRoute) {
+        for (i, leg) in target.legs.enumerated() {
+            guard let old = source.legs.first(where: {
+                $0.fromWaypointId == leg.fromWaypointId && $0.toWaypointId == leg.toWaypointId
+            }), old.isComputed else { continue }
+            target.setOptions(old.options, forLegIndex: i)
+            target.setSelectedOption(legIndex: i, optionIndex: old.selectedOptionIndex)
+        }
+    }
+
     // MARK: - Pair key
 
     private struct Pair: Hashable {

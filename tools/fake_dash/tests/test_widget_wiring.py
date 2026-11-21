@@ -47,6 +47,32 @@ class WidgetWiringTests(unittest.TestCase):
         self.assertIn('said.hasPrefix("Starting navigation") || said.hasPrefix("Rerouting to")',
                       decl_body(STATUS, "func runWidgetAction("))
 
+    def test_mid_ride_fuel_adds_a_stop(self):
+        body = decl_body(STATUS, "func runWidgetAction(")
+        # Mid-navigation Fuel keeps the plan: station first, then the stops
+        # still ahead, swapped in through the Edit route path (replacePlan).
+        fuel = body[body.index("let ahead = running.map"):]
+        self.assertIn("let ahead = running.map { PlannedRoute.remainingStops(of: $0, fromLegIndex: legIndex) }", body)
+        self.assertIn("stops: [Waypoint.from(destination: dest)] + ahead", fuel)
+        self.assertIn("PlannedRoute.carryComputedLegs(from: running, into: plan)", fuel)
+        self.assertLess(fuel.index("navigateFromShortcut(plan, running: running, legIndex: legIndex, label: dest.name)"),
+                        fuel.index("navigateFromShortcut(to: dest"))
+        # A planned stop that already is the station isn't added twice.
+        self.assertRegex(fuel, r"let next = ahead\.first, Self\.isSameSpot\(next\.coordinate, dest\.coordinate\) \{"
+                               r"[^}]*said = \"Rerouting to")
+        self.assertLess(fuel.index("Self.isSameSpot("), fuel.index("[Waypoint.from(destination: dest)] + ahead"))
+        redirect = decl_body(STATUS, "private func navigateFromShortcut(_ plan")
+        self.assertIn("nav.replacePlan(plan)", redirect)
+        # A stop reached during routing makes the inserted plan stale: the
+        # leg is checked while routing and again right before the swap.
+        self.assertIn("nav.plan === running && (legIndex == nil || nav.currentLegIndex == legIndex)", redirect)
+        self.assertIn("isStillLive: isLive)", redirect)
+        self.assertIn("guard isLive(), await nav.replacePlan(plan)", redirect)
+        # The failure notice names the station, not the final destination.
+        self.assertIn('let dest = label ?? plan.waypoints.last?.name', redirect)
+        # Carried legs aren't routed again.
+        self.assertIn("dirtyLegIndices: Set(plan.legs.indices.filter { !plan.legs[$0].isComputed })", redirect)
+
     def test_rider_facing_choices(self):
         body = decl_body(STATUS, "func runWidgetAction(")
         # The hand-plan refusal is decided before any await (the fuel search).
