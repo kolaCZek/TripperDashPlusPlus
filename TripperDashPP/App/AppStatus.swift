@@ -822,6 +822,11 @@ final class AppStatus {
         mapViewSource.setTraveled([])
         mapViewSource.setRouteAhead([])
         mapViewSource.setCurrentRoute(nil)
+        // Weather is polled along the route during navigation only, so any
+        // pill left from a navigation (or an earlier session) is stale here.
+        // ponytail: no weather in free ride; poll around the rider from the
+        // free-ride fix subscription if that is ever wanted.
+        clearWeather()
         mapViewSource.setTileCache(emptyCache)
 
         // Free-ride has no route corridor to prefetch along, so cameras and
@@ -2223,7 +2228,10 @@ final class AppStatus {
     /// renderer's weather pill. No-op + cleared pill when the rider has
     /// turned Weather alerts off.
     private func refreshWeather(at position: CLLocationCoordinate2D) {
-        guard dashNavSettings.weatherAlertsEnabled else {
+        // Navigation only: weather is sampled along the route ahead, and a
+        // free ride has none (the one fix that still arrives after Stop
+        // must not poll or paint).
+        guard dashNavSettings.weatherAlertsEnabled, activeNavigator.isNavigating else {
             if mapViewSource.weatherAlert != nil {
                 mapViewSource.setWeatherAlert(nil)
             }
@@ -2234,12 +2242,25 @@ final class AppStatus {
             guard let self else { return }
             let alert = await self.weatherService.refresh(position: position, routeAhead: ahead)
             // Re-check the toggle: the rider may have flipped it OFF during
-            // the await, in which case we must NOT paint a stale pill.
+            // the await, in which case we must NOT paint a stale pill. Same
+            // for navigation: a fetch that lands after Stop must not paint
+            // its along-route pill onto the free-ride map.
+            let paint = self.dashNavSettings.weatherAlertsEnabled
+                && self.activeNavigator.isNavigating
             self.mapViewSource.setWeatherAlert(
-                self.dashNavSettings.weatherAlertsEnabled ? alert : nil,
+                paint ? alert : nil,
                 imperial: self.dashNavSettings.units == .imperial
             )
         }
+    }
+
+    /// End-of-navigation weather reset: drop the pill and the service's
+    /// cached alert and throttle. Called when navigation stops or arrives
+    /// and when a free ride starts, so no ride inherits another's pill (or
+    /// its span on the progress bar) and the next navigation polls at once.
+    func clearWeather() {
+        mapViewSource.setWeatherAlert(nil)
+        weatherService.reset()
     }
 
     /// Prefetch speed cameras + average-speed sections along `route` and

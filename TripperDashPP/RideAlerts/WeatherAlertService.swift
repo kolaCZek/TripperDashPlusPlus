@@ -244,8 +244,9 @@ final class WeatherAlertService {
         return current
     }
 
-    /// Clear any active alert and the poll throttle. Currently has no
-    /// callers; the pill is cleared via `setWeatherAlert(nil)` instead.
+    /// Clear any active alert and the poll throttle, so the next
+    /// navigation polls along its own route at once instead of getting the
+    /// previous ride's alert. Called via `AppStatus.clearWeather()`.
     func reset() {
         current = nil
         lastPollAt = nil
