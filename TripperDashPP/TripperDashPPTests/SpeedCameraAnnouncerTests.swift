@@ -390,7 +390,7 @@ struct SpeedLimitWarnerTests {
     private func step(_ w: inout SpeedLimitWarner, _ limit: Int?, over: Bool,
                       _ s: TimeInterval) -> Bool {
         let speak = w.shouldSpeak(limit: limit, over: over, now: at(s))
-        if speak { w.didSpeak(now: at(s)) }
+        if speak, let limit { w.didSpeak(limit: limit, now: at(s)) }
         return speak
     }
 
@@ -419,7 +419,7 @@ struct SpeedLimitWarnerTests {
         do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(1)); #expect(ask) }
         // Synth was busy, so no didSpeak: the next tick asks again.
         do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(2)); #expect(ask) }
-        w.didSpeak(now: at(2))
+        w.didSpeak(limit: 50, now: at(2))
         do { let ask = w.shouldSpeak(limit: 50, over: true, now: at(3)); #expect(!ask) }
     }
 
@@ -466,6 +466,18 @@ struct SpeedLimitWarnerTests {
         // after its own two over ticks: one tick on a new limit is not enough.
         do { let spoke = step(&w, 50, over: true, 71); #expect(!spoke) }
         do { let spoke = step(&w, 50, over: true, 72); #expect(spoke) }
+    }
+
+    @Test func limitFlickerDoesNotRepeatTheWarning() {
+        var w = SpeedLimitWarner()
+        do { let spoke = step(&w, 90, over: true, 0); #expect(!spoke) }
+        do { let spoke = step(&w, 90, over: true, 1); #expect(spoke) }
+        // One fix matches a 50 slip road, then the 90 road again: still the
+        // same episode, so nothing is said even after the cooldown.
+        do { let spoke = step(&w, 50, over: true, 70); #expect(!spoke) }
+        for s in 71...140 {
+            do { let spoke = step(&w, 90, over: true, TimeInterval(s)); #expect(!spoke) }
+        }
     }
 
     @Test func cooldownHoldsEvenWhenRearmed() {

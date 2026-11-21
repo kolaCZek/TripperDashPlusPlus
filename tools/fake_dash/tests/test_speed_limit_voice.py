@@ -33,7 +33,7 @@ def test_speed_limit_voice_wiring():
                    "mapSource.isOverSpeedLimit", "mapSource.currentLimitKmh",
                    "MapViewSource.displayLimit(", "speedLimitWarner.shouldSpeak(",
                    "VoicePhrase.speedLimit(", "priority: .advisory",
-                   "speedLimitWarner.didSpeak("):
+                   "speedLimitWarner.didSpeak(limit: limit"):
         assert needle in emit, needle
     assert "if voice.speak(" in emit, "commit only when the phrase was spoken"
     assert "toleranceKmh" not in emit, "must reuse the renderer's over-limit state"
@@ -63,6 +63,10 @@ def test_speed_limit_voice_wiring():
     change = warner[warner.index("if limit != lastLimit {"):]
     change = change[:change.index("}")]
     assert "overTicks = 0" in change, "a new limit must be debounced too"
+    assert "armed = true" not in change, "a flicker must not re-arm the episode"
+    assert "guard armed || limit != spokenLimit, overTicks >= Self.overTicksNeeded" in warner
+    assert "mutating func didSpeak(limit: Int, now: Date)" in warner
+    assert "spokenLimit = limit" in warner
 
     phrases = _src("Navigation/VoicePhrase.swift")
     assert phrases.count("        speedLimit: \"") == 8

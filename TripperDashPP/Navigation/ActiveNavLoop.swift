@@ -777,7 +777,7 @@ final class ActiveNavLoop {
         // the next tick.
         if voice.speak(VoicePhrase.speedLimit(limit, language: lang),
                        language: lang.rawValue, priority: .advisory) {
-            speedLimitWarner.didSpeak(now: now)
+            speedLimitWarner.didSpeak(limit: limit, now: now)
         }
     }
 
