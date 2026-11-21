@@ -199,11 +199,12 @@ final class MapViewSource: NSObject, FrameSource {
 
     /// Currently map-matched posted limit (km/h), or `nil` when no way is
     /// close enough. Derived in `handleFix`; read by `drawSpeedLimitSign`.
-    private var currentLimitKmh: Int?
+    private(set) var currentLimitKmh: Int?
 
     /// Whether the rider is currently over `currentLimitKmh` by more than
-    /// the configured tolerance. Drives the `.overOnly` display mode.
-    private var isOverSpeedLimit: Bool = false
+    /// the configured tolerance. Drives the `.overOnly` display mode and the
+    /// spoken speed-limit warning (`ActiveNavLoop.emitSpeedLimitVoice`).
+    private(set) var isOverSpeedLimit: Bool = false
 
     /// Display policy + tolerance + units for the limit sign, pushed from
     /// settings (via `AppStatus` on prefetch and `ActiveNavLoop` per tick).
@@ -3355,7 +3356,7 @@ extension MapViewSource {
     /// honouring the imperial units setting. Used by the posted-limit sign
     /// (the camera marker no longer shows a number). Like a real road sign, the caller renders the bare
     /// number — the disc shape / context conveys the unit.
-    fileprivate static func displayLimit(kmh: Int, imperial: Bool) -> Int {
+    static func displayLimit(kmh: Int, imperial: Bool) -> Int {
         imperial ? Int((Double(kmh) / 1.609344).rounded()) : kmh
     }
 

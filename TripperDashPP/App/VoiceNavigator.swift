@@ -77,6 +77,7 @@ final class VoiceNavigator: NSObject {
     /// Priority of a spoken prompt. A higher-priority prompt interrupts a
     /// lower-priority one that is mid-sentence.
     enum Priority: Int, Comparable {
+        case advisory = 0    // speed-limit warning — any prompt cuts it off
         case maneuver = 1    // "in 300 m, turn right"
         case critical = 2    // arrival, reroute — always cut through
         static func < (l: Priority, r: Priority) -> Bool { l.rawValue < r.rawValue }
@@ -99,10 +100,13 @@ final class VoiceNavigator: NSObject {
     /// Speak a phrase in the given BCP-47 language, at the given priority.
     /// Higher priority interrupts a lower-priority utterance in flight;
     /// equal/lower priority is dropped while something is already speaking.
-    func speak(_ phrase: String, language: String, priority: Priority) {
-        guard enabled else { return }
+    /// Returns whether the phrase was handed to the synthesizer (false =
+    /// disabled, empty or dropped as busy).
+    @discardableResult
+    func speak(_ phrase: String, language: String, priority: Priority) -> Bool {
+        guard enabled else { return false }
         let trimmed = phrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
 
         if synth.isSpeaking {
             // Only pre-empt strictly-lower-priority speech; otherwise let
@@ -111,7 +115,7 @@ final class VoiceNavigator: NSObject {
                 synth.stopSpeaking(at: .immediate)
             } else {
                 log.debug("drop prompt (busy, prio \(priority.rawValue) ≤ \(self.speakingPriority?.rawValue ?? -1)): \(trimmed, privacy: .public)")
-                return
+                return false
             }
         }
 
@@ -125,6 +129,7 @@ final class VoiceNavigator: NSObject {
         speakingPriority = priority
         log.info("speak[\(priority.rawValue)] \(language, privacy: .public): \(trimmed, privacy: .public)")
         synth.speak(utt)
+        return true
     }
 
     /// Stop any in-flight speech and un-duck. Called on stop-streaming /

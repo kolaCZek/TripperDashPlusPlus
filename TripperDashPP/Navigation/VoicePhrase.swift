@@ -126,6 +126,12 @@ enum VoicePhrase {
     static func speedCamera(_ language: VoiceLanguage) -> String {
         language.lexicon.speedCamera
     }
+
+    /// "Speed limit 50." — `value` is the number on the dash sign (already
+    /// in the rider's unit).
+    static func speedLimit(_ value: Int, language: VoiceLanguage) -> String {
+        "\(language.lexicon.speedLimit) \(value)."
+    }
 }
 
 // MARK: - Lexicon
@@ -142,6 +148,8 @@ struct Lexicon {
     let rerouting: String
     let arrived: String
     let speedCamera: String
+    /// Prefix of the over-limit warning; the number follows ("Speed limit 50.").
+    let speedLimit: String
     /// Ordinals 1…9 for roundabout exits (index 0 unused).
     let ordinals: [String]
     /// Build the roundabout action for a given exit; an exit outside 1…9
@@ -193,6 +201,7 @@ extension Lexicon {
         far: "Za jeden kilometr", near: "Za tři sta metrů", join: " ",
         rerouting: "Přepočítávám trasu.", arrived: "Dojeli jste do cíle.",
         speedCamera: "Pozor, rychlostní radar.",
+        speedLimit: "Omezení rychlosti",
         ordinals: ["", "první", "druhý", "třetí", "čtvrtý", "pátý",
                    "šestý", "sedmý", "osmý", "devátý"],
         roundabout: { e, o in
@@ -229,6 +238,7 @@ extension Lexicon {
         far: "O jeden kilometer", near: "O tristo metrov", join: " ",
         rerouting: "Prepočítavam trasu.", arrived: "Dorazili ste do cieľa.",
         speedCamera: "Pozor, rýchlostný radar.",
+        speedLimit: "Obmedzenie rýchlosti",
         ordinals: ["", "prvý", "druhý", "tretí", "štvrtý", "piaty",
                    "šiesty", "siedmy", "ôsmy", "deviaty"],
         roundabout: { e, o in
@@ -266,6 +276,7 @@ extension Lexicon {
         rerouting: "Recalculating route.",
         arrived: "You have arrived at your destination.",
         speedCamera: "Caution, speed camera ahead.",
+        speedLimit: "Speed limit",
         ordinals: ["", "first", "second", "third", "fourth", "fifth",
                    "sixth", "seventh", "eighth", "ninth"],
         roundabout: { e, o in
@@ -303,6 +314,7 @@ extension Lexicon {
         rerouting: "Route wird neu berechnet.",
         arrived: "Sie haben Ihr Ziel erreicht.",
         speedCamera: "Achtung, Radarkontrolle.",
+        speedLimit: "Tempolimit",
         ordinals: ["", "erste", "zweite", "dritte", "vierte", "fünfte",
                    "sechste", "siebte", "achte", "neunte"],
         roundabout: { e, o in
@@ -339,6 +351,7 @@ extension Lexicon {
         far: "Za jeden kilometr", near: "Za trzysta metrów", join: ", ",
         rerouting: "Przeliczam trasę.", arrived: "Dotarłeś do celu.",
         speedCamera: "Uwaga, fotoradar.",
+        speedLimit: "Ograniczenie prędkości",
         ordinals: ["", "pierwszy", "drugi", "trzeci", "czwarty", "piąty",
                    "szósty", "siódmy", "ósmy", "dziewiąty"],
         roundabout: { e, o in
@@ -376,6 +389,7 @@ extension Lexicon {
         rerouting: "Recalcul de l'itinéraire.",
         arrived: "Vous êtes arrivé à destination.",
         speedCamera: "Attention, radar.",
+        speedLimit: "Vitesse limitée à",
         ordinals: ["", "première", "deuxième", "troisième", "quatrième",
                    "cinquième", "sixième", "septième", "huitième", "neuvième"],
         roundabout: { e, o in
@@ -413,6 +427,7 @@ extension Lexicon {
         rerouting: "Recalculando la ruta.",
         arrived: "Ha llegado a su destino.",
         speedCamera: "Atención, radar de velocidad.",
+        speedLimit: "Límite de velocidad",
         ordinals: ["", "primera", "segunda", "tercera", "cuarta", "quinta",
                    "sexta", "séptima", "octava", "novena"],
         roundabout: { e, o in
@@ -450,6 +465,7 @@ extension Lexicon {
         rerouting: "Ricalcolo del percorso.",
         arrived: "È arrivato a destinazione.",
         speedCamera: "Attenzione, autovelox.",
+        speedLimit: "Limite di velocità",
         ordinals: ["", "prima", "seconda", "terza", "quarta", "quinta",
                    "sesta", "settima", "ottava", "nona"],
         roundabout: { e, o in
