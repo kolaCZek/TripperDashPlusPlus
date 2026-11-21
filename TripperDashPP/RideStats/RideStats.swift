@@ -31,7 +31,7 @@
 //    5. Avg speed  — distance / movingSeconds (moving average).
 //    6. Elevation  — positive altitude deltas with a 2 m hysteresis so
 //                    GPS altitude noise doesn't inflate the climb. GPS
-//                    altitude is coarse → the UI labels this "approx."
+//                    altitude is coarse → the UI shows this with a "≈".
 //    7. Elapsed    — lastFixAt − startedAt (wall clock), for a total.
 //
 //  Distance under-reads a bike odometer (chord not arc, sub-3 m jitter
@@ -50,8 +50,9 @@ import Foundation
 /// main-actor-only).
 nonisolated struct RideStats: Sendable, Equatable, Codable {
 
-    /// One recorded point of the live ride track — the raw material a
-    /// GPX `<trkpt>` is serialised from (`GPXExporter`). Captured for
+    /// One recorded point of the live ride track — the raw material of a
+    /// saved `.track` route (`RideStatsService.savedRoute(from:)`, which
+    /// keeps only lat/lon, then `GPXExporter`). Captured for
     /// every GATE-PASSING fix (accuracy + monotonic-time), i.e. the same
     /// fixes the totals fold. Jitter-floor / teleport / Doppler-stopped
     /// fixes are still recorded — a GPX track is the raw path, not the
@@ -62,7 +63,7 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     nonisolated struct TrackPoint: Sendable, Equatable, Codable {
         let latitude: Double
         let longitude: Double
-        let altitude: Double          // metres, GPS ellipsoidal (coarse)
+        let altitude: Double          // metres, `Fix.altitude` (coarse GPS)
         let timestamp: Date
         let speedMps: Double          // Doppler GPS speed, -1 if unknown
     }
@@ -76,9 +77,11 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     private(set) var startedAt: Date?
     private(set) var lastFixAt: Date?
 
-    /// Ordered recorded track — one entry per gate-passing fix. Feeds the
-    /// GPX export (`GPXExporter.gpx(from:)`). Persisted with the rest of
-    /// `RideStats` at teardown by `RideStatsService`; `reset()` drops it.
+    /// Ordered recorded track — one entry per gate-passing fix. Feeds
+    /// "Save ride" / the history's GPX export via
+    /// `RideStatsService.savedRoute(from:)` → `GPXExporter.gpx(from:)`.
+    /// Persisted with the rest of `RideStats` at teardown and at mid-ride
+    /// checkpoints by `RideStatsService`; `RideStatsService.reset()` drops it.
     private(set) var trackPoints: [TrackPoint] = []
 
     // Bookkeeping for the next fold (not part of the public readout)
@@ -106,8 +109,8 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
         movingSeconds > 0 ? distanceMeters / movingSeconds : 0
     }
 
-    /// Return a new accumulator with `fix` folded in. Rejected fixes
-    /// return a copy that may still advance time/last-seen bookkeeping.
+    /// Return a new accumulator with `fix` folded in. A fix rejected by
+    /// the accuracy or time gate returns the accumulator unchanged.
     func folding(_ fix: Fix) -> RideStats {
         var s = self
 
@@ -209,7 +212,7 @@ nonisolated struct RideStats: Sendable, Equatable, Codable {
     /// contains a bad-accuracy or out-of-order point. Deliberately keeps
     /// jitter-floor / teleport / Doppler-stopped fixes: those are dropped
     /// from the DISTANCE total (chord noise / stopped wander / GPS glitch)
-    /// but a raw GPX trace still wants the point — a rider stopped at
+    /// but a raw track still wants the point — a rider stopped at
     /// lights should show as a dense cluster,
     /// not a gap, and one teleport spike is better carried and smoothed by
     /// a downstream tool than silently swallowed.

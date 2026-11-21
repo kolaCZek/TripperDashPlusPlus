@@ -2,15 +2,17 @@
 //  RouteProjection.swift
 //  TripperDashPP
 //
-//  feat/speed-camera-voice-alert — along-route geometry so a speed-camera
-//  warning fires by DISTANCE ALONG THE ROUTE, not by an as-the-crow-flies
-//  cone from the rider's GPS heading.
+//  Along-route geometry so a speed-camera warning fires by DISTANCE ALONG
+//  THE ROUTE, not by an as-the-crow-flies cone from the rider's GPS
+//  heading. `SpeedSectionTracker` uses the same projection to decide
+//  whether a section's `from` / `to` point is still ahead.
 //
 //  ── The problem it solves ─────────────────────────────────────────────
 //
-//  `SpeedCameraAnnouncer` originally decided "is this camera ahead?" with a
-//  75° heading cone and measured proximity with a straight-line haversine.
-//  That breaks on a sharp bend: a camera 300 m further along the road, but
+//  `SpeedCameraAnnouncer.onTick` decides "is this camera ahead?" with a
+//  75° heading cone and measures proximity with a straight-line haversine
+//  (it is now only the fallback when no route polyline is known). That
+//  breaks on a sharp bend: a camera 300 m further along the road, but
 //  sitting just past a hairpin, lies >75° off the rider's current heading
 //  (the road doubles back), so the cone REJECTS it — the rider gets no
 //  warning, or a late one only once the bend straightens out. Conversely a
@@ -19,7 +21,8 @@
 //
 //  ── The fix ──────────────────────────────────────────────────────────
 //
-//  When navigation is active we know the route polyline. We project both
+//  When navigation is active we know the route polyline
+//  (`SpeedCameraAnnouncer.onTickAlongRoute`). We project both
 //  the rider and each camera onto that polyline and compare their
 //  ALONG-ROUTE arc positions:
 //
@@ -34,9 +37,10 @@
 //      positive) is rejected by an off-route lateral gate.
 //
 //  This whole type is PURE: plain `Double` lat/lon, no CoreLocation /
-//  MapKit, so it unit-tests headless on Linux exactly like
-//  `SpeedCameraAnnouncer`. The caller (`ActiveNavLoop`) adapts the
-//  navigator's `[CLLocationCoordinate2D]` polyline into `[Point]`.
+//  MapKit, so it unit-tests headless exactly like
+//  `SpeedCameraAnnouncer`. `ActiveNavLoop` passes the navigator's
+//  route-ahead coordinates as plain `(lat, lon)` tuples and
+//  `SpeedCameraAnnouncer` / `SpeedSectionTracker` turn them into `[Point]`.
 //
 //  ── Performance ──────────────────────────────────────────────────────
 //

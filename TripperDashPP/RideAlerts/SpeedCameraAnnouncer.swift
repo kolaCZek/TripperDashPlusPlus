@@ -2,39 +2,50 @@
 //  SpeedCameraAnnouncer.swift
 //  TripperDashPP
 //
-//  feat/speed-camera-voice-alert — decides WHEN to speak a proximity
-//  warning for an approaching speed camera.
+//  Pure decision logic for the spoken ride alerts, isolated from both the
+//  synthesizer (`VoiceNavigator`) and the phrase templates (`VoicePhrase`)
+//  so it is unit-testable headless, with no AVFoundation / CoreLocation
+//  actor dependencies, exactly like `VoicePromptScheduler`. Three types:
 //
-//  Pure decision logic, isolated from both the synthesizer
-//  (`VoiceNavigator`) and the phrase templates (`VoicePhrase`) so it is
-//  unit-testable on Linux with no AVFoundation / CoreLocation actor
-//  dependencies, exactly like `VoicePromptScheduler`. The caller feeds it
-//  the rider's plain lat/lon/heading and a list of cameras each tick; it
-//  answers with the camera to announce, or nil.
+//    * `SpeedCameraAnnouncer` — WHEN to speak a proximity warning for an
+//      approaching speed camera (the rules below).
+//    * `SpeedSectionTracker` — am I inside an average-speed section, and
+//      how fast have I gone (feeds the dash's section panel, and tells the
+//      announcer which section-end cameras to skip).
+//    * `SpeedLimitWarner` — WHEN to speak "Speed limit N" once the rider
+//      goes over the posted limit.
 //
-//  ── The problem it solves ─────────────────────────────────────────────
+//  ── Speed-camera warning ──────────────────────────────────────────────
 //
-//  `SpeedCameraService` fetches cameras and `MapViewSource` draws them, but
-//  nothing ever SPOKE the callout — `VoicePhrase.speedCamera(_)` existed
-//  yet was only reachable from a unit test. During a ride the rider passed
-//  a camera in silence. This announcer closes that gap: it fires the
-//  spoken warning ONCE per camera when the rider enters the warning radius
-//  AND the camera is genuinely ahead (not one already passed, sitting
-//  behind the rider), then never repeats it for that camera.
+//  Each tick `ActiveNavLoop.emitCameraVoice` feeds the announcer the
+//  rider's plain lat/lon/heading, the cameras loaded for the route and,
+//  while navigating, the route-ahead polyline; it answers with the camera
+//  to announce, or nil. The warning is spoken ONCE per camera, when the
+//  rider enters the warning radius AND the camera is genuinely ahead (not
+//  one already passed, sitting behind the rider), then never repeats.
 //
 //  ── Firing rules ─────────────────────────────────────────────────────
 //
-//   1. Proximity — the camera must be within `warnRadiusMeters` (default
-//      400 m). Beyond that it is silent.
-//   2. Ahead, not behind — the bearing from the rider to the camera must
-//      be within `aheadHalfAngleDegrees` of the rider's heading. A camera
-//      the rider has already passed sits behind them (bearing ~180° off
-//      heading) and must NOT chime. When the heading is unknown (course
-//      < 0, e.g. stationary), we skip the ahead-check and fall back to
-//      pure proximity so a cold start near a camera still warns.
+//   1. Proximity — the camera must be within `warnRadiusMeters` (400 m).
+//      Beyond that it is silent. With a usable route polyline
+//      (`onTickAlongRoute`) that is the distance ALONG THE ROUTE;
+//      without one (`onTick`) it is the straight-line distance.
+//   2. Ahead, not behind — along the route, the camera must project onto
+//      the polyline further on than the rider and within
+//      `maxLateralOffsetMeters` of it (a parallel road never warns).
+//      Without a polyline the bearing from the rider to the camera must
+//      be within `aheadHalfAngleDegrees` of the rider's heading, so a
+//      camera behind (bearing ~180° off) does not chime. When the heading
+//      is unknown (course < 0, e.g. stationary) that check is skipped and
+//      pure proximity decides, so a cold start near a camera still warns.
 //   3. Once per camera — each camera id fires at most once. Tracked in a
-//      fired-id set, cleared on `reset()` (nav stop / reroute) so a new
-//      ride (or a re-ride of the same road) warns afresh.
+//      fired-id set, cleared by `reset()`: nav stop, free ride / arrival,
+//      and whenever `ActiveNavLoop.setSpeedCameras` installs a fresh set
+//      (including the merged fetch after a reroute or leg advance).
+//   4. Section ends — cameras at the end of an average-speed section being
+//      approached or ridden are filtered out first
+//      (`excludingSectionEnds`), so a section is announced once, at its
+//      start.
 //
 //  All thresholds are plain constants; if they ever need to be
 //  user-tunable they move to `DashNavSettings`, same discipline as
@@ -43,7 +54,7 @@
 
 import Foundation
 
-/// Pure, value-type announcer. One instance per active-nav session; the
+/// Pure, value-type announcer. `ActiveNavLoop` owns one instance; the
 /// caller feeds it the rider fix + cameras each tick and it returns the
 /// camera to announce or nil.
 ///
@@ -74,13 +85,15 @@ struct SpeedCameraAnnouncer {
     /// off a curve should still warn.
     static let aheadHalfAngleDegrees: Double = 75
 
-    /// Cameras already announced this session. A camera fires once; re-riding
-    /// the same road only re-warns after a `reset()`.
+    /// Cameras already announced since the last `reset()`. A camera fires
+    /// once; re-riding the same road only re-warns after a `reset()`.
     private var firedIDs: Set<Int64> = []
 
     init() {}
 
-    /// Feed one tick. Returns the camera to announce, or nil.
+    /// Feed one tick, straight-line (heading cone) variant: the one used
+    /// when no route polyline is available. Returns the camera to
+    /// announce, or nil.
     ///
     /// - Parameters:
     ///   - riderLat/riderLon: current GPS fix.
@@ -133,11 +146,12 @@ struct SpeedCameraAnnouncer {
     /// route polyline and still be treated as "on this road." Beyond this
     /// the camera is on a parallel/adjacent road the route never takes and
     /// must not warn. 60 m clears dual carriageways and wide junctions
-    /// while rejecting a genuinely different road.
+    /// while rejecting a genuinely different road. `SpeedSectionTracker`
+    /// uses the same gate for a section's `from` / `to` points.
     static let maxLateralOffsetMeters: Double = 60
 
-    /// Along-route variant of `onTick`. Preferred WHENEVER navigation is
-    /// active and a route polyline is known: it decides "ahead" and
+    /// Along-route variant of `onTick`. Used by `ActiveNavLoop` whenever
+    /// the route-ahead polyline has at least two points: it decides "ahead" and
     /// "distance" by projecting the rider and each camera onto the route
     /// polyline and comparing arc-lengths, so a camera just past a sharp
     /// bend is correctly reported as (say) 300 m ahead instead of being
@@ -165,7 +179,7 @@ struct SpeedCameraAnnouncer {
         let projection = RouteProjection(
             coords: routeAhead.map { RouteProjection.Point(latitude: $0.lat, longitude: $0.lon) })
 
-        // No usable polyline → keep the old cone behaviour. Should not
+        // No usable polyline → fall back to the heading cone. Should not
         // normally happen while navigating, but it's the safe fallback.
         guard projection.isUsable else {
             return onTick(riderLat: riderLat, riderLon: riderLon,
@@ -217,8 +231,9 @@ struct SpeedCameraAnnouncer {
         }
     }
 
-    /// Forget all announced cameras (e.g. nav stopped or rerouted). Next
-    /// tick starts fresh so the same road can warn again.
+    /// Forget all announced cameras (nav stopped, free ride, or a fresh
+    /// camera set installed). Next tick starts fresh so the same road can
+    /// warn again.
     mutating func reset() {
         firedIDs.removeAll(keepingCapacity: true)
     }

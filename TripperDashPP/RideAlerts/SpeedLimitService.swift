@@ -105,7 +105,7 @@ nonisolated struct SegmentGrid: Sendable {
     private let originLon: Double
     /// Longitudes are unwrapped around this one (`unwrapLongitude`), so data across
     /// the antimeridian stays one contiguous block instead of a grid ~360°
-    /// wide (review N1).
+    /// wide.
     private let refLon: Double
     private let cellLatDeg: Double
     private let cellLonDeg: Double
@@ -467,7 +467,7 @@ actor SpeedLimitService {
 
     /// Parse an OSM `maxspeed` tag into km/h. Thin wrapper over the shared
     /// `MaxspeedParser` so the limit service and the camera service can't
-    /// disagree (they used to — see MaxspeedParser.swift, bug #3). Kept as
+    /// disagree (they used to — see MaxspeedParser.swift). Kept as
     /// a named static so existing call sites and the source drift-guard
     /// test (`func parseMaxspeedKmh(`) stay valid.
     ///   "50", "50 km/h"           → 50
@@ -483,7 +483,8 @@ actor SpeedLimitService {
     struct BBox: Sendable, Equatable {
         let south, west, north, east: Double
         // ponytail: plain min/max test, so an antimeridian box (west > east)
-        // never "contains" anything and a reroute there just refetches.
+        // only "contains" another wrapped box; a non-wrapped route inside it
+        // just refetches.
         func contains(_ o: BBox) -> Bool {
             o.south >= south && o.north <= north && o.west >= west && o.east <= east
         }

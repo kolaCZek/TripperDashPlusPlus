@@ -2,10 +2,15 @@
 //  SpeedCameraAnnouncerTests.swift
 //  TripperDashPPTests
 //
-//  Tests the "when to speak a speed-camera warning" decision logic: a
-//  camera fires once when the rider enters the warning radius AND it is
-//  ahead, never fires for a camera behind the rider, never repeats, and
-//  resets cleanly. Pure value type, runs headless (no CoreLocation).
+//  Tests the "when to speak" decision logic of `SpeedCameraAnnouncer.swift`:
+//  a camera fires once when the rider enters the warning radius AND it is
+//  ahead (by heading cone, or along the route polyline when there is
+//  one), never fires for a camera behind the rider or on a parallel road,
+//  never repeats, and resets cleanly. Also covers the average-speed
+//  section tracker and Overpass section/device decoding, the section-end
+//  camera filter, camera-data merging / bbox coverage, and the
+//  `SpeedLimitWarner` ("Speed limit N") episode rules. Pure value types,
+//  run headless (no CoreLocation).
 //
 //  Geometry note: 0.001° of latitude ≈ 111 m; 0.001° of longitude at
 //  ~50°N ≈ 71 m. The fixtures below sit a rider at (50.0, 14.0) and place
@@ -79,8 +84,8 @@ struct SpeedCameraAnnouncerTests {
         let hit = a.onTick(riderLat: riderLat, riderLon: riderLon,
                           headingDegrees: 0, cameras: [farther, nearer])
         #expect(hit?.id == 10)
-        // Next tick the nearer one is fired; the farther one is still ahead
-        // and close → now it fires.
+        // Next tick the nearer one is already fired; the farther one is still
+        // ahead and close → now it fires.
         let hit2 = a.onTick(riderLat: riderLat, riderLon: riderLon,
                            headingDegrees: 0, cameras: [farther, nearer])
         #expect(hit2?.id == 1)

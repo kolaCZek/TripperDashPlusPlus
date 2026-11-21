@@ -4,7 +4,9 @@
 //
 //  Unit tests for the weather-along-route pipeline: the pure, network-free
 //  logic in `WeatherAlertService` — model shape, along-route sampling,
-//  hazard classification, and the nearest-hazard-with-severity picker.
+//  hazard classification (incl. frost risk and crosswind), the
+//  nearest-hazard-with-severity picker — plus the pill's distance suffix
+//  (`MapViewSource.formatAheadDistance`).
 //
 //  Uses Swift Testing (`import Testing`, Xcode 26+). Everything under test
 //  is `nonisolated static` so no main-actor hop or URLSession is needed.
@@ -487,7 +489,7 @@ struct FormatAheadDistanceTests {
 
     @Test func wholeKilometresNoFakePrecision() {
         // 14.7 km must not render as "14.7 km" — weather is only accurate
-        // to the ~10 km sample spacing, so we round to whole km (decision #4).
+        // to its 1–10 km sample spacing, so we round to whole km.
         #expect(fmt(14_700) == "15 km")
         #expect(fmt(15_000) == "15 km")
         #expect(fmt(100_000) == "100 km")

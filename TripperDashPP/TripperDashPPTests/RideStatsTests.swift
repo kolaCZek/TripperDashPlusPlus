@@ -182,7 +182,7 @@ struct RideStatsTests {
         #expect(abs(s.elapsedSeconds - 60) < 0.01)
     }
 
-    // MARK: - Drift guard (Task 2)
+    // MARK: - Drift guard
 
     @Test func tunablesAreTheReviewedValues() {
         #expect(RideStats.accuracyGateMeters == 50)
@@ -262,8 +262,9 @@ struct RideStatsTests {
     @Test func foldingContinuesAcrossRides() {
         // The rider-confirmed model: arriving and starting a fresh route
         // KEEPS accumulating onto the same totals (a multi-leg day reads as
-        // one ride). The accumulator has no per-ride boundary — only a full
-        // reset() zeroes it — so simply continuing to fold must grow both
+        // one ride). The accumulator has no per-ride boundary — only a fresh
+        // `RideStats()` (what `RideStatsService.reset()` installs) zeroes it
+        // — so simply continuing to fold must grow both
         // the distance and keep the original startedAt.
         var s = RideStats()
         s = s.folding(fix(0, 0.000, alt: 100, t: 0))
