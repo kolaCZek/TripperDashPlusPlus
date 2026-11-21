@@ -29,7 +29,7 @@ import CoreLocation
 import Foundation
 
 /// Stateless solar-position helper: the sun's elevation angle (map style)
-/// and the next sunset derived from it (dash sunset pill).
+/// and when it crosses a threshold along a track (dash sunset pill).
 nonisolated enum SolarClock {
 
     /// Sun elevation in degrees above the horizon (negative = below) for
@@ -62,25 +62,32 @@ nonisolated enum SolarClock {
     /// Elevation of the sun's centre at sunset: half the disc plus
     /// standard atmospheric refraction below the horizon.
     static let sunsetElevation = -0.833
+    /// End of civil twilight: below this it is dark (the sunset pill's
+    /// trigger; a Trondheim June night only reaches ~−3°).
+    static let civilDuskElevation = -6.0
 
-    /// The next instant within 24 h of `date` that the sun sets at `coord`,
-    /// or `nil` when it is already down or doesn't set in that window
-    /// (polar day / night). Scans in 10-min steps, then bisects the
-    /// crossing to < 1 s: ~150 `elevation` calls, cheap at the 1 Hz nav tick.
-    static func nextSunset(coord: CLLocationCoordinate2D, after date: Date) -> Date? {
-        let h0 = sunsetElevation
-        guard elevation(coord: coord, date: date) > h0 else { return nil }
-        var lo = date
-        for _ in 0..<144 {
-            var hi = lo.addingTimeInterval(600)
-            if elevation(coord: coord, date: hi) <= h0 {
-                for _ in 0..<10 {
-                    let mid = lo.addingTimeInterval(hi.timeIntervalSince(lo) / 2)
-                    if elevation(coord: coord, date: mid) > h0 { lo = mid } else { hi = mid }
-                }
-                return hi
+    /// First instant the sun drops below `degrees` along `track` (positions
+    /// with their times, in time order), or `nil` if it never does. The
+    /// bracketing pair of samples is bisected 12× (< 1 s for a step under
+    /// an hour), position and time interpolated together. Assumes the sun
+    /// starts above.
+    static func firstCrossing(along track: [(coord: CLLocationCoordinate2D, date: Date)],
+                              below degrees: Double) -> Date? {
+        for (a, b) in zip(track, track.dropFirst())
+        where elevation(coord: b.coord, date: b.date) < degrees {
+            func at(_ f: Double) -> (coord: CLLocationCoordinate2D, date: Date) {
+                (coord: CLLocationCoordinate2D(
+                    latitude: a.coord.latitude + (b.coord.latitude - a.coord.latitude) * f,
+                    longitude: a.coord.longitude + (b.coord.longitude - a.coord.longitude) * f),
+                 date: a.date.addingTimeInterval(b.date.timeIntervalSince(a.date) * f))
             }
-            lo = hi
+            var lo = 0.0, hi = 1.0
+            for _ in 0..<12 {
+                let mid = (lo + hi) / 2
+                let p = at(mid)
+                if elevation(coord: p.coord, date: p.date) < degrees { hi = mid } else { lo = mid }
+            }
+            return at(hi).date
         }
         return nil
     }

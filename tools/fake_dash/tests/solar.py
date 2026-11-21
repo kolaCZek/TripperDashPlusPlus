@@ -52,26 +52,68 @@ def elevation(lat: float, lon: float, dt: datetime) -> float:
     return math.degrees(elev)
 
 
-HORIZON = -0.833   # standard sunset: half the disc + refraction
+HORIZON = -0.833     # standard sunset: half the disc + refraction
+CIVIL_DUSK = -6.0    # civil twilight ends: "dark"
+PILL_SAMPLES = 64    # route samples for the sunset pill
+PILL_HOLD_S = 60     # pill hysteresis around the ETA
 
 
-def next_sunset(lat: float, lon: float, dt: datetime) -> datetime | None:
-    """Mirror of `SolarClock.nextSunset`: the next instant within 24 h of
-    `dt` the sun drops through `HORIZON`, or None when it is already down
-    or doesn't set in that window (polar day / night)."""
-    if elevation(lat, lon, dt) <= HORIZON:
-        return None
-    step = timedelta(seconds=600)
-    lo = dt
-    for _ in range(144):
-        hi = lo + step
-        if elevation(lat, lon, hi) <= HORIZON:
-            for _ in range(10):
-                mid = lo + (hi - lo) / 2
-                if elevation(lat, lon, mid) > HORIZON:
-                    lo = mid
-                else:
-                    hi = mid
-            return hi
-        lo = hi
+def first_crossing(track, below: float) -> datetime | None:
+    """Mirror of `SolarClock.firstCrossing`: `track` is [(lat, lon, dt)] in
+    time order; the first instant the sun drops below `below`, bisected
+    between the bracketing samples (position and time interpolated
+    together), or None if it never does."""
+    for a, b in zip(track, track[1:]):
+        if elevation(*b) >= below:
+            continue
+        lo, hi = 0.0, 1.0
+
+        def at(f):
+            return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f,
+                    a[2] + (b[2] - a[2]) * f)
+        for _ in range(12):
+            mid = (lo + hi) / 2
+            if elevation(*at(mid)) < below:
+                hi = mid
+            else:
+                lo = mid
+        return at(hi)[2]
     return None
+
+
+def _haversine(a, b) -> float:
+    la1, la2 = math.radians(a[0]), math.radians(b[0])
+    dlat, dlon = la2 - la1, math.radians(b[1] - a[1])
+    h = math.sin(dlat / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin(dlon / 2) ** 2
+    return 2 * 6_371_000.0 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def sunset_pill(route, now: datetime, eta: datetime | None, shown: bool = False) -> datetime | None:
+    """Mirror of `ActiveNavLoop.sunsetPillText` (returns the sunset instant
+    instead of its text). `route` = [(lat, lon)], rider first; time is
+    spread linearly over the distance to the ETA."""
+    if eta is None or eta <= now or not route or elevation(*route[0], now) <= HORIZON:
+        return None
+    cum = [0.0]
+    for a, b in zip(route, route[1:]):
+        cum.append(cum[-1] + _haversine(a, b))
+    total, j, track = cum[-1], 0, []
+    for k in range(PILL_SAMPLES + 1):
+        f = k / PILL_SAMPLES
+        target = total * f
+        while j < len(route) - 2 and cum[j + 1] < target:
+            j += 1
+        if len(route) < 2:
+            lat, lon = route[0]
+        else:
+            seg = cum[j + 1] - cum[j]
+            t = min(1.0, max(0.0, (target - cum[j]) / seg)) if seg > 0 else 0.0
+            lat = route[j][0] + (route[j + 1][0] - route[j][0]) * t
+            lon = route[j][1] + (route[j + 1][1] - route[j][1]) * t
+        track.append((lat, lon, now + (eta - now) * f))
+    hold = timedelta(seconds=PILL_HOLD_S)
+    track.append((*route[-1], eta + hold))
+    dusk = first_crossing(track, CIVIL_DUSK)
+    if dusk is None or dusk > (eta + hold if shown else eta - hold):
+        return None
+    return first_crossing(track, HORIZON)

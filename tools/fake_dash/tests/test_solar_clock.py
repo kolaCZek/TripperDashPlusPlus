@@ -15,11 +15,11 @@ If you change `SolarClock.swift`, mirror it in `solar.py` and here.
 """
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.solar import elevation, next_sunset
+from tests.solar import CIVIL_DUSK, HORIZON, elevation, first_crossing, sunset_pill
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +89,12 @@ class TestDeadBandCrossings:
         assert min(elevs) < -6.0, "sun should drop below civil twilight"
 
 
-class TestNextSunset:
-    """`next_sunset` mirrors `SolarClock.nextSunset` (the dash sunset pill).
-    References: published Prague sunsets (timeanddate.com) — 21:15 CEST at
-    the summer solstice, 16:02 CET at the winter solstice, 18:15 CET at
-    the March equinox."""
+class TestSunsetPill:
+    """`sunset_pill` / `first_crossing` mirror `ActiveNavLoop.sunsetPillText`
+    / `SolarClock.firstCrossing` (the dash sunset pill); the same cases run
+    in Swift in SunsetPillTests.swift. Published Prague sunsets
+    (timeanddate.com): 21:15 CEST at the summer solstice, 16:02 CET at the
+    winter solstice, 18:15 CET at the March equinox."""
 
     @pytest.mark.parametrize("day,expected", [
         (datetime(2026, 6, 21, 8, 0, tzinfo=timezone.utc), datetime(2026, 6, 21, 19, 15, tzinfo=timezone.utc)),
@@ -101,23 +102,65 @@ class TestNextSunset:
         (datetime(2026, 3, 20, 8, 0, tzinfo=timezone.utc), datetime(2026, 3, 20, 17, 15, tzinfo=timezone.utc)),
     ])
     def test_matches_published_sunset(self, day, expected):
-        got = next_sunset(*PRAHA, day)
+        track = [(*PRAHA, day + timedelta(minutes=15 * k)) for k in range(61)]
+        got = first_crossing(track, HORIZON)
         assert got is not None and abs((got - expected).total_seconds()) < 4 * 60, got
 
-    def test_sun_already_down_is_none(self):
-        assert next_sunset(*PRAHA, datetime(2026, 12, 21, 20, 0, tzinfo=timezone.utc)) is None
+    @staticmethod
+    def at(h, m=0, s=0, day=15, month=9):
+        return datetime(2026, month, day, h, m, s, tzinfo=timezone.utc)
 
-    def test_polar_day_and_night_are_none(self):
+    def test_prague_eta_after_dusk_shows_sunset(self):
+        assert sunset_pill([PRAHA], self.at(15), self.at(18, 30)).strftime("%H:%M") == "17:16"
+        assert first_crossing([(*PRAHA, self.at(15)), (*PRAHA, self.at(18, 30))],
+                              CIVIL_DUSK).strftime("%H:%M:%S") == "17:48:40"
+
+    def test_eta_after_sunset_before_dusk_hides(self):
+        assert sunset_pill([PRAHA], self.at(15), self.at(17, 40)) is None
+
+    def test_hysteresis(self):
+        assert sunset_pill([PRAHA], self.at(15), self.at(17, 49, 10)) is None
+        assert sunset_pill([PRAHA], self.at(15), self.at(17, 49, 10), shown=True).strftime("%H:%M") == "17:16"
+
+    def test_sun_already_down_or_no_eta_hides(self):
+        assert sunset_pill([PRAHA], self.at(18, 30), self.at(19, 30)) is None
+        assert sunset_pill([PRAHA], self.at(15), None) is None
         tromso = (69.65, 18.96)
-        assert next_sunset(*tromso, datetime(2026, 6, 21, 12, 0, tzinfo=timezone.utc)) is None
-        assert next_sunset(*tromso, datetime(2026, 12, 21, 12, 0, tzinfo=timezone.utc)) is None
+        assert sunset_pill([tromso], self.at(12, day=21, month=12), self.at(22, day=21, month=12)) is None
 
-    def test_swift_next_sunset_matches_this_mirror(self):
+    def test_white_night_hides(self):
+        trondheim = (63.43, 10.39)
+        now, eta = self.at(20, day=21, month=6), self.at(23, day=21, month=6)   # 22:00 → 01:00 CEST
+        sunset = first_crossing([(*trondheim, now), (*trondheim, eta)], HORIZON)
+        assert sunset.strftime("%H:%M") == "21:38"                               # 23:38 CEST
+        assert min(elevation(*trondheim, now + timedelta(minutes=m)) for m in range(0, 181, 5)) > CIVIL_DUSK
+        assert sunset_pill([trondheim], now, eta) is None
+
+    def test_polar_day_hides(self):
+        tromso = (69.65, 18.96)
+        assert sunset_pill([tromso], self.at(12, day=21, month=6), self.at(22, day=21, month=6)) is None
+
+    def test_long_route_uses_predicted_position(self):
+        chicago, denver = (41.88, -87.63), (39.74, -104.99)
+        now = self.at(17)
+        eta = now + timedelta(hours=15)
+        hm = lambda route: sunset_pill(route, now, eta).strftime("%H:%M")
+        assert (hm([chicago, denver]), hm([chicago]), hm([denver])) == ("00:34", "23:59", "01:08")
+        on_route = sunset_pill([chicago, denver], now, eta)
+        assert (on_route - sunset_pill([chicago], now, eta)).total_seconds() > 15 * 60
+
+    def test_swift_matches_this_mirror(self):
         import pathlib
-        from tests.solar import HORIZON
-        src = (pathlib.Path(__file__).resolve().parents[3]
-               / "TripperDashPP" / "Map" / "SolarClock.swift").read_text()
-        assert f"static let sunsetElevation = {HORIZON}" in src
-        for needle in ("for _ in 0..<144", "lo.addingTimeInterval(600)", "for _ in 0..<10",
-                       "guard elevation(coord: coord, date: date) > h0 else { return nil }"):
-            assert needle in src, needle
+        from tests.solar import PILL_HOLD_S, PILL_SAMPLES
+        app = pathlib.Path(__file__).resolve().parents[3] / "TripperDashPP"
+        solar = (app / "Map" / "SolarClock.swift").read_text()
+        loop = (app / "Navigation" / "ActiveNavLoop.swift").read_text()
+        assert f"static let sunsetElevation = {HORIZON}" in solar
+        assert f"static let civilDuskElevation = {CIVIL_DUSK}" in solar
+        assert "for _ in 0..<12 {" in solar
+        assert "nextSunset" not in solar + loop
+        for needle in (f"let n = {PILL_SAMPLES}", f"let hold: TimeInterval = {PILL_HOLD_S}",
+                       "dusk <= eta.addingTimeInterval(shown ? hold : -hold)",
+                       "SolarClock.elevation(coord: rider, date: now) > SolarClock.sunsetElevation",
+                       "route: [fix.coordinate] + nav.routeAheadCoordinates"):
+            assert needle in loop, needle

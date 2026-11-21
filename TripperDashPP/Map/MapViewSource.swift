@@ -1279,7 +1279,7 @@ extension MapViewSource {
         drawWeatherAlert(into: ctx)
 
         // Sunset pill — right side, one slot above the weather pill. No-op
-        // unless the nav loop set `sunsetText` (arriving after sunset).
+        // unless the nav loop set `sunsetText` (arriving after dark).
         drawSunsetPill(into: ctx)
 
         // Speed-limit sign — bottom-right corner, transform-independent
@@ -2362,7 +2362,7 @@ extension MapViewSource {
         /// there. nil = no arrow (straight on, arrival, recalculating …).
         var maneuverNode: CLLocationCoordinate2D? = nil
         /// Sunset pill text ("18:40"), set while the rider will arrive after
-        /// sunset (`ActiveNavLoop.sunsetPillText`). nil = no pill.
+        /// dark (`ActiveNavLoop.sunsetPillText`). nil = no pill.
         var sunsetText: String? = nil
     }
 
