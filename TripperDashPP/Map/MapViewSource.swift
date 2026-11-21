@@ -511,7 +511,7 @@ final class MapViewSource: NSObject, FrameSource {
     /// (`compositePerspective`). Off = the flat map, drawn straight into
     /// the frame as before.
     var perspectiveEnabled = true {
-        didSet { if !perspectiveEnabled { displayedTilt = 0 } }
+        didSet { if !perspectiveEnabled { displayedTilt = 0; coarsePositionCache = nil } }
     }
     /// Tilt drawn on the last frame (degrees). Follows the zoom curve down
     /// at once, but climbs at most `tiltStepUp` per frame after a coverage
@@ -649,9 +649,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// selects `.coarse` and it is missing. Coarse is only picked below
     /// ~0.77× zoom, which autozoom never reaches (floor 0.8) — only a
     /// manual LEFT press does — yet it used to be ~70 % of the image work
-    /// after every route change. The 3D map draws it under every frame, so
-    /// with 3D on it is baked on the first frame of each route (that cost
-    /// is back, by design). Until this bake lands, `activeTileCache`
+    /// after every route change. The 3D map draws it under the far tilted
+    /// view, so with 3D on it is baked on the first frame of a route whose
+    /// main tile doesn't cover the view (that cost is back, by design). Until this bake lands, `activeTileCache`
     /// draws base (black frame edges at the extreme zoom-out for a few
     /// seconds). A route change or palette switch just drops the layer
     /// (`setTileCache` / `performStyleRebake` set it to nil); the next
@@ -3867,8 +3867,9 @@ extension MapViewSource {
         var tilt = tiltCandidate
         if let tiles, let rider {
             let covered = maxCoveredTilt(upTo: tilt, tiles: tiles, rider: rider)
-            // Hysteresis so a tilt hovering at the edge logs once, not per frame.
-            let capped = covered < target - (tiltCapped ? 1 : 3)
+            // Held below this frame's candidate (not the zoom curve, which a
+            // normal 2°/frame climb is below too). Hysteresis: logs once.
+            let capped = covered < tilt - (tiltCapped ? 1 : 3)
             if capped != tiltCapped {
                 tiltCapped = capped
                 if capped {
@@ -3908,21 +3909,23 @@ extension MapViewSource {
         guard activeGround != nil,
               !tileCovers(main, rider: rider, points: footprint(tilt: tiltCandidate)) else { return [] }
         var out: [(RouteTile, CGImage)] = []
-        if coarseTileCache == nil {
-            ensureCoarseLayer()
-            if let c = coarseAroundRider(rider), let tile = c.coveringPositionFallbackTile(for: rider),
-               let image = c.positionFallbackDecodedImage()?.cgImage {
-                out.append((tile, image))
-            }
-        } else {
-            coarsePositionCache = nil                // the route's layer took over; free the bitmap
-        }
+        if coarseTileCache == nil { ensureCoarseLayer() }
         for cache in [coarseTileCache, routeTileCache] {
             guard let cache, cache !== mainCache,
                   let (tile, idx) = cache.nearestTile(to: rider),
                   tileCovers(tile, rider: rider, points: [.zero]),
                   let image = cache.image(for: tile, atIndex: idx)?.cgImage else { continue }
             out.append((tile, image))
+        }
+        let coarse = Self.coarseLayerZoom
+        if main.osmZoom == coarse || out.contains(where: { $0.0.osmZoom == coarse }) {
+            coarsePositionCache = nil                // the route's layer covers the rider; free the bitmap
+        } else if !coarseBakeInFlight,               // don't fetch the same area twice at once
+                  let c = coarseAroundRider(rider), let tile = c.coveringPositionFallbackTile(for: rider),
+                  let image = c.positionFallbackDecodedImage()?.cgImage {
+            // No route coarse tile here (free ride, a 2 km detour, a fresh
+            // route or palette): the one baked around the rider, at the bottom.
+            out.insert((tile, image), at: 0)
         }
         return out
     }
@@ -3935,6 +3938,7 @@ extension MapViewSource {
     private func coarseAroundRider(_ rider: CLLocationCoordinate2D) -> RouteTileCache? {
         if coarsePositionCache?.style != currentStyle {
             coarsePositionCache = RouteTileCache(style: currentStyle, zoom: Self.coarseLayerZoom, gridSide: 7)
+            lastCoarsePositionAt = nil               // bake the new palette at once
         }
         guard let cache = coarsePositionCache else { return nil }
         let now = Date()
