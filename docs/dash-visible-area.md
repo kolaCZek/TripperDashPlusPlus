@@ -18,18 +18,18 @@ Visible x range per row:
 
 | y   | visible x |
 |-----|-----------|
-| 0   | 233 – 292 |
-| 25  | 146 – 378 |
-| 50  | 105 – 419 |
-| 100 | 54 – 470  |
-| 150 | 23 – 501  |
-| 200 | 5 – 519   |
+| 0   | 240 – 284 |
+| 25  | 148 – 376 |
+| 50  | 107 – 417 |
+| 100 | 55 – 469  |
+| 150 | 24 – 500  |
+| 200 | 6 – 518   |
 | 250 | 0 – 525   |
-| 299 | 0 – 525   |
+| 299 | 1 – 523   |
 
-- **Top corners are the big loss.** At y = 50 roughly 105 px are hidden on
+- **Top corners are the big loss.** At y = 50 roughly 107 px are hidden on
   each side.
-- **Bottom edge is fully visible.** The dash's gold status band starts
+- **Bottom edge is visible to within 2 px of each corner.** The dash's gold status band starts
   right below the frame, not over it.
 - **No distortion.** The test pattern's rings come out round (rectified
   photos match the reference within 3 px), so x and y scale the same.
@@ -52,7 +52,7 @@ fixed shape; only its content changes.
 
 ## How it was measured
 
-1. The `diag/dash-test-pattern` branch streams a calibration pattern
+1. The `diag/dash-test-pattern` branch (never merged into `main`) streams a calibration pattern
    instead of the map: a 10/50 px grid, labelled coordinates, a red
    frame border and rings around (263, 150) every 25 px. While navigating
    it sends a fixed worst-case active-nav packet.

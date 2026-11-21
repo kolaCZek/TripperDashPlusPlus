@@ -49,12 +49,11 @@ the burned SCAN label directly:
 The original capture pipeline tagged glyphs as ✅ anchor (OCR-confirmed)
 or 🟡 interpolated (image picked by interp between neighbours); after
 the row-by-row user review in 6/2026 every visible glyph has been
-re-verified, so the source-flag column now uniformly shows ✅.
-video — the OCR just couldn't read the label cleanly in that specific
-frame. The SCAN label inside the PNG is the ground truth; if it doesn't
-match the row's byte, the row is misaligned and needs re-extraction.
+re-verified, so the source-flag column now uniformly shows ✅. The SCAN
+label inside each PNG is the ground truth; if it doesn't match the row's
+byte, the row is misaligned and needs re-extraction.
 
-## Quick reference (user-confirmed; rest pending re-classification)
+## Quick reference (user-confirmed)
 
 | Byte | Glyph | Description |
 |------|-------|-------------|
@@ -229,7 +228,9 @@ Legend: ✅ = user-verified.
 ## How to regenerate
 
 ```bash
-# 1. Run scanner mode on phone via ManeuverScannerLoop with holdSeconds=5.
+# 1. Run scanner mode on phone via ManeuverScannerLoop with holdSeconds=5
+#    (the scanner was removed from the tree; it lives in git history,
+#    added in e4e7e2b, deleted in e761d52).
 # 2. Mount Tripper, ride briefly, switch to "Active Nav (Scan)" mode.
 # 3. Record video of the dash (selfie stick + 1080p phone camera works
 #    better than the in-app UDP recorder for visual clarity).

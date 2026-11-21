@@ -30,7 +30,7 @@ assignees: ''
 
 ## Logs
 
-<!-- TestFlight / App Store builds have no log export (a build run from Xcode has Settings → Diagnostics → Export log). If you can, capture logs with Console.app on a Mac (subsystem eu.kolaczek.tripperdashpp) or Xcode's debug console, and paste the relevant lines. -->
+<!-- App Store builds have no log export (Debug and TestFlight builds have Settings → Diagnostics → Export log). If you can, capture logs with Console.app on a Mac (subsystem eu.kolaczek.tripperdashpp) or Xcode's debug console, and paste the relevant lines. -->
 
 ```
 paste log lines here

@@ -1,15 +1,16 @@
 # TripperDashPP/
 
-iOS app source (Swift 6 / SwiftUI, iOS 18.6+).
+iOS app source (Swift 6 toolchain in Swift 5 language mode, SwiftUI, iOS 18.6+).
 
 ## Layout
 
 ```
-App/         @main + AppStatus (shared observable state) + LocationService + VoiceNavigator (offline AVSpeechSynthesizer) + DemoDashModel
+App/         @main + AppStatus (shared observable state) + LocationService + VoiceNavigator (offline AVSpeechSynthesizer) + RideIntents (Shortcuts / Siri) + DemoDashModel
 UI/          SwiftUI views (RootView, MapPickerView, StreamingView, InteractiveMapView, RideStatsPanel, RideHistoryView,
              DashPreviewPanel, AddBikeSheet, PermissionsView)
   Navigation/  destination search / route preview / favorite-editor / saved-routes sheets, NavigationHUD, FreeRideHUD,
-             PlanningMapView, WaypointListView, QuickAccessTiles, RouteProgressMap, PrerenderProgressView
+             PlanningMapView, WaypointListView, EditRouteSheet (mid-ride stop editing), RoutePreferencesView, QuickAccessTiles,
+             RouteProgressMap, PrerenderProgressView
 Tripper/     K1G control plane — BikeLink, DashSocket (BSD UDP), K1GPacket, K1GConstants, RsaHandshake, HeartbeatLoop,
              DeviceTelemetry (phone status), CallStateObserver (OEM call card), DashMediaControl (track skip),
              WiFiJoiner (NEHotspotConfiguration AP join), SavedBikesStore (bike garage), String+DashSafe
@@ -30,11 +31,12 @@ RideStats/   GPS-only trip computer — RideStats (accumulator), RideStatsFormat
              persisted), RideHistoryStore (last 30 days of rides), GPXExporter. Phone-side only
 LiveActivity/        LiveActivityController + RideActivityAttributes (Lock Screen / Dynamic Island ride card)
 TripperDashShare/    Share Extension target ("Share to TripperDash++" from Google / Apple Maps)
-TripperDashWidgets/  Widget extension target rendering the Live Activity
-TripperDashPP-Info.plist, TripperDashPP.entitlements (Hotspot Configuration), PrivacyInfo.xcprivacy
+TripperDashWidgets/  Widget extension target: the Live Activity UI + the Quick Ride home-screen widget (Home / Work / Free Ride / Fuel)
+Assets.xcassets, TripperDashPP-Info.plist, TripperDashPP.entitlements (Hotspot Configuration + Access Wi-Fi Information), PrivacyInfo.xcprivacy
 TripperDashPPTests/   Swift Testing unit tests (weather-along-route, ride stats + formatting + persistence + history, next-waypoint label,
-             ETA TLV, voice phrase/scheduler, speed-camera announcer, route projection, saved bikes, recent destinations,
-             save-route-from-planner, link-error mapping, reconnect budget, turn-distance text, MapKit leg-tail probe)
+             ETA TLV, voice phrase/scheduler, speed-camera announcer + speed-limit warner, sunset pill, route projection, saved bikes,
+             recent destinations, save-route-from-planner, link-error mapping, reconnect budget, Shortcuts start/redirect policy,
+             turn-distance text, MapKit leg-tail probe)
 ```
 
 Background keep-alive (background CoreLocation updates) and the

@@ -24,6 +24,28 @@ Captured H.264 streams go to `./captures/dash_capture_<timestamp>.h264`.
 The bike's RSA keypair (auto-generated on first run) is persisted in
 `./keys/bike_rsa.pem`.
 
+## Configuration
+
+Environment variables (all optional; `docker-compose.yml` sets the first
+three): `FAKE_DASH_BIND` (`0.0.0.0`), `FAKE_DASH_CAPTURES_DIR` (`/captures`),
+`FAKE_DASH_KEYS_DIR` (`/keys`), `FAKE_DASH_K1G_PORT` (`2000`),
+`FAKE_DASH_RTP_PORT` (`5000`), `FAKE_DASH_SSID` (`RE_FAKE_260616`, the
+SSID the handshake expects), `FAKE_DASH_LOG_LEVEL` (`INFO`),
+`FAKE_DASH_NO_BEACON` (set to disable the 1 Hz UDP broadcast beacon),
+`FAKE_DASH_CONTROL_SOCKET` (`/run/fake_dash.sock`, how `button` reaches the
+running server). `python -m fake_dash --help` lists the flags.
+
+## Run the tests
+
+```bash
+pip install -e ".[dev]"   # from this directory; Python 3.11+
+pytest
+```
+
+or `make fake-dash-test` from the repo root. The iOS app reaches the
+container because `BikeLink.bikeHost` can be overridden (UserDefaults key
+`BikeLink.bikeHost`; default `192.168.1.1`).
+
 ## Inject a joystick event
 
 ```bash
@@ -57,6 +79,7 @@ open captures/dash_capture_*.h264
 | `08 00`     | phone → bike | RSA-encrypted `ssid ‖ aes_key` (`SESSION_KEY`) |
 | `07 01 01`  | bike → phone | auth OK |
 | `07 01 00`  | bike → phone | auth fail |
+| `01 01`     | bike → phone | heartbeat ACK (`K1G\0` + counter), sent in reply to the phone's `06 04` battery TLV |
 | `09 00 0001 XX` | bike → phone | joystick (map screen XX = 0x13/0x14/0x15/0x18; now-playing 0x09/0x0A; in-menu 0x20/0x12) |
 | `06 …`      | phone → bike | route card / heartbeat |
 
@@ -72,6 +95,7 @@ Reference implementation (the phone side): https://github.com/kolaCZek/better-da
                 │     │                             │
                 │     ▼                             │
                 │  buttons.py (fan-out)             │
+                │  control_socket.py (CLI → server) │
                 │                                   │
    UDP/5000 ───▶│ rtp_sink.py ──▶ /captures/*.h264  │
                 │                                   │

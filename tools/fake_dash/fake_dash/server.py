@@ -9,7 +9,9 @@ Responsibilities:
   - On `SESSION_KEY` (RSA-encrypted session key) decrypt → recover SSID + AES key
     → emit `07 01 01` auth-OK
   - On joystick CLI invocation, send `09 00 0001 XX` to every known peer
-  - Periodically broadcast a "bike present" beacon so phones can discover us
+  - ACK the phone's `06 04` battery TLV with the dash's `01 01` heartbeat ACK
+  - Periodically broadcast a "bike present" beacon (the real dash announces itself
+    this way; the iOS app targets the fixed IP 192.168.1.1 instead)
 
 Thread model:
   - One RX thread per port (blocking recvfrom in a loop)
