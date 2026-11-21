@@ -1,0 +1,191 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:D;src:url(fonts/Inter-Medium.woff2);font-weight:500}
+@font-face{font-family:D;src:url(fonts/InterDisplay-SemiBold.woff2);font-weight:600}
+@font-face{font-family:D;src:url(fonts/InterDisplay-Bold.woff2);font-weight:700}
+html,body{margin:0;background:transparent}
+svg{display:block;width:1200px;height:1200px}
+text{font-family:D,sans-serif}
+</style></head><body>
+<!-- Tripper dash, day mode, redrawn from the hero photo. 1000-unit canvas, glass = circle r 462 at (500,500). -->
+<svg viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <clipPath id="glass"><circle cx="500" cy="500" r="462"/></clipPath>
+  <radialGradient id="bezel" cx="50%" cy="38%" r="60%">
+    <stop offset="0" stop-color="#3a3d42"/><stop offset=".78" stop-color="#16181b"/><stop offset="1" stop-color="#050506"/>
+  </radialGradient>
+  <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#8a8f96"/><stop offset=".25" stop-color="#2a2d31"/><stop offset=".7" stop-color="#121315"/><stop offset="1" stop-color="#5c6168"/>
+  </linearGradient>
+  <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".42" stop-color="#fff" stop-opacity=".03"/><stop offset=".43" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <radialGradient id="vignette" cx="50%" cy="50%" r="50%">
+    <stop offset=".82" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".22"/>
+  </radialGradient>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity=".25"/></filter>
+</defs>
+
+<!-- bezel -->
+<circle cx="500" cy="500" r="498" fill="url(#rim)"/>
+<circle cx="500" cy="500" r="488" fill="url(#bezel)"/>
+<circle cx="500" cy="500" r="464" fill="#000"/>
+
+<g clip-path="url(#glass)">
+  <!-- map: land -->
+  <rect x="0" y="0" width="1000" height="600" fill="#ecebe6"/>
+  <!-- residential blocks -->
+  <g fill="#e2e0da">
+    <path d="M560 40 L1000 20 L1000 330 L700 360 L610 250 Z"/>
+    <path d="M0 520 L120 470 L250 600 L0 600 Z"/>
+    <path d="M200 110 L430 70 L440 330 L250 360 Z"/>
+  </g>
+  <!-- green -->
+  <path d="M300 410 L420 395 L428 500 L318 515 Z" fill="#cfe3c4"/>
+  <path d="M370 445 L405 442 L407 468 L372 470 Z" fill="#8ec27f"/>
+  <path d="M770 430 L1000 400 L1000 600 L840 600 Z" fill="#dfe9d6"/>
+  <!-- buildings -->
+  <g fill="#d3d0c9" stroke="#bdb9b0" stroke-width="2">
+    <rect x="250" y="150" width="46" height="34" transform="rotate(-12 273 167)"/>
+    <rect x="318" y="140" width="40" height="30" transform="rotate(-12 338 155)"/>
+    <rect x="262" y="230" width="52" height="36" transform="rotate(-12 288 248)"/>
+    <rect x="340" y="215" width="38" height="44" transform="rotate(-12 359 237)"/>
+    <rect x="236" y="310" width="44" height="30" transform="rotate(-12 258 325)"/>
+    <rect x="640" y="90" width="44" height="34" transform="rotate(18 662 107)"/>
+    <rect x="720" y="70" width="50" height="36" transform="rotate(18 745 88)"/>
+    <rect x="812" y="150" width="46" height="40" transform="rotate(18 835 170)"/>
+    <rect x="690" y="200" width="40" height="30" transform="rotate(18 710 215)"/>
+    <rect x="880" y="250" width="54" height="36" transform="rotate(18 907 268)"/>
+    <rect x="770" y="280" width="40" height="34" transform="rotate(18 790 297)"/>
+    <rect x="60" y="520" width="44" height="30" transform="rotate(30 82 535)"/>
+    <rect x="140" y="545" width="40" height="28" transform="rotate(30 160 559)"/>
+  </g>
+  <!-- tracks (dashed) -->
+  <g fill="none" stroke="#9b8f78" stroke-width="4" stroke-dasharray="14 9" stroke-linecap="round">
+    <path d="M500 330 C600 330 640 300 700 360 S 820 470 1000 470"/>
+    <path d="M470 380 C380 380 330 360 300 410"/>
+    <path d="M610 250 L560 40"/>
+  </g>
+  <!-- streets: casing then fill -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g stroke="#c9c6bf" stroke-width="22">
+      <path d="M0 330 C150 300 250 285 470 270"/>
+      <path d="M560 300 C680 230 820 210 1000 150"/>
+      <path d="M150 0 C200 120 230 220 250 360 C262 450 180 500 120 470"/>
+      <path d="M700 360 C720 440 760 520 800 600"/>
+    </g>
+    <g stroke="#ffffff" stroke-width="15">
+      <path d="M0 330 C150 300 250 285 470 270"/>
+      <path d="M560 300 C680 230 820 210 1000 150"/>
+      <path d="M150 0 C200 120 230 220 250 360 C262 450 180 500 120 470"/>
+      <path d="M700 360 C720 440 760 520 800 600"/>
+    </g>
+  </g>
+  <!-- alternative route (grey, thinner) -->
+  <path d="M478.0 266.0 L470.0 270.0 L460.6 270.6 L451.3 271.3 L442.1 271.9 L433.1 272.6 L424.2 273.2 L415.5 273.9 L406.9 274.6 L398.4 275.2 L390.1 275.9 L381.8 276.5 L373.7 277.2 L365.7 277.9 L357.8 278.5 L350.1 279.2 L342.4 279.9 L334.8 280.6 L327.4 281.2 L320.0 281.9 L312.7 282.6 L305.6 283.3 L298.5 284.0 L291.5 284.8 L284.5 285.5 L277.7 286.2 L270.9 286.9 L264.2 287.7 L257.6 288.4 L251.1 289.2 L244.6 289.9 L238.1 290.7 L237.2 282.9 L235.7 275.1 L234.1 267.3 L232.6 259.6 L230.9 252.0 L229.3 244.4 L227.6 236.9 L225.9 229.4 L224.2 222.0 L222.4 214.7 L220.6 207.3 L218.7 200.1 L216.8 192.8 L214.9 185.6 L212.9 178.4 L210.9 171.3 L208.9 164.2 L206.8 157.1 L204.7 150.0 L202.5 142.9 L200.3 135.9 L198.1 128.8 L195.8 121.8 L193.4 114.8 L191.1 107.7 L188.7 100.7 L186.2 93.6 L183.7 86.6 L181.1 79.5 L178.6 72.4 L175.9 65.3 L173.2 58.2 L170.5 51.1 L167.7 43.9 L164.9 36.7 L162.0 29.4 L159.1 22.1 L156.1 14.8 L153.1 7.4 L150.0 0.0" fill="none" stroke="#73787f" stroke-opacity=".85" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- route -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M500 448 L506 600" stroke="#8c8c91" stroke-opacity=".85" stroke-width="20"/>
+    <path d="M390 0 C420 80 450 160 478 260 C492 320 500 380 500 448" stroke="#0b4fb0" stroke-width="30"/>
+    <path d="M390 0 C420 80 450 160 478 260 C492 320 500 380 500 448" stroke="#2f7fe8" stroke-width="20"/>
+  </g>
+  <!-- alternative ETA bubble -->
+  <g transform="translate(342.4 279.9)">
+    <rect x="-64" y="-24.5" width="128" height="49" rx="24.5" fill="#292b30" fill-opacity=".88"/>
+    <text x="0" y="11" font-size="31.5" font-weight="700" fill="#fff" text-anchor="middle">+5 min</text>
+  </g>
+  <!-- speed camera on the route ahead (app marker x1.75) -->
+  <g transform="translate(439 135)">
+    <circle r="29.75" fill="#fff"/><circle r="26.25" fill="#e52929"/>
+    <rect x="-17.5" y="-11.4" width="35" height="22.75" rx="5" fill="#fff"/>
+    <rect x="-14" y="-16.6" width="9.6" height="6.1" fill="#fff"/>
+    <circle r="6.65" fill="#e52929"/>
+  </g>
+  <!-- rider puck -->
+  <g filter="url(#soft)">
+    <circle cx="500" cy="448" r="40" fill="#fff"/>
+    <circle cx="500" cy="448" r="32" fill="#1f6fe0"/>
+    <path d="M500 426 L516 466 L500 457 L484 466 Z" fill="#fff"/>
+  </g>
+
+  <!-- turn card: glyph 0x14 (turn left), shape traced from docs/maneuver-glyphs/glyphs/0x14.png, colours from the day-mode hero photo -->
+  <g filter="url(#soft)">
+    <circle cx="150" cy="452" r="128" fill="#e3e4e7" stroke="#2b2d31" stroke-width="5"/>
+  </g>
+  <path d="M155 511 L155 441 Q155 407 121 407 L117 407" fill="none" stroke="#1f2227" stroke-width="33" stroke-linejoin="round"/>
+  <path d="M72 407 L119 372 L119 442 Z" fill="#d23a2e" stroke="#d23a2e" stroke-width="2" stroke-linejoin="round"/>
+  <text x="152" y="556" font-size="36" font-weight="600" fill="#1c1c1c" text-anchor="middle">6.9<tspan font-size="25" font-weight="500" dx="3">km</tspan></text>
+
+  <!-- speed limit -->
+  <g filter="url(#soft)">
+    <circle cx="896" cy="494" r="56" fill="#fff" stroke="#d1252a" stroke-width="12"/>
+  </g>
+  <text x="896" y="512" font-size="50" font-weight="700" fill="#1a1a1a" text-anchor="middle">40</text>
+
+  <!-- weather pill: rain 10 km ahead (caution = amber) -->
+  <g>
+    <rect x="652" y="351" width="278" height="70" rx="15.75" fill="#000" stroke="#ffa80d" stroke-width="2.6"/>
+    <g transform="translate(668 363)">
+      <path d="M11 24 a9 9 0 0 1 2-17.5 a12 12 0 0 1 22 3.5 a8 8 0 0 1 1 15.5 Z" fill="#fff"/>
+      <g stroke="#ffa80d" stroke-width="3.4" stroke-linecap="round"><path d="M13 33 L9.5 42"/><path d="M23 33 L19.5 42"/><path d="M33 33 L29.5 42"/></g>
+    </g>
+    <text x="726" y="397" font-size="31.5" font-weight="700" fill="#fff">Rain 10 km</text>
+  </g>
+  <!-- route progress bar: done grey, ahead blue, rain stretch amber, stop tick, red position chevron -->
+  <g>
+    <clipPath id="bar"><rect x="297" y="528" width="508" height="10.5" rx="5.25"/></clipPath>
+    <g clip-path="url(#bar)">
+      <rect x="297" y="528" width="178" height="10.5" fill="#8c9199"/>
+      <rect x="475" y="528" width="330" height="10.5" fill="#2985f5"/>
+      <rect x="585" y="528" width="70" height="10.5" fill="#ff9900"/>
+    </g>
+    <rect x="711" y="521" width="7" height="24.5" fill="#141a21"/><rect x="712.5" y="522.5" width="4" height="21.5" fill="#fff"/>
+    <rect x="297" y="528" width="508" height="10.5" rx="5.25" fill="none" stroke="#000" stroke-opacity=".9" stroke-width="1.75"/>
+    <path d="M494.25 533.25 L455.75 517.5 L464.5 533.25 L455.75 549 Z" fill="#e8332b" stroke="#fff" stroke-width="3.5" stroke-linejoin="round" paint-order="stroke"/>
+  </g>
+  <!-- status band -->
+  <rect x="0" y="600" width="1000" height="56" fill="#6b5b2f"/>
+  <g transform="translate(660 614)" fill="#fff">
+    <rect x="0" y="0" width="30" height="24" fill="#fff"/>
+    <g fill="#6b5b2f"><rect x="0" y="0" width="7.5" height="6"/><rect x="15" y="0" width="7.5" height="6"/><rect x="7.5" y="6" width="7.5" height="6"/><rect x="22.5" y="6" width="7.5" height="6"/><rect x="0" y="12" width="7.5" height="6"/><rect x="15" y="12" width="7.5" height="6"/><rect x="7.5" y="18" width="7.5" height="6"/><rect x="22.5" y="18" width="7.5" height="6"/></g>
+  </g>
+  <text x="880" y="643" font-size="40" font-weight="500" fill="#fff" text-anchor="end">12:36</text>
+
+  <!-- lower panel -->
+  <rect x="0" y="656" width="1000" height="344" fill="#f5f5f3"/>
+  <g fill="#3a3a3a">
+    <rect x="92" y="706" width="7" height="10"/><rect x="103" y="700" width="7" height="16"/><rect x="114" y="694" width="7" height="22"/><rect x="125" y="688" width="7" height="28" fill="#b9b9b9"/>
+  </g>
+  <text x="148" y="717" font-size="42" font-weight="500" fill="#2a2a2a">09:05 <tspan fill="#9a9a9a">|</tspan> 22°</text>
+  <text x="150" y="790" font-size="26" font-weight="500" fill="#555">ODO</text>
+  <text x="400" y="792" font-size="46" font-weight="600" fill="#1e1e1e" text-anchor="end">4242<tspan font-size="30" font-weight="500" dx="4">km</tspan></text>
+
+  <!-- gear / speed capsule -->
+  <path d="M500 676 L1010 676 L1010 836 L500 836 A80 80 0 0 1 500 676 Z" fill="#fff" stroke="#8c7a44" stroke-width="6"/>
+  <text x="512" y="783" font-size="78" font-weight="700" fill="#2f8a3c" text-anchor="middle">N</text>
+  <text x="738" y="812" font-size="150" font-weight="600" fill="#1a1a1a" text-anchor="end">0</text>
+  <text x="748" y="812" font-size="30" font-weight="500" fill="#333">km/h</text>
+  <g fill="none" stroke="#333" stroke-width="4"><circle cx="776" cy="712" r="18"/><path d="M776 712 L787 701"/></g>
+
+  <!-- range -->
+  <g transform="translate(398 866)" fill="#2a2a2a">
+    <rect x="0" y="6" width="26" height="38" rx="3"/><rect x="5" y="11" width="16" height="11" fill="#f5f5f3"/>
+    <path d="M26 16 L36 22 L36 40 Q36 46 31 46" fill="none" stroke="#2a2a2a" stroke-width="4"/>
+    
+  </g>
+  <text x="468" y="908" font-size="44" font-weight="600" fill="#1e1e1e">67<tspan font-size="30" font-weight="500" dx="4">km</tspan></text>
+  <g>
+    <rect x="334" y="920" width="60" height="12" rx="2" fill="#3a3a3a"/>
+    <rect x="402" y="920" width="60" height="12" rx="2" fill="#c4c4c4"/>
+    <rect x="470" y="920" width="60" height="12" rx="2" fill="#c4c4c4"/>
+    <rect x="538" y="920" width="60" height="12" rx="2" fill="#c4c4c4"/>
+    <rect x="606" y="920" width="60" height="12" rx="2" fill="#c4c4c4"/>
+  </g>
+
+  <!-- glass -->
+  <circle cx="500" cy="500" r="462" fill="url(#vignette)"/>
+</g>
+<circle cx="500" cy="500" r="462.5" fill="none" stroke="#000" stroke-opacity=".6" stroke-width="3"/>
+</svg>
+</body></html>
