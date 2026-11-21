@@ -204,11 +204,10 @@ final class WeatherAlertService {
         // a new neighbourhood does.
         let key = String(format: "%.2f,%.2f", position.latitude, position.longitude)
         // Starting or stopping navigation changes what "ahead" means. A
-        // hazard found along a route that is gone ("Rain 10 km" after
-        // switching to free ride) is meaningless: drop it now, and skip the
-        // throttle so the next poll matches the new mode at once (also
-        // gets the along-route look-ahead right after a free ride starts
-        // navigating).
+        // hazard found along a route that is gone is meaningless: drop it,
+        // and skip the throttle when the route appears or goes away, so a
+        // new navigation polls along its own route at once instead of
+        // returning the previous ride's alert for up to 5 min.
         let hasRoute = !routeAhead.isEmpty
         if !hasRoute, current?.isAhead == true { current = nil }
         if let last = lastPollAt,

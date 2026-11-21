@@ -822,6 +822,11 @@ final class AppStatus {
         mapViewSource.setTraveled([])
         mapViewSource.setRouteAhead([])
         mapViewSource.setCurrentRoute(nil)
+        // Weather is polled along the route during navigation only, so any
+        // pill left from a navigation (or an earlier session) is stale here.
+        // ponytail: no weather in free ride; poll around the rider from the
+        // free-ride fix subscription if that is ever wanted.
+        mapViewSource.setWeatherAlert(nil)
         mapViewSource.setTileCache(emptyCache)
 
         // Free-ride has no route corridor to prefetch along, so cameras and
@@ -2234,9 +2239,13 @@ final class AppStatus {
             guard let self else { return }
             let alert = await self.weatherService.refresh(position: position, routeAhead: ahead)
             // Re-check the toggle: the rider may have flipped it OFF during
-            // the await, in which case we must NOT paint a stale pill.
+            // the await, in which case we must NOT paint a stale pill. Same
+            // for navigation: a fetch that lands after Stop must not paint
+            // its along-route pill onto the free-ride map.
+            let paint = self.dashNavSettings.weatherAlertsEnabled
+                && self.activeNavigator.isNavigating
             self.mapViewSource.setWeatherAlert(
-                self.dashNavSettings.weatherAlertsEnabled ? alert : nil,
+                paint ? alert : nil,
                 imperial: self.dashNavSettings.units == .imperial
             )
         }
