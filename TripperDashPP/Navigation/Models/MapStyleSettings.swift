@@ -43,12 +43,20 @@ final class MapStyleSettings {
         didSet { persist() }
     }
 
+    /// Settings → Map → 3D map: the dash map tilted towards the direction
+    /// of travel (`DashPerspective`). Default on.
+    var perspective = true {
+        didSet { persist() }
+    }
+
     // MARK: - Persistence
 
     private static let storeKey = "mapStyleSettings.v1"
 
     private struct Persisted: Codable {
         var mode: Mode
+        // Optional: blobs saved before the 3D toggle lack it (→ on).
+        var perspective: Bool?
     }
 
     init() {
@@ -60,10 +68,11 @@ final class MapStyleSettings {
               let p = try? JSONDecoder().decode(Persisted.self, from: raw)
         else { return }
         self.mode = p.mode
+        self.perspective = p.perspective ?? true
     }
 
     private func persist() {
-        if let raw = try? JSONEncoder().encode(Persisted(mode: mode)) {
+        if let raw = try? JSONEncoder().encode(Persisted(mode: mode, perspective: perspective)) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)
         }
     }

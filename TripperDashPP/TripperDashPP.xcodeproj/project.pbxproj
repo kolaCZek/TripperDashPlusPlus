@@ -137,6 +137,8 @@
 		FE70000000000000000000E1 /* SavedRouteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000E0 /* SavedRouteDetailView.swift */; };
 		FE70000000000000000000F1 /* SavedRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE70000000000000000000F0 /* SavedRoute.swift */; };
 		FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000000000000000000B0 /* RouteProgressMap.swift */; };
+		D3D300000000000000000002 /* DashPerspective.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D300000000000000000001 /* DashPerspective.swift */; };
+		D3D300000000000000000004 /* DashPerspectiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D300000000000000000003 /* DashPerspectiveTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -312,6 +314,8 @@
 		FE70000000000000000000E0 /* SavedRouteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteDetailView.swift; sourceTree = "<group>"; };
 		FE70000000000000000000F0 /* SavedRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRoute.swift; sourceTree = "<group>"; };
 		FEA0000000000000000000B0 /* RouteProgressMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProgressMap.swift; sourceTree = "<group>"; };
+		D3D300000000000000000001 /* DashPerspective.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPerspective.swift; sourceTree = "<group>"; };
+		D3D300000000000000000003 /* DashPerspectiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPerspectiveTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -379,6 +383,7 @@
 				A4F0FFFF000000000000E212 /* RouteProjectionTests.swift */,
 				A4F0FFFF000000000000E402 /* RecentDestinationsStoreTests.swift */,
 				7E5700000000000000000A67 /* RideHistoryStoreTests.swift */,
+				D3D300000000000000000003 /* DashPerspectiveTests.swift */,
 			);
 			path = TripperDashPPTests;
 			sourceTree = "<group>";
@@ -492,6 +497,7 @@
 				CAFEFEED00000000DEADBF02 /* SolarClock.swift */,
 				CAFEFEED00000000DEADBF03 /* MapStyleResolver.swift */,
 				CAFEFEED00000000DEADBF04 /* TileColorTransform.swift */,
+				D3D300000000000000000001 /* DashPerspective.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -826,6 +832,7 @@
 				A4F0FFFF000000000000E213 /* RouteProjectionTests.swift in Sources */,
 				A4F0FFFF000000000000E502 /* RecentDestinationsStoreTests.swift in Sources */,
 				7E5700000000000000000A68 /* RideHistoryStoreTests.swift in Sources */,
+				D3D300000000000000000004 /* DashPerspectiveTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -932,6 +939,7 @@
 				A4F0FFFF000000000000E102 /* VoicePhrase.swift in Sources */,
 				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
 				A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */,
+				D3D300000000000000000002 /* DashPerspective.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

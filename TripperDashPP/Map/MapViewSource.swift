@@ -504,6 +504,47 @@ final class MapViewSource: NSObject, FrameSource {
     /// chevron further so it's unmistakable at a glance on the bike dash.
     private let puckScale: CGFloat = 1.7
 
+    // MARK: - Tilted (3D) map
+
+    /// Settings → Map → 3D map. When on, every frame's map is drawn flat
+    /// into `groundContext` and warped into the frame by `DashPerspective`
+    /// (`compositePerspective`). Off = the flat map, drawn straight into
+    /// the frame as before.
+    var perspectiveEnabled = true {
+        didSet { if !perspectiveEnabled { displayedTilt = 0; coarsePositionCache = nil } }
+    }
+    /// Tilt drawn on the last frame (degrees). Follows the zoom curve down
+    /// at once, but climbs at most `tiltStepUp` per frame after a coverage
+    /// cap lifts, so the view doesn't snap.
+    private var displayedTilt: Double = 0
+    private let tiltStepUp: Double = 2               // 8°/s at 4 fps
+    /// The tilt is being held below the zoom curve because the drawn tiles
+    /// don't reach the far edge (logged once per episode).
+    private var tiltCapped = false
+    /// Reused flat-map buffer for the tilted view (`DashPerspective.groundSize`).
+    private var groundContext: CGContext?
+    /// Reused blur scratch for the sky band (`DashPerspective.applySky`).
+    private var skyScratch: [Double] = []
+    /// z=13 tile baked around the rider while the route's coarse layer is
+    /// missing (free ride, before its first bake, after a reroute or a
+    /// palette switch), so the far tilted view still has map under it.
+    private var coarsePositionCache: RouteTileCache?
+    private var lastCoarsePositionAt: Date?
+    /// This frame's map target when tilted; nil = draw straight into the frame.
+    private var activeGround: CGContext?
+    /// This frame's camera, set once the ground is warped; nil = flat.
+    /// Geo-anchored markers project through it (`screenPoint`).
+    private var framePerspective: DashPerspective?
+
+    /// Puck position on the dash frame (the forward-bias anchor).
+    private var puckCenter: CGPoint {
+        CGPoint(x: frameSize.width / 2, y: frameSize.height / 2 + frameSize.height * forwardBiasFraction)
+    }
+    /// Where the flat map's puck sits in the buffer it is drawn into.
+    private var mapAnchor: CGPoint { activeGround == nil ? puckCenter : DashPerspective.groundAnchor }
+    /// Size of the buffer the flat map is drawn into.
+    private var mapCanvasSize: CGSize { activeGround == nil ? frameSize : DashPerspective.groundSize }
+
     /// On-screen thickness (px) of the drawn route polyline, held CONSTANT
     /// across zoom levels. The line is stroked inside the `currentZoom`
     /// scale, so each draw path divides this by `currentZoom` to cancel
@@ -608,7 +649,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// selects `.coarse` and it is missing. Coarse is only picked below
     /// ~0.77× zoom, which autozoom never reaches (floor 0.8) — only a
     /// manual LEFT press does — yet it used to be ~70 % of the image work
-    /// after every route change. Until this bake lands, `activeTileCache`
+    /// after every route change. The 3D map draws it under the far tilted
+    /// view, so with 3D on it is baked on the first frame of a route whose
+    /// main tile doesn't cover the view (that cost is back, by design). Until this bake lands, `activeTileCache`
     /// draws base (black frame edges at the extreme zoom-out for a few
     /// seconds). A route change or palette switch just drops the layer
     /// (`setTileCache` / `performStyleRebake` set it to nil); the next
@@ -1257,6 +1300,12 @@ extension MapViewSource {
         ctx.translateBy(x: 0, y: frameSize.height)
         ctx.scaleBy(x: 1, y: -1)
 
+        // 3D: the map branch below draws flat into the ground buffer and
+        // warps it into this frame (`compositePerspective`); markers and
+        // the fixed overlays still draw here, on the frame.
+        activeGround = perspectiveEnabled ? beginGroundFrame() : nil
+        framePerspective = nil
+
         // Unified FG + BG path: always composite from the pre-rendered
         // tile cache (built when navigation starts) — works FG and BG
         // since it's pure CGContext, no MapKit live render.
@@ -1421,7 +1470,9 @@ extension MapViewSource {
             drawVectorOnlyFrame(into: ctx)
             return
         }
-        drawProjectedTile(refTile, image: cg, riderCoord: fix.coordinate, into: ctx)
+        drawProjectedTile(refTile, image: cg, riderCoord: fix.coordinate, into: ctx,
+                          underlays: perspectiveUnderlays(main: refTile, rider: fix.coordinate,
+                                                          excluding: drawCache))
     }
 
     /// Off-corridor rescue frame. Reached when the rider has left the
@@ -1458,7 +1509,9 @@ extension MapViewSource {
             drawVectorOnlyFrame(into: ctx)
             return
         }
-        drawProjectedTile(tile, image: cg, riderCoord: fix.coordinate, into: ctx)
+        drawProjectedTile(tile, image: cg, riderCoord: fix.coordinate, into: ctx,
+                          underlays: perspectiveUnderlays(main: tile, rider: fix.coordinate,
+                                                          excluding: nil))
     }
 
     /// Shared projection + composite for a SINGLE stitched tile centred
@@ -1474,7 +1527,8 @@ extension MapViewSource {
         _ tile: RouteTile,
         image cg: CGImage,
         riderCoord: CLLocationCoordinate2D,
-        into ctx: CGContext
+        into ctx: CGContext,
+        underlays: [(RouteTile, CGImage)] = []
     ) {
         // Pixels-per-degree — analytic Web Mercator values baked into the
         // tile (no probe/measure since the OSM migration). Ground truth
@@ -1504,169 +1558,175 @@ extension MapViewSource {
         //   we use `drawImageUIKit` helper to flip per-call.
         // ─────────────────────────────────────────────────────────────
 
-        ctx.saveGState()
-        // Forward bias: anchor the user puck below the geometric centre
-        // so more of the road ahead is visible. In Y-DOWN, "lower on
-        // screen" = larger y, so ADD biasPx.
-        let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
-        // Heading-up rotation. In Y-DOWN ctx, CGContext.rotate(by:)
-        // rotates clockwise for positive angles (the Y-flip inverts the
-        // usual math CCW-positive convention). To bring the heading
-        // direction to the TOP of the frame we rotate the map CCW by
-        // `heading` degrees → pass -heading.
-        ctx.rotate(by: -lastHeading * .pi / 180)
-        // Speed-adaptive zoom (slow lerp; see targetZoom/updateZoom).
-        // Applied AFTER rotation so the origin sits at the puck.
-        //
-        // Layer compensation: `currentZoom` is calibrated for the BASE
-        // OSM level (z=15). A coarse (z=13) or fine (z=16) tile has a
-        // different pixel-per-metre density, so drawing it at the raw
-        // `currentZoom` would render it too small (coarse) or too large
-        // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
-        // ground scale is identical whichever layer supplied the tile.
-        let layerScale = pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))
-        let drawZoom = currentZoom * layerScale
-        ctx.scaleBy(x: drawZoom, y: drawZoom)
-
-        // Draw the tile shifted by the delta from its own centre to the
-        // user's position. Use `tile.center` (the requested centre — and
-        // the geographic centre of the rendered image).
-        let dx =  (tile.center.longitude - centerLon) * pxPerDegLon
-        let dy = -(tile.center.latitude  - centerLat) * pxPerDegLat   // Y-DOWN: north = -y
-        let tw = tile.pixelSize.width
-        let th = tile.pixelSize.height
-        // For OSM stitches `centerPixel` is the exact bitmap midpoint, so
-        // mpX/mpY are 0; kept general for backward-compat with any tile
-        // whose centre isn't pixel-aligned.
-        let mpX = tw / 2 - tile.centerPixel.x
-        let mpY = th / 2 - tile.centerPixel.y
-        let rect = CGRect(x: CGFloat(dx) - tw / 2 + mpX,
-                          y: CGFloat(dy) - th / 2 + mpY,
-                          width: tw, height: th)
-        drawImageUIKit(cg, in: rect, ctx: ctx)
-
-        // Alternative routes (thin grey), drawn BEFORE the active blue
-        // line so the active route always sits on top. Same Y-DOWN
-        // projection as the active line below. The ETA bubbles are drawn
-        // separately, upright, after restoreGState (see below).
-        if !alternativeRoutes.isEmpty {
-            let projAlt: (CLLocationCoordinate2D) -> CGPoint = { c in
-                let px =  (c.longitude - centerLon) * pxPerDegLon
-                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
-                return CGPoint(x: CGFloat(px), y: CGFloat(py))
+        // Map into the ground buffer when tilted, else into the frame.
+        let target = activeGround ?? ctx
+        // Layer-compensated zoom (see the scale step below); outside the
+        // block because the markers after it need it too.
+        let drawZoom = drawScale(of: tile)
+        do {
+            let ctx = target
+            ctx.saveGState()
+            // Forward bias: anchor the user puck below the geometric centre
+            // so more of the road ahead is visible (`mapAnchor`: the frame's
+            // puck, or the ground buffer's when tilted).
+            ctx.translateBy(x: mapAnchor.x, y: mapAnchor.y)
+            // Heading-up rotation. In Y-DOWN ctx, CGContext.rotate(by:)
+            // rotates clockwise for positive angles (the Y-flip inverts the
+            // usual math CCW-positive convention). To bring the heading
+            // direction to the TOP of the frame we rotate the map CCW by
+            // `heading` degrees → pass -heading.
+            ctx.rotate(by: -lastHeading * .pi / 180)
+            // 3D: the coarser layers first, each at its own scale, so the far
+            // tilted view has map under it where the main tile ends.
+            for (under, underImage) in underlays {
+                let s = drawScale(of: under)
+                ctx.saveGState()
+                ctx.scaleBy(x: s, y: s)
+                drawImageUIKit(underImage, in: tileRect(under, rider: riderCoord), ctx: ctx)
+                ctx.restoreGState()
             }
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            ctx.setStrokeColor(currentStyle.alternativeLineColor)
-            // Slightly thinner than the active route so it reads secondary.
-            // Divide by drawZoom (= currentZoom × layerScale) — the stroke
-            // is inside the layer-compensated scale, so using currentZoom
-            // alone would make the line layerScale× too thick on the coarse
-            // layer (an 8× blue blob) and too thin on fine.
-            ctx.setLineWidth((routeLineScreenPx - 1.5) / drawZoom)
-            for alt in alternativeRoutes {
-                guard alt.coords.count > 1 else { continue }
-                let ap = CGMutablePath()
-                var firstA = true
-                for c in alt.coords {
-                    let pt = projAlt(c)
-                    if firstA { ap.move(to: pt); firstA = false }
-                    else { ap.addLine(to: pt) }
+            // Speed-adaptive zoom (slow lerp; see targetZoom/updateZoom).
+            // Applied AFTER rotation so the origin sits at the puck.
+            //
+            // Layer compensation: `currentZoom` is calibrated for the BASE
+            // OSM level (z=15). A coarse (z=13) or fine (z=16) tile has a
+            // different pixel-per-metre density, so drawing it at the raw
+            // `currentZoom` would render it too small (coarse) or too large
+            // (fine). Multiply by 2^(baseZoom - tileZoom) so the on-screen
+            // ground scale is identical whichever layer supplied the tile.
+            ctx.scaleBy(x: drawZoom, y: drawZoom)
+
+            // Draw the tile shifted by the delta from its own centre to the
+            // user's position. Use `tile.center` (the requested centre — and
+            // the geographic centre of the rendered image).
+            drawImageUIKit(cg, in: tileRect(tile, rider: riderCoord), ctx: ctx)
+
+            // Alternative routes (thin grey), drawn BEFORE the active blue
+            // line so the active route always sits on top. Same Y-DOWN
+            // projection as the active line below. The ETA bubbles are drawn
+            // separately, upright, after restoreGState (see below).
+            if !alternativeRoutes.isEmpty {
+                let projAlt: (CLLocationCoordinate2D) -> CGPoint = { c in
+                    let px =  (c.longitude - centerLon) * pxPerDegLon
+                    let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                    return CGPoint(x: CGFloat(px), y: CGFloat(py))
                 }
-                ctx.addPath(ap)
-                ctx.strokePath()
+                ctx.setLineCap(.round)
+                ctx.setLineJoin(.round)
+                ctx.setStrokeColor(currentStyle.alternativeLineColor)
+                // Slightly thinner than the active route so it reads secondary.
+                // Divide by drawZoom (= currentZoom × layerScale) — the stroke
+                // is inside the layer-compensated scale, so using currentZoom
+                // alone would make the line layerScale× too thick on the coarse
+                // layer (an 8× blue blob) and too thin on fine.
+                ctx.setLineWidth((routeLineScreenPx - 1.5) / drawZoom)
+                for alt in alternativeRoutes {
+                    guard alt.coords.count > 1 else { continue }
+                    let ap = CGMutablePath()
+                    var firstA = true
+                    for c in alt.coords {
+                        let pt = projAlt(c)
+                        if firstA { ap.move(to: pt); firstA = false }
+                        else { ap.addLine(to: pt) }
+                    }
+                    ctx.addPath(ap)
+                    ctx.strokePath()
+                }
             }
-        }
 
-        // Draw the route polyline in the same Y-DOWN coordinate space.
-        // Off-corridor this still draws the (now-distant) route line so
-        // the rider can see which way to get back to it. Uses the FULL
-        // trip geometry when available (setFullRoute) so the line spans
-        // the whole route, not just the leg up to the next waypoint.
-        let drawCoords = routeDrawCoords
-        if !drawCoords.isEmpty {
-            // Project a coord into this frame's Y-DOWN pixel space.
-            let project: (CLLocationCoordinate2D) -> CGPoint = { c in
-                let px =  (c.longitude - centerLon) * pxPerDegLon
-                let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
-                return CGPoint(x: CGFloat(px), y: CGFloat(py))
-            }
-            // Build the path once, reuse for casing + fill.
-            let path = CGMutablePath()
-            var first = true
-            for c in drawCoords {
-                let pt = project(c)
-                if first { path.move(to: pt); first = false }
-                else { path.addLine(to: pt) }
-            }
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            // The line is stroked INSIDE the drawZoom scale (currentZoom ×
-            // layerScale), so the width must divide by drawZoom, not just
-            // currentZoom — otherwise on the coarse layer (layerScale 8) the
-            // route rendered as a giant blue blob covering the map, and on
-            // fine it vanished. Divide by drawZoom for a constant on-screen
-            // width regardless of zoom AND which quality layer is active.
-            let lineW = routeLineScreenPx / drawZoom
-            // 1. Casing UNDER the line — dark on Light, white on Dark —
-            //    so the blue route pops against busy map content (rider
-            //    feedback 2026-08). ~4 px wider on screen than the fill.
-            ctx.addPath(path)
-            ctx.setStrokeColor(currentStyle.routeCasingColor)
-            ctx.setLineWidth(lineW + routeCasingScreenPx / drawZoom)
-            ctx.strokePath()
-            // 2. Blue route fill on top.
-            ctx.addPath(path)
-            ctx.setStrokeColor(currentStyle.routeLineColor)
-            ctx.setLineWidth(lineW)
-            ctx.strokePath()
-
-            // 3. Travelled breadcrumb (grey "already ridden") OVER the blue —
-            //    progress-bar look: the covered stretch reads "done" in grey,
-            //    the road ahead stays blue. Blue route-ahead is repainted on
-            //    top next (step 4) so an out-and-back's upcoming retrace wins
-            //    back the blue. Same Y-DOWN projection + width as the fill.
-            if traveledCoords.count > 1 {
-                let tp = CGMutablePath()
-                var firstT = true
-                for c in traveledCoords {
+            // Draw the route polyline in the same Y-DOWN coordinate space.
+            // Off-corridor this still draws the (now-distant) route line so
+            // the rider can see which way to get back to it. Uses the FULL
+            // trip geometry when available (setFullRoute) so the line spans
+            // the whole route, not just the leg up to the next waypoint.
+            let drawCoords = routeDrawCoords
+            if !drawCoords.isEmpty {
+                // Project a coord into this frame's Y-DOWN pixel space.
+                let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+                    let px =  (c.longitude - centerLon) * pxPerDegLon
+                    let py = -(c.latitude  - centerLat) * pxPerDegLat   // Y-DOWN
+                    return CGPoint(x: CGFloat(px), y: CGFloat(py))
+                }
+                // Build the path once, reuse for casing + fill.
+                let path = CGMutablePath()
+                var first = true
+                for c in drawCoords {
                     let pt = project(c)
-                    if firstT { tp.move(to: pt); firstT = false }
-                    else { tp.addLine(to: pt) }
+                    if first { path.move(to: pt); first = false }
+                    else { path.addLine(to: pt) }
                 }
-                ctx.addPath(tp)
-                ctx.setStrokeColor(currentStyle.traveledLineColor)
-                ctx.setLineWidth(lineW)
+                ctx.setLineCap(.round)
+                ctx.setLineJoin(.round)
+                // The line is stroked INSIDE the drawZoom scale (currentZoom ×
+                // layerScale), so the width must divide by drawZoom, not just
+                // currentZoom — otherwise on the coarse layer (layerScale 8) the
+                // route rendered as a giant blue blob covering the map, and on
+                // fine it vanished. Divide by drawZoom for a constant on-screen
+                // width regardless of zoom AND which quality layer is active.
+                let lineW = routeLineScreenPx / drawZoom
+                // 1. Casing UNDER the line — dark on Light, white on Dark —
+                //    so the blue route pops against busy map content (rider
+                //    feedback 2026-08). ~4 px wider on screen than the fill.
+                ctx.addPath(path)
+                ctx.setStrokeColor(currentStyle.routeCasingColor)
+                ctx.setLineWidth(lineW + routeCasingScreenPx / drawZoom)
                 ctx.strokePath()
-            }
-
-            // 4. Route AHEAD in blue, OVER the grey travelled line. On an
-            //    out-and-back the road ahead retraces an already-ridden (now
-            //    grey) segment; repainting the still-to-ride slice blue keeps
-            //    it reading as "upcoming", not "done". No-op off an out-and-back
-            //    (ahead doesn't overlap travelled).
-            if routeAheadCoords.count > 1 {
-                let ap = CGMutablePath()
-                var firstA = true
-                for c in routeAheadCoords {
-                    let pt = project(c)
-                    if firstA { ap.move(to: pt); firstA = false }
-                    else { ap.addLine(to: pt) }
-                }
-                ctx.addPath(ap)
+                // 2. Blue route fill on top.
+                ctx.addPath(path)
                 ctx.setStrokeColor(currentStyle.routeLineColor)
                 ctx.setLineWidth(lineW)
                 ctx.strokePath()
-            }
-            // 5. Turn arrow on the route at the upcoming maneuver.
-            drawRouteArrow(into: ctx, zoom: drawZoom, project: project)
-            // Via-stop pins are NOT drawn here — they must be upright +
-            // constant-size, so they're rendered geo-anchored in the outer
-            // (un-rotated) ctx below, same as the speed cameras.
-        }
 
-        ctx.restoreGState()
+                // 3. Travelled breadcrumb (grey "already ridden") OVER the blue —
+                //    progress-bar look: the covered stretch reads "done" in grey,
+                //    the road ahead stays blue. Blue route-ahead is repainted on
+                //    top next (step 4) so an out-and-back's upcoming retrace wins
+                //    back the blue. Same Y-DOWN projection + width as the fill.
+                if traveledCoords.count > 1 {
+                    let tp = CGMutablePath()
+                    var firstT = true
+                    for c in traveledCoords {
+                        let pt = project(c)
+                        if firstT { tp.move(to: pt); firstT = false }
+                        else { tp.addLine(to: pt) }
+                    }
+                    ctx.addPath(tp)
+                    ctx.setStrokeColor(currentStyle.traveledLineColor)
+                    ctx.setLineWidth(lineW)
+                    ctx.strokePath()
+                }
+
+                // 4. Route AHEAD in blue, OVER the grey travelled line. On an
+                //    out-and-back the road ahead retraces an already-ridden (now
+                //    grey) segment; repainting the still-to-ride slice blue keeps
+                //    it reading as "upcoming", not "done". No-op off an out-and-back
+                //    (ahead doesn't overlap travelled).
+                if routeAheadCoords.count > 1 {
+                    let ap = CGMutablePath()
+                    var firstA = true
+                    for c in routeAheadCoords {
+                        let pt = project(c)
+                        if firstA { ap.move(to: pt); firstA = false }
+                        else { ap.addLine(to: pt) }
+                    }
+                    ctx.addPath(ap)
+                    ctx.setStrokeColor(currentStyle.routeLineColor)
+                    ctx.setLineWidth(lineW)
+                    ctx.strokePath()
+                }
+                // 5. Turn arrow on the route at the upcoming maneuver.
+                drawRouteArrow(into: ctx, zoom: drawZoom, project: project)
+                // Via-stop pins are NOT drawn here — they must be upright +
+                // constant-size, so they're rendered geo-anchored in the outer
+                // (un-rotated) ctx below, same as the speed cameras.
+            }
+
+            ctx.restoreGState()
+        }
+        // 3D: puck onto the ground, warp it into the frame, sky on top.
+        if activeGround != nil {
+            compositePerspective(into: ctx, tiles: [tile] + underlays.map { $0.0 }, rider: riderCoord)
+        }
 
         // Speed-camera POI markers — geo-anchored (they move/rotate WITH
         // the map as the rider travels) but drawn upright + constant-size
@@ -1702,7 +1762,8 @@ extension MapViewSource {
         // "tip up" matches screen-up regardless of the outer ctx's
         // bottom-left vs top-left origin (CVPixelBuffer rows go top→
         // bottom, so we flip locally to draw in intuitive "tip = +y").
-        drawHeadingArrow(into: ctx)
+        // Tilted, it was drawn onto the ground and warped with the map.
+        if activeGround == nil { drawHeadingArrow(into: ctx) }
         drawZoomOsd(into: ctx)
     }
 
@@ -1720,14 +1781,13 @@ extension MapViewSource {
     /// chevron arrow inside. The map is rotated heading-up, so the
     /// chevron always points toward the top of the frame
     /// (= direction of travel).
-    private func drawHeadingArrow(into ctx: CGContext) {
-        let cx = frameSize.width / 2
+    private func drawHeadingArrow(into ctx: CGContext, at center: CGPoint? = nil) {
         // Match the forward-bias anchor used in drawTileCacheFrame /
         // drawVectorOnlyFrame so the puck stays put when we fall back
-        // to vector-only. Coord system here is Y-DOWN (outer ctx); ADD
-        // biasPx to push the puck visually down.
-        let biasPx = frameSize.height * forwardBiasFraction
-        let cy = frameSize.height / 2 + biasPx
+        // to vector-only. Coord system here is Y-DOWN (outer ctx). The
+        // tilted view draws it at the ground buffer's anchor instead.
+        let c = center ?? puckCenter
+        let cx = c.x, cy = c.y
 
         ctx.saveGState()
         ctx.translateBy(x: cx, y: cy)
@@ -1843,9 +1903,6 @@ extension MapViewSource {
         guard !waypointDots.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
-        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
-        let anchorX = Double(frameSize.width) / 2
-        let anchorY = Double(frameSize.height) / 2 + biasPx
         let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
         for wp in waypointDots {
@@ -1854,8 +1911,8 @@ extension MapViewSource {
             let zx = dx * z, zy = dy * z
             let rx = zx * cosT - zy * sinT
             let ry = zx * sinT + zy * cosT
-            let px = anchorX + rx
-            let py = anchorY + ry
+            guard let p = screenPoint(flatX: rx, flatY: ry) else { continue }
+            let px = Double(p.x), py = Double(p.y)
             // Cull off-frame pins (margin clears the pin body + tip).
             guard px > -28, px < w + 28, py > -48, py < h + 16 else { continue }
             drawWaypointPin(into: ctx, at: CGPoint(x: px, y: py))
@@ -2135,11 +2192,15 @@ extension MapViewSource {
         // Style-aware background (light stone for Light, dark slate for
         // Dark) so the pre-nav / off-corridor fallback matches the map
         // palette instead of always being dark.
-        ctx.setFillColor(currentStyle.vectorBackground)
-        ctx.fill(CGRect(x: 0, y: 0, width: frameSize.width, height: frameSize.height))
+        // Map into the ground buffer when tilted, else into the frame. The
+        // background fills the whole buffer, so this frame never has void.
+        let target = activeGround ?? ctx
+        target.setFillColor(currentStyle.vectorBackground)
+        target.fill(CGRect(origin: .zero, size: mapCanvasSize))
 
         guard let fix = lastFix, !routeDrawCoords.isEmpty else {
             // Nothing useful to draw.
+            if activeGround != nil { compositePerspective(into: ctx, tiles: nil, rider: nil) }
             return
         }
 
@@ -2153,45 +2214,48 @@ extension MapViewSource {
         let mPerDegLat = 111_320.0
         let mPerDegLon = 111_320.0 * cos(centerLat * .pi / 180)
 
-        ctx.saveGState()
-        // Y-DOWN convention throughout — same coord system as
-        // drawProjectedTile (see big comment block there).
-        let biasPx = frameSize.height * forwardBiasFraction
-        ctx.translateBy(x: frameSize.width / 2, y: frameSize.height / 2 + biasPx)
-        ctx.rotate(by: -lastHeading * .pi / 180)
-        ctx.scaleBy(x: currentZoom, y: currentZoom)
+        do {
+            let ctx = target
+            ctx.saveGState()
+            // Y-DOWN convention throughout — same coord system as
+            // drawProjectedTile (see big comment block there).
+            ctx.translateBy(x: mapAnchor.x, y: mapAnchor.y)
+            ctx.rotate(by: -lastHeading * .pi / 180)
+            ctx.scaleBy(x: currentZoom, y: currentZoom)
 
-        // Project a coord into this frame's Y-DOWN pixel space (meters/px).
-        let project: (CLLocationCoordinate2D) -> CGPoint = { c in
-            let dxM =  (c.longitude - centerLon) * mPerDegLon
-            let dyM = -(c.latitude  - centerLat) * mPerDegLat   // Y-DOWN
-            return CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
+            // Project a coord into this frame's Y-DOWN pixel space (meters/px).
+            let project: (CLLocationCoordinate2D) -> CGPoint = { c in
+                let dxM =  (c.longitude - centerLon) * mPerDegLon
+                let dyM = -(c.latitude  - centerLat) * mPerDegLat   // Y-DOWN
+                return CGPoint(x: CGFloat(dxM / metersPerPx), y: CGFloat(dyM / metersPerPx))
+            }
+            // Build the full route path once, reuse for casing + fill.
+            let path = CGMutablePath()
+            var first = true
+            for c in routeDrawCoords {
+                let pt = project(c)
+                if first { path.move(to: pt); first = false }
+                else { path.addLine(to: pt) }
+            }
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            // Constant on-screen thickness regardless of zoom (see the tile
+            // path's note). Divide by currentZoom since we stroke inside the
+            // zoom scale. Casing under the blue line, matching the tile-cache
+            // path (via-stop pins follow below).
+            let lineW = routeLineScreenPx / currentZoom
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeCasingColor)
+            ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
+            ctx.strokePath()
+            ctx.addPath(path)
+            ctx.setStrokeColor(currentStyle.routeLineColor)
+            ctx.setLineWidth(lineW)
+            ctx.strokePath()
+            drawRouteArrow(into: ctx, zoom: currentZoom, project: project)
+            ctx.restoreGState()
         }
-        // Build the full route path once, reuse for casing + fill.
-        let path = CGMutablePath()
-        var first = true
-        for c in routeDrawCoords {
-            let pt = project(c)
-            if first { path.move(to: pt); first = false }
-            else { path.addLine(to: pt) }
-        }
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-        // Constant on-screen thickness regardless of zoom (see the tile
-        // path's note). Divide by currentZoom since we stroke inside the
-        // zoom scale. Casing under the blue line, matching the tile-cache
-        // path (via-stop pins follow below).
-        let lineW = routeLineScreenPx / currentZoom
-        ctx.addPath(path)
-        ctx.setStrokeColor(currentStyle.routeCasingColor)
-        ctx.setLineWidth(lineW + routeCasingScreenPx / currentZoom)
-        ctx.strokePath()
-        ctx.addPath(path)
-        ctx.setStrokeColor(currentStyle.routeLineColor)
-        ctx.setLineWidth(lineW)
-        ctx.strokePath()
-        drawRouteArrow(into: ctx, zoom: currentZoom, project: project)
-        ctx.restoreGState()
+        if activeGround != nil { compositePerspective(into: ctx, tiles: nil, rider: nil) }
 
         // Via-stop pins upright + constant-size in the OUTER ctx (after the
         // rotated CTM is popped), same as the tile-cache path. Reproduce
@@ -2201,8 +2265,6 @@ extension MapViewSource {
             let theta = -Double(lastHeading) * .pi / 180.0
             let cosT = cos(theta), sinT = sin(theta)
             let z = Double(currentZoom)
-            let anchorX = Double(frameSize.width) / 2
-            let anchorY = Double(frameSize.height) / 2 + Double(biasPx)
             for wp in waypointDots {
                 let dxM =  (wp.longitude - centerLon) * mPerDegLon
                 let dyM = -(wp.latitude  - centerLat) * mPerDegLat  // Y-DOWN
@@ -2210,13 +2272,15 @@ extension MapViewSource {
                 let zx = px * z, zy = py * z
                 let rx = zx * cosT - zy * sinT
                 let ry = zx * sinT + zy * cosT
-                drawWaypointPin(into: ctx, at: CGPoint(x: anchorX + rx, y: anchorY + ry))
+                guard let p = screenPoint(flatX: rx, flatY: ry) else { continue }
+                drawWaypointPin(into: ctx, at: p)
             }
         }
 
         // User direction arrow in the centre (same chevron as the
         // tile-cache path; map is heading-up so arrow always points up).
-        drawHeadingArrow(into: ctx)
+        // Tilted, it was drawn onto the ground and warped with the map.
+        if activeGround == nil { drawHeadingArrow(into: ctx) }
         drawZoomOsd(into: ctx)
     }
 
@@ -3192,9 +3256,6 @@ extension MapViewSource {
         guard !alternativeRoutes.isEmpty else { return }
         let theta = -lastHeading * .pi / 180.0
         let cosT = cos(theta), sinT = sin(theta)
-        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
-        let anchorX = Double(frameSize.width) / 2
-        let anchorY = Double(frameSize.height) / 2 + biasPx
         let z = Double(zoom)
         let w = Double(frameSize.width), h = Double(frameSize.height)
 
@@ -3211,8 +3272,8 @@ extension MapViewSource {
             let zx = dx * z, zy = dy * z
             let rx = zx * cosT - zy * sinT
             let ry = zx * sinT + zy * cosT
-            let sx = anchorX + rx
-            let sy = anchorY + ry
+            guard let p = screenPoint(flatX: rx, flatY: ry) else { continue }
+            let sx = Double(p.x), sy = Double(p.y)
             guard sx > -80, sx < w + 80, sy > -32, sy < h + 32 else { continue }
             drawEtaBubble(into: ctx, at: CGPoint(x: sx, y: sy), label: alt.etaDeltaLabel)
         }
@@ -3276,9 +3337,6 @@ extension MapViewSource {
         // Keep the whole projection in Double; CGFloat↔Double don't mix
         // implicitly in Swift, and the geo-deltas are already Double. We
         // narrow to CGFloat only at the final CGPoint.
-        let biasPx = Double(frameSize.height) * Double(forwardBiasFraction)
-        let anchorX = Double(frameSize.width) / 2
-        let anchorY = Double(frameSize.height) / 2 + biasPx
         // `zoom` is the effective DRAW zoom (currentZoom × layerScale) so
         // markers land on the route regardless of which quality layer's
         // tile — and thus which pxPerDeg — supplied this frame.
@@ -3296,8 +3354,9 @@ extension MapViewSource {
             let zx = dx * z, zy = dy * z
             let rx = zx * cosT - zy * sinT
             let ry = zx * sinT + zy * cosT
-            let sx = anchorX + rx
-            let sy = anchorY + ry
+            // Puck + offset when flat; through the camera when tilted.
+            guard let p = screenPoint(flatX: rx, flatY: ry) else { continue }
+            let sx = Double(p.x), sy = Double(p.y)
 
             // Cull off-frame markers. The margin must clear the enlarged
             // disc (r=15); the extra horizontal slack is left over from the
@@ -3767,5 +3826,192 @@ extension MapViewSource {
         ctx.fillPath()
 
         ctx.restoreGState()
+    }
+}
+
+// MARK: - Tilted (3D) map: ground buffer, coverage cap, warp
+
+extension MapViewSource {
+    /// Clear the reusable ground buffer for this frame and set it up like
+    /// the frame (Y-down, void colour). nil if it can't be allocated, which
+    /// draws the flat map instead.
+    fileprivate func beginGroundFrame() -> CGContext? {
+        let size = DashPerspective.groundSize
+        if groundContext == nil {
+            groundContext = CGContext(
+                data: nil, width: Int(size.width), height: Int(size.height),
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue |
+                            CGBitmapInfo.byteOrder32Little.rawValue)
+        }
+        guard let g = groundContext else { return nil }
+        g.concatenate(g.ctm.inverted())              // back to identity: the buffer is reused
+        g.setFillColor(currentStyle.voidColor)
+        g.fill(CGRect(origin: .zero, size: size))
+        g.translateBy(x: 0, y: size.height)
+        g.scaleBy(x: 1, y: -1)
+        return g
+    }
+
+    /// Puck onto the ground, the tilt for this frame, ground warped into the
+    /// frame `ctx`, sky on top. `tiles` = every tile drawn on the ground (nil
+    /// = the vector background, which fills the whole buffer): the tilt is
+    /// capped to what one of them covers, so the glass never shows void.
+    fileprivate func compositePerspective(into ctx: CGContext, tiles: [RouteTile]?,
+                                          rider: CLLocationCoordinate2D?) {
+        guard let g = activeGround, let src = g.data, let dst = ctx.data else { return }
+        drawHeadingArrow(into: g, at: DashPerspective.groundAnchor)
+
+        let target = DashPerspective.targetTilt(zoom: currentZoom)
+        var tilt = tiltCandidate
+        if let tiles, let rider {
+            let covered = maxCoveredTilt(upTo: tilt, tiles: tiles, rider: rider)
+            // Held below this frame's candidate (not the zoom curve, which a
+            // normal 2°/frame climb is below too). Hysteresis: logs once.
+            let capped = covered < tilt - (tiltCapped ? 1 : 3)
+            if capped != tiltCapped {
+                tiltCapped = capped
+                if capped {
+                    log.notice("3D tilt held at \(Int(covered), privacy: .public)° (zoom curve \(Int(target), privacy: .public)°): tiles don't reach the far edge")
+                } else {
+                    log.notice("3D tilt cap lifted")
+                }
+            }
+            tilt = min(tilt, covered)
+        }
+        displayedTilt = tilt
+
+        let p = DashPerspective(tilt: tilt, frame: frameSize, puck: puckCenter)
+        framePerspective = p
+        g.flush()
+        p.warp(ground: src.assumingMemoryBound(to: UInt8.self), groundBytesPerRow: g.bytesPerRow,
+               groundWidth: g.width, groundHeight: g.height, anchor: DashPerspective.groundAnchor,
+               into: dst.assumingMemoryBound(to: UInt8.self), frameBytesPerRow: ctx.bytesPerRow)
+        let sky = currentStyle.skyColors
+        p.applySky(frame: dst.assumingMemoryBound(to: UInt8.self), bytesPerRow: ctx.bytesPerRow,
+                   top: sky.top, horizon: sky.horizon, scratch: &skyScratch)
+    }
+
+    /// The tilt this frame aims for before the coverage cap: the zoom curve,
+    /// climbing at most `tiltStepUp` per frame.
+    private var tiltCandidate: Double {
+        min(DashPerspective.targetTilt(zoom: currentZoom), displayedTilt + tiltStepUp)
+    }
+
+    /// 3D only: coarse and base tiles under the rider, drawn beneath the
+    /// frame's `main` tile (from cache `excluding`) so the far part of the
+    /// tilted view has map under it. Empty when `main` alone covers this
+    /// frame's footprint. Bakes the route's coarse layer on first use, and
+    /// a z=13 tile around the rider while that layer is missing.
+    fileprivate func perspectiveUnderlays(main: RouteTile, rider: CLLocationCoordinate2D,
+                                          excluding mainCache: RouteTileCache?) -> [(RouteTile, CGImage)] {
+        guard activeGround != nil,
+              !tileCovers(main, rider: rider, points: footprint(tilt: tiltCandidate)) else { return [] }
+        var out: [(RouteTile, CGImage)] = []
+        if coarseTileCache == nil { ensureCoarseLayer() }
+        for cache in [coarseTileCache, routeTileCache] {
+            guard let cache, cache !== mainCache,
+                  let (tile, idx) = cache.nearestTile(to: rider),
+                  tileCovers(tile, rider: rider, points: [.zero]),
+                  let image = cache.image(for: tile, atIndex: idx)?.cgImage else { continue }
+            out.append((tile, image))
+        }
+        let coarse = Self.coarseLayerZoom
+        if main.osmZoom == coarse || out.contains(where: { $0.0.osmZoom == coarse }) {
+            coarsePositionCache = nil                // the route's layer covers the rider; free the bitmap
+        } else if !coarseBakeInFlight,               // don't fetch the same area twice at once
+                  let c = coarseAroundRider(rider), let tile = c.coveringPositionFallbackTile(for: rider),
+                  let image = c.positionFallbackDecodedImage()?.cgImage {
+            // No route coarse tile here (free ride, a 2 km detour, a fresh
+            // route or palette): the one baked around the rider, at the bottom.
+            out.insert((tile, image), at: 0)
+        }
+        return out
+    }
+
+    /// The z=13 position cache in the current palette, asked (throttled) to
+    /// keep a tile baked around the rider.
+    // ponytail: re-bakes on the base rescue tile's 400 m refresh ring, though
+    // a 22 km z=13 tile would last far longer; add a per-layer radius if
+    // those bakes show up on battery.
+    private func coarseAroundRider(_ rider: CLLocationCoordinate2D) -> RouteTileCache? {
+        if coarsePositionCache?.style != currentStyle {
+            coarsePositionCache = RouteTileCache(style: currentStyle, zoom: Self.coarseLayerZoom, gridSide: 7)
+            lastCoarsePositionAt = nil               // bake the new palette at once
+        }
+        guard let cache = coarsePositionCache else { return nil }
+        let now = Date()
+        if lastCoarsePositionAt.map({ now.timeIntervalSince($0) >= Self.tileExtendThrottle }) ?? true {
+            lastCoarsePositionAt = now
+            Task { @MainActor in await cache.ensurePositionFallback(near: rider) }
+        }
+        return cache
+    }
+
+    /// The tile's bitmap rect in its own px, rider at the origin (Y-down),
+    /// placed by the delta from the tile's geographic centre to the rider.
+    fileprivate func tileRect(_ tile: RouteTile, rider: CLLocationCoordinate2D) -> CGRect {
+        let dx =  (tile.center.longitude - rider.longitude) * tile.pxPerDegLon
+        let dy = -(tile.center.latitude  - rider.latitude)  * tile.pxPerDegLat   // Y-DOWN: north = -y
+        let tw = tile.pixelSize.width
+        let th = tile.pixelSize.height
+        // For OSM stitches `centerPixel` is the exact bitmap midpoint, so
+        // mpX/mpY are 0; kept general for any tile whose centre isn't
+        // pixel-aligned.
+        let mpX = tw / 2 - tile.centerPixel.x
+        let mpY = th / 2 - tile.centerPixel.y
+        return CGRect(x: CGFloat(dx) - tw / 2 + mpX, y: CGFloat(dy) - th / 2 + mpY,
+                      width: tw, height: th)
+    }
+
+    /// `currentZoom` compensated for the tile's OSM level, so every layer
+    /// draws at the same ground scale (calibrated for the base z=15).
+    fileprivate func drawScale(of tile: RouteTile) -> CGFloat {
+        currentZoom * pow(2.0, CGFloat(MapViewSource.baseLayerZoom - tile.osmZoom))
+    }
+
+    /// Do these flat-frame points (puck-relative, heading-up) all land on
+    /// the tile's bitmap as this frame draws it?
+    fileprivate func tileCovers(_ tile: RouteTile, rider: CLLocationCoordinate2D,
+                                points: [CGPoint]) -> Bool {
+        DashPerspective.covers(rect: tileRect(tile, rider: rider), scale: drawScale(of: tile),
+                               headingDegrees: lastHeading, points: points)
+    }
+
+    /// Largest tilt ≤ `limit` whose visible footprint (glass ∩ below the
+    /// opaque sky) one of `tiles` covers whole; 0 if not even the flat one.
+    fileprivate func maxCoveredTilt(upTo limit: Double, tiles: [RouteTile],
+                                    rider: CLLocationCoordinate2D) -> Double {
+        func covered(_ tilt: Double) -> Bool {
+            let pts = footprint(tilt: tilt)
+            return tiles.contains { tileCovers($0, rider: rider, points: pts) }
+        }
+        if covered(limit) { return limit }
+        var lo = 0.0, hi = limit
+        for _ in 0..<8 {                             // ~0.2° at full tilt
+            let mid = (lo + hi) / 2
+            if covered(mid) { lo = mid } else { hi = mid }
+        }
+        return lo
+    }
+
+    /// The glass's visible area below the opaque sky at `tilt`, as flat-frame
+    /// points (convex outline).
+    private func footprint(tilt: Double) -> [CGPoint] {
+        let p = DashPerspective(tilt: tilt, frame: frameSize, puck: puckCenter)
+        return p.visibleOutline(glassCenter: Self.visibleCenter, glassRadius: Self.visibleRadius)
+            .map(p.flat(fromScreen:))
+    }
+
+    /// Where a puck-relative flat point (heading-up, Y-down px) lands on the
+    /// frame: the puck + offset when flat, through the camera when tilted.
+    /// nil = in the sky or past the horizon, so geo markers don't float there.
+    fileprivate func screenPoint(flatX x: Double, flatY y: Double) -> CGPoint? {
+        guard let p = framePerspective else {
+            return CGPoint(x: Double(puckCenter.x) + x, y: Double(puckCenter.y) + y)
+        }
+        guard let s = p.screen(fromFlat: CGPoint(x: x, y: y)), Double(s.y) >= p.skyRow else { return nil }
+        return s
     }
 }
