@@ -216,6 +216,21 @@ strong{font-weight:600;color:var(--cream)}
 .page .help p{color:var(--cream-soft)}
 .help .btn{margin:20px 0 14px;color:var(--charcoal-ink)}
 
+/* changelog: three sections (in progress / in testing / released), each version a plain block */
+.jump{display:flex;flex-wrap:wrap;gap:10px 28px;margin:0 0 8px}
+.jump a{font:600 1.125rem/1 var(--display);text-transform:uppercase;letter-spacing:.05em;text-decoration:none;color:var(--cream-soft);padding:8px 0}
+.jump a:hover{color:var(--gold-hi);text-decoration:underline;text-decoration-thickness:2px}
+.page .rel{margin-top:0}
+.page .rel+.rel{margin-top:72px}
+.page .rel>h2{margin-top:56px}
+.page .rel-intro{color:var(--cream-soft);margin:0 0 8px}
+.page .ver{margin-top:36px;padding-top:6px}
+.page .ver h3{font-family:var(--display);text-transform:uppercase;font-weight:700;letter-spacing:.01em;font-size:2.25rem;line-height:1;color:var(--gold-hi);margin:0 0 4px}
+.page .ver .when{color:var(--cream-soft);margin:0 0 6px}
+.page .ver h4{font-family:var(--text);text-transform:none;letter-spacing:0;font-weight:600;font-size:1.0625rem;line-height:1.35;margin:20px 0 2px;color:var(--cream)}
+.page .ver.old{margin-top:28px;padding-top:22px;border-top:1px solid #3a3d43}
+.page .ver.old h3{font-size:1.75rem;color:var(--cream)}
+.page h3.earlier{font-family:var(--text);text-transform:none;letter-spacing:0;font-weight:600;font-size:1.1875rem;color:var(--cream);margin:56px 0 4px;padding-top:18px;border-top:1px solid #3a3d43}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important;animation:none!important}}
 @media (prefers-contrast:more){:root{--cream-soft:var(--cream)}.page p,.page li{color:var(--cream)}}
 @media print{.top,.skip{display:none}body{background:#fff}}
