@@ -175,6 +175,7 @@ final class WeatherAlertService {
 
     private var lastPollAt: Date?
     private var lastPollKey: String?
+    private var lastPollHadRoute = false
 
     private lazy var session: URLSession = {
         let cfg = URLSessionConfiguration.default
@@ -202,13 +203,23 @@ final class WeatherAlertService {
         // 1 km) so a stationary rider doesn't re-poll, but crossing into
         // a new neighbourhood does.
         let key = String(format: "%.2f,%.2f", position.latitude, position.longitude)
+        // Starting or stopping navigation changes what "ahead" means. A
+        // hazard found along a route that is gone ("Rain 10 km" after
+        // switching to free ride) is meaningless: drop it now, and skip the
+        // throttle so the next poll matches the new mode at once (also
+        // gets the along-route look-ahead right after a free ride starts
+        // navigating).
+        let hasRoute = !routeAhead.isEmpty
+        if !hasRoute, current?.isAhead == true { current = nil }
         if let last = lastPollAt,
            Date().timeIntervalSince(last) < Self.pollInterval,
-           key == lastPollKey {
+           key == lastPollKey,
+           hasRoute == lastPollHadRoute {
             return current
         }
         lastPollAt = Date()
         lastPollKey = key
+        lastPollHadRoute = hasRoute
 
         // Rider position is sample 0 (distance 0), followed by the
         // along-route look-ahead points. All in one GET. The spacing is
@@ -250,6 +261,7 @@ final class WeatherAlertService {
         current = nil
         lastPollAt = nil
         lastPollKey = nil
+        lastPollHadRoute = false
     }
 
     // MARK: - Network
