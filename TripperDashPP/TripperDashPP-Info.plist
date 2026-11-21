@@ -177,5 +177,22 @@
 		</dict>
 	</dict>
 
+	<!-- ───────────────────────────────────────────────────────────── -->
+	<!-- Siri: spoken app names for the App Shortcuts phrases          -->
+	<!-- ───────────────────────────────────────────────────────────── -->
+
+	<!-- "TripperDash++" isn't speakable as written. Not yet verified on a device. -->
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Tripper Dash</string>
+		</dict>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>Tripper Dash Plus Plus</string>
+		</dict>
+	</array>
+
 </dict>
 </plist>

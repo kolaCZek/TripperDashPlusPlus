@@ -316,7 +316,7 @@ def test_wifi_blip_swift_shape():
     assert "!Task.isCancelled" in check
     assert "self.state == .connected, self.shouldAutoReconnect" in decide
     assert "guard self.lastWifiSatisfied, subnet else {" in decide
-    assert 'self.handleLinkDropped(reason: "wifi-path-down")' in decide
+    assert 'self.handleLinkDropped(reason: "wifi-path-down",' in decide
     # Cancelled on every way the link ends.
     for anchor in ("private func handleLinkDropped", "func disconnect()"):
         assert "pathDownCheck?.cancel(); pathDownCheck = nil" in decl_body(src, anchor), anchor

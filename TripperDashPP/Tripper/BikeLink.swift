@@ -160,6 +160,9 @@ final class BikeLink {
     /// The running auto-reconnect retry loop, if any.
     private var reconnectTask: Task<Void, Never>?
 
+    /// Set by a shortcut's connect, which a Wi-Fi automation fires at AP-up.
+    var patientBootRace = false
+
     /// True while we should auto-reconnect on an unexpected drop. Armed
     /// when a connect succeeds; cleared by a user-initiated disconnect()
     /// so we never fight the user's explicit "stop".
@@ -325,6 +328,10 @@ final class BikeLink {
     /// auth processing, so 07/01 never arrived in time. Same root cause
     /// (dash mid-boot), same fix (retry the whole handshake fresh).
     private func runInitialConnect() async {
+        // A shortcut's connect starts at AP-up, about as long before the
+        // dash answers as the normal retries last; give it twice the tries.
+        let maxAttempts = K1G.bootRaceMaxAttempts * (patientBootRace ? 2 : 1)
+        patientBootRace = false   // one connect only
         var attempt = 0
         while true {
             attempt += 1
@@ -342,14 +349,14 @@ final class BikeLink {
                 connectTask = nil
                 return
             case .bootRaceMissingReply(let msg):
-                if attempt >= K1G.bootRaceMaxAttempts {
+                if attempt >= maxAttempts {
                     log.warning("Boot-race retries exhausted (\(attempt) attempts) — surfacing error")
                     lastError = msg
                     state = .error(msg)
                     connectTask = nil
                     return
                 }
-                log.info("Dash not answering yet (boot race, attempt \(attempt)/\(K1G.bootRaceMaxAttempts)) — retrying silently")
+                log.info("Dash not answering yet (boot race, attempt \(attempt)/\(maxAttempts)) — retrying silently")
                 try? await Task.sleep(nanoseconds: UInt64(K1G.bootRaceRetryInterval * 1_000_000_000))
                 // `try?` swallows CancellationError from the sleep above, so
                 // disconnect() cancelling this Task mid-pause would otherwise
@@ -375,6 +382,7 @@ final class BikeLink {
     /// Cancel (`.idle`) or once a newer connect flow owns the link, a late
     /// join failure must not flip it to `.error`.
     func reportJoinFailure(_ message: String) {
+        patientBootRace = false
         guard state == .connecting, connectTask == nil else {
             log.info("Wi-Fi join failure ignored — attempt no longer current (state=\(String(describing: self.state), privacy: .public))")
             return
@@ -403,6 +411,7 @@ final class BikeLink {
         // User-initiated stop: clear the auto-reconnect intent FIRST so a
         // drop signal racing in right now can't re-arm the retry loop.
         log.info("BikeLink disconnected (auto-reconnect cleared)")
+        patientBootRace = false
         pathDownCheck?.cancel(); pathDownCheck = nil
         shouldAutoReconnect = false
         reconnectDeadline = nil
@@ -960,7 +969,9 @@ final class BikeLink {
     /// or the Wi-Fi path dropped). Tear down the dead socket + loops but
     /// NOT the reconnect intent, then start the retry loop. Idempotent:
     /// a second drop signal while already `.reconnecting` is ignored.
-    private func handleLinkDropped(reason: String) {
+    /// `quietFor`: how long the dash had already been silent, so the drop is
+    /// dated from its last answer (a resumed app notices it seconds late).
+    private func handleLinkDropped(reason: String, quietFor: TimeInterval = 0) {
         guard shouldAutoReconnect else { return }
         guard state == .connected else {
             // Already reconnecting (or not in a droppable state) — ignore.
@@ -969,7 +980,7 @@ final class BikeLink {
         let up = connectedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
         log.warning("Link dropped (\(reason, privacy: .public)) after \(up, privacy: .public) s up — starting auto-reconnect")
         pathDownCheck?.cancel(); pathDownCheck = nil
-        droppedAt = Date()
+        droppedAt = Date().addingTimeInterval(-quietFor)
         inboundTask?.cancel(); inboundTask = nil
         heartbeatTask?.cancel(); heartbeatTask = nil
         Task { [socket] in await socket?.cancel() }
@@ -1054,7 +1065,7 @@ final class BikeLink {
                 switch result {
                 case .connected:
                     let took = self.droppedAt.map { Int(Date().timeIntervalSince($0)) } ?? -1
-                    self.log.info("Reconnected after \(attempt) attempt(s), \(took, privacy: .public) s after the drop")
+                    self.log.info("Reconnected after \(attempt) attempt(s), \(took, privacy: .public) s after the dash went quiet")
                     self.consecutiveSilentAttempts = 0
                     return
                 case .bootRaceMissingReply:
@@ -1074,6 +1085,33 @@ final class BikeLink {
                 try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))
             }
         }
+    }
+
+    /// Seconds since the link last dropped (wall clock, so it counts while
+    /// the app is suspended), nil before any drop.
+    var secondsSinceDrop: TimeInterval? { droppedAt.map { Date().timeIntervalSince($0) } }
+
+    /// Seconds since the dash last answered, nil with no socket (demo).
+    func secondsSinceDashAnswered() async -> TimeInterval? {
+        guard let socket else { return nil }
+        return await socket.secondsSinceLastRx()
+    }
+
+    /// A ride asked for while the reconnect loop slept (bike off, app
+    /// suspended): a fresh budget, so the next attempt doesn't give up on
+    /// a deadline that ran out meanwhile. Then `connect()` retries now.
+    func renewReconnectBudget() {
+        guard state == .reconnecting else { return }
+        reconnectDeadline = Date().addingTimeInterval(K1G.reconnectMaxDuration)
+    }
+
+    /// A `.connected` link the dash stopped answering (the app was suspended
+    /// and the bike rebooted meanwhile): reconnect now instead of after the
+    /// heartbeat's silence check.
+    func dropSilentLink() async {
+        guard state == .connected, shouldAutoReconnect,
+              let quiet = await secondsSinceDashAnswered() else { return }
+        handleLinkDropped(reason: "silent-at-shortcut", quietFor: quiet)
     }
 
     /// Short-circuit the retry interval — restart the loop immediately so
@@ -1225,7 +1263,8 @@ final class BikeLink {
             let subnet = Self.wifiHasDashSubnetIPv4()
             guard self.lastWifiSatisfied, subnet else {
                 self.log.info("Wi-Fi still down after \(K1G.wifiBlipGrace, privacy: .public) s (path \(self.lastWifiSatisfied ? "up" : "down", privacy: .public), dash subnet \(subnet ? "yes" : "no", privacy: .public))")
-                self.handleLinkDropped(reason: "wifi-path-down")
+                self.handleLinkDropped(reason: "wifi-path-down",
+                                       quietFor: self.wifiDownSince.map { Date().timeIntervalSince($0) } ?? 0)
                 return
             }
             self.log.notice("Wi-Fi path blip — link kept")
@@ -1473,7 +1512,11 @@ final class BikeLink {
             // unexpected drop worth reconnecting on.
             guard let self else { return }
             if !Task.isCancelled {
-                await MainActor.run { self.handleLinkDropped(reason: "heartbeat") }
+                let quiet = await socket.secondsSinceLastRx()
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    self.handleLinkDropped(reason: "heartbeat", quietFor: quiet)
+                }
             }
         }
     }

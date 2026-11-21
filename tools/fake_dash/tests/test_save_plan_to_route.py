@@ -194,7 +194,7 @@ def test_swift_from_plan_keeps_stop_names():
 
 def test_swift_saved_waypoints_route_is_not_reduced_on_start():
     # The round-trip mirror assumes `.waypoints` skips Douglas–Peucker.
-    body = strip_comments(decl_body(APPSTATUS.read_text(), "func beginPlanningFromSavedRoute"))
+    body = strip_comments(decl_body(APPSTATUS.read_text(), "func savedRoutePlan"))
     assert "route.kind == .track" in body and "GPXGeometry.reduce" in body
 
 
@@ -237,7 +237,7 @@ def test_swift_save_current_plan_skips_library_plans_and_overwrites_on_resave():
 
 
 def test_swift_every_library_start_is_flagged():
-    body = strip_comments(decl_body(APPSTATUS.read_text(), "func beginPlanningFromSavedRoute"))
+    body = strip_comments(decl_body(APPSTATUS.read_text(), "func savedRoutePlan"))
     assert "plan.isFromLibrary = true" in body
 
 
