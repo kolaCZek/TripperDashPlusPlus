@@ -383,8 +383,8 @@ struct SpeedSectionTracker {
 ///   - never two warnings within `cooldownSeconds`.
 /// A tick without a sign keeps the episode but restarts both counts, so the
 /// gap counts as neither over nor under time. `shouldSpeak` doesn't consume
-/// the warning: call `didSpeak` once the phrase was actually spoken, else
-/// the next over tick asks again.
+/// the warning: call `didSpeak` once the phrase was handed to the voice,
+/// else the next over tick asks again.
 struct SpeedLimitWarner {
     static let overTicksNeeded = 2
     static let rearmSeconds: TimeInterval = 10
@@ -405,6 +405,9 @@ struct SpeedLimitWarner {
         if limit != lastLimit {
             lastLimit = limit
             armed = true
+            // A new limit needs its own two over ticks: one wrong map-match
+            // (a 50 slip road for one fix at an interchange) must not speak.
+            overTicks = 0
         }
         guard over else {
             overTicks = 0

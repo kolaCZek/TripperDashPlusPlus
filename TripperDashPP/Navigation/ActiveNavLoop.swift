@@ -772,8 +772,9 @@ final class ActiveNavLoop {
         else { return }
         let lang = settings.voiceLanguage
         // `.advisory`: a turn prompt cuts this off instead of being dropped
-        // behind it. Only a phrase that was actually spoken ends the episode;
-        // one dropped as busy is retried on the next tick.
+        // behind it. A phrase handed to the voice ends the episode (even if a
+        // turn prompt then cuts it off); one dropped as busy is retried on
+        // the next tick.
         if voice.speak(VoicePhrase.speedLimit(limit, language: lang),
                        language: lang.rawValue, priority: .advisory) {
             speedLimitWarner.didSpeak(now: now)

@@ -219,7 +219,9 @@ struct StreamingView: View {
                 }
                 // The spoken warning uses the same tolerance in every sign mode.
                 if status.dashNavSettings.speedLimitDisplay == .overOnly
-                    || status.dashNavSettings.voiceSpeedLimitEnabled {
+                    || (status.dashNavSettings.voiceEnabled
+                        && status.dashNavSettings.voiceSpeedLimitEnabled
+                        && status.dashNavSettings.speedLimitDisplay != .off) {
                     Stepper(
                         "Speeding tolerance: +\(status.dashNavSettings.speedLimitOverToleranceDisplay) \(status.dashNavSettings.speedLimitToleranceUnit)",
                         value: Binding(

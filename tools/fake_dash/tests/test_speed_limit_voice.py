@@ -57,6 +57,12 @@ def test_speed_limit_voice_wiring():
     stepper = ui[:ui.index('"Speeding tolerance')]
     stepper = stepper[stepper.rindex("if status.dashNavSettings"):]
     assert "voiceSpeedLimitEnabled" in stepper, "tolerance must show when the voice uses it"
+    assert "speedLimitDisplay != .off" in stepper, "no tolerance for a voice that can't speak"
+
+    warner = strip_comments(_src("RideAlerts/SpeedCameraAnnouncer.swift"))
+    change = warner[warner.index("if limit != lastLimit {"):]
+    change = change[:change.index("}")]
+    assert "overTicks = 0" in change, "a new limit must be debounced too"
 
     phrases = _src("Navigation/VoicePhrase.swift")
     assert phrases.count("        speedLimit: \"") == 8

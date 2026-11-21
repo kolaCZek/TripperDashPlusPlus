@@ -462,8 +462,10 @@ struct SpeedLimitWarnerTests {
         do { let spoke = step(&w, 90, over: true, 0); #expect(!spoke) }
         do { let spoke = step(&w, 90, over: true, 1); #expect(spoke) }
         do { let spoke = step(&w, 90, over: true, 70); #expect(!spoke) }
-        // Same episode, but a new sign → warn again (cooldown has passed).
-        do { let spoke = step(&w, 50, over: true, 71); #expect(spoke) }
+        // Same episode, but a new sign → warn again (cooldown has passed),
+        // after its own two over ticks: one tick on a new limit is not enough.
+        do { let spoke = step(&w, 50, over: true, 71); #expect(!spoke) }
+        do { let spoke = step(&w, 50, over: true, 72); #expect(spoke) }
     }
 
     @Test func cooldownHoldsEvenWhenRearmed() {
