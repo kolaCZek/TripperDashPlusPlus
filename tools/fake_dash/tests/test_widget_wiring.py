@@ -51,7 +51,7 @@ class WidgetWiringTests(unittest.TestCase):
         body = decl_body(STATUS, "func runWidgetAction(")
         # Mid-navigation Fuel keeps the plan: station first, then the stops
         # still ahead, swapped in through the Edit route path (replacePlan).
-        fuel = body[body.index('if to == "fuel", let running'):]
+        fuel = body[body.index("let ahead = running.map"):]
         self.assertIn("let ahead = running.map { PlannedRoute.remainingStops(of: $0, fromLegIndex: legIndex) }", body)
         self.assertIn("stops: [Waypoint.from(destination: dest)] + ahead", fuel)
         self.assertIn("PlannedRoute.carryComputedLegs(from: running, into: plan)", fuel)
