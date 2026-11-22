@@ -6,81 +6,41 @@ motorcycle, and the background-location justification is what clears Guideline 2
 
 ---
 
-## REVIEW NOTES (paste this)
+## REVIEW NOTES (paste this), as of 1.0.5 build 2
 
-TripperDash++ streams a live turn-by-turn navigation map to the TFT display of a
-Royal Enfield motorcycle over the bike's Wi-Fi. Because reviewers won't have the
-motorcycle, the app ships with a built-in DEMO MODE that exercises every screen and
-the full navigation pipeline with no hardware required.
+```
+TripperDash++ streams a live turn-by-turn navigation map to the round TFT dash (Tripper) of Royal Enfield Himalayan 450, Guerrilla 450 and Bear 650 motorcycles, over the bike's own Wi-Fi.
 
-### How to test without the motorcycle (Demo Mode)
+Short video of the app connecting to the bike: https://youtu.be/wqzyT9107rk
 
-1. Launch the app. On the home screen, tap the gear icon (top-right) to open
-   Settings. In the "Bikes" section, enable the "Demo mode" toggle.
-2. The bottom button now reads "Connect (demo)". Tap it — the app simulates a
-   connected dash (no real Wi-Fi/socket needed) and shows the streamed map preview
-   in-app.
-3. Pick any destination (search or tap the map) and start navigation, or use
-   "Start free ride (map only)". You will see the same 526×300 map that would be sent to
-   the dash, with route line, heading, ETA, speed limits and voice guidance.
-4. Everything works on a plain iPhone with no accessory. No pairing, no account,
-   no login.
+NEW IN 1.0.5 (what to look at)
+- Optional tips: Settings > Support (4 consumable in-app purchases). They are a pure thank-you: they unlock no content or features, the app keeps no record of them, and every feature stays free.
+- Shortcuts and Siri actions: start a free ride, navigate to a favorite, a saved route or a place, ride status, stop the ride.
+- Quick Ride home-screen widget: Home, Work, Free Ride, Fuel.
+- Turn arrow on the route line, smarter rerouting, Wi-Fi drop tolerance.
 
-There is no demo account because the app has NO accounts and NO login of any kind.
+HOW TO TEST WITHOUT THE MOTORCYCLE (Demo mode)
+1. Tap the gear icon (top right) to open Settings. In "Bikes", turn on "Demo mode".
+2. The bottom button now reads "Connect (demo)". Tap it: the app simulates a connected dash and shows, in the app, the same 526x300 map frame it would stream to the bike.
+3. Search a destination (or tap the map) and start navigation, or use "Start free ride". Route line, turn arrow, ETA, speed limit and voice guidance all run.
+Shortcuts and the widget use the same connect path, so they work in Demo mode too.
+There is no demo account: the app has no accounts and no login.
 
-### Why the app requests "Always" location (Guideline 2.5.4)
+LOCATION AND BACKGROUND MODES (Guideline 2.5.4)
+The app first asks for While Using, and While Using is enough for every feature. Location updates start in the foreground when the rider connects or starts a ride; with the "location" background mode they keep the dash map live after the phone is locked, with the blue location indicator shown. The app then offers the Always upgrade once. It is optional: it only lets iOS keep or relaunch the app in the background more reliably, and declining it blocks nothing. Settings > About > Check permissions shows the current state.
+Location is used only to place the bike on the map, advance the route and render the dash frame. It is not used for ads, analytics, tracking or profiling, and there is no backend or account of ours. It leaves the device only as the rendered map sent to the bike's dash over local Wi-Fi, and as the area and route requests the features need: map tiles (OpenStreetMap), routing and search (Apple MapKit), weather (Open-Meteo), speed cameras and speed limits (OpenStreetMap Overpass), as listed in the privacy policy.
+Background modes: "location" (keeps the dash live with the screen off) and "audio" (spoken turn-by-turn guidance with AVSpeechSynthesizer).
 
-The core function is to keep the navigation map updating ON THE MOTORCYCLE DASH
-while the phone is locked and in a pocket or tank bag during the ride. To keep the
-map/route current with the screen off, the app needs background location.
+WI-FI (Hotspot Configuration and Wi-Fi Info entitlements)
+In real use the app joins the bike's Wi-Fi with NEHotspotConfiguration, so the rider doesn't need Settings with gloves on, and reads the current SSID to confirm it is on the bike's network. Not needed in Demo mode. The bike's Wi-Fi has no internet; maps (OpenStreetMap), routing (Apple MapKit), weather (Open-Meteo) and speed cameras (OpenStreetMap) use cellular. Both networks at once are by design.
 
-- Background location is used ONLY to render and stream the navigation map (place
-  the bike on the map, advance the route, update the dash frame).
-- It is NOT used for advertising, analytics, profiling, or any secondary purpose.
-- Nothing is uploaded to a server we operate — there is no backend. Location stays
-  on the device and is sent only to the bike's local dash over Wi-Fi.
-- The "Always" prompt copy and the in-app permissions checklist (Settings → About →
-  Check permissions) explain this to the user.
+TESTFLIGHT / REVIEW BUILDS ONLY: Settings > Diagnostics > Export log
+Shares the app's own log through the share sheet, only when the user taps it. Hidden in App Store downloads (StoreKit app-transaction environment check).
 
-The app declares the `location` and `audio` background modes:
-- `location` — the wakelock that keeps the map/dash live with the screen off.
-- `audio` — real spoken turn-by-turn voice guidance (AVSpeechSynthesizer). This is
-  a genuine audio feature, not a keep-alive trick.
-
-### Wi-Fi auto-join (Hotspot Configuration entitlement)
-
-In real use the app offers to join the motorcycle's Wi-Fi access point
-(NEHotspotConfiguration) so the rider doesn't fumble with Settings with gloves on.
-This needs no interaction in Demo Mode. The entitlement is
-`com.apple.developer.networking.HotspotConfiguration`, plus
-`com.apple.developer.networking.wifi-info` so the app can read the current SSID
-(`NEHotspotNetwork.fetchCurrent`) to confirm it is on the motorcycle's network.
-
-### Networking / keyless design
-
-Map tiles come from OpenStreetMap, routing/search from Apple MapKit, weather from
-Open-Meteo, speed cameras and speed limits from OpenStreetMap Overpass — all keyless,
-over cellular.
-The Wi-Fi link to the bike (192.168.1.1) carries only the rendered video; it has no
-internet. Two simultaneous networks (cellular + bike Wi-Fi) are by design.
-
-### Settings → Diagnostics → Export log (TestFlight / review builds only)
-
-You will see this section; App Store downloads do not (the app checks the StoreKit
-app-transaction environment and hides it in production). It lets a beta tester
-share the app's own log of the current session as a text file through the system
-share sheet, to report a bug. It only runs when the user taps it, the file goes
-only where the user sends it, and nothing is uploaded automatically.
-
-### Privacy policy
-
-https://tripperdash.kolaczek.cz/privacy.html
-
-### Trademark note
-
-"Royal Enfield" and "Tripper" are trademarks of their owners. TripperDash++ is an
-independent, unaffiliated third-party app. This is stated in the app and on the
-privacy page.
+Privacy policy: https://tripperdash.kolaczek.cz/privacy.html
+"Royal Enfield" and "Tripper" are trademarks of their owners. TripperDash++ is an independent app, not affiliated with Royal Enfield.
+```
+[3472 chars, field max 4000]
 
 ---
 
