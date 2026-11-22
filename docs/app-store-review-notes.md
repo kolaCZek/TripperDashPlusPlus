@@ -26,8 +26,9 @@ HOW TO TEST WITHOUT THE MOTORCYCLE (Demo mode)
 Shortcuts and the widget use the same connect path, so they work in Demo mode too.
 There is no demo account: the app has no accounts and no login.
 
-WHY "ALWAYS" LOCATION (Guideline 2.5.4)
-The core function is keeping the navigation map on the motorcycle dash up to date while the phone is locked in a pocket or tank bag. Background location is used only to place the bike on the map, advance the route and render the dash frame. It is not used for ads, analytics or profiling. There is no backend: location stays on the device and goes only to the bike's local dash over Wi-Fi.
+LOCATION AND BACKGROUND MODES (Guideline 2.5.4)
+The app first asks for While Using, and While Using is enough for every feature. Location updates start in the foreground when the rider connects or starts a ride; with the "location" background mode they keep the dash map live after the phone is locked, with the blue location indicator shown. The app then offers the Always upgrade once. It is optional: it only lets iOS keep or relaunch the app in the background more reliably, and declining it blocks nothing. Settings > About > Check permissions shows the current state.
+Location is used only to place the bike on the map, advance the route and render the dash frame. It is not used for ads, analytics, tracking or profiling, and there is no backend or account of ours. It leaves the device only as the rendered map sent to the bike's dash over local Wi-Fi, and as the area and route requests the features need: map tiles (OpenStreetMap), routing and search (Apple MapKit), weather (Open-Meteo), speed cameras and speed limits (OpenStreetMap Overpass), as listed in the privacy policy.
 Background modes: "location" (keeps the dash live with the screen off) and "audio" (spoken turn-by-turn guidance with AVSpeechSynthesizer).
 
 WI-FI (Hotspot Configuration and Wi-Fi Info entitlements)
@@ -39,7 +40,7 @@ Shares the app's own log through the share sheet, only when the user taps it. Hi
 Privacy policy: https://tripperdash.kolaczek.cz/privacy.html
 "Royal Enfield" and "Tripper" are trademarks of their owners. TripperDash++ is an independent app, not affiliated with Royal Enfield.
 ```
-[2813 chars, field max 4000]
+[3472 chars, field max 4000]
 
 ---
 
