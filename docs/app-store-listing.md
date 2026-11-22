@@ -23,10 +23,10 @@ Full-map nav for your Tripper
 ## Promotional Text (170 chars, editable without a new build)
 
 ```
-New in 1.0.5: Siri Shortcuts, a Quick Ride widget and turn arrows on the route. Plan a ride, lock your phone, and let your Tripper dash do the talking.
+Turn-by-turn on a full moving map, right on your Royal Enfield Tripper dash. Plan a ride, lock your phone and go. Free, with no account and no ads.
 ```
-[151] — this field can be changed any time without review, so use it for
-"what's new right now" instead of burying it in the description.
+[147] — not tied to a version, so it needs no update with each release.
+It can be changed any time without review (e.g. for a season or a sale).
 
 ## Keywords (100 chars max, comma-separated, NO spaces after commas)
 
