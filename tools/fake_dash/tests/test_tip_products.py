@@ -24,7 +24,7 @@ def swift_ids():
 def test_ids_match_storekit_config():
     ids = swift_ids()
     assert ids == [p["productID"] for p in STOREKIT["products"]]
-    assert len(ids) == 3 and all(i.startswith("eu.kolaczek.TripperDashPP.tip.") for i in ids)
+    assert len(ids) == 4 and all(i.startswith("eu.kolaczek.TripperDashPP.tip.") for i in ids)
 
 
 def test_tips_are_consumable_and_nothing_else_is_sold():
