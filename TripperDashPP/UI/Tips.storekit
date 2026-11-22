@@ -1,8 +1,6 @@
 {
   "identifier" : "7C1A9E52",
-  "nonRenewingSubscriptions" : [
-
-  ],
+  "nonRenewingSubscriptions" : [],
   "products" : [
     {
       "displayPrice" : "1.99",
@@ -48,19 +46,30 @@
       "productID" : "eu.kolaczek.TripperDashPP.tip.large",
       "referenceName" : "Tip large",
       "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "79.99",
+      "familyShareable" : false,
+      "internalID" : "7C1A9E5204",
+      "localizations" : [
+        {
+          "description" : "An extreme thank you for TripperDash++.",
+          "displayName" : "Full service",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "eu.kolaczek.TripperDashPP.tip.extreme",
+      "referenceName" : "Tip extreme",
+      "type" : "Consumable"
     }
   ],
   "settings" : {
     "_failTransactionsEnabled" : false,
     "_locale" : "en_US",
     "_storefront" : "USA",
-    "_storeKitErrors" : [
-
-    ]
+    "_storeKitErrors" : []
   },
-  "subscriptionGroups" : [
-
-  ],
+  "subscriptionGroups" : [],
   "version" : {
     "major" : 4,
     "minor" : 0

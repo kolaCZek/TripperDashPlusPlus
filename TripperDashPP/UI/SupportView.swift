@@ -16,6 +16,7 @@ enum Tips {
         "eu.kolaczek.TripperDashPP.tip.small",
         "eu.kolaczek.TripperDashPP.tip.medium",
         "eu.kolaczek.TripperDashPP.tip.large",
+        "eu.kolaczek.TripperDashPP.tip.extreme",
     ]
 
     /// Finishes tips that complete outside the Support screen (Ask to Buy,
@@ -66,7 +67,8 @@ struct SupportView: View {
         switch id {
         case Tips.productIDs[0]: "cup.and.saucer.fill"
         case Tips.productIDs[1]: "fuelpump"
-        default: "fuelpump.fill"
+        case Tips.productIDs[2]: "fuelpump.fill"
+        default: "wrench.and.screwdriver.fill"
         }
     }
 }
