@@ -1,0 +1,77 @@
+{
+  "identifier" : "7C1A9E52",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "7C1A9E5201",
+      "localizations" : [
+        {
+          "description" : "A small thank you for TripperDash++.",
+          "displayName" : "Espresso",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "eu.kolaczek.TripperDashPP.tip.small",
+      "referenceName" : "Tip small",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "3.99",
+      "familyShareable" : false,
+      "internalID" : "7C1A9E5202",
+      "localizations" : [
+        {
+          "description" : "A bigger thank you for TripperDash++.",
+          "displayName" : "Fuel top-up",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "eu.kolaczek.TripperDashPP.tip.medium",
+      "referenceName" : "Tip medium",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "7C1A9E5203",
+      "localizations" : [
+        {
+          "description" : "A huge thank you for TripperDash++.",
+          "displayName" : "Full tank",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "eu.kolaczek.TripperDashPP.tip.large",
+      "referenceName" : "Tip large",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "79.99",
+      "familyShareable" : false,
+      "internalID" : "7C1A9E5204",
+      "localizations" : [
+        {
+          "description" : "An extreme thank you for TripperDash++.",
+          "displayName" : "Full service",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "eu.kolaczek.TripperDashPP.tip.extreme",
+      "referenceName" : "Tip extreme",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
