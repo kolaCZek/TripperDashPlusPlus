@@ -35,7 +35,21 @@ struct SupportView: View {
     var body: some View {
         List {
             Section {
-                Text("I'm really glad you like TripperDash++. I build it in my spare time, and every feature is free, with no ads and no tracking. If it makes your rides better, a tip helps me keep it going.")
+                VStack(spacing: 12) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.red)
+                    Text("Thanks for riding with TripperDash++")
+                        .font(.title3.bold())
+                    Text("I build it in my spare time. Every feature is free, with no ads and no tracking.")
+                        .foregroundStyle(.secondary)
+                    Text("If it makes your rides better, a tip helps me keep it going.")
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
             }
             Section {
                 ForEach(Tips.productIDs, id: \.self) { id in
