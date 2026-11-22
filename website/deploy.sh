@@ -26,9 +26,10 @@ for f in $(find . -type f | sed 's#^\./##' | sort); do
     *) echo "unknown type: $f" >&2; exit 1 ;;
   esac
 done
-# CloudFront asks S3 for /support and /changelog (no trailing slash, no index document).
+# CloudFront asks S3 for /support, /changelog and /donate (no trailing slash, no index document).
 up support/index.html support "text/html;charset=utf-8" "$HTML"
 up changelog/index.html changelog "text/html;charset=utf-8" "$HTML"
+up donate/index.html donate "text/html;charset=utf-8" "$HTML"
 
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" \
   --query 'Invalidation.Id' --output text
