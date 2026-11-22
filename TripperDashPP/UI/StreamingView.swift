@@ -274,6 +274,18 @@ struct StreamingView: View {
                 LogExportSection()
             }
 
+            Section {
+                NavigationLink {
+                    SupportView()
+                } label: {
+                    Label {
+                        Text("Support TripperDash++")
+                    } icon: {
+                        Image(systemName: "heart.fill").foregroundStyle(.red)
+                    }
+                }
+            }
+
             Section("About") {
                 // "1.0.3 (6) · abc1234": marketing version, CFBundleVersion
                 // build number in parentheses (what TestFlight shows), then
