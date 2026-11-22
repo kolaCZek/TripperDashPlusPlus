@@ -4,7 +4,7 @@ Source of https://tripperdash.kolaczek.cz: four static pages, no build step,
 no JavaScript, no third-party requests.
 
 - `site/`: exactly what is served (S3 bucket behind CloudFront).
-  - `index.html`, `support/index.html`, `changelog/index.html`, `privacy.html`, `404.html`, `site.css`
+  - `index.html`, `support/index.html`, `changelog/index.html`, `donate/index.html`, `privacy.html`, `404.html`, `site.css`
   - `robots.txt`, `sitemap.xml`, `googleff63d25268b6d683.html` (Search Console ownership check; keep it)
   - `fonts/`: Barlow and Barlow Condensed, latin subset (SIL OFL, see `licenses/`)
   - `shots/`: the app screenshots (webp), `logo*.png`, `favicon.ico`, `appstore-badge.svg`, `og-image.jpg`, `dash-render*.webp`
