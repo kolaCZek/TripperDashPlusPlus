@@ -279,15 +279,36 @@ final class DashNavSettings {
     /// from the left), plus via-point ticks and a weather-hazard band.
     /// Defaults ON — it's an at-a-glance ride gauge, non-critical, and
     /// costs nothing (all data is already local: breadcrumb distance vs.
-    /// planned total). When OFF, `drawProgressBar` is a no-op.
+    /// planned total).
     ///
     /// IMPORTANT — honest scope (Martin, 8/2026): there is NO traffic
     /// tint. Apple `MKDirections` returns only a scalar
     /// `expectedTravelTime`, no geometry-resolved flow, so a true
     /// yellow/red "jam at km 12" colouring is impossible on Apple and
     /// waits on the BYOK TomTom provider (see routing-engines.md).
-    var progressBarEnabled: Bool = true {
+    /// The streamed map's bottom row: the route progress bar, a compass
+    /// tape, or nothing. `.progress` falls back to the compass in free
+    /// ride (no route to measure). Replaced the v11 `progressBarEnabled`
+    /// toggle; `resolve` maps an old ON to `.progress`, OFF to `.off`.
+    var bottomRow: BottomRow = .progress {
         didSet { persist() }
+    }
+
+    enum BottomRow: String, Codable, CaseIterable, Identifiable {
+        case progress
+        case compass
+        case off
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .progress: return "Route progress"
+            case .compass:  return "Compass"
+            case .off:      return "Off"
+            }
+        }
+        static func resolve(_ stored: BottomRow?, legacyProgressBar: Bool?) -> BottomRow {
+            stored ?? ((legacyProgressBar ?? true) ? .progress : .off)
+        }
     }
 
     /// Tolerance (km/h) the rider must EXCEED the posted limit by before
@@ -494,6 +515,7 @@ final class DashNavSettings {
         var trafficRerouteEnabled: Bool?
         var trafficRerouteSavingSeconds: TimeInterval?
         var progressBarEnabled: Bool?
+        var bottomRow: BottomRow?
     }
 
     init() {
@@ -520,7 +542,7 @@ final class DashNavSettings {
         self.voiceSpeedLimitEnabled = p.voiceSpeedLimitEnabled ?? false
         self.trafficRerouteEnabled = p.trafficRerouteEnabled ?? false
         self.trafficRerouteSavingSeconds = p.trafficRerouteSavingSeconds ?? 300
-        self.progressBarEnabled = p.progressBarEnabled ?? true
+        self.bottomRow = BottomRow.resolve(p.bottomRow, legacyProgressBar: p.progressBarEnabled)
     }
 
     private func persist() {
@@ -541,7 +563,9 @@ final class DashNavSettings {
             voiceSpeedLimitEnabled: voiceSpeedLimitEnabled,
             trafficRerouteEnabled: trafficRerouteEnabled,
             trafficRerouteSavingSeconds: trafficRerouteSavingSeconds,
-            progressBarEnabled: progressBarEnabled
+            // Still written so a downgrade to 1.0.5 keeps the bar choice.
+            progressBarEnabled: bottomRow == .progress,
+            bottomRow: bottomRow
         )
         if let raw = try? JSONEncoder().encode(p) {
             UserDefaults.standard.set(raw, forKey: Self.storeKey)

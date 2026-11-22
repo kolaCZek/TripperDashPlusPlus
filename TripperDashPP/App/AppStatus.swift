@@ -439,6 +439,7 @@ final class AppStatus {
         let s = MapViewSource(locationService: locationService,
                               activeNavigator: activeNavigator)
         s.perspectiveEnabled = mapStyleSettings.perspective
+        s.bottomRow = dashNavSettings.bottomRow
         _mapViewSource = s
         return s
     }
@@ -2617,6 +2618,12 @@ final class AppStatus {
     func setMapPerspective(_ on: Bool) {
         mapStyleSettings.perspective = on
         mapViewSource.perspectiveEnabled = on
+    }
+
+    /// Settings → Map → Bottom row. Persists and applies from the next frame.
+    func setBottomRow(_ row: DashNavSettings.BottomRow) {
+        dashNavSettings.bottomRow = row
+        mapViewSource.bottomRow = row
     }
 
     // MARK: - Build info (handy in the diagnostics overlay)

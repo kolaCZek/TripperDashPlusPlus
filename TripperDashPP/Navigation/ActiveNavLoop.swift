@@ -546,7 +546,7 @@ final class ActiveNavLoop {
         //     so the bar disappears the same tick the toggle flips. The
         //     fraction is a pure read off the navigator (breadcrumb vs.
         //     planned total) — no MapKit work here.
-        if settings.progressBarEnabled {
+        if settings.bottomRow == .progress {
             // Locate a known weather hazard on the bar. `distanceAhead` is
             // how far along the route ahead of the rider the hazard sits; the
             // rider is at `rideProgressFraction` of `plannedTotalDistance`,

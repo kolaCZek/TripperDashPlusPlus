@@ -510,6 +510,9 @@ final class MapViewSource: NSObject, FrameSource {
     /// into `groundContext` and warped into the frame by `DashPerspective`
     /// (`compositePerspective`). Off = the flat map, drawn straight into
     /// the frame as before.
+    /// Settings → Map → Bottom row (`AppStatus.setBottomRow`).
+    var bottomRow: DashNavSettings.BottomRow = .progress
+
     var perspectiveEnabled = true {
         didSet { if !perspectiveEnabled { displayedTilt = 0; coarsePositionCache = nil } }
     }
@@ -1346,6 +1349,8 @@ extension MapViewSource {
         // at the very bottom where nothing else lives. No-op when the nav
         // pump hasn't pushed a `rideProgress` (feature off / not nav).
         drawProgressBar(into: ctx)
+        // Compass tape in the same slot whenever the bar isn't drawn.
+        drawCompassTape(into: ctx)
 
         // Dash notice ("You've arrived" and friends) — drawn LAST so it sits
         // above every map overlay, centred above the dash's turn card,
@@ -2579,13 +2584,14 @@ extension MapViewSource {
         at origin: CGPoint,
         width: CGFloat,
         fontSize: CGFloat,
-        bold: Bool
+        bold: Bool,
+        color: UIColor = .white
     ) {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: bold
                 ? UIFont.systemFont(ofSize: fontSize, weight: overlayTextWeight)
                 : UIFont.systemFont(ofSize: fontSize, weight: .regular),
-            .foregroundColor: UIColor.white,
+            .foregroundColor: color,
             .strokeColor: UIColor.black,
             .strokeWidth: -3.0  // negative = stroke + fill
         ]
@@ -2865,7 +2871,7 @@ extension MapViewSource {
         // under the pill's left part, and its position chevron overhangs it.
         // Lift the pill above that zone too, or the bar paints over the
         // pill's bottom and the chevron over the text.
-        let barBump: CGFloat = rideProgress != nil
+        let barBump: CGFloat = bottomRow != .off   // bar or compass tape
             ? Self.progressBarZoneHeight + 4 - margin
             : 0
         let originY = frameSize.height - margin - pillH - max(signBump, barBump)
@@ -3681,6 +3687,79 @@ extension MapViewSource {
     /// called on the flat outer `ctx` after the map is composited, in
     /// Y-DOWN pixel space, exactly like the pills/sign. No-op unless the
     /// nav pump pushed a `rideProgress` (feature off / not navigating).
+    /// Bottom-row compass tape: the heading the map is rotated to
+    /// (`lastHeading`, so tape and map always agree) as a strip of
+    /// N / NE / E... letters with 15° ticks under a gold centre notch, centred
+    /// under the puck. Sits inside the progress bar's slot (same centre
+    /// line, x from `progressBarLeftInset`, no taller than its marker), so
+    /// it clears everything the bar does. Drawn whenever the bar isn't:
+    /// always in Compass mode, in free ride in Route progress mode.
+    fileprivate func drawCompassTape(into ctx: CGContext) {
+        guard bottomRow != .off, rideProgress == nil else { return }
+        let cx = puckCenter.x
+        let half = cx - Self.progressBarLeftInset
+        let h = 2 * Self.progressMarkerHalfHeight
+        let midY = frameSize.height - Self.progressBarBottomMargin - Self.progressBarHeight / 2
+        let rect = CGRect(x: cx - half, y: midY - h / 2, width: 2 * half, height: h)
+        let path = CGPath(roundedRect: rect, cornerWidth: h / 2, cornerHeight: h / 2, transform: nil)
+
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fillPath()
+        ctx.addPath(path)
+        ctx.clip()   // letters slide out under the rounded ends
+
+        // Sized for a glance at speed (rider, 11/2026: 13 pt letters and 1 px
+        // ticks were hard to read on the dash): 16 pt, 2 px ticks.
+        let fontSize: CGFloat = 16
+        let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
+        ctx.setFillColor(CGColor(red: 0.80, green: 0.81, blue: 0.83, alpha: 1))
+        for mark in Self.compassTapeMarks(heading: lastHeading, halfWidth: half + 20) {
+            let x = cx + mark.dx
+            guard let label = mark.label else {
+                ctx.fill(CGRect(x: x - 1, y: midY - 4, width: 2, height: 8))
+                continue
+            }
+            let w = (label as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
+            Self.drawText(label, in: ctx, at: CGPoint(x: x - w / 2, y: midY - fontSize / 2 - 2.5),
+                          width: w + 4, fontSize: fontSize, bold: true,
+                          color: label == "N" ? UIColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1) : .white)
+        }
+
+        // Centre notch: where the bike points.
+        ctx.setFillColor(CGColor(red: 0.83, green: 0.63, blue: 0.16, alpha: 1))
+        ctx.move(to: CGPoint(x: cx - 6, y: rect.minY))
+        ctx.addLine(to: CGPoint(x: cx + 6, y: rect.minY))
+        ctx.addLine(to: CGPoint(x: cx, y: rect.minY + 5))
+        ctx.closePath()
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.addPath(path)
+        ctx.setStrokeColor(CGColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1))
+        ctx.setLineWidth(2)
+        ctx.strokePath()
+    }
+
+    /// Tape marks every 15° within `halfWidth` px of the centre for a
+    /// heading (degrees CW from north): x offset from the centre (east of
+    /// the heading is right) and the cardinal / intercardinal label on
+    /// multiples of 45°, `nil` for a plain tick. Wraps through north.
+    nonisolated static func compassTapeMarks(heading: Double, halfWidth: CGFloat,
+                                             pxPerDegree: CGFloat = 1.25) -> [(dx: CGFloat, label: String?)] {
+        let names = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let span = Double(halfWidth / pxPerDegree)
+        var out: [(dx: CGFloat, label: String?)] = []
+        var deg = ((heading - span) / 15).rounded(.up) * 15
+        while deg <= heading + span {
+            let norm = ((Int(deg.rounded()) % 360) + 360) % 360
+            out.append((CGFloat(deg - heading) * pxPerDegree, norm % 45 == 0 ? names[norm / 45] : nil))
+            deg += 15
+        }
+        return out
+    }
+
     fileprivate func drawProgressBar(into ctx: CGContext) {
         guard let p = rideProgress else { return }
 

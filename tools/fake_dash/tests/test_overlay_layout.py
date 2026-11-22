@@ -319,3 +319,31 @@ def test_demo_preview_uses_the_measured_dash_geometry():
     assert ".position(MapViewSource.navCardCenter)" in card
     assert "private static let width: CGFloat = 526" in src
     assert "private static let frameHeight: CGFloat = 300" in src
+
+
+TAPE = "fileprivate func drawCompassTape(into ctx: CGContext)"
+
+
+def test_compass_tape_sits_inside_the_progress_bar_slot():
+    # The bottom-row compass replaces the bar in the same slot, so every
+    # check above that holds for the bar ("bar" box) holds for the tape.
+    body = strip_comments(decl_body(SRC, TAPE))
+    assert "guard bottomRow != .off, rideProgress == nil else { return }" in body
+    assert "let cx = puckCenter.x" in body
+    assert "let half = cx - Self.progressBarLeftInset" in body
+    assert "let h = 2 * Self.progressMarkerHalfHeight" in body
+    assert ("let midY = frameSize.height - Self.progressBarBottomMargin"
+            " - Self.progressBarHeight / 2") in body
+    assert "ctx.setLineWidth(2)" in body
+    half, h, mid = PUCK_C[0] - BAR_L, 2 * MARK_HH, H - BAR_BM - BAR_H / 2
+    stroke = 1.0   # half the 2 px outline
+    tape = (PUCK_C[0] - half - stroke, mid - h / 2 - stroke, PUCK_C[0] + half + stroke, mid + h / 2 + stroke)
+    bar = rects(False, False, True, False, 100, 0)["bar"]
+    assert bar[0] <= tape[0] and tape[2] <= bar[2] and bar[1] <= tape[1] and tape[3] <= bar[3], (tape, bar)
+    assert on_glass(tape) and off_nav_card(tape)
+    # Drawn right after the bar; the weather pill lifts for either.
+    compose = strip_comments(SRC)
+    assert compose.index("drawProgressBar(into: ctx)\n") < compose.index("drawCompassTape(into: ctx)")
+    assert "let barBump: CGFloat = bottomRow != .off" in strip_comments(decl_body(SRC, PILL))
+    loop = (ROOT / "TripperDashPP" / "Navigation" / "ActiveNavLoop.swift").read_text()
+    assert "if settings.bottomRow == .progress {" in loop
