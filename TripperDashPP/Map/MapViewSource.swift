@@ -3710,25 +3710,27 @@ extension MapViewSource {
         ctx.addPath(path)
         ctx.clip()   // letters slide out under the rounded ends
 
-        let fontSize: CGFloat = 13
+        // Sized for a glance at speed (rider, 11/2026: 13 pt letters and 1 px
+        // ticks were hard to read on the dash): 16 pt, 2 px ticks.
+        let fontSize: CGFloat = 16
         let font = UIFont.systemFont(ofSize: fontSize, weight: Self.overlayTextWeight)
-        ctx.setFillColor(CGColor(red: 0.62, green: 0.64, blue: 0.67, alpha: 1))
+        ctx.setFillColor(CGColor(red: 0.80, green: 0.81, blue: 0.83, alpha: 1))
         for mark in Self.compassTapeMarks(heading: lastHeading, halfWidth: half + 20) {
             let x = cx + mark.dx
             guard let label = mark.label else {
-                ctx.fill(CGRect(x: x - 0.5, y: midY - 3, width: 1, height: 6))
+                ctx.fill(CGRect(x: x - 1, y: midY - 4, width: 2, height: 8))
                 continue
             }
             let w = (label as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
-            Self.drawText(label, in: ctx, at: CGPoint(x: x - w / 2, y: midY - fontSize / 2 - 1),
+            Self.drawText(label, in: ctx, at: CGPoint(x: x - w / 2, y: midY - fontSize / 2 - 2.5),
                           width: w + 4, fontSize: fontSize, bold: true,
                           color: label == "N" ? UIColor(red: 0.93, green: 0.20, blue: 0.18, alpha: 1) : .white)
         }
 
         // Centre notch: where the bike points.
         ctx.setFillColor(CGColor(red: 0.83, green: 0.63, blue: 0.16, alpha: 1))
-        ctx.move(to: CGPoint(x: cx - 5, y: rect.minY))
-        ctx.addLine(to: CGPoint(x: cx + 5, y: rect.minY))
+        ctx.move(to: CGPoint(x: cx - 6, y: rect.minY))
+        ctx.addLine(to: CGPoint(x: cx + 6, y: rect.minY))
         ctx.addLine(to: CGPoint(x: cx, y: rect.minY + 5))
         ctx.closePath()
         ctx.fillPath()
@@ -3736,7 +3738,7 @@ extension MapViewSource {
 
         ctx.addPath(path)
         ctx.setStrokeColor(CGColor(red: 0.6, green: 0.6, blue: 0.6, alpha: 1))
-        ctx.setLineWidth(1.5)
+        ctx.setLineWidth(2)
         ctx.strokePath()
     }
 

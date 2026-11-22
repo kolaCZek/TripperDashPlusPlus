@@ -334,9 +334,9 @@ def test_compass_tape_sits_inside_the_progress_bar_slot():
     assert "let h = 2 * Self.progressMarkerHalfHeight" in body
     assert ("let midY = frameSize.height - Self.progressBarBottomMargin"
             " - Self.progressBarHeight / 2") in body
-    assert "ctx.setLineWidth(1.5)" in body
+    assert "ctx.setLineWidth(2)" in body
     half, h, mid = PUCK_C[0] - BAR_L, 2 * MARK_HH, H - BAR_BM - BAR_H / 2
-    stroke = 0.75
+    stroke = 1.0   # half the 2 px outline
     tape = (PUCK_C[0] - half - stroke, mid - h / 2 - stroke, PUCK_C[0] + half + stroke, mid + h / 2 + stroke)
     bar = rects(False, False, True, False, 100, 0)["bar"]
     assert bar[0] <= tape[0] and tape[2] <= bar[2] and bar[1] <= tape[1] and tape[3] <= bar[3], (tape, bar)
