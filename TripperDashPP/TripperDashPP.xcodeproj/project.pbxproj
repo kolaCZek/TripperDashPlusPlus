@@ -31,6 +31,7 @@
 		7E5700000000000000000C02 /* SavedRouteFromPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */; };
 		7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000E0 /* TlvEtaFormatTests.swift */; };
 		7EED00000000000000005E11 /* SunsetPillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED00000000000000005E10 /* SunsetPillTests.swift */; };
+		7EED00000000000000006C11 /* CompassTapeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED00000000000000006C10 /* CompassTapeTests.swift */; };
 		7EED000000000000000000F1 /* ManeuverDistanceTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */; };
 		7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */; };
 		5C17000000000000000000B1 /* ShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C17000000000000000000B0 /* ShortcutPolicyTests.swift */; };
@@ -206,6 +207,7 @@
 		7E5700000000000000000C01 /* SavedRouteFromPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedRouteFromPlanTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000E0 /* TlvEtaFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TlvEtaFormatTests.swift; sourceTree = "<group>"; };
 		7EED00000000000000005E10 /* SunsetPillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunsetPillTests.swift; sourceTree = "<group>"; };
+		7EED00000000000000006C10 /* CompassTapeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompassTapeTests.swift; sourceTree = "<group>"; };
 		7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManeuverDistanceTextTests.swift; sourceTree = "<group>"; };
 		7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectBudgetTests.swift; sourceTree = "<group>"; };
 		5C17000000000000000000B0 /* ShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutPolicyTests.swift; sourceTree = "<group>"; };
@@ -376,6 +378,7 @@
 				7E57000000000000000000A6 /* RideStatsFormattingTests.swift */,
 				7EED000000000000000000E0 /* TlvEtaFormatTests.swift */,
 				7EED00000000000000005E10 /* SunsetPillTests.swift */,
+				7EED00000000000000006C10 /* CompassTapeTests.swift */,
 				7EED000000000000000000F0 /* ManeuverDistanceTextTests.swift */,
 				7EED0000000000000000D1F0 /* ReconnectBudgetTests.swift */,
 				5C17000000000000000000B0 /* ShortcutPolicyTests.swift */,
@@ -827,6 +830,7 @@
 				7E57000000000000000000A7 /* RideStatsFormattingTests.swift in Sources */,
 				7EED000000000000000000E1 /* TlvEtaFormatTests.swift in Sources */,
 				7EED00000000000000005E11 /* SunsetPillTests.swift in Sources */,
+				7EED00000000000000006C11 /* CompassTapeTests.swift in Sources */,
 				7EED000000000000000000F1 /* ManeuverDistanceTextTests.swift in Sources */,
 				7EED0000000000000000D1F1 /* ReconnectBudgetTests.swift in Sources */,
 				5C17000000000000000000B1 /* ShortcutPolicyTests.swift in Sources */,
