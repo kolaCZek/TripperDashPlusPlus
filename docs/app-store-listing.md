@@ -23,10 +23,10 @@ Full-map nav for your Tripper
 ## Promotional Text (170 chars, editable without a new build)
 
 ```
-Now with a steadier turn-by-turn bubble and a crash fix when re-planning a route. Ride, lock your phone, and let the dash do the talking.
+Turn-by-turn on a full moving map, right on your Royal Enfield Tripper dash. Plan a ride, lock your phone and go. Free, with no account and no ads.
 ```
-[137] — this field can be changed any time without review, so use it for
-"what's new right now" instead of burying it in the description.
+[147] — not tied to a version, so it needs no update with each release.
+It can be changed any time without review (e.g. for a season or a sale).
 
 ## Keywords (100 chars max, comma-separated, NO spaces after commas)
 
@@ -119,6 +119,7 @@ On your phone:
 
 Built to respect you and your bike:
 • No account, no sign-up, no tracking, no ads
+• Every feature is free. If you like it, optional one-off tips in Settings → Support help keep it going
 • Nothing about your rides is uploaded to us - routing is Apple Maps, maps are OpenStreetMap, and everything stays on your device
 • Runs with the screen locked and the phone in your pocket, on "Always" or "While Using" location
 
@@ -130,7 +131,7 @@ Requires a Royal Enfield motorcycle with the round, map-capable Tripper Dash (Be
 
 TripperDash++ is an independent app, not affiliated with or endorsed by Royal Enfield. "Royal Enfield" and "Tripper" are trademarks of their respective owners.
 ```
-[3574]
+[3678]
 
 Why it is shaped this way:
 - The first two lines are what shows before "more" — they carry the whole
@@ -157,6 +158,7 @@ New in 1.0.5:
 • Shortcuts and Siri - start a free ride, navigate to a favorite, a saved route or a place, check your ride status, or stop the ride, hands-free. Tip: a Shortcuts automation can start the free ride the moment your phone joins the bike's Wi-Fi.
 • Turn arrow on the route - the next turn is drawn right on the route line on the dash, easy to read at any zoom.
 • Smarter rerouting - off the route, the new route now carries on in your direction of travel instead of sending you back the way you came.
+• Support the app - optional one-off tips in Settings → Support. They unlock nothing; every feature stays free.
 
 Fixes:
 • A stop removed from the dash menu disappears at once, and the route is recalculated from where you are.
@@ -165,7 +167,7 @@ Fixes:
 • Short Wi-Fi blips between the phone and the dash no longer drop the connection.
 • The second turn on the dash (look-ahead) now shows reliably.
 ```
-[1034]
+[1146]
 
 First public release (1.0.4) used a short "First public release" note.
 List user-visible changes only; skip fixes nobody can see.
