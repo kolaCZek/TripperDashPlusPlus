@@ -45,6 +45,7 @@ struct TripperDashPPApp: App {
                     // live reads/writes from the prerender loop.
                     await TileDiskCache.shared.evictIfNeeded()
                 }
+                .task { await Tips.finishUpdates() }
         }
     }
 }

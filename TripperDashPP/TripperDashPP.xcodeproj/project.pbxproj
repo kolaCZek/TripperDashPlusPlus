@@ -139,6 +139,7 @@
 		FEA0000000000000000000B1 /* RouteProgressMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEA0000000000000000000B0 /* RouteProgressMap.swift */; };
 		D3D300000000000000000002 /* DashPerspective.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D300000000000000000001 /* DashPerspective.swift */; };
 		D3D300000000000000000004 /* DashPerspectiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3D300000000000000000003 /* DashPerspectiveTests.swift */; };
+		5A11F00000000000000000A2 /* SupportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A11F00000000000000000A1 /* SupportView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -213,6 +214,7 @@
 		A486F0422FE2034700AA36C3 /* TripperDashPPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripperDashPPApp.swift; sourceTree = "<group>"; };
 		A486F0442FE2034700AA36C3 /* MapPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapPickerView.swift; sourceTree = "<group>"; };
 		A486F0452FE2034700AA36C3 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		5A11F00000000000000000A3 /* Tips.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Tips.storekit; sourceTree = "<group>"; };
 		A486F0462FE2034700AA36C3 /* StreamingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingView.swift; sourceTree = "<group>"; };
 		A486F0512FE2069B00AA36C3 /* TripperDashPP-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "TripperDashPP-Info.plist"; sourceTree = "<group>"; };
 		A486F05F2FE2DD0800AA36C3 /* BikeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BikeLink.swift; sourceTree = "<group>"; };
@@ -316,6 +318,7 @@
 		FEA0000000000000000000B0 /* RouteProgressMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteProgressMap.swift; sourceTree = "<group>"; };
 		D3D300000000000000000001 /* DashPerspective.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPerspective.swift; sourceTree = "<group>"; };
 		D3D300000000000000000003 /* DashPerspectiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashPerspectiveTests.swift; sourceTree = "<group>"; };
+		5A11F00000000000000000A1 /* SupportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -455,11 +458,13 @@
 				7BFF19EA4B0DFEC1244F8F68 /* InteractiveMapView.swift */,
 				A486F0452FE2034700AA36C3 /* RootView.swift */,
 				A486F0462FE2034700AA36C3 /* StreamingView.swift */,
+				5A11F00000000000000000A3 /* Tips.storekit */,
 				A4DE70000000000000D10001 /* PermissionsView.swift */,
 				A4DE70000000000000B10001 /* AddBikeSheet.swift */,
 				7E5700000000000000000A57 /* RideStatsPanel.swift */,
 				7E5700000000000000000A65 /* RideHistoryView.swift */,
 				A4F0FFFF000000000000A003 /* Navigation */,
+				5A11F00000000000000000A1 /* SupportView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -940,6 +945,7 @@
 				A4F0FFFF000000000000E103 /* VoicePromptScheduler.swift in Sources */,
 				A4F0FFFF000000000000E501 /* RecentDestinationsStore.swift in Sources */,
 				D3D300000000000000000002 /* DashPerspective.swift in Sources */,
+				5A11F00000000000000000A2 /* SupportView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
