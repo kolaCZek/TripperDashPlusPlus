@@ -206,6 +206,18 @@ def parse_google(url):
     return None
 
 
+def parse_kurviger(url):
+    """Mirror of Swift parseKurviger: every `point` in order, named by `pname.N`."""
+    q = parse_qs(urlparse(url).query)
+    out = []
+    for i, p in enumerate(q.get("point", [])):
+        c = parse_latlon_pair(p)
+        if c:
+            name = (q.get(f"pname.{i}") or [None])[0] or None
+            out.append({"coord": c, "name": name})
+    return out or None
+
+
 def is_supported_maps_url(url):
     """Mirror of Swift SharedDestinationResolver.isSupportedMapsURL: True for
     Google Maps / Apple Maps / geo: URLs, False for everything else."""
@@ -217,6 +229,8 @@ def is_supported_maps_url(url):
     if "google." in host or "goo.gl" in host:
         return True
     if "maps.apple" in host:
+        return True
+    if "kurviger." in host or host == "kurv.gr":
         return True
     return False
 
@@ -231,6 +245,10 @@ def parse(url=None, text=None):
                 return ("waypoints", wps)
         if "google." in host or "goo.gl" in host:
             wps = parse_google(url)
+            if wps:
+                return ("waypoints", wps)
+        if "kurviger." in host:
+            wps = parse_kurviger(url)
             if wps:
                 return ("waypoints", wps)
         if scheme == "geo":
@@ -339,6 +357,44 @@ class GoogleMapsTests(unittest.TestCase):
         self.assertEqual(wps[2]["name"], "Prague")
 
 
+class KurvigerTests(unittest.TestCase):
+    # Real expansion of https://kurv.gr/3GJsM (first 301 Location): three
+    # points, pname indices beyond the point count (a Kurviger quirk) and
+    # shaping flags.
+    URL = ("https://kurviger.de/?point=53.245649%2C10.452933&point=52.565082%2C11.984711"
+           "&point=51.403381%2C12.923763&locale=de&vehicle=motorcycle"
+           "&weighting=curvaturefastest&pname.0=Elbebr%C3%BCcke%20D%C3%B6mitz"
+           "&pname.1=Arendsee&pname.2=Brockenblick&pname.4=Schloss%20Altenhausen"
+           "&shaping.3=true&document_title=Harburg%20-%20Falkenhain")
+
+    def test_route_points_in_order_with_names(self):
+        kind, wps = parse(url=self.URL)
+        self.assertEqual(kind, "waypoints")
+        self.assertEqual(len(wps), 3)  # out-of-range pname.4 ignored
+        self.assertAlmostEqual(wps[0]["coord"][0], 53.245649, places=5)
+        self.assertEqual(wps[0]["name"], "Elbebrücke Dömitz")
+        self.assertAlmostEqual(wps[2]["coord"][1], 12.923763, places=5)
+        self.assertEqual(wps[2]["name"], "Brockenblick")
+
+    def test_unnamed_shaping_points_kept(self):
+        # Shaping points keep the curvy shape of the planned route.
+        kind, wps = parse(url="https://kurviger.com/en?point=35.52355%2C-82.52869"
+                              "&point=35.49974%2C-82.5217&shaping.1=true&weight.1=fastest")
+        self.assertEqual(kind, "waypoints")
+        self.assertEqual(len(wps), 2)
+        self.assertIsNone(wps[1]["name"])
+
+    def test_api_host_gpx_link(self):
+        kind, wps = parse(url="https://api.kurviger.de/route?point=49.782494%2C7.9568"
+                              "&pname.0=Continue&point=49.793862%2C7.920515")
+        self.assertEqual(kind, "waypoints")
+        self.assertEqual(len(wps), 2)
+
+    def test_supported_and_short_link(self):
+        self.assertTrue(is_supported_maps_url("https://kurv.gr/3GJsM"))
+        self.assertTrue(is_supported_maps_url("https://kurviger.com/en?point=1,2"))
+
+
 class TextFallbackTests(unittest.TestCase):
     def test_bare_latlon(self):
         kind, wps = parse(text="50.0755, 14.4378")
@@ -416,6 +472,12 @@ class SwiftDriftGuards(unittest.TestCase):
     def test_short_link_expanded(self):
         self.assertIn("maps.app.goo.gl", self.resolver)
         self.assertIn("followRedirect", self.resolver)
+
+    def test_kurviger_handled(self):
+        for token in ('"kurv.gr"', '"kurviger."', '"point"', '"pname.', "parseKurviger"):
+            self.assertIn(token, self.resolver, f"Kurviger token {token} missing")
+        share = SWIFT_SHARE.read_text(encoding="utf-8")
+        self.assertIn("Kurviger", share)
 
     def test_null_island_guard_present(self):
         self.assertIn("lat == 0 && lon == 0", self.resolver)

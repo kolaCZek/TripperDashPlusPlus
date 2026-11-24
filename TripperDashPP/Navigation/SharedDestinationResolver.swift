@@ -3,7 +3,7 @@
 //  TripperDashPP
 //
 //  "Share to TripperDash++" — Tesla-style. When the rider shares a place
-//  or a route from Google Maps or Apple Maps into the app, this resolves
+//  or a route from Google Maps, Apple Maps or Kurviger into the app, this resolves
 //  the shared payload (a URL or a plain-text blob) into an ordered list
 //  of waypoints that pre-fill the planner.
 //
@@ -106,6 +106,13 @@ enum SharedDestinationResolver {
             // --- Google Maps (expanded) ---
             if host.contains("google.") || host.contains("goo.gl") {
                 if let wps = parseGoogleMaps(u), !wps.isEmpty {
+                    return .waypoints(wps)
+                }
+            }
+
+            // --- Kurviger (kurviger.de / .com / api.kurviger.de, expanded kurv.gr) ---
+            if host.contains("kurviger.") {
+                if let wps = parseKurviger(u), !wps.isEmpty {
                     return .waypoints(wps)
                 }
             }
@@ -269,6 +276,27 @@ enum SharedDestinationResolver {
         return nil
     }
 
+    // MARK: - Kurviger
+
+    /// `https://kurviger.de/?point=lat,lon&point=…&pname.0=Name&shaping.1=true`
+    /// — every `point` in order (start, stops and shaping points), named by
+    /// the matching `pname.N`. Shaping points are kept as stops so the
+    /// Apple-routed legs still follow the curvy roads the rider planned.
+    // ponytail: shaping points become plain stops (named "Stop N"); a real
+    // via kind in PlannedRoute if riders want them skipped on arrival.
+    static func parseKurviger(_ url: URL) -> [ResolvedWaypoint]? {
+        guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems else { return nil }
+        let points = items.filter { $0.name == "point" }.compactMap(\.value)
+        var out: [ResolvedWaypoint] = []
+        for (i, p) in points.enumerated() {
+            guard let c = parseLatLonPair(p) else { continue }
+            let name = items.first { $0.name == "pname.\(i)" }?.value
+            out.append(ResolvedWaypoint(coordinate: c, name: name?.isEmpty == false ? name : nil))
+        }
+        return out.isEmpty ? nil : out
+    }
+
     // MARK: - Coordinate scanners
 
     /// `@37.33,-122.03,15z` → first coord pair after an `@`.
@@ -321,7 +349,7 @@ enum SharedDestinationResolver {
 
     /// Whether a shared URL comes from a source we can actually parse:
     /// Google Maps (incl. short-links), Apple Maps (incl. the maps.apple/p/
-    /// short form), or a bare `geo:` URI. Anything else (Waze, a browser
+    /// short form), Kurviger (incl. kurv.gr short-links), or a bare `geo:` URI. Anything else (Waze, a browser
     /// sharing a random article, another navigation app) is unsupported and
     /// the Share extension surfaces a friendly "only Google/Apple Maps"
     /// message instead of silently handing junk to the app.
@@ -330,6 +358,7 @@ enum SharedDestinationResolver {
         let h = (url.host ?? "").lowercased()
         if h.contains("google.") || h.contains("goo.gl") { return true }
         if h.contains("maps.apple") { return true }
+        if h.contains("kurviger.") || h == "kurv.gr" { return true }
         return false
     }
 
@@ -339,6 +368,8 @@ enum SharedDestinationResolver {
         if h == "maps.app.goo.gl" || h == "goo.gl" || h.hasSuffix(".app.goo.gl") {
             return true
         }
+        // Kurviger short-links: kurv.gr/<code> → kurviger.de/?point=…
+        if h == "kurv.gr" { return true }
         // New Apple short form: https://maps.apple/p/<id> (host has no .com,
         // path starts with /p/). Redirects to maps.apple.com/place?…
         if h == "maps.apple" && url.path.hasPrefix("/p/") {
