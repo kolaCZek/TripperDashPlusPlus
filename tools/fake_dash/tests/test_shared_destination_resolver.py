@@ -548,9 +548,11 @@ class GPXOpenInTests(unittest.TestCase):
         self.assertIn('if !staged && isShare { sharedImportError = ', app)
         # The Live Activity's tripperdash://ride decodes to .empty: no alert.
         self.assertIn('["open", "plan", "search"].contains((url.host ?? "").lowercased())', app)
-        widget = (SWIFT_APP_STATUS.parents[1] / "TripperDashWidgets/RideLiveActivity.swift").read_text(encoding="utf-8")
-        for host in re.findall(r'"tripperdash://(\w+)"', widget):
-            self.assertNotIn(host, ("open", "plan", "search"), f"widget host {host} would alert")
+        # A newer real share clears an older held failure.
+        self.assertIn("if isShare { sharedImportError = nil }", app)
+        for f in (SWIFT_APP_STATUS.parents[1] / "TripperDashWidgets").glob("*.swift"):
+            for host in re.findall(r'tripperdash://(\w+)', f.read_text(encoding="utf-8")):
+                self.assertNotIn(host, ("open", "plan", "search"), f"{f.name}: host {host} would alert")
         picker = (SWIFT_APP_STATUS.parents[1] / "UI/MapPickerView.swift").read_text(encoding="utf-8")
         # Read in body (by value) so setting it with the gate open re-renders.
         self.assertIn(".sharedImportAlert(error: status.sharedImportError, gateOpen: shareGateOpen) {", picker)

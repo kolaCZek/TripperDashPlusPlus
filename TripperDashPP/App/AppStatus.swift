@@ -1574,6 +1574,11 @@ final class AppStatus {
             Task { await runWidgetAction(to) }
             return
         }
+        // A real share (not the Live Activity's tripperdash://ride tap) replaces
+        // an older failure still held for the picker.
+        let isShare = url.scheme?.lowercased() != "tripperdash"
+            || ["open", "plan", "search"].contains((url.host ?? "").lowercased())
+        if isShare { sharedImportError = nil }
         // A GPX file from another app ("Open in", the .gpx document type).
         if url.isFileURL {
             Task {
@@ -1617,8 +1622,6 @@ final class AppStatus {
             // Never a silent dead end (e.g. a kurv.gr link that won't expand),
             // but only for real shares: tripperdash://ride (the Live Activity's
             // tap) just opens the app and decodes to .empty too.
-            let isShare = url.scheme?.lowercased() != "tripperdash"
-                || ["open", "plan", "search"].contains((url.host ?? "").lowercased())
             if !staged && isShare { sharedImportError = "Couldn't find a place or route in this share." }
         }
     }
