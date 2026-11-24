@@ -36,8 +36,8 @@ final class ShareViewController: UIViewController {
         log.info("share payload text=\(text ?? "nil", privacy: .private) url=\(url?.absoluteString ?? "nil", privacy: .private)")
 
         // Reject shares from unsupported apps up front. If the payload carries
-        // a URL (directly or embedded in the text) and it isn't a Google/Apple
-        // Maps or geo: link, we can't do anything useful with it — tell the
+        // a URL (directly or embedded in the text) and it isn't a link
+        // isSupportedMapsURL knows, we can't do anything useful with it — tell the
         // rider instead of silently opening the app with junk. A text-only
         // share with no URL (a bare "lat,lon" pair or a place name) still
         // flows through to the resolver as before.

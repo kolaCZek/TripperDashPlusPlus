@@ -221,17 +221,22 @@ def parse_google(url):
 def parse_kurviger(url):
     """Mirror of Swift parseKurviger: every `point` in order, named by `pname.N`."""
     q = parse_qs(urlparse(url).query)
+    points = q.get("point", [])
+    truncated = any(
+        k.startswith(pre) and (int(k[len(pre):]) if k[len(pre):].isdigit() else 0) >= len(points)
+        for k in q for pre in ("pname.", "shaping."))
     out = []
-    for i, p in enumerate(q.get("point", [])):
+    for i, p in enumerate(points):
         c = parse_latlon_pair(p)
         if c:
-            name = (q.get(f"pname.{i}") or [None])[0] or None
+            name = None if truncated else ((q.get(f"pname.{i}") or [None])[0] or None)
             out.append({"coord": c, "name": name})
     return out or None
 
 
 def is_calimoto(url):
-    return (urlparse(url).netloc or "").lower().endswith("calimoto.com")
+    h = (urlparse(url).netloc or "").lower()
+    return h == "calimoto.com" or h.endswith(".calimoto.com")
 
 
 # Mirror of Swift CalimotoImporter's pure parts.
@@ -406,14 +411,27 @@ class KurvigerTests(unittest.TestCase):
            "&pname.1=Arendsee&pname.2=Brockenblick&pname.4=Schloss%20Altenhausen"
            "&shaping.3=true&document_title=Harburg%20-%20Falkenhain")
 
-    def test_route_points_in_order_with_names(self):
+    def test_truncated_link_drops_names(self):
+        # pname.4 / shaping.3 past the 3 points: the link lost points, so
+        # "Elbebrücke Dömitz" etc. would sit ~50-150 km off. No names at all.
         kind, wps = parse(url=self.URL)
         self.assertEqual(kind, "waypoints")
-        self.assertEqual(len(wps), 3)  # out-of-range pname.4 ignored
+        self.assertEqual(len(wps), 3)
         self.assertAlmostEqual(wps[0]["coord"][0], 53.245649, places=5)
-        self.assertEqual(wps[0]["name"], "Elbebrücke Dömitz")
         self.assertAlmostEqual(wps[2]["coord"][1], 12.923763, places=5)
-        self.assertEqual(wps[2]["name"], "Brockenblick")
+        self.assertEqual([w["name"] for w in wps], [None, None, None])
+
+    def test_aligned_link_keeps_names(self):
+        kind, wps = parse(url="https://kurviger.de/?point=49.782494%2C7.9568&pname.0=Start"
+                              "&point=49.793862%2C7.920515&pname.1=Bad%20Kreuznach&shaping.1=true")
+        self.assertEqual([w["name"] for w in wps], ["Start", "Bad Kreuznach"])
+
+    def test_index_on_last_point_is_not_truncation(self):
+        # pname.N == count-1 is in range (boundary of the >= check).
+        kind, wps = parse(url="https://kurviger.de/?point=50.1%2C14.1&point=50.2%2C14.2&pname.1=End")
+        self.assertEqual(wps[1]["name"], "End")
+        kind, wps = parse(url="https://kurviger.de/?point=50.1%2C14.1&point=50.2%2C14.2&pname.2=X&pname.1=End")
+        self.assertIsNone(wps[1]["name"])
 
     def test_unnamed_shaping_points_kept(self):
         # Shaping points keep the curvy shape of the planned route.
@@ -433,6 +451,21 @@ class KurvigerTests(unittest.TestCase):
         self.assertTrue(is_supported_maps_url("https://kurv.gr/3GJsM"))
         self.assertTrue(is_supported_maps_url("https://kurviger.com/en?point=1,2"))
 
+    def test_swift_guards(self):
+        swift = SWIFT_RESOLVER.read_text(encoding="utf-8")
+        # The parse branch itself and the short-link line (not just tokens).
+        self.assertIn('if host.contains("kurviger.") {\n                if let wps = parseKurviger(u)', swift)
+        self.assertIn('if h == "kurv.gr" { return true }', swift)
+        self.assertIn('let name = truncated ? nil :', swift)
+        self.assertIn('["pname.", "shaping."]', swift)
+        self.assertIn('>= points.count', swift)
+        # Unexpanded kurv.gr: no search hint from the route title.
+        self.assertIn('if (u.host ?? "").lowercased() == "kurv.gr" { return .empty }', swift)
+        app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
+        # Long shared routes thinned like a GPX track, names not force-kept.
+        self.assertIn("if resolved.count > RoutePoint.navigableCap {", app)
+        self.assertIn("GPXGeometry.reduce(located.map { $0.0 }, cap: RoutePoint.navigableCap)", app)
+
 
 class CalimotoTests(unittest.TestCase):
     # Shape of a real calimoto.com/en/calimotour/<slug>-r-<id> page: the
@@ -451,6 +484,11 @@ class CalimotoTests(unittest.TestCase):
     def test_title_with_entities(self):
         self.assertEqual(calimoto_title(self.PAGE), "Étape 3 | Habay > Vaux-sur-Sûre")
 
+    def test_host_match_is_exact(self):
+        self.assertTrue(is_calimoto("https://app.calimoto.com/Wwfw/x"))
+        self.assertTrue(is_calimoto("https://calimoto.com/r/abc"))
+        self.assertFalse(is_calimoto("https://notcalimoto.com/r/abc"))
+
     def test_link_shapes_supported_but_not_parsed_here(self):
         for u in ("https://m.calimoto.com/r/nfRATd8B8l",
                   "https://calimoto.com/calimotour/tulleys-tea-room-out-r-XoxlGNhnAc"):
@@ -467,7 +505,7 @@ class CalimotoTests(unittest.TestCase):
             self.assertIn(f'"{e}"', swift)
         self.assertIn("kind: .track", swift)
         resolver = SWIFT_RESOLVER.read_text(encoding="utf-8")
-        self.assertIn('hasSuffix("calimoto.com")', resolver)
+        self.assertIn('h == "calimoto.com" || h.hasSuffix(".calimoto.com")', resolver)
         self.assertIn("isCalimoto(u) { return .empty }", resolver)
         app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
         self.assertIn("CalimotoImporter.importRoute(from: shared)", app)
@@ -491,6 +529,15 @@ class GPXOpenInTests(unittest.TestCase):
         self.assertIn("try GPXImporter.importRoute(from: url)", app)
         self.assertIn("savedRoutesStore.add(try await load())", app)
         self.assertIn('url.path.contains("/Inbox/")', app)
+
+    def test_failure_alert_and_latest_wins(self):
+        app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
+        self.assertIn("sharedImportError = (error as? LocalizedError)?.errorDescription", app)
+        body = app.split("func importSharedRoute", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("pendingShare = nil", body)
+        picker = (SWIFT_APP_STATUS.parents[1] / "UI/MapPickerView.swift").read_text(encoding="utf-8")
+        self.assertIn('.alert("Couldn\'t import the route"', picker)
+        self.assertIn("status.sharedImportError = nil", picker)
 
     def test_extension_explains_file_shares(self):
         share = SWIFT_SHARE.read_text(encoding="utf-8")

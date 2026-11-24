@@ -1408,7 +1408,17 @@ final class AppStatus {
             pendingSearchHint = hint
             return true
 
-        case .waypoints(let resolved):
+        case .waypoints(var resolved):
+            // A long Kurviger route (kurv.gr/LbLaJ: 50 points) is one
+            // MKDirections call per leg and Apple throttles them: thin it like
+            // a GPX track. Unnamed for the reduction, since Kurviger names its
+            // shaping points too ("L 400") and named points are always kept.
+            if resolved.count > RoutePoint.navigableCap {
+                let located = resolved.compactMap { r in r.coordinate.map { (RoutePoint(coordinate: $0), r.name) } }
+                let names = Dictionary(uniqueKeysWithValues: located.map { ($0.0.id, $0.1) })
+                resolved = GPXGeometry.reduce(located.map { $0.0 }, cap: RoutePoint.navigableCap)
+                    .map { ResolvedWaypoint(coordinate: $0.coordinate, name: names[$0.id].flatMap { $0 }) }
+            }
             // Build a stop for each shared waypoint. A stop with coordinates
             // is used as-is; a name-only stop (Google's route share carries
             // daddr=<place name> with no coords) is geocoded in place so the
@@ -1466,8 +1476,6 @@ final class AppStatus {
     /// Calimoto link. Added to Saved routes like Import GPX, then staged
     /// like a Shortcuts saved-route ride (joined at the nearest point when
     /// that skips a real part). Mid-ride it is only saved.
-    // ponytail: a failed import is logged and noticed on the dash only; an
-    // in-app alert if riders share while disconnected and miss it.
     func importSharedRoute(_ load: () async throws -> SavedRoute) async {
         let route: SavedRoute
         do {
@@ -1475,6 +1483,7 @@ final class AppStatus {
         } catch {
             shareLog.error("shared route import failed: \(error.localizedDescription, privacy: .public)")
             mapViewSource.showNotice(DashNotice(text: "Couldn't import the route", level: .warning, duration: 5))
+            sharedImportError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return
         }
         shareLog.info("imported shared route points=\(route.points.count, privacy: .public)")
@@ -1490,8 +1499,13 @@ final class AppStatus {
                                         nearestIndex: decision.nearestIndex) else { return }
         plannedRoute = plan
         pendingSearchHint = nil
+        pendingShare = nil   // latest wins, as in beginPlanningFromShared
         Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
     }
+
+    /// Why the last GPX / Calimoto import failed; the picker shows it as an
+    /// alert (the dash notice alone is unseen with no bike connected).
+    var sharedImportError: String? = nil
 
     /// Two coordinates within 150 m of each other (used to detect that a
     /// shared route's start point is just the rider's current location, or

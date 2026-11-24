@@ -306,6 +306,13 @@ struct MapPickerView: View {
                     .environment(status.navigationStore)
             }
         }
+        .alert("Couldn't import the route",
+               isPresented: Binding(get: { status.sharedImportError != nil },
+                                    set: { if !$0 { status.sharedImportError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(status.sharedImportError ?? "")
+        }
         // Only presented while the planner is still up with nothing else
         // on screen; otherwise the save commits without a prompt.
         .alert("Save route", isPresented: $showPlanSaveAlert, presenting: planSave) { draft in

@@ -84,6 +84,9 @@ enum SharedDestinationResolver {
                 let r = parse(url: expanded, text: text)
                 if case .empty = r {} else { return r }
             }
+            // An unexpanded kurv.gr link: the text around it is a route title,
+            // not a place, so no search hint; the app retries the raw link.
+            if (u.host ?? "").lowercased() == "kurv.gr" { return .empty }
             let r = parse(url: u, text: text)
             if case .empty = r {} else { return r }
         }
@@ -292,10 +295,17 @@ enum SharedDestinationResolver {
         guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems else { return nil }
         let points = items.filter { $0.name == "point" }.compactMap(\.value)
+        // A `pname.N` / `shaping.N` index past the last point means the link
+        // lost points (seen live: kurv.gr/3GJsM, 3 points, names up to .7), so
+        // the names no longer line up with the points: drop them all.
+        let truncated = items.contains { item in
+            ["pname.", "shaping."].contains { item.name.hasPrefix($0)
+                && (Int(item.name.dropFirst($0.count)) ?? 0) >= points.count }
+        }
         var out: [ResolvedWaypoint] = []
         for (i, p) in points.enumerated() {
             guard let c = parseLatLonPair(p) else { continue }
-            let name = items.first { $0.name == "pname.\(i)" }?.value
+            let name = truncated ? nil : items.first(where: { $0.name == "pname.\(i)" })?.value
             out.append(ResolvedWaypoint(coordinate: c, name: name?.isEmpty == false ? name : nil))
         }
         return out.isEmpty ? nil : out
@@ -353,7 +363,8 @@ enum SharedDestinationResolver {
 
     /// Whether a shared URL comes from a source we can actually parse:
     /// Google Maps (incl. short-links), Apple Maps (incl. the maps.apple/p/
-    /// short form), Kurviger (incl. kurv.gr short-links), or a bare `geo:` URI. Anything else (Waze, a browser
+    /// short form), Kurviger (incl. kurv.gr short-links), Calimoto, or a bare
+    /// `geo:` URI. Anything else (Waze, a browser
     /// sharing a random article, another navigation app) is unsupported and
     /// the Share extension surfaces a friendly "only Google/Apple Maps"
     /// message instead of silently handing junk to the app.
@@ -368,7 +379,8 @@ enum SharedDestinationResolver {
 
     /// `m.calimoto.com/r/<id>`, `calimoto.com/calimotour/<slug>-r-<id>`.
     static func isCalimoto(_ url: URL) -> Bool {
-        (url.host ?? "").lowercased().hasSuffix("calimoto.com")
+        let h = (url.host ?? "").lowercased()
+        return h == "calimoto.com" || h.hasSuffix(".calimoto.com")
     }
 
     static func isShortLink(_ url: URL) -> Bool {
