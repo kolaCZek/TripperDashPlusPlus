@@ -17,6 +17,12 @@ name: iOS build
 
 on:
   push:
+    # Website and docs changes can't break the app: no macOS build for them.
+    # (No Swift test reads these files; the fake_dash pytest has its own filter.)
+    paths-ignore:
+      - "website/**"
+      - "docs/**"
+      - "**/*.md"
 
 concurrency:
   group: ios-build-${{ github.ref }}
