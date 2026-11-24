@@ -287,8 +287,9 @@ enum SharedDestinationResolver {
 
     /// `https://kurviger.de/?point=lat,lon&point=…&pname.0=Name&shaping.1=true`
     /// — every `point` in order (start, stops and shaping points), named by
-    /// the matching `pname.N`. Shaping points are kept as stops so the
-    /// Apple-routed legs still follow the curvy roads the rider planned.
+    /// the matching `pname.N` (shaping points unnamed). Shaping points are
+    /// kept as stops so the Apple-routed legs still follow the curvy roads
+    /// the rider planned.
     // ponytail: shaping points become plain stops (named "Stop N"); a real
     // via kind in PlannedRoute if riders want them skipped on arrival.
     static func parseKurviger(_ url: URL) -> [ResolvedWaypoint]? {
@@ -305,7 +306,10 @@ enum SharedDestinationResolver {
         var out: [ResolvedWaypoint] = []
         for (i, p) in points.enumerated() {
             guard let c = parseLatLonPair(p) else { continue }
-            let name = truncated ? nil : items.first(where: { $0.name == "pname.\(i)" })?.value
+            // Shaping points stay unnamed: their pname is a road ("L 400"),
+            // and unnamed is what lets a long route thin them before real stops.
+            let shaping = items.contains { $0.name == "shaping.\(i)" && $0.value == "true" }
+            let name = truncated || shaping ? nil : items.first(where: { $0.name == "pname.\(i)" })?.value
             out.append(ResolvedWaypoint(coordinate: c, name: name?.isEmpty == false ? name : nil))
         }
         return out.isEmpty ? nil : out

@@ -229,7 +229,8 @@ def parse_kurviger(url):
     for i, p in enumerate(points):
         c = parse_latlon_pair(p)
         if c:
-            name = None if truncated else ((q.get(f"pname.{i}") or [None])[0] or None)
+            shaping = (q.get(f"shaping.{i}") or [""])[0] == "true"
+            name = None if truncated or shaping else ((q.get(f"pname.{i}") or [None])[0] or None)
             out.append({"coord": c, "name": name})
     return out or None
 
@@ -421,10 +422,12 @@ class KurvigerTests(unittest.TestCase):
         self.assertAlmostEqual(wps[2]["coord"][1], 12.923763, places=5)
         self.assertEqual([w["name"] for w in wps], [None, None, None])
 
-    def test_aligned_link_keeps_names(self):
+    def test_aligned_link_names_real_stops_only(self):
+        # kurv.gr/LbLaJ shape: shaping points carry road names ("L 409").
         kind, wps = parse(url="https://kurviger.de/?point=49.782494%2C7.9568&pname.0=Start"
-                              "&point=49.793862%2C7.920515&pname.1=Bad%20Kreuznach&shaping.1=true")
-        self.assertEqual([w["name"] for w in wps], ["Start", "Bad Kreuznach"])
+                              "&point=49.793862%2C7.920515&pname.1=Neu-Bamberger%20Stra%C3%9Fe%2C%20L%20409&shaping.1=true"
+                              "&point=49.8097%2C7.947189&pname.2=Lunch")
+        self.assertEqual([w["name"] for w in wps], ["Start", None, "Lunch"])
 
     def test_index_on_last_point_is_not_truncation(self):
         # pname.N == count-1 is in range (boundary of the >= check).
@@ -440,6 +443,9 @@ class KurvigerTests(unittest.TestCase):
         self.assertEqual(kind, "waypoints")
         self.assertEqual(len(wps), 2)
         self.assertIsNone(wps[1]["name"])
+        # shaping.N=false is a real stop and keeps its name.
+        kind, wps = parse(url="https://kurviger.de/?point=50.1%2C14.1&point=50.2%2C14.2&pname.1=End&shaping.1=false")
+        self.assertEqual(wps[1]["name"], "End")
 
     def test_api_host_gpx_link(self):
         kind, wps = parse(url="https://api.kurviger.de/route?point=49.782494%2C7.9568"
@@ -456,7 +462,8 @@ class KurvigerTests(unittest.TestCase):
         # The parse branch itself and the short-link line (not just tokens).
         self.assertIn('if host.contains("kurviger.") {\n                if let wps = parseKurviger(u)', swift)
         self.assertIn('if h == "kurv.gr" { return true }', swift)
-        self.assertIn('let name = truncated ? nil :', swift)
+        self.assertIn('let shaping = items.contains { $0.name == "shaping.\\(i)" && $0.value == "true" }', swift)
+        self.assertIn('let name = truncated || shaping ? nil :', swift)
         self.assertIn('["pname.", "shaping."]', swift)
         self.assertIn('>= points.count', swift)
         # Unexpanded kurv.gr: no search hint from the route title.
@@ -464,7 +471,8 @@ class KurvigerTests(unittest.TestCase):
         app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
         # Long shared routes thinned like a GPX track, names not force-kept.
         self.assertIn("if resolved.count > RoutePoint.navigableCap {", app)
-        self.assertIn("GPXGeometry.reduce(located.map { $0.0 }, cap: RoutePoint.navigableCap)", app)
+        self.assertIn("RoutePoint(coordinate: $0, name: r.name)", app)
+        self.assertIn("GPXGeometry.reduce(located, cap: RoutePoint.navigableCap)", app)
 
 
 class CalimotoTests(unittest.TestCase):
@@ -553,6 +561,14 @@ class GPXOpenInTests(unittest.TestCase):
         self.assertLessEqual(len(kept), 40)
         self.assertIs(kept[0], pts[0])
         self.assertIs(kept[-1], pts[-1])
+        # A real (named) stop on a straight stretch, where Douglas-Peucker
+        # would drop it, survives; unnamed shaping points go first.
+        line = [g.Pt(49.78 + i * 0.006, 7.95) for i in range(50)]
+        line[25].name = "Lunch"
+        kept = g.reduce(line, cap=40)
+        self.assertLessEqual(len(kept), 40)
+        self.assertIn(line[25], kept)
+        self.assertLess(len(g.reduce([g.Pt(p.lat, p.lon) for p in line], cap=40)), len(kept))
 
     def test_extension_explains_file_shares(self):
         share = SWIFT_SHARE.read_text(encoding="utf-8")

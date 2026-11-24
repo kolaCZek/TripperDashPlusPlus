@@ -1411,13 +1411,12 @@ final class AppStatus {
         case .waypoints(var resolved):
             // A long Kurviger route (kurv.gr/LbLaJ: 50 points) is one
             // MKDirections call per leg and Apple throttles them: thin it like
-            // a GPX track. Unnamed for the reduction, since Kurviger names its
-            // shaping points too ("L 400") and named points are always kept.
+            // a GPX track. `reduce` always keeps named points, i.e. Kurviger's
+            // real stops (parseKurviger leaves shaping points unnamed).
             if resolved.count > RoutePoint.navigableCap {
-                let located = resolved.compactMap { r in r.coordinate.map { (RoutePoint(coordinate: $0), r.name) } }
-                let names = Dictionary(uniqueKeysWithValues: located.map { ($0.0.id, $0.1) })
-                resolved = GPXGeometry.reduce(located.map { $0.0 }, cap: RoutePoint.navigableCap)
-                    .map { ResolvedWaypoint(coordinate: $0.coordinate, name: names[$0.id].flatMap { $0 }) }
+                let located = resolved.compactMap { r in r.coordinate.map { RoutePoint(coordinate: $0, name: r.name) } }
+                resolved = GPXGeometry.reduce(located, cap: RoutePoint.navigableCap)
+                    .map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) }
             }
             // Build a stop for each shared waypoint. A stop with coordinates
             // is used as-is; a name-only stop (Google's route share carries
