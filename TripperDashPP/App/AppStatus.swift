@@ -1489,6 +1489,7 @@ final class AppStatus {
         shareLog.info("imported shared route points=\(route.points.count, privacy: .public)")
         await waitForFirstFix()
         guard !rideActive else {
+            pendingShare = nil   // latest wins here too
             mapViewSource.showNotice(DashNotice(text: "Route saved to Saved routes", level: .info, duration: 5))
             return
         }
@@ -1600,25 +1601,22 @@ final class AppStatus {
                 return
             }
             let resolution: ShareResolution
-            if url.scheme?.lowercased() == "tripperdash" {
-                if (url.host ?? "").lowercased() == "open",
-                   let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let rawStr = comps.queryItems?.first(where: { $0.name == "url" })?.value,
-                   let raw = URL(string: rawStr) {
-                    // Extension couldn't resolve the short-link under its
-                    // network sandbox and passed the raw maps URL through —
-                    // resolve it here (normal network, full redirect follow).
-                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .private)")
-                    resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
-                } else {
-                    resolution = SharedDeepLink.decode(url)
-                }
+            if isPassthrough, let raw = shared {
+                // Extension couldn't resolve the short-link under its
+                // network sandbox and passed the raw maps URL through —
+                // resolve it here (normal network, full redirect follow).
+                shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .private)")
+                resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
+            } else if url.scheme?.lowercased() == "tripperdash" {
+                resolution = SharedDeepLink.decode(url)
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
             shareLog.info("resolution=\(String(describing: resolution), privacy: .private)")
             let staged = await beginPlanningFromShared(resolution)
             shareLog.info("beginPlanningFromShared staged=\(staged, privacy: .public)")
+            // Never a silent dead end (e.g. a kurv.gr link that won't expand).
+            if !staged { sharedImportError = "Couldn't find a place or route in this share." }
         }
     }
 

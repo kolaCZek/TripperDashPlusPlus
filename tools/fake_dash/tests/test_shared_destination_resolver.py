@@ -535,9 +535,24 @@ class GPXOpenInTests(unittest.TestCase):
         self.assertIn("sharedImportError = (error as? LocalizedError)?.errorDescription", app)
         body = app.split("func importSharedRoute", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("pendingShare = nil", body)
+        self.assertIn("pendingShare = nil   // latest wins here too", body)
+        self.assertIn('if !staged { sharedImportError = ', app)
         picker = (SWIFT_APP_STATUS.parents[1] / "UI/MapPickerView.swift").read_text(encoding="utf-8")
-        self.assertIn('.alert("Couldn\'t import the route"', picker)
+        self.assertIn(".sharedImportAlert(status, gateOpen: shareGateOpen)", picker)
+        self.assertIn('alert("Couldn\'t import the route"', picker)
+        self.assertIn("get: { gateOpen && status.sharedImportError != nil }", picker)
         self.assertIn("status.sharedImportError = nil", picker)
+        self.assertIn('Text(status.sharedImportError ?? "")', picker)
+
+    def test_long_route_cap_behaviour(self):
+        # Mirror of the >navigableCap thinning: 50 unnamed points (kurv.gr/LbLaJ
+        # size) through the GPX reduce mirror -> <=40, both ends kept.
+        from tests import gpx_geometry_mirror as g
+        pts = [g.Pt(49.78 + i * 0.006, 7.95 + (0.01 if i % 2 else 0.0)) for i in range(50)]
+        kept = g.reduce(pts, cap=40)
+        self.assertLessEqual(len(kept), 40)
+        self.assertIs(kept[0], pts[0])
+        self.assertIs(kept[-1], pts[-1])
 
     def test_extension_explains_file_shares(self):
         share = SWIFT_SHARE.read_text(encoding="utf-8")
