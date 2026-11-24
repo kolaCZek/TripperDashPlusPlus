@@ -306,7 +306,9 @@ struct MapPickerView: View {
                     .environment(status.navigationStore)
             }
         }
-        .sharedImportAlert(status, gateOpen: shareGateOpen)
+        .sharedImportAlert(error: status.sharedImportError, gateOpen: shareGateOpen) {
+            status.sharedImportError = nil
+        }
         // Only presented while the planner is still up with nothing else
         // on screen; otherwise the save commits without a prompt.
         .alert("Save route", isPresented: $showPlanSaveAlert, presenting: planSave) { draft in
@@ -1852,14 +1854,15 @@ private extension View {
     /// Why a shared GPX / Calimoto / maps link failed. Held until the share
     /// gate opens (SwiftUI drops an alert presented over another modal), and
     /// split out of `body`, where one more inline `.alert` exceeds the type
-    /// checker's time limit.
-    func sharedImportAlert(_ status: AppStatus, gateOpen: Bool) -> some View {
-        alert("Couldn't import the route",
-              isPresented: Binding(get: { gateOpen && status.sharedImportError != nil },
-                                   set: { if !$0 { status.sharedImportError = nil } })) {
+    /// checker's time limit. `error` is passed by value so `body` reads it
+    /// and re-renders when it is set with the gate already open.
+    func sharedImportAlert(error: String?, gateOpen: Bool, dismiss: @escaping () -> Void) -> some View {
+        alert("Couldn't open the share",
+              isPresented: Binding(get: { gateOpen && error != nil },
+                                   set: { if !$0 { dismiss() } })) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(status.sharedImportError ?? "")
+            Text(error ?? "")
         }
     }
 }

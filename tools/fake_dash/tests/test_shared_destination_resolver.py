@@ -469,7 +469,8 @@ class KurvigerTests(unittest.TestCase):
         # Unexpanded kurv.gr: no search hint from the route title.
         self.assertIn('if (u.host ?? "").lowercased() == "kurv.gr" { return .empty }', swift)
         app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
-        # Long shared routes thinned like a GPX track, names not force-kept.
+        # Long shared routes thinned like a GPX track; named (real) stops are
+        # force-kept by reduce, shaping points come unnamed from parseKurviger.
         self.assertIn("if resolved.count > RoutePoint.navigableCap {", app)
         self.assertIn("RoutePoint(coordinate: $0, name: r.name)", app)
         self.assertIn("GPXGeometry.reduce(located, cap: RoutePoint.navigableCap)", app)
@@ -544,13 +545,18 @@ class GPXOpenInTests(unittest.TestCase):
         body = app.split("func importSharedRoute", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("pendingShare = nil", body)
         self.assertIn("pendingShare = nil   // latest wins here too", body)
-        self.assertIn('if !staged { sharedImportError = ', app)
+        self.assertIn('if !staged && isShare { sharedImportError = ', app)
+        # The Live Activity's tripperdash://ride decodes to .empty: no alert.
+        self.assertIn('["open", "plan", "search"].contains((url.host ?? "").lowercased())', app)
+        widget = (SWIFT_APP_STATUS.parents[1] / "TripperDashWidgets/RideLiveActivity.swift").read_text(encoding="utf-8")
+        for host in re.findall(r'"tripperdash://(\w+)"', widget):
+            self.assertNotIn(host, ("open", "plan", "search"), f"widget host {host} would alert")
         picker = (SWIFT_APP_STATUS.parents[1] / "UI/MapPickerView.swift").read_text(encoding="utf-8")
-        self.assertIn(".sharedImportAlert(status, gateOpen: shareGateOpen)", picker)
-        self.assertIn('alert("Couldn\'t import the route"', picker)
-        self.assertIn("get: { gateOpen && status.sharedImportError != nil }", picker)
+        # Read in body (by value) so setting it with the gate open re-renders.
+        self.assertIn(".sharedImportAlert(error: status.sharedImportError, gateOpen: shareGateOpen) {", picker)
+        self.assertIn("get: { gateOpen && error != nil }", picker)
         self.assertIn("status.sharedImportError = nil", picker)
-        self.assertIn('Text(status.sharedImportError ?? "")', picker)
+        self.assertIn('Text(error ?? "")', picker)
 
     def test_long_route_cap_behaviour(self):
         # Mirror of the >navigableCap thinning: 50 unnamed points (kurv.gr/LbLaJ
