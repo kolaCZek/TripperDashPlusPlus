@@ -1462,6 +1462,37 @@ final class AppStatus {
         }
     }
 
+    /// A whole route handed over: a GPX file opened from another app or a
+    /// Calimoto link. Added to Saved routes like Import GPX, then staged
+    /// like a Shortcuts saved-route ride (joined at the nearest point when
+    /// that skips a real part). Mid-ride it is only saved.
+    // ponytail: a failed import is logged and noticed on the dash only; an
+    // in-app alert if riders share while disconnected and miss it.
+    func importSharedRoute(_ load: () async throws -> SavedRoute) async {
+        let route: SavedRoute
+        do {
+            route = savedRoutesStore.add(try await load())
+        } catch {
+            shareLog.error("shared route import failed: \(error.localizedDescription, privacy: .public)")
+            mapViewSource.showNotice(DashNotice(text: "Couldn't import the route", level: .warning, duration: 5))
+            return
+        }
+        shareLog.info("imported shared route points=\(route.points.count, privacy: .public)")
+        await waitForFirstFix()
+        guard !rideActive else {
+            mapViewSource.showNotice(DashNotice(text: "Route saved to Saved routes", level: .info, duration: 5))
+            return
+        }
+        let decision = RouteStartPlanner.analyze(points: route.points,
+                                                 riderLocation: locationService.lastFix?.coordinate)
+        guard let plan = savedRoutePlan(route,
+                                        mode: decision.shouldPrompt ? .fromNearest : .fromFirst,
+                                        nearestIndex: decision.nearestIndex) else { return }
+        plannedRoute = plan
+        pendingSearchHint = nil
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
     /// Two coordinates within 150 m of each other (used to detect that a
     /// shared route's start point is just the rider's current location, or
     /// that a widget Fuel station already is the next stop).
@@ -1529,10 +1560,31 @@ final class AppStatus {
             Task { await runWidgetAction(to) }
             return
         }
+        // A GPX file from another app ("Open in", the .gpx document type).
+        if url.isFileURL {
+            Task {
+                await importSharedRoute { try GPXImporter.importRoute(from: url) }
+                // "Open in" copies into Documents/Inbox (not in place): ours to drop.
+                if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+            }
+            return
+        }
         // Our own scheme carries the already-resolved payload in the query
         // (coords/labels the extension extracted). Everything else is a
         // raw shared URL we resolve here.
         Task {
+            // A Calimoto link (passed through raw by the extension) has no
+            // coordinates: its full track is fetched and imported like a GPX.
+            let isPassthrough = url.scheme?.lowercased() == "tripperdash"
+                && (url.host ?? "").lowercased() == "open"
+            let shared: URL? = isPassthrough
+                ? URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "url" })?.value.flatMap { URL(string: $0) }
+                : url
+            if let shared, SharedDestinationResolver.isCalimoto(shared) {
+                await importSharedRoute { try await CalimotoImporter.importRoute(from: shared) }
+                return
+            }
             let resolution: ShareResolution
             if url.scheme?.lowercased() == "tripperdash" {
                 if (url.host ?? "").lowercased() == "open",

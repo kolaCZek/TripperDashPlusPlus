@@ -3,7 +3,7 @@
 //  TripperDashPP
 //
 //  "Share to TripperDash++" — Tesla-style. When the rider shares a place
-//  or a route from Google Maps, Apple Maps or Kurviger into the app, this resolves
+//  or a route from Google Maps, Apple Maps, Kurviger or Calimoto into the app, this resolves
 //  the shared payload (a URL or a plain-text blob) into an ordered list
 //  of waypoints that pre-fill the planner.
 //
@@ -72,6 +72,10 @@ enum SharedDestinationResolver {
         // Prefer an explicit URL; otherwise scrape the first URL out of the
         // shared text (Google often shares "Name\nhttps://maps.app.goo.gl/…").
         let primaryURL = url ?? Self.firstURL(in: text)
+
+        // Calimoto links carry no coordinates; the app fetches the route
+        // track (CalimotoImporter). Nothing here, not even a search hint.
+        if let u = primaryURL, isCalimoto(u) { return .empty }
 
         if let u = primaryURL {
             // Short-links carry no coords — expand first. Covers Google
@@ -359,7 +363,12 @@ enum SharedDestinationResolver {
         if h.contains("google.") || h.contains("goo.gl") { return true }
         if h.contains("maps.apple") { return true }
         if h.contains("kurviger.") || h == "kurv.gr" { return true }
-        return false
+        return isCalimoto(url)
+    }
+
+    /// `m.calimoto.com/r/<id>`, `calimoto.com/calimotour/<slug>-r-<id>`.
+    static func isCalimoto(_ url: URL) -> Bool {
+        (url.host ?? "").lowercased().hasSuffix("calimoto.com")
     }
 
     static func isShortLink(_ url: URL) -> Bool {

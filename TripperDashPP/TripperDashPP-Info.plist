@@ -136,6 +136,52 @@
 		</dict>
 	</array>
 
+	<!--
+	  GPX files from other apps (Kurviger, Calimoto, Scenic, Files, Mail):
+	  the app is offered in the share sheet / "Open in" for .gpx, and iOS
+	  hands a copy (Documents/Inbox, not in place) to onOpenURL, which
+	  imports it like Saved routes → Import GPX.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>GPX route</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.topografix.gpx</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.topografix.gpx</string>
+			<key>UTTypeDescription</key>
+			<string>GPX route</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.xml</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gpx</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/gpx+xml</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
+
 	<!-- ───────────────────────────────────────────────────────────── -->
 	<!-- Launch screen: dark backdrop + centred app logo. iOS 13+ uses  -->
 	<!-- the UILaunchScreen dictionary instead of a storyboard/xib.      -->

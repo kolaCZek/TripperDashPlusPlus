@@ -24,6 +24,18 @@ SWIFT_DEEPLINK = (
     Path(__file__).resolve().parents[3]
     / "TripperDashPP/Navigation/SharedDeepLink.swift"
 )
+SWIFT_GPX = (
+    Path(__file__).resolve().parents[3]
+    / "TripperDashPP/Navigation/GPXParser.swift"
+)
+SWIFT_APP_STATUS = (
+    Path(__file__).resolve().parents[3]
+    / "TripperDashPP/App/AppStatus.swift"
+)
+APP_INFO_PLIST = (
+    Path(__file__).resolve().parents[3]
+    / "TripperDashPP/TripperDashPP-Info.plist"
+)
 SWIFT_SHARE = (
     Path(__file__).resolve().parents[3]
     / "TripperDashPP/TripperDashShare/ShareViewController.swift"
@@ -218,6 +230,31 @@ def parse_kurviger(url):
     return out or None
 
 
+def is_calimoto(url):
+    return (urlparse(url).netloc or "").lower().endswith("calimoto.com")
+
+
+# Mirror of Swift CalimotoImporter's pure parts.
+CALIMOTO_POINTS_RE = r'https://[^"\\\s]+_points\.json'
+CALIMOTO_TITLE_RE = r'(?<=<title>)[^<]+(?=</title>)'
+ENTITIES = [("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#x27;", "'"), ("&#39;", "'"), ("&amp;", "&")]
+
+
+def calimoto_points_url(page):
+    m = re.search(CALIMOTO_POINTS_RE, page)
+    return m.group(0) if m else None
+
+
+def calimoto_title(page):
+    m = re.search(CALIMOTO_TITLE_RE, page)
+    if not m:
+        return None
+    t = m.group(0)
+    for e, c in ENTITIES:
+        t = t.replace(e, c)
+    return t.strip() or None
+
+
 def is_supported_maps_url(url):
     """Mirror of Swift SharedDestinationResolver.isSupportedMapsURL: True for
     Google Maps / Apple Maps / geo: URLs, False for everything else."""
@@ -232,10 +269,12 @@ def is_supported_maps_url(url):
         return True
     if "kurviger." in host or host == "kurv.gr":
         return True
-    return False
+    return is_calimoto(url)
 
 
 def parse(url=None, text=None):
+    if url and is_calimoto(url):
+        return ("empty", None)  # the app fetches the track (CalimotoImporter)
     if url:
         host = (urlparse(url).netloc or "").lower()
         scheme = (urlparse(url).scheme or "").lower()
@@ -393,6 +432,69 @@ class KurvigerTests(unittest.TestCase):
     def test_supported_and_short_link(self):
         self.assertTrue(is_supported_maps_url("https://kurv.gr/3GJsM"))
         self.assertTrue(is_supported_maps_url("https://kurviger.com/en?point=1,2"))
+
+
+class CalimotoTests(unittest.TestCase):
+    # Shape of a real calimoto.com/en/calimotour/<slug>-r-<id> page: the
+    # tour JSON is escaped inside a Next.js payload.
+    PAGE = ('<head><title>Étape 3 | Habay &gt; Vaux-sur-Sûre</title></head>'
+            '...\\"points\\":{\\"__type\\":\\"File\\",\\"name\\":\\"10eef_points.json\\",'
+            '\\"url\\":\\"https://parse-file-storage.s3.amazonaws.com/parse-files/'
+            '10eef38e50972b5184535bf66db5ba3a_points.json\\"},\\"image\\":...')
+
+    def test_points_url_from_escaped_json(self):
+        self.assertEqual(
+            calimoto_points_url(self.PAGE),
+            "https://parse-file-storage.s3.amazonaws.com/parse-files/"
+            "10eef38e50972b5184535bf66db5ba3a_points.json")
+
+    def test_title_with_entities(self):
+        self.assertEqual(calimoto_title(self.PAGE), "Étape 3 | Habay > Vaux-sur-Sûre")
+
+    def test_link_shapes_supported_but_not_parsed_here(self):
+        for u in ("https://m.calimoto.com/r/nfRATd8B8l",
+                  "https://calimoto.com/calimotour/tulleys-tea-room-out-r-XoxlGNhnAc"):
+            self.assertTrue(is_supported_maps_url(u))
+            # Text around the link must not turn into a search hint: the
+            # extension passes the raw link to the app instead.
+            self.assertEqual(parse(url=u, text="My route " + u)[0], "empty")
+
+    def test_swift_matches_mirror(self):
+        swift = SWIFT_GPX.read_text(encoding="utf-8")
+        self.assertIn('#"https://[^"\\\\\\s]+_points\\.json"#', swift)
+        self.assertIn('#"(?<=<title>)[^<]+(?=</title>)"#', swift)
+        for e, _ in ENTITIES:
+            self.assertIn(f'"{e}"', swift)
+        self.assertIn("kind: .track", swift)
+        resolver = SWIFT_RESOLVER.read_text(encoding="utf-8")
+        self.assertIn('hasSuffix("calimoto.com")', resolver)
+        self.assertIn("isCalimoto(u) { return .empty }", resolver)
+        app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
+        self.assertIn("CalimotoImporter.importRoute(from: shared)", app)
+
+
+class GPXOpenInTests(unittest.TestCase):
+    """A .gpx shared from another app reaches onOpenURL as a file URL."""
+
+    def test_document_type_declared(self):
+        plist = APP_INFO_PLIST.read_text(encoding="utf-8")
+        self.assertIn("<key>CFBundleDocumentTypes</key>", plist)
+        self.assertIn("<key>UTImportedTypeDeclarations</key>", plist)
+        self.assertGreaterEqual(plist.count("<string>com.topografix.gpx</string>"), 2)
+        self.assertIn("<string>gpx</string>", plist)
+        # A copy into Inbox (deleted after import), never the sender's file.
+        self.assertRegex(plist, r"<key>LSSupportsOpeningDocumentsInPlace</key>\s*<false/>")
+
+    def test_file_url_imported_like_import_gpx(self):
+        app = SWIFT_APP_STATUS.read_text(encoding="utf-8")
+        self.assertIn("if url.isFileURL {", app)
+        self.assertIn("try GPXImporter.importRoute(from: url)", app)
+        self.assertIn("savedRoutesStore.add(try await load())", app)
+        self.assertIn('url.path.contains("/Inbox/")', app)
+
+    def test_extension_explains_file_shares(self):
+        share = SWIFT_SHARE.read_text(encoding="utf-8")
+        self.assertIn("shared.isFileURL", share)
 
 
 class TextFallbackTests(unittest.TestCase):
