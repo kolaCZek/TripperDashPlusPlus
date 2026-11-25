@@ -36,11 +36,19 @@ final class ShareViewController: UIViewController {
         log.info("share payload text=\(text ?? "nil", privacy: .private) url=\(url?.absoluteString ?? "nil", privacy: .private)")
 
         // Reject shares from unsupported apps up front. If the payload carries
-        // a URL (directly or embedded in the text) and it isn't a Google/Apple
-        // Maps or geo: link, we can't do anything useful with it — tell the
+        // a URL (directly or embedded in the text) and it isn't a link
+        // isSupportedMapsURL knows, we can't do anything useful with it — tell the
         // rider instead of silently opening the app with junk. A text-only
         // share with no URL (a bare "lat,lon" pair or a place name) still
         // flows through to the resolver as before.
+        // A file (a GPX export) can't cross from the extension to the app;
+        // the app itself takes .gpx (its document type) in the share sheet.
+        if let shared = url, shared.isFileURL {
+            showUnsupported(message: "To import a GPX file, pick “Open in TripperDash++” "
+                + "(or “Copy to TripperDash++”) in the share sheet, or use "
+                + "Saved routes → Import GPX in the app.")
+            return
+        }
         if let shared = url ?? SharedDestinationResolver.firstURL(in: text),
            !SharedDestinationResolver.isSupportedMapsURL(shared) {
             log.warning("unsupported share source: \(shared.absoluteString, privacy: .private)")
@@ -164,7 +172,7 @@ final class ShareViewController: UIViewController {
     }
 
     /// Friendly dead-end for shares from apps we can't parse. Shows a simple
-    /// alert explaining only Google Maps / Apple Maps links are supported,
+    /// alert explaining only Google Maps / Apple Maps / Kurviger links are supported,
     /// then closes the extension when the rider taps OK. Runs on the main
     /// actor because it touches UIKit.
     /// Also used for a supported share that resolved to nothing, so it
@@ -172,7 +180,7 @@ final class ShareViewController: UIViewController {
     @MainActor
     private func showUnsupported(
         message: String = "TripperDash++ can only import places and routes shared "
-            + "from Google Maps or Apple Maps. Please share from one of "
+            + "from Google Maps, Apple Maps, Kurviger or Calimoto. Please share from one of "
             + "those apps."
     ) {
         let alert = UIAlertController(

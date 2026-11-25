@@ -295,6 +295,66 @@ private extension Dictionary where Key == String, Value == String {
     }
 }
 
+/// Calimoto shares a route as a link (`m.calimoto.com/r/<id>`,
+/// `calimoto.com/calimotour/<slug>-r-<id>`) with no coordinates in it. The
+/// route page names the tour in its `<title>` and links the full track as a
+/// `…_points.json` file (`{"points":[[lat,lon],…]}`), imported as a `.track`
+/// SavedRoute exactly like a GPX `<trk>`.
+// ponytail: scrapes Calimoto's public route page, so a redesign of it
+// breaks this (the import fails with a notice); their API if they open one.
+enum CalimotoImporter {
+
+    struct NoRoute: LocalizedError {
+        var errorDescription: String? { "Couldn't read the Calimoto route." }
+    }
+
+    static func importRoute(from link: URL) async throws -> SavedRoute {
+        let page = String(decoding: try await fetch(link), as: UTF8.self)
+        guard let pointsURL = pointsURL(inPage: page) else { throw NoRoute() }
+        let points = try parsePoints(try await fetch(pointsURL))
+        guard !points.isEmpty else { throw NoRoute() }
+        return SavedRoute(name: title(inPage: page) ?? "Calimoto route",
+                          kind: .track,
+                          points: points,
+                          totalDistanceMeters: GPXGeometry.pathLength(points.map(\.coordinate)))
+    }
+
+    /// The track file linked from the page (inside its escaped JSON).
+    static func pointsURL(inPage page: String) -> URL? {
+        guard let r = page.range(of: #"https://[^"\\\s]+_points\.json"#, options: .regularExpression)
+        else { return nil }
+        return URL(string: String(page[r]))
+    }
+
+    /// The page `<title>` is the tour name.
+    static func title(inPage page: String) -> String? {
+        guard let r = page.range(of: #"(?<=<title>)[^<]+(?=</title>)"#, options: .regularExpression)
+        else { return nil }
+        var t = String(page[r])
+        for (entity, char) in [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#x27;", "'"), ("&#39;", "'"), ("&amp;", "&")] {
+            t = t.replacingOccurrences(of: entity, with: char)
+        }
+        t = t.trimmingCharacters(in: .whitespaces)
+        return t.isEmpty ? nil : t
+    }
+
+    static func parsePoints(_ data: Data) throws -> [RoutePoint] {
+        struct File: Decodable { let points: [[Double]] }
+        return try JSONDecoder().decode(File.self, from: data).points.compactMap { p in
+            guard p.count >= 2, GPXGeometry.isValid(lat: p[0], lon: p[1]) else { return nil }
+            return RoutePoint(latitude: p[0], longitude: p[1])
+        }
+    }
+
+    private static func fetch(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw NoRoute() }
+        return data
+    }
+}
+
 /// Pure geometry helpers for GPX import — haversine length, validity,
 /// and Douglas–Peucker reduction. Kept free of UIKit/MapKit so the math
 /// can be mirrored 1:1 in the Python test suite (no Mac needed).

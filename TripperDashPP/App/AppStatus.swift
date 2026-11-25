@@ -1408,7 +1408,16 @@ final class AppStatus {
             pendingSearchHint = hint
             return true
 
-        case .waypoints(let resolved):
+        case .waypoints(var resolved):
+            // A long Kurviger route (kurv.gr/LbLaJ: 50 points) is one
+            // MKDirections call per leg and Apple throttles them: thin it like
+            // a GPX track. `reduce` always keeps named points, i.e. Kurviger's
+            // real stops (parseKurviger leaves shaping points unnamed).
+            if resolved.count > RoutePoint.navigableCap {
+                let located = resolved.compactMap { r in r.coordinate.map { RoutePoint(coordinate: $0, name: r.name) } }
+                resolved = GPXGeometry.reduce(located, cap: RoutePoint.navigableCap)
+                    .map { ResolvedWaypoint(coordinate: $0.coordinate, name: $0.name) }
+            }
             // Build a stop for each shared waypoint. A stop with coordinates
             // is used as-is; a name-only stop (Google's route share carries
             // daddr=<place name> with no coords) is geocoded in place so the
@@ -1461,6 +1470,42 @@ final class AppStatus {
             return true
         }
     }
+
+    /// A whole route handed over: a GPX file opened from another app or a
+    /// Calimoto link. Added to Saved routes like Import GPX, then staged
+    /// like a Shortcuts saved-route ride (joined at the nearest point when
+    /// that skips a real part). Mid-ride it is only saved.
+    func importSharedRoute(_ load: () async throws -> SavedRoute) async {
+        let route: SavedRoute
+        do {
+            route = savedRoutesStore.add(try await load())
+        } catch {
+            shareLog.error("shared route import failed: \(error.localizedDescription, privacy: .public)")
+            mapViewSource.showNotice(DashNotice(text: "Couldn't import the route", level: .warning, duration: 5))
+            sharedImportError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+        shareLog.info("imported shared route points=\(route.points.count, privacy: .public)")
+        await waitForFirstFix()
+        guard !rideActive else {
+            pendingShare = nil   // latest wins here too
+            mapViewSource.showNotice(DashNotice(text: "Route saved to Saved routes", level: .info, duration: 5))
+            return
+        }
+        let decision = RouteStartPlanner.analyze(points: route.points,
+                                                 riderLocation: locationService.lastFix?.coordinate)
+        guard let plan = savedRoutePlan(route,
+                                        mode: decision.shouldPrompt ? .fromNearest : .fromFirst,
+                                        nearestIndex: decision.nearestIndex) else { return }
+        plannedRoute = plan
+        pendingSearchHint = nil
+        pendingShare = nil   // latest wins, as in beginPlanningFromShared
+        Task { await recomputeDirtyLegs(plan.allLegIndices, in: plan) }
+    }
+
+    /// Why the last GPX / Calimoto import failed; the picker shows it as an
+    /// alert (the dash notice alone is unseen with no bike connected).
+    var sharedImportError: String? = nil
 
     /// Two coordinates within 150 m of each other (used to detect that a
     /// shared route's start point is just the rider's current location, or
@@ -1529,30 +1574,55 @@ final class AppStatus {
             Task { await runWidgetAction(to) }
             return
         }
+        // A real share (not the Live Activity's tripperdash://ride tap) replaces
+        // an older failure still held for the picker.
+        let isShare = url.scheme?.lowercased() != "tripperdash"
+            || ["open", "plan", "search"].contains((url.host ?? "").lowercased())
+        if isShare { sharedImportError = nil }
+        // A GPX file from another app ("Open in", the .gpx document type).
+        if url.isFileURL {
+            Task {
+                await importSharedRoute { try GPXImporter.importRoute(from: url) }
+                // "Open in" copies into Documents/Inbox (not in place): ours to drop.
+                if url.path.contains("/Inbox/") { try? FileManager.default.removeItem(at: url) }
+            }
+            return
+        }
         // Our own scheme carries the already-resolved payload in the query
         // (coords/labels the extension extracted). Everything else is a
         // raw shared URL we resolve here.
         Task {
+            // A Calimoto link (passed through raw by the extension) has no
+            // coordinates: its full track is fetched and imported like a GPX.
+            let isPassthrough = url.scheme?.lowercased() == "tripperdash"
+                && (url.host ?? "").lowercased() == "open"
+            let shared: URL? = isPassthrough
+                ? URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "url" })?.value.flatMap { URL(string: $0) }
+                : url
+            if let shared, SharedDestinationResolver.isCalimoto(shared) {
+                await importSharedRoute { try await CalimotoImporter.importRoute(from: shared) }
+                return
+            }
             let resolution: ShareResolution
-            if url.scheme?.lowercased() == "tripperdash" {
-                if (url.host ?? "").lowercased() == "open",
-                   let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let rawStr = comps.queryItems?.first(where: { $0.name == "url" })?.value,
-                   let raw = URL(string: rawStr) {
-                    // Extension couldn't resolve the short-link under its
-                    // network sandbox and passed the raw maps URL through —
-                    // resolve it here (normal network, full redirect follow).
-                    shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .private)")
-                    resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
-                } else {
-                    resolution = SharedDeepLink.decode(url)
-                }
+            if isPassthrough, let raw = shared {
+                // Extension couldn't resolve the short-link under its
+                // network sandbox and passed the raw maps URL through —
+                // resolve it here (normal network, full redirect follow).
+                shareLog.info("passthrough resolve raw=\(raw.absoluteString, privacy: .private)")
+                resolution = await SharedDestinationResolver.resolve(text: nil, url: raw)
+            } else if url.scheme?.lowercased() == "tripperdash" {
+                resolution = SharedDeepLink.decode(url)
             } else {
                 resolution = await SharedDestinationResolver.resolve(text: nil, url: url)
             }
             shareLog.info("resolution=\(String(describing: resolution), privacy: .private)")
             let staged = await beginPlanningFromShared(resolution)
             shareLog.info("beginPlanningFromShared staged=\(staged, privacy: .public)")
+            // Never a silent dead end (e.g. a kurv.gr link that won't expand),
+            // but only for real shares: tripperdash://ride (the Live Activity's
+            // tap) just opens the app and decodes to .empty too.
+            if !staged && isShare { sharedImportError = "Couldn't find a place or route in this share." }
         }
     }
 
