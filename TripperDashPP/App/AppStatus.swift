@@ -2150,6 +2150,8 @@ final class AppStatus {
     @ObservationIgnored private var speedLimitLoaded = SpeedLimitData.empty
     @ObservationIgnored private var speedLimitLoadedBoxes: [SpeedLimitService.BBox] = []
     @ObservationIgnored private var speedLimitClaimed: [SpeedLimitService.BBox] = []
+    /// `speedLimitLoaded` holds chunks not yet on the dash.
+    @ObservationIgnored private var speedLimitInstallPending = false
     /// Speed-limit display mode when `observeSpeedLimitMode` last registered.
     @ObservationIgnored private var speedLimitModeSeen: DashNavSettings.SpeedLimitDisplay = .always
 
@@ -2406,9 +2408,9 @@ final class AppStatus {
     /// first), each its own Overpass box (300 m buffer): one box over a
     /// whole long route times out (all drivable roads of a region), so a
     /// 500 km trip used to get no limits at all. Each chunk is merged into
-    /// the loaded set; the dash layer is installed after the first chunk
-    /// and again at the end of each pass (each install rebuilds the
-    /// renderer's segment grids, so not once per chunk). (Suggested by
+    /// the loaded set; the dash layer is installed after the first two
+    /// chunks, every 10th and at the end of each pass (each install rebuilds
+    /// the renderer's segment grids, so not once per chunk). (Suggested by
     /// Eduardo, Himalayan 450 rider, Brazil.)
     ///
     /// `extending` (reroute / leg advance / alternative switch, from the
@@ -2424,8 +2426,8 @@ final class AppStatus {
     /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
     /// task is replaced or navigation stops. A pass stops at the first
     /// failed chunk (Overpass busy: don't fire the rest of the route at it
-    /// before the backoff) and moves that chunk to the end, so a chunk that
-    /// keeps failing doesn't hold back the ones after it. Failure = no
+    /// before the backoff) and resumes there; a chunk failing again at the
+    /// head of a retry moves to the end, so it doesn't hold back the rest. Failure = no
     /// limits AND no roads: a region with no `maxspeed` tags still returns
     /// its roads, and must not refetch.
     // ponytail: a chunk with no road at all (a ferry leg) counts as failed
@@ -2445,6 +2447,9 @@ final class AppStatus {
         if !extending {
             speedLimitLoaded = .empty
             speedLimitLoadedBoxes = []
+            speedLimitInstallPending = false
+        } else if speedLimitInstallPending {
+            installLoadedSpeedLimits()   // chunks the cancelled task merged
         }
         speedLimitClaimed = speedLimitLoadedBoxes
         pushSpeedLimitConfig()
@@ -2463,20 +2468,26 @@ final class AppStatus {
             var retryDelay = AppStatus.speedLimitRetrySeconds
             while true {
                 var failedBoxes: [SpeedLimitService.BBox] = []
-                var uninstalled = false
                 for (i, box) in pending.enumerated() {
                     let data = await SpeedLimitService.shared.limits(in: box)
                     // Stop also ends the fetch (stopNavigation, arrival).
                     guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }
                     if data.limits.isEmpty && data.roads.isEmpty {
-                        failedBoxes = Array(pending[(i + 1)...]) + [box]
+                        // Keep route order (the rider's chunk first), except
+                        // a head chunk failing again on a retry (a ferry
+                        // leg?) goes last, so it doesn't hold back the rest.
+                        let again = i == 0 && retryDelay > AppStatus.speedLimitRetrySeconds
+                        failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])
                         break
                     }
                     self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)
                     self.speedLimitLoadedBoxes.append(box)
-                    if i == 0 { self.installLoadedSpeedLimits() } else { uninstalled = true }
+                    self.speedLimitInstallPending = true
+                    // The rider's chunk and the next one at once, then every
+                    // 10th and the pass's end: each install rebuilds grids.
+                    if i < 2 || i % 10 == 9 { self.installLoadedSpeedLimits() }
                 }
-                if uninstalled { self?.installLoadedSpeedLimits() }
+                if self?.speedLimitInstallPending == true { self?.installLoadedSpeedLimits() }
                 guard !failedBoxes.isEmpty else { return }
                 try? await Task.sleep(for: .seconds(retryDelay))
                 // Back off: Overpass may be busy for a while; don't hammer it.
@@ -2490,6 +2501,7 @@ final class AppStatus {
     /// Show the loaded speed-limit ways on the dash (mode re-checked: a
     /// fetch may land after the rider turned the sign off).
     private func installLoadedSpeedLimits() {
+        speedLimitInstallPending = false
         if dashNavSettings.speedLimitDisplay != .off {
             mapViewSource.setSpeedLimits(speedLimitLoaded)
         }

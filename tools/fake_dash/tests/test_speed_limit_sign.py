@@ -637,16 +637,22 @@ def test_route_changes_refetch_speed_limits():
     # Review: a pass stops at the first failure (no burst at a busy
     # Overpass) and rotates that chunk to the end; Stop ends the fetch.
     fail = body.index("if data.limits.isEmpty && data.roads.isEmpty {")
-    assert body.index("failedBoxes = Array(pending[(i + 1)...]) + [box]", fail) < body.index("break", fail)
+    assert "let again = i == 0 && retryDelay > AppStatus.speedLimitRetrySeconds" in body
+    assert body.index("failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])", fail) < body.index("break", fail)
     assert "guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }" in body[:fail]
     assert body.index("self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)") > fail
     assert "self.speedLimitLoadedBoxes.append(box)" in body
     # Review: install after the first chunk and at the end of the pass, not
     # per chunk (each install rebuilds the renderer's grids).
-    assert "if i == 0 { self.installLoadedSpeedLimits() } else { uninstalled = true }" in body
-    assert "if uninstalled { self?.installLoadedSpeedLimits() }" in body
+    assert "self.speedLimitInstallPending = true" in body
+    assert "if i < 2 || i % 10 == 9 { self.installLoadedSpeedLimits() }" in body
+    assert "if self?.speedLimitInstallPending == true { self?.installLoadedSpeedLimits() }" in body
+    # Round 2: a reroute shows the chunks the cancelled task merged.
+    assert "} else if speedLimitInstallPending {\n            installLoadedSpeedLimits()" in body
+    assert "speedLimitInstallPending = false" in reset
     assert "setSpeedLimits(self.speedLimitLoaded)" not in body
     inst = decl_body(app, "private func installLoadedSpeedLimits()")
+    assert "speedLimitInstallPending = false" in inst
     assert "if dashNavSettings.speedLimitDisplay != .off {" in inst
     assert "mapViewSource.setSpeedLimits(speedLimitLoaded)" in inst
     assert "var retryDelay = AppStatus.speedLimitRetrySeconds" in body
@@ -710,6 +716,7 @@ class _LimitPrefetchModel:
         self.fetched = []            # boxes sent to Overpass, in order
         self.navigating = True
         self.installs = 0
+        self.install_pending = False
 
     def _box(self, chunk):
         xs, ys = [p[0] for p in chunk], [p[1] for p in chunk]
@@ -730,6 +737,9 @@ class _LimitPrefetchModel:
         if not extending:
             self.loaded, self.loaded_boxes = set(), []
             self.installed = set()
+            self.install_pending = False
+        elif self.install_pending:
+            self._install()
         self.claimed = list(self.loaded_boxes)
         boxes = [self._box(c) for c in chunks if not self._covered(c, self.loaded_boxes)]
         if not boxes:
@@ -738,27 +748,32 @@ class _LimitPrefetchModel:
         self.task = {"pending": boxes, "cancelled": False, "delay": self.RETRY, "retry_at": None}
         return self.task
 
+    def _install(self):
+        self.installed = set(self.loaded)
+        self.installs += 1
+        self.install_pending = False
+
     def run(self, task, answer, now=0):
         """One pass over the task's pending boxes; `answer(box)` -> result."""
-        failed, uninstalled, pending = [], False, task["pending"]
+        failed, pending = [], task["pending"]
         for i, box in enumerate(pending):
-            if task["cancelled"] or not self.navigating:
+            if task["cancelled"]:
                 return
             self.fetched.append(box)
             data = answer(box)
+            if task["cancelled"] or not self.navigating:   # checked after the await
+                return
             if data is None:
-                failed = pending[i + 1:] + [box]
+                again = i == 0 and task["delay"] > self.RETRY
+                failed = pending[1:] + [box] if again else pending[i:]
                 break
             self.loaded |= data
             self.loaded_boxes.append(box)
-            if i == 0:
-                self.installed = set(self.loaded)
-                self.installs += 1
-            else:
-                uninstalled = True
-        if uninstalled:
-            self.installed = set(self.loaded)
-            self.installs += 1
+            self.install_pending = True
+            if i < 2 or i % 10 == 9:
+                self._install()
+        if self.install_pending:
+            self._install()
         if failed:
             task["pending"] = failed
             task["retry_at"] = now + task["delay"]
@@ -781,33 +796,53 @@ def test_long_route_is_fetched_in_20km_chunks_nearest_first():
     assert len(m.installed) == 5
 
 
-def test_a_failed_chunk_stops_the_pass_and_goes_last():
+def test_a_failed_chunk_stops_the_pass_and_is_retried_first():
     m = _LimitPrefetchModel()
     t = m.prefetch(LONG)
     m.run(t, lambda box: None if box[0] == 39_700 else {box[0]}, now=10)
     # No burst at a busy Overpass: the pass stopped at the failure.
     assert [b[0] for b in m.fetched] == [-300, 19_700, 39_700]
     assert m.installed == {-300, 19_700}
-    assert [b[0] for b in t["pending"]] == [59_700, 79_700, 39_700] and t["retry_at"] == 70
+    assert [b[0] for b in t["pending"]] == [39_700, 59_700, 79_700] and t["retry_at"] == 70
     m.run(t, lambda box: {box[0]}, now=70)
     assert len(m.installed) == 5 and t["retry_at"] is None
+
+
+def test_riders_chunk_failing_once_is_retried_first():
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    m.run(t, lambda box: None, now=0)                   # Overpass busy at start
+    assert [b[0] for b in t["pending"]][0] == -300
 
 
 def test_a_chunk_that_keeps_failing_does_not_block_the_rest():
     m = _LimitPrefetchModel()
     t = m.prefetch(LONG)
     dead = lambda box: None if box[0] == -300 else {box[0]}     # a ferry leg
-    m.run(t, dead, now=0)
-    m.run(t, dead, now=60)
+    m.run(t, dead, now=0)                                # fails once: stays first
+    m.run(t, dead, now=60)                               # fails again: goes last
+    m.run(t, dead, now=180)
     assert m.installed == {19_700, 39_700, 59_700, 79_700}
     assert [b[0] for b in t["pending"]] == [-300]
 
 
-def test_installs_after_first_chunk_and_end_of_pass_only():
+def test_installs_first_two_chunks_every_10th_and_end_of_pass():
     m = _LimitPrefetchModel()
-    t = m.prefetch(LONG)
-    m.run(t, lambda box: {box[0]})
-    assert m.installs == 2
+    m.run(m.prefetch(LONG), lambda box: {box[0]})
+    assert m.installs == 3                               # i=0, i=1, end
+    m = _LimitPrefetchModel()
+    m.run(m.prefetch([(x, 0) for x in range(0, 500_001, 1_000)]), lambda box: {box[0]})
+    assert m.installs == 2 + 2 + 1                       # i=0,1,9,19, end (25 chunks)
+
+
+def test_reroute_shows_chunks_the_cancelled_task_merged():
+    m = _LimitPrefetchModel()
+    m.prefetch(LONG)
+    m.loaded.add("late")                                 # merged mid-pass, not installed yet
+    m.install_pending = True
+    detour = [(x, 0) for x in range(0, 50_001, 1_000)] + [(50_000, y) for y in range(0, 30_001, 1_000)]
+    m.prefetch(detour, extending=True)
+    assert "late" in m.installed
 
 
 def test_stop_ends_the_fetch():
@@ -815,7 +850,8 @@ def test_stop_ends_the_fetch():
     t = m.prefetch(LONG)
     m.navigating = False
     m.run(t, lambda box: {box[0]})
-    assert m.fetched == [] and m.installed == set()
+    # Swift checks after the await: one request goes out, nothing installs.
+    assert len(m.fetched) == 1 and m.installed == set()
 
 
 def test_shortcut_between_two_boxes_is_not_covered():

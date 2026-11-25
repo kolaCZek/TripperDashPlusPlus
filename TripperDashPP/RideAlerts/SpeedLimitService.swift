@@ -80,8 +80,8 @@ struct SpeedLimitData: Sendable {
 }
 
 /// Uniform lat/lon bucket grid over polyline segments, built when the
-/// speed-limit layer is installed (during navigation: after a route's first
-/// chunk and after each fetch pass, see `prefetchSpeedLimits`) so the per-fix map-match only measures
+/// speed-limit layer is installed (during navigation: a few times per fetch
+/// pass, see `prefetchSpeedLimits`) so the per-fix map-match only measures
 /// the segments in the 3×3 cells around the rider instead of every segment
 /// in the route bbox (downtown that's tens of thousands, at 1 Hz, on main).
 ///
