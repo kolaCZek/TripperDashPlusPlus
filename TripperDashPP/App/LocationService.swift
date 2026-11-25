@@ -31,6 +31,7 @@
 //
 
 import CoreLocation
+import CoreMotion
 import Foundation
 import Observation
 import os.log
@@ -142,6 +143,10 @@ final class LocationService: NSObject {
 
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "LocationService")
     private let manager = CLLocationManager()
+    /// Gravity → `manager.headingOrientation` (#225). Accelerometer only:
+    /// no permission prompt, and it works with Rotation Lock on (which
+    /// freezes `UIDevice.orientation` in this portrait-only app).
+    private let motion = CMMotionManager()
 
     /// Active consumers and the mode each one requires. The service
     /// runs at the highest requested mode and stops only when all
@@ -308,6 +313,7 @@ final class LocationService: NSObject {
         if CLLocationManager.headingAvailable() {
             manager.headingFilter = 2 // degrees
             manager.startUpdatingHeading()
+            startOrientationUpdates()
         }
         if !isRunning {
             log.info("LocationService started (mode=\(self.currentMode.rawValue))")
@@ -319,9 +325,49 @@ final class LocationService: NSObject {
         guard isRunning else { return }
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
+        motion.stopAccelerometerUpdates()
         manager.allowsBackgroundLocationUpdates = false
         isRunning = false
         log.info("LocationService stopped (no consumers)")
+    }
+
+    /// The compass reads the direction of the phone's top edge in
+    /// `headingOrientation` (default portrait). A phone mounted sideways or
+    /// upside down turned the map on the dash by 90°/180° below ~11 km/h,
+    /// where the map follows the compass (MapViewSource.recomputeHeading).
+    /// Keep the orientation matched to how the phone sits in the mount.
+    // ponytail: 90° steps only (what Core Location offers); a phone mounted
+    // at e.g. 30° still reads 30° off. A course-vs-compass offset learned
+    // while moving would cover any angle.
+    private func startOrientationUpdates() {
+        guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
+        motion.accelerometerUpdateInterval = 0.5
+        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let g = data?.acceleration else { return }
+            MainActor.assumeIsolated { self?.applyGravity(g) }   // queue is .main
+        }
+    }
+
+    private func applyGravity(_ g: CMAcceleration) {
+        let next = Self.headingOrientation(gx: g.x, gy: g.y, gz: g.z, current: manager.headingOrientation)
+        if next != manager.headingOrientation {
+            manager.headingOrientation = next
+            log.info("Heading orientation \(next.rawValue)")
+        }
+    }
+
+    /// Orientation of the phone from gravity in device axes (g; +y = top
+    /// edge, +x = right edge, +z = out of the screen). Upright portrait is
+    /// (0, -1, 0). Switches only when one edge clearly points down (a
+    /// 0.25 g margin, so a phone near 45° doesn't flap); lying flat keeps
+    /// `current` (any edge is as good, and the top edge stays valid).
+    nonisolated static func headingOrientation(gx: Double, gy: Double, gz: Double,
+                                               current: CLDeviceOrientation) -> CLDeviceOrientation {
+        guard abs(gz) < 0.8 else { return current }
+        let margin = 0.25
+        if abs(gy) > abs(gx) + margin { return gy < 0 ? .portrait : .portraitUpsideDown }
+        if abs(gx) > abs(gy) + margin { return gx < 0 ? .landscapeLeft : .landscapeRight }
+        return current
     }
 }
 
