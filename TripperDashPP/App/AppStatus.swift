@@ -2426,8 +2426,9 @@ final class AppStatus {
     /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
     /// task is replaced or navigation stops. A pass stops at the first
     /// failed chunk (Overpass busy: don't fire the rest of the route at it
-    /// before the backoff) and resumes there; a chunk failing again at the
-    /// head of a retry moves to the end, so it doesn't hold back the rest. Failure = no
+    /// before the backoff) and resumes there. A chunk failing twice in a
+    /// row while others do load moves to the end, so it doesn't hold back
+    /// the rest; in a total outage the route order stays. Failure = no
     /// limits AND no roads: a region with no `maxspeed` tags still returns
     /// its roads, and must not refetch.
     // ponytail: a chunk with no road at all (a ferry leg) counts as failed
@@ -2466,6 +2467,7 @@ final class AppStatus {
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
             var pending = boxes
             var retryDelay = AppStatus.speedLimitRetrySeconds
+            var lastFailed: SpeedLimitService.BBox?
             while true {
                 var failedBoxes: [SpeedLimitService.BBox] = []
                 for (i, box) in pending.enumerated() {
@@ -2474,10 +2476,11 @@ final class AppStatus {
                     guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }
                     if data.limits.isEmpty && data.roads.isEmpty {
                         // Keep route order (the rider's chunk first), except
-                        // a head chunk failing again on a retry (a ferry
-                        // leg?) goes last, so it doesn't hold back the rest.
-                        let again = i == 0 && retryDelay > AppStatus.speedLimitRetrySeconds
+                        // a chunk failing twice in a row while others load
+                        // (a ferry leg?) goes last, not holding back the rest.
+                        let again = i == 0 && box == lastFailed && !self.speedLimitLoadedBoxes.isEmpty
                         failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])
+                        lastFailed = box
                         break
                     }
                     self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)

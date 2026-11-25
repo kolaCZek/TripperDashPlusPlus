@@ -637,7 +637,8 @@ def test_route_changes_refetch_speed_limits():
     # Review: a pass stops at the first failure (no burst at a busy
     # Overpass) and rotates that chunk to the end; Stop ends the fetch.
     fail = body.index("if data.limits.isEmpty && data.roads.isEmpty {")
-    assert "let again = i == 0 && retryDelay > AppStatus.speedLimitRetrySeconds" in body
+    assert "let again = i == 0 && box == lastFailed && !self.speedLimitLoadedBoxes.isEmpty" in body
+    assert body.index("lastFailed = box") > body.index("failedBoxes = again ?")
     assert body.index("failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])", fail) < body.index("break", fail)
     assert "guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }" in body[:fail]
     assert body.index("self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)") > fail
@@ -764,8 +765,9 @@ class _LimitPrefetchModel:
             if task["cancelled"] or not self.navigating:   # checked after the await
                 return
             if data is None:
-                again = i == 0 and task["delay"] > self.RETRY
+                again = i == 0 and box == task.get("last_failed") and bool(self.loaded_boxes)
                 failed = pending[1:] + [box] if again else pending[i:]
+                task["last_failed"] = box
                 break
             self.loaded |= data
             self.loaded_boxes.append(box)
@@ -815,15 +817,25 @@ def test_riders_chunk_failing_once_is_retried_first():
     assert [b[0] for b in t["pending"]][0] == -300
 
 
+def test_total_outage_keeps_route_order():
+    # Round 3: an outage over several retries must not rotate the rider's
+    # chunks to the back of the queue.
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    for now in (0, 60, 180, 420):
+        m.run(t, lambda box: None, now=now)
+    assert [b[0] for b in t["pending"]] == [-300, 19_700, 39_700, 59_700, 79_700]
+
+
 def test_a_chunk_that_keeps_failing_does_not_block_the_rest():
     m = _LimitPrefetchModel()
     t = m.prefetch(LONG)
-    dead = lambda box: None if box[0] == -300 else {box[0]}     # a ferry leg
-    m.run(t, dead, now=0)                                # fails once: stays first
-    m.run(t, dead, now=60)                               # fails again: goes last
+    dead = lambda box: None if box[0] == 39_700 else {box[0]}   # a ferry leg
+    m.run(t, dead, now=0)                                # fails once: resume there
+    m.run(t, dead, now=60)                               # twice in a row: goes last
     m.run(t, dead, now=180)
-    assert m.installed == {19_700, 39_700, 59_700, 79_700}
-    assert [b[0] for b in t["pending"]] == [-300]
+    assert m.installed == {-300, 19_700, 59_700, 79_700}
+    assert [b[0] for b in t["pending"]] == [39_700]
 
 
 def test_installs_first_two_chunks_every_10th_and_end_of_pass():
