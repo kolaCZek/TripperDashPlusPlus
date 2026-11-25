@@ -65,6 +65,8 @@ actor DashSocket {
     /// (info level) and at cancel, so timeouts can be diagnosed without
     /// digging through debug spam.
     private var rxDatagramCount: UInt64 = 0
+    /// Datagrams dropped because they didn't come from `host`.
+    private var rxRejectedCount: UInt64 = 0
     /// Monotonic clock, in seconds. Keeps counting while the device sleeps
     /// (`systemUptime` doesn't), so a dash that rebooted while the phone
     /// slept shows as silent.
@@ -330,6 +332,21 @@ actor DashSocket {
                     }
                 }
             }
+            // Only the dash may talk to us. Every Tripper shares one Wi-Fi
+            // password, so anyone nearby can join the bike's network and
+            // send spoofed datagrams (e.g. a joystick `exitNav` mid-ride).
+            // Drop anything not from the host we send to, before it counts
+            // as RX (a spoofer must not keep a dead link looking alive).
+            // ponytail: source-IP check only; a sender on the same Wi-Fi can
+            // still forge the address. Real auth needs the dash protocol.
+            // (Suggested by Eduardo, Himalayan 450 rider, Brazil.)
+            if n > 0, fromAddr.sin_addr.s_addr != dest.sin_addr.s_addr {
+                rxRejectedCount &+= 1
+                if rxRejectedCount == 1 {
+                    log.notice("DashSocket dropped a datagram from \(self.ipv4String(fromAddr.sin_addr), privacy: .public) (not the dash)")
+                }
+                continue
+            }
             if n > 0 {
                 rxDatagramCount &+= 1
                 let now = DashSocket.now()
@@ -406,7 +423,7 @@ actor DashSocket {
     private func didCancel() {
         fd = -1
         state = .cancelled
-        log.info("DashSocket cancelled (rx=\(self.rxDatagramCount))")
+        log.info("DashSocket cancelled (rx=\(self.rxDatagramCount), dropped=\(self.rxRejectedCount))")
         inboundContinuation.finish()
     }
 
