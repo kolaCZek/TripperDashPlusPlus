@@ -147,6 +147,8 @@ final class LocationService: NSObject {
     /// no permission prompt, and it works with Rotation Lock on (which
     /// freezes `UIDevice.orientation` in this portrait-only app).
     private let motion = CMMotionManager()
+    /// Low-passed gravity (g, device axes); nil until the first sample.
+    private var gravity: (x: Double, y: Double, z: Double)?
 
     /// Active consumers and the mode each one requires. The service
     /// runs at the highest requested mode and stops only when all
@@ -326,6 +328,9 @@ final class LocationService: NSObject {
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
         motion.stopAccelerometerUpdates()
+        gravity = nil
+        // A sideways pocket must not outlast the ride (flat keeps `current`).
+        manager.headingOrientation = .portrait
         manager.allowsBackgroundLocationUpdates = false
         isRunning = false
         log.info("LocationService stopped (no consumers)")
@@ -348,8 +353,14 @@ final class LocationService: NSObject {
         }
     }
 
+    /// Single-cylinder vibration and braking spike single samples past the
+    /// margin; a ~2.5 s low-pass (0.2 per 0.5 s sample) rides them out.
     private func applyGravity(_ g: CMAcceleration) {
-        let next = Self.headingOrientation(gx: g.x, gy: g.y, gz: g.z, current: manager.headingOrientation)
+        let a = 0.2
+        let f = gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y), z: $0.z + a * (g.z - $0.z)) }
+            ?? (x: g.x, y: g.y, z: g.z)
+        gravity = f
+        let next = Self.headingOrientation(gx: f.x, gy: f.y, current: manager.headingOrientation)
         if next != manager.headingOrientation {
             manager.headingOrientation = next
             log.info("Heading orientation \(next.rawValue)")
@@ -358,13 +369,16 @@ final class LocationService: NSObject {
 
     /// Orientation of the phone from gravity in device axes (g; +y = top
     /// edge, +x = right edge, +z = out of the screen). Upright portrait is
-    /// (0, -1, 0). Switches only when one edge clearly points down (a
-    /// 0.25 g margin, so a phone near 45° doesn't flap); lying flat keeps
-    /// `current` (any edge is as good, and the top edge stays valid).
-    nonisolated static func headingOrientation(gx: Double, gy: Double, gz: Double,
+    /// (0, -1, 0). Only gravity in the screen plane matters: a mount tilted
+    /// back θ from vertical keeps cos θ of it (0.34 g at 70°). Switches when
+    /// one edge clearly points down (a margin of 25 % of that, so a phone
+    /// near 45° doesn't flap); under 0.3 g (flatter than ~72°, a tank bag)
+    /// no edge points down and `current` stays.
+    nonisolated static func headingOrientation(gx: Double, gy: Double,
                                                current: CLDeviceOrientation) -> CLDeviceOrientation {
-        guard abs(gz) < 0.8 else { return current }
-        let margin = 0.25
+        let inPlane = (gx * gx + gy * gy).squareRoot()
+        guard inPlane >= 0.3 else { return current }
+        let margin = 0.25 * inPlane
         if abs(gy) > abs(gx) + margin { return gy < 0 ? .portrait : .portraitUpsideDown }
         if abs(gx) > abs(gy) + margin { return gx < 0 ? .landscapeLeft : .landscapeRight }
         return current
