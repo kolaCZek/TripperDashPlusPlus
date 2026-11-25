@@ -79,6 +79,11 @@ final class MapViewSource: NSObject, FrameSource {
     private var lastCompassHeading: CLLocationDirection = 0
     private var lastCompassValid: Bool = false
 
+    /// Last GPS course while moving, held below the speed threshold: the
+    /// bike doesn't turn at a light, and the compass follows the phone's
+    /// top edge, so a phone turned in its mount turned the map (#225).
+    private var lastMovingCourse: CLLocationDirection?
+
     private let queue = DispatchQueue(label: "TripperDashPP.MapViewSource", qos: .userInitiated)
     private var renderTask: Task<Void, Never>?
     private var frameIndex: UInt64 = 0
@@ -618,6 +623,7 @@ final class MapViewSource: NSObject, FrameSource {
         fixSubscription = nil
         headingSubscription = nil
         onFrame = nil
+        lastMovingCourse = nil   // the bike may be turned before the next ride
         log.info("MapViewSource stopped after \(self.frameIndex) frames")
     }
 
@@ -1125,9 +1131,10 @@ extension MapViewSource {
 
     /// Decide which heading to point the rendered frame at.
     ///
-    /// Policy (field-test 2026-06-21):
+    /// Policy (field-test 2026-06-21, #225):
     ///   - `speed >= 3 m/s` (~11 km/h) AND `course >= 0` → trust GPS course
-    ///   - otherwise → fall back to the compass (last valid value)
+    ///   - slower → hold the last such course (stopped at a light, crawling)
+    ///   - no course yet this stream (parked at start) → the compass
     ///   - lerp `lastHeading → targetHeading` in `updateHeading()` so the
     ///     view doesn't snap when the source flips between course and
     ///     compass.
@@ -1144,7 +1151,14 @@ extension MapViewSource {
            fix.speed >= speedThresholdMPS,
            fix.course >= 0 {
             newTarget = fix.course
+            lastMovingCourse = fix.course
+        } else if let lastMovingCourse {
+            newTarget = lastMovingCourse
         } else if lastCompassValid {
+            // ponytail: before the first moving fix the map still follows
+            // the phone's top edge (a phone mounted sideways reads 90° off
+            // until ~11 km/h); set `headingOrientation` from the device
+            // orientation if a parked start shows it.
             newTarget = lastCompassHeading
         }
 
