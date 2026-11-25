@@ -2426,9 +2426,10 @@ final class AppStatus {
     /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
     /// task is replaced or navigation stops. A pass stops at the first
     /// failed chunk (Overpass busy: don't fire the rest of the route at it
-    /// before the backoff) and resumes there. A chunk failing twice in a
-    /// row while others do load moves to the end, so it doesn't hold back
-    /// the rest; in a total outage the route order stays. Failure = no
+    /// before the backoff) and resumes there. When the head chunk fails
+    /// twice in a row, the next one is probed: if it loads, the head (a
+    /// ferry leg?) goes last so it doesn't hold back the rest; if it fails
+    /// too, Overpass is down and the route order stays. Failure = no
     /// limits AND no roads: a region with no `maxspeed` tags still returns
     /// its roads, and must not refetch.
     // ponytail: a chunk with no road at all (a ferry leg) counts as failed
@@ -2470,17 +2471,20 @@ final class AppStatus {
             var lastFailed: SpeedLimitService.BBox?
             while true {
                 var failedBoxes: [SpeedLimitService.BBox] = []
+                var skipped: SpeedLimitService.BBox?   // head that failed twice
                 for (i, box) in pending.enumerated() {
                     let data = await SpeedLimitService.shared.limits(in: box)
                     // Stop also ends the fetch (stopNavigation, arrival).
                     guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }
                     if data.limits.isEmpty && data.roads.isEmpty {
-                        // Keep route order (the rider's chunk first), except
-                        // a chunk failing twice in a row while others load
-                        // (a ferry leg?) goes last, not holding back the rest.
-                        let again = i == 0 && box == lastFailed && !self.speedLimitLoadedBoxes.isEmpty
-                        failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])
-                        lastFailed = box
+                        // Head failed twice in a row: probe the next chunk.
+                        if i == 0, box == lastFailed, pending.count > 1 { skipped = box; continue }
+                        // Keep route order (the rider's chunk first). The
+                        // probe failing too = Overpass down: keep the head
+                        // first; a later failure = the head goes last.
+                        let tail = skipped.map { [$0] } ?? []
+                        failedBoxes = i == 1 && !tail.isEmpty ? pending : Array(pending[i...]) + tail
+                        lastFailed = failedBoxes[0]
                         break
                     }
                     self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)
@@ -2491,6 +2495,7 @@ final class AppStatus {
                     if i < 2 || i % 10 == 9 { self.installLoadedSpeedLimits() }
                 }
                 if self?.speedLimitInstallPending == true { self?.installLoadedSpeedLimits() }
+                if failedBoxes.isEmpty, let skipped { failedBoxes = [skipped] }
                 guard !failedBoxes.isEmpty else { return }
                 try? await Task.sleep(for: .seconds(retryDelay))
                 // Back off: Overpass may be busy for a while; don't hammer it.

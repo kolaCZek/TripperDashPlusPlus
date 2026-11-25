@@ -637,9 +637,12 @@ def test_route_changes_refetch_speed_limits():
     # Review: a pass stops at the first failure (no burst at a busy
     # Overpass) and rotates that chunk to the end; Stop ends the fetch.
     fail = body.index("if data.limits.isEmpty && data.roads.isEmpty {")
-    assert "let again = i == 0 && box == lastFailed && !self.speedLimitLoadedBoxes.isEmpty" in body
-    assert body.index("lastFailed = box") > body.index("failedBoxes = again ?")
-    assert body.index("failedBoxes = again ? Array(pending.dropFirst()) + [box] : Array(pending[i...])", fail) < body.index("break", fail)
+    # Round 4: the head failing twice probes the next chunk; both failing
+    # (an outage) keeps the order, the probe loading sends the head last.
+    assert "if i == 0, box == lastFailed, pending.count > 1 { skipped = box; continue }" in body
+    assert body.index("failedBoxes = i == 1 && !tail.isEmpty ? pending : Array(pending[i...]) + tail", fail) < body.index("break", fail)
+    assert body.index("lastFailed = failedBoxes[0]", fail) < body.index("break", fail)
+    assert "if failedBoxes.isEmpty, let skipped { failedBoxes = [skipped] }" in body
     assert "guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }" in body[:fail]
     assert body.index("self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)") > fail
     assert "self.speedLimitLoadedBoxes.append(box)" in body
@@ -756,7 +759,7 @@ class _LimitPrefetchModel:
 
     def run(self, task, answer, now=0):
         """One pass over the task's pending boxes; `answer(box)` -> result."""
-        failed, pending = [], task["pending"]
+        failed, pending, skipped = [], task["pending"], None
         for i, box in enumerate(pending):
             if task["cancelled"]:
                 return
@@ -765,9 +768,12 @@ class _LimitPrefetchModel:
             if task["cancelled"] or not self.navigating:   # checked after the await
                 return
             if data is None:
-                again = i == 0 and box == task.get("last_failed") and bool(self.loaded_boxes)
-                failed = pending[1:] + [box] if again else pending[i:]
-                task["last_failed"] = box
+                if i == 0 and box == task.get("last_failed") and len(pending) > 1:
+                    skipped = box
+                    continue
+                tail = [skipped] if skipped else []
+                failed = list(pending) if i == 1 and tail else pending[i:] + tail
+                task["last_failed"] = failed[0]
                 break
             self.loaded |= data
             self.loaded_boxes.append(box)
@@ -776,6 +782,8 @@ class _LimitPrefetchModel:
                 self._install()
         if self.install_pending:
             self._install()
+        if not failed and skipped:
+            failed = [skipped]
         if failed:
             task["pending"] = failed
             task["retry_at"] = now + task["delay"]
@@ -825,6 +833,27 @@ def test_total_outage_keeps_route_order():
     for now in (0, 60, 180, 420):
         m.run(t, lambda box: None, now=now)
     assert [b[0] for b in t["pending"]] == [-300, 19_700, 39_700, 59_700, 79_700]
+
+
+def test_outage_after_a_reroute_keeps_the_detour_first():
+    # Round 4: chunks loaded before the outage must not make it look like
+    # "others load" and rotate the rider's detour chunk to the back.
+    m = _LimitPrefetchModel()
+    m.run(m.prefetch(LONG), lambda box: {box[0]})
+    detour = [(0, 5_000 + y) for y in range(0, 60_001, 1_000)]
+    t = m.prefetch(detour, extending=True)
+    first = t["pending"][0]
+    for now in (0, 60, 180, 420, 900):
+        m.run(t, lambda box: None, now=now)
+    assert t["pending"][0] == first and len(t["pending"]) == 3
+
+
+def test_outage_starting_mid_pass_keeps_the_order():
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    for now in (0, 60, 180, 420, 900):
+        m.run(t, lambda box: None if box[0] >= 39_700 else {box[0]}, now=now)
+    assert [b[0] for b in t["pending"]] == [39_700, 59_700, 79_700]
 
 
 def test_a_chunk_that_keeps_failing_does_not_block_the_rest():
