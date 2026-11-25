@@ -79,8 +79,9 @@ struct SpeedLimitData: Sendable {
     }
 }
 
-/// Uniform lat/lon bucket grid over polyline segments, built ONCE when the
-/// speed-limit layer is installed so the per-fix map-match only measures
+/// Uniform lat/lon bucket grid over polyline segments, built when the
+/// speed-limit layer is installed (during navigation: after a route's first
+/// chunk and after each fetch pass, see `prefetchSpeedLimits`) so the per-fix map-match only measures
 /// the segments in the 3×3 cells around the rider instead of every segment
 /// in the route bbox (downtown that's tens of thousands, at 1 Hz, on main).
 ///
@@ -520,7 +521,9 @@ actor SpeedLimitService {
             o.south >= south && o.north <= north && o.west >= west && o.east <= east
         }
         func contains(_ p: CLLocationCoordinate2D) -> Bool {
-            p.latitude >= south && p.latitude <= north && p.longitude >= west && p.longitude <= east
+            p.latitude >= south && p.latitude <= north
+                && (west <= east ? (p.longitude >= west && p.longitude <= east)
+                                 : (p.longitude >= west || p.longitude <= east))
         }
         /// Coarse key (~0.01° ≈ 1.1 km grid) so re-riding a region is a
         /// disk hit, matching the camera service's keying granularity.

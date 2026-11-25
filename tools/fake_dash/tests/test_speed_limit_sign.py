@@ -619,30 +619,59 @@ def test_route_changes_refetch_speed_limits():
     app = strip_comments(_src("App/AppStatus.swift"))
     body = decl_body(app, "func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false)")
     assert "SpeedLimitService.chunks(of: coords, meters: SpeedLimitService.chunkMeters)" in body
+    # Review: segments, not points (a shortcut between two boxes).
+    assert "zip(chunk, chunk.dropFirst()).allSatisfy { a, b in" in body
+    assert "boxes.contains { $0.contains(a) && $0.contains(b) }" in body
     skip = body.index("if extending, chunks.allSatisfy({ covered($0, by: speedLimitClaimed) }) { return }")
     assert skip < body.index("speedLimitPrefetchTask?.cancel()")
     # A new route starts from nothing; a reroute keeps what is loaded.
     reset = body[body.index("if !extending {"):]
-    assert "speedLimitLoaded = .empty" in reset[:reset.index("}")]
+    reset = reset[:reset.index("}")]
+    assert "speedLimitLoaded = .empty" in reset and "speedLimitLoadedBoxes = []" in reset
+    assert "if !extending { mapViewSource.setSpeedLimits(.empty) }" in body
     assert "speedLimitClaimed = speedLimitLoadedBoxes" in body
     assert ".filter { !covered($0, by: speedLimitLoadedBoxes) }" in body
     assert "bufferMeters: SpeedLimitService.corridorBufferMeters)" in body
     assert "speedLimitClaimed += boxes" in body
     # Failure = no limits AND no roads (an untagged region still has roads).
-    assert "let failed = data.limits.isEmpty && data.roads.isEmpty" in body
-    assert "self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)" in body
-    assert "self.mapViewSource.setSpeedLimits(self.speedLimitLoaded)" in body
+    # Review: a pass stops at the first failure (no burst at a busy
+    # Overpass) and rotates that chunk to the end; Stop ends the fetch.
+    fail = body.index("if data.limits.isEmpty && data.roads.isEmpty {")
+    assert body.index("failedBoxes = Array(pending[(i + 1)...]) + [box]", fail) < body.index("break", fail)
+    assert "guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }" in body[:fail]
+    assert body.index("self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)") > fail
+    assert "self.speedLimitLoadedBoxes.append(box)" in body
+    # Review: install after the first chunk and at the end of the pass, not
+    # per chunk (each install rebuilds the renderer's grids).
+    assert "if i == 0 { self.installLoadedSpeedLimits() } else { uninstalled = true }" in body
+    assert "if uninstalled { self?.installLoadedSpeedLimits() }" in body
+    assert "setSpeedLimits(self.speedLimitLoaded)" not in body
+    inst = decl_body(app, "private func installLoadedSpeedLimits()")
+    assert "if dashNavSettings.speedLimitDisplay != .off {" in inst
+    assert "mapViewSource.setSpeedLimits(speedLimitLoaded)" in inst
     assert "var retryDelay = AppStatus.speedLimitRetrySeconds" in body
     retry = body.index("try? await Task.sleep(for: .seconds(retryDelay))")
     assert body.index("guard !failedBoxes.isEmpty else { return }") < retry
     assert retry < body.index("retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)")
-    assert retry < body.index("guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }")
+    assert retry < body.index("guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }", retry)
     assert "pending = failedBoxes" in body
     assert "static let speedLimitRetrySeconds: Double = 60" in app
     assert "static let speedLimitRetryMaxSeconds: Double = 600" in app
     svc = strip_comments(_src("RideAlerts/SpeedLimitService.swift"))
     assert "static let chunkMeters: Double = 20_000" in svc
-    assert "p.latitude >= south && p.latitude <= north && p.longitude >= west && p.longitude <= east" in svc
+    # Antimeridian box (west > east) contains a point on either side.
+    assert ": (p.longitude >= west || p.longitude <= east))" in svc
+    chunks = decl_body(svc, "nonisolated static func chunks(of coords: [CLLocationCoordinate2D],")
+    assert "chunk = [p]" in chunks and "length = 0" in chunks
+    merged = decl_body(svc, "func merged(with other: SpeedLimitData) -> SpeedLimitData")
+    assert "!haveLimits.contains($0.id)" in merged and "!haveRoads.contains($0.id)" in merged
+    # Review: a units/tolerance change in an untagged region must not
+    # refetch the route; only turning the sign back on backfills.
+    obs = decl_body(app, "private func observeSpeedLimitMode()")
+    assert obs.index("speedLimitModeSeen = dashNavSettings.speedLimitDisplay") < obs.index("withObservationTracking")
+    assert "let turnedOn = self.speedLimitModeSeen == .off" in obs
+    assert "} else if turnedOn," in obs
+    assert obs.index("let turnedOn") < obs.index("self.observeSpeedLimitMode()")
     assert "limitsAlong" not in svc + app
 
 
@@ -680,6 +709,7 @@ class _LimitPrefetchModel:
         self.task = None
         self.fetched = []            # boxes sent to Overpass, in order
         self.navigating = True
+        self.installs = 0
 
     def _box(self, chunk):
         xs, ys = [p[0] for p in chunk], [p[1] for p in chunk]
@@ -688,7 +718,8 @@ class _LimitPrefetchModel:
 
     @staticmethod
     def _covered(chunk, boxes):
-        return all(any(b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3] for b in boxes) for p in chunk)
+        inside = lambda b, p: b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3]
+        return all(any(inside(b, p) and inside(b, q) for b in boxes) for p, q in zip(chunk, chunk[1:]))
 
     def prefetch(self, route, extending=False):
         chunks = _chunks(route, self.CHUNK)
@@ -709,18 +740,25 @@ class _LimitPrefetchModel:
 
     def run(self, task, answer, now=0):
         """One pass over the task's pending boxes; `answer(box)` -> result."""
-        failed = []
-        for box in task["pending"]:
-            if task["cancelled"]:
+        failed, uninstalled, pending = [], False, task["pending"]
+        for i, box in enumerate(pending):
+            if task["cancelled"] or not self.navigating:
                 return
             self.fetched.append(box)
             data = answer(box)
             if data is None:
-                failed.append(box)
-                continue
+                failed = pending[i + 1:] + [box]
+                break
             self.loaded |= data
             self.loaded_boxes.append(box)
+            if i == 0:
+                self.installed = set(self.loaded)
+                self.installs += 1
+            else:
+                uninstalled = True
+        if uninstalled:
             self.installed = set(self.loaded)
+            self.installs += 1
         if failed:
             task["pending"] = failed
             task["retry_at"] = now + task["delay"]
@@ -743,14 +781,48 @@ def test_long_route_is_fetched_in_20km_chunks_nearest_first():
     assert len(m.installed) == 5
 
 
-def test_one_failed_chunk_keeps_the_others_and_retries_alone():
+def test_a_failed_chunk_stops_the_pass_and_goes_last():
     m = _LimitPrefetchModel()
     t = m.prefetch(LONG)
     m.run(t, lambda box: None if box[0] == 39_700 else {box[0]}, now=10)
-    assert m.installed == {-300, 19_700, 59_700, 79_700}
-    assert [b[0] for b in t["pending"]] == [39_700] and t["retry_at"] == 70
+    # No burst at a busy Overpass: the pass stopped at the failure.
+    assert [b[0] for b in m.fetched] == [-300, 19_700, 39_700]
+    assert m.installed == {-300, 19_700}
+    assert [b[0] for b in t["pending"]] == [59_700, 79_700, 39_700] and t["retry_at"] == 70
     m.run(t, lambda box: {box[0]}, now=70)
     assert len(m.installed) == 5 and t["retry_at"] is None
+
+
+def test_a_chunk_that_keeps_failing_does_not_block_the_rest():
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    dead = lambda box: None if box[0] == -300 else {box[0]}     # a ferry leg
+    m.run(t, dead, now=0)
+    m.run(t, dead, now=60)
+    assert m.installed == {19_700, 39_700, 59_700, 79_700}
+    assert [b[0] for b in t["pending"]] == [-300]
+
+
+def test_installs_after_first_chunk_and_end_of_pass_only():
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    m.run(t, lambda box: {box[0]})
+    assert m.installs == 2
+
+
+def test_stop_ends_the_fetch():
+    m = _LimitPrefetchModel()
+    t = m.prefetch(LONG)
+    m.navigating = False
+    m.run(t, lambda box: {box[0]})
+    assert m.fetched == [] and m.installed == set()
+
+
+def test_shortcut_between_two_boxes_is_not_covered():
+    # Both ends of the straight segment are loaded, the road between isn't.
+    boxes = [(-300, -300, 300, 20_300), (19_700, -300, 20_300, 20_300)]
+    assert not _LimitPrefetchModel._covered([(0, 10_000), (20_000, 10_000)], boxes)
+    assert _LimitPrefetchModel._covered([(0, 0), (0, 10_000)], boxes)
 
 
 def test_untagged_region_is_a_success_not_a_refetch_loop():
