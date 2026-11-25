@@ -69,10 +69,19 @@ struct SpeedLimitData: Sendable {
     let roads: [RoadShape]
 
     nonisolated static let empty = SpeedLimitData(limits: [], roads: [])
+
+    /// `self` plus the ways of `other` not already in it (route chunks
+    /// overlap at their seams, so a way can come back from two of them).
+    func merged(with other: SpeedLimitData) -> SpeedLimitData {
+        let haveLimits = Set(limits.map(\.id)), haveRoads = Set(roads.map(\.id))
+        return SpeedLimitData(limits: limits + other.limits.filter { !haveLimits.contains($0.id) },
+                              roads: roads + other.roads.filter { !haveRoads.contains($0.id) })
+    }
 }
 
-/// Uniform lat/lon bucket grid over polyline segments, built ONCE when the
-/// speed-limit layer is installed so the per-fix map-match only measures
+/// Uniform lat/lon bucket grid over polyline segments, built when the
+/// speed-limit layer is installed (during navigation: a few times per fetch
+/// pass, see `prefetchSpeedLimits`) so the per-fix map-match only measures
 /// the segments in the 3×3 cells around the rider instead of every segment
 /// in the route bbox (downtown that's tens of thousands, at 1 Hz, on main).
 ///
@@ -243,6 +252,34 @@ actor SpeedLimitService {
     /// way query cheaper.
     static let corridorBufferMeters: Double = 300
 
+    /// Route length (m) per Overpass box. One box over a whole long route
+    /// holds every drivable road of a region and times out; a 20 km chunk
+    /// is at most ~14×14 km even on a diagonal.
+    static let chunkMeters: Double = 20_000
+
+    /// Split a route into consecutive pieces of about `meters` each; each
+    /// piece starts at the previous one's last point, so their boxes meet.
+    nonisolated static func chunks(of coords: [CLLocationCoordinate2D],
+                                   meters: Double) -> [[CLLocationCoordinate2D]] {
+        guard coords.count >= 2 else { return [] }
+        var out: [[CLLocationCoordinate2D]] = []
+        var chunk = [coords[0]]
+        var length = 0.0
+        for p in coords.dropFirst() {
+            let last = chunk[chunk.count - 1]
+            length += CLLocation(latitude: last.latitude, longitude: last.longitude)
+                .distance(from: CLLocation(latitude: p.latitude, longitude: p.longitude))
+            chunk.append(p)
+            if length >= meters {
+                out.append(chunk)
+                chunk = [p]
+                length = 0
+            }
+        }
+        if chunk.count >= 2 { out.append(chunk) }
+        return out
+    }
+
     private let cacheDir: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("SpeedLimits", isDirectory: true)
@@ -266,16 +303,6 @@ actor SpeedLimitService {
         return URLSession(configuration: cfg)
     }()
 
-    /// Fetch the speed-limit layer within the route's bounding box: the
-    /// `maxspeed`-tagged ways AND the bare geometry of every other drivable
-    /// road nearby (for the shadow guard). Disk-cache first; only the first
-    /// ride through a region hits the network. Returns `.empty` on total
-    /// failure — a missing limit layer must never break navigation.
-    func limitsAlong(route coords: [CLLocationCoordinate2D]) async -> SpeedLimitData {
-        guard coords.count >= 2 else { return .empty }
-        return await limits(in: Self.boundingBox(of: coords, bufferMeters: Self.corridorBufferMeters))
-    }
-
     /// Free-ride: the same layer in a square of half-side `radiusMeters`
     /// around `center` (no route to follow).
     func limitsAround(center: CLLocationCoordinate2D, radiusMeters: Double) async -> SpeedLimitData {
@@ -283,7 +310,12 @@ actor SpeedLimitService {
         return await limits(in: Self.boundingBox(of: [center], bufferMeters: radiusMeters))
     }
 
-    private func limits(in box: BBox) async -> SpeedLimitData {
+    /// The speed-limit layer within `box` (one route chunk): the
+    /// `maxspeed`-tagged ways AND the bare geometry of every other drivable
+    /// road nearby (for the shadow guard). Disk-cache first; only the first
+    /// ride through a region hits the network. Returns `.empty` on total
+    /// failure — a missing limit layer must never break navigation.
+    func limits(in box: BBox) async -> SpeedLimitData {
         let key = box.cacheKey
 
         // No roads at all is never real data (the corridor holds at least
@@ -487,6 +519,11 @@ actor SpeedLimitService {
         // just refetches.
         func contains(_ o: BBox) -> Bool {
             o.south >= south && o.north <= north && o.west >= west && o.east <= east
+        }
+        func contains(_ p: CLLocationCoordinate2D) -> Bool {
+            p.latitude >= south && p.latitude <= north
+                && (west <= east ? (p.longitude >= west && p.longitude <= east)
+                                 : (p.longitude >= west || p.longitude <= east))
         }
         /// Coarse key (~0.01° ≈ 1.1 km grid) so re-riding a region is a
         /// disk hit, matching the camera service's keying granularity.

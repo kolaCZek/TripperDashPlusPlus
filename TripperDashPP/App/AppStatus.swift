@@ -2145,8 +2145,15 @@ final class AppStatus {
     /// route installs land close together (start + immediate reroute).
     @ObservationIgnored private var speedCameraPrefetchTask: Task<Void, Never>?
     @ObservationIgnored private var speedLimitPrefetchTask: Task<Void, Never>?
-    /// Box of the speed-limit ways loaded (or being fetched) for this ride.
-    @ObservationIgnored private var speedLimitCoverage: SpeedLimitService.BBox?
+    /// Speed-limit ways loaded for this route (chunks merged), the chunk
+    /// boxes they came from, and those plus the boxes still being fetched.
+    @ObservationIgnored private var speedLimitLoaded = SpeedLimitData.empty
+    @ObservationIgnored private var speedLimitLoadedBoxes: [SpeedLimitService.BBox] = []
+    @ObservationIgnored private var speedLimitClaimed: [SpeedLimitService.BBox] = []
+    /// `speedLimitLoaded` holds chunks not yet on the dash.
+    @ObservationIgnored private var speedLimitInstallPending = false
+    /// Speed-limit display mode when `observeSpeedLimitMode` last registered.
+    @ObservationIgnored private var speedLimitModeSeen: DashNavSettings.SpeedLimitDisplay = .always
 
     /// Start observing system call state and forwarding it to the dash.
     /// Like the stock app, call changes become K1G
@@ -2396,59 +2403,115 @@ final class AppStatus {
     /// display config first so the renderer's mode/units are fresh even if
     /// the fetch returns nothing.
     ///
-    /// `extending` (reroute / leg advance / alternative switch, from the
-    /// route-changed hook): skip when the new route lies inside the box
-    /// already loaded (or in flight) — which also covers the hook firing
-    /// right after nav start with the same route. Otherwise refetch for
-    /// the new route.
+    /// The route is fetched in chunks of `SpeedLimitService.chunkMeters`
+    /// along it, in route order (the route starts at the rider, so nearest
+    /// first), each its own Overpass box (300 m buffer): one box over a
+    /// whole long route times out (all drivable roads of a region), so a
+    /// 500 km trip used to get no limits at all. Each chunk is merged into
+    /// the loaded set; the dash layer is installed after the first two
+    /// chunks, every 10th and at the end of each pass (each install rebuilds
+    /// the renderer's segment grids, so not once per chunk). (Suggested by
+    /// Eduardo, Himalayan 450 rider, Brazil.)
     ///
-    /// A failed fetch (Overpass busy — both field rides of 2026-09-28 lost
+    /// `extending` (reroute / leg advance / alternative switch, from the
+    /// route-changed hook): only the chunks of the new route not already
+    /// loaded or in flight are fetched, and the loaded ways are kept; when
+    /// there are none (incl. the hook firing right after nav start with the
+    /// same route) the running fetch is left alone. A new route (not
+    /// extending) starts from nothing.
+    ///
+    /// A failed chunk (Overpass busy — both field rides of 2026-09-28 lost
     /// their start fetch this way) is retried after
     /// `speedLimitRetrySeconds`, then with the delay doubling up to
     /// `speedLimitRetryMaxSeconds`, while navigating, until it lands or the
-    /// task is replaced (route change outside the box, nav start, `.off`).
-    /// The claim is held meanwhile, so route changes inside the box don't
-    /// pile up parallel fetches. Failure = no limits AND no roads: a
-    /// region with no `maxspeed` tags still returns its roads, and must
-    /// not refetch.
+    /// task is replaced or navigation stops. A pass stops at the first
+    /// failed chunk (Overpass busy: don't fire the rest of the route at it
+    /// before the backoff) and resumes there. When the head chunk fails
+    /// twice in a row, the next one is probed: if it loads, the head (a
+    /// ferry leg?) goes last so it doesn't hold back the rest; if it fails
+    /// too, Overpass is down and the route order stays. Failure = no
+    /// limits AND no roads: a region with no `maxspeed` tags still returns
+    /// its roads, and must not refetch.
+    // ponytail: a chunk with no road at all (a ferry leg) counts as failed
+    // and is retried every 10 min; skip it by length if a log shows it.
     func prefetchSpeedLimits(for route: MKRoute, extending: Bool = false) {
         let coords = route.polyline.coordinateList()
-        if extending, coords.count >= 2, let covered = speedLimitCoverage,
-           covered.contains(SpeedLimitService.boundingBox(of: coords, bufferMeters: 0)) {
-            return
+        let chunks = SpeedLimitService.chunks(of: coords, meters: SpeedLimitService.chunkMeters)
+        // Every segment inside one box (boxes are convex), not just every
+        // point: a straight shortcut between two boxes can leave both.
+        func covered(_ chunk: [CLLocationCoordinate2D], by boxes: [SpeedLimitService.BBox]) -> Bool {
+            zip(chunk, chunk.dropFirst()).allSatisfy { a, b in
+                boxes.contains { $0.contains(a) && $0.contains(b) }
+            }
         }
+        if extending, chunks.allSatisfy({ covered($0, by: speedLimitClaimed) }) { return }
         speedLimitPrefetchTask?.cancel()
-        speedLimitCoverage = nil
+        if !extending {
+            speedLimitLoaded = .empty
+            speedLimitLoadedBoxes = []
+            speedLimitInstallPending = false
+        } else if speedLimitInstallPending {
+            installLoadedSpeedLimits()   // chunks the cancelled task merged
+        }
+        speedLimitClaimed = speedLimitLoadedBoxes
         pushSpeedLimitConfig()
         guard dashNavSettings.speedLimitDisplay != .off else {
             mapViewSource.setSpeedLimits(.empty)
             return
         }
-        guard coords.count >= 2 else { return }
-        let box = SpeedLimitService.boundingBox(of: coords,
-                                                bufferMeters: SpeedLimitService.corridorBufferMeters)
-        speedLimitCoverage = box
+        if !extending { mapViewSource.setSpeedLimits(.empty) }
+        let boxes = chunks
+            .filter { !covered($0, by: speedLimitLoadedBoxes) }
+            .map { SpeedLimitService.boundingBox(of: $0, bufferMeters: SpeedLimitService.corridorBufferMeters) }
+        guard !boxes.isEmpty else { return }
+        speedLimitClaimed += boxes
         speedLimitPrefetchTask = Task { @MainActor [weak self] in
+            var pending = boxes
             var retryDelay = AppStatus.speedLimitRetrySeconds
+            var lastFailed: SpeedLimitService.BBox?
             while true {
-                let data = await SpeedLimitService.shared.limitsAlong(route: coords)
-                guard let self, !Task.isCancelled else { return }
-                let failed = data.limits.isEmpty && data.roads.isEmpty
-                // A failed refetch mid-ride keeps the ways already loaded;
-                // they still cover whatever the old and new route share.
-                if !(failed && extending) {
-                    // Re-check the mode after the network await.
-                    self.mapViewSource.setSpeedLimits(
-                        self.dashNavSettings.speedLimitDisplay != .off ? data : .empty
-                    )
+                var failedBoxes: [SpeedLimitService.BBox] = []
+                var skipped: SpeedLimitService.BBox?   // head that failed twice
+                for (i, box) in pending.enumerated() {
+                    let data = await SpeedLimitService.shared.limits(in: box)
+                    // Stop also ends the fetch (stopNavigation, arrival).
+                    guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }
+                    if data.limits.isEmpty && data.roads.isEmpty {
+                        // Head failed twice in a row: probe the next chunk.
+                        if i == 0, box == lastFailed, pending.count > 1 { skipped = box; continue }
+                        // Keep route order (the rider's chunk first). The
+                        // probe failing too = Overpass down: keep the head
+                        // first; a later failure = the head goes last.
+                        let tail = skipped.map { [$0] } ?? []
+                        failedBoxes = i == 1 && !tail.isEmpty ? pending : Array(pending[i...]) + tail
+                        lastFailed = failedBoxes[0]
+                        break
+                    }
+                    self.speedLimitLoaded = self.speedLimitLoaded.merged(with: data)
+                    self.speedLimitLoadedBoxes.append(box)
+                    self.speedLimitInstallPending = true
+                    // The rider's chunk and the next one at once, then every
+                    // 10th and the pass's end: each install rebuilds grids.
+                    if i < 2 || i % 10 == 9 { self.installLoadedSpeedLimits() }
                 }
-                guard failed else { return }
+                if self?.speedLimitInstallPending == true { self?.installLoadedSpeedLimits() }
+                if failedBoxes.isEmpty, let skipped { failedBoxes = [skipped] }
+                guard !failedBoxes.isEmpty else { return }
                 try? await Task.sleep(for: .seconds(retryDelay))
-                // Back off: a whole-route box that is simply too big for
-                // Overpass fails every time; don't hammer it every minute.
+                // Back off: Overpass may be busy for a while; don't hammer it.
                 retryDelay = min(retryDelay * 2, AppStatus.speedLimitRetryMaxSeconds)
-                guard !Task.isCancelled, self.activeNavigator.isNavigating else { return }
+                guard let self, !Task.isCancelled, self.activeNavigator.isNavigating else { return }
+                pending = failedBoxes
             }
+        }
+    }
+
+    /// Show the loaded speed-limit ways on the dash (mode re-checked: a
+    /// fetch may land after the rider turned the sign off).
+    private func installLoadedSpeedLimits() {
+        speedLimitInstallPending = false
+        if dashNavSettings.speedLimitDisplay != .off {
+            mapViewSource.setSpeedLimits(speedLimitLoaded)
         }
     }
 
@@ -2528,6 +2591,7 @@ final class AppStatus {
     /// for the current route. Self-re-registering, same idiom as the
     /// camera toggle.
     private func observeSpeedLimitMode() {
+        speedLimitModeSeen = dashNavSettings.speedLimitDisplay
         withObservationTracking {
             _ = dashNavSettings.speedLimitDisplay
             _ = dashNavSettings.speedLimitOverToleranceKmh
@@ -2536,13 +2600,17 @@ final class AppStatus {
             guard let self else { return }
             Task { @MainActor in
                 self.pushSpeedLimitConfig()
+                let turnedOn = self.speedLimitModeSeen == .off
                 if self.dashNavSettings.speedLimitDisplay == .off {
                     self.speedLimitPrefetchTask?.cancel()
                     self.mapViewSource.setSpeedLimits(.empty)
-                } else if self.mapViewSource.speedLimitWaysEmpty,
+                } else if turnedOn,
                           self.activeNavigator.isNavigating,
                           let route = self.activeNavigator.activeRoute {
-                    // Turned on mid-ride with no ways loaded → backfill.
+                    // Turned on mid-ride (`.off` cleared the ways) → backfill.
+                    // Not on a units/tolerance change: in a region with no
+                    // `maxspeed` tags the ways are empty too, and that would
+                    // refetch the whole route.
                     self.prefetchSpeedLimits(for: route)
                 } else if self.mapViewSource.speedLimitWaysEmpty, self.isFreeRiding {
                     self.freeRideAlertCenter = nil   // next fix refetches (gated path)
