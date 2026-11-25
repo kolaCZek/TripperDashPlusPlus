@@ -31,6 +31,7 @@
 //
 
 import CoreLocation
+import CoreMotion
 import Foundation
 import Observation
 import os.log
@@ -142,6 +143,13 @@ final class LocationService: NSObject {
 
     private let log = Logger(subsystem: "eu.kolaczek.tripperdashpp", category: "LocationService")
     private let manager = CLLocationManager()
+    /// Gravity → `manager.headingOrientation` (#225). Accelerometer only:
+    /// no permission prompt, and it works with Rotation Lock on (which
+    /// freezes `UIDevice.orientation` in this portrait-only app).
+    private let motion = CMMotionManager()
+    /// Low-passed gravity in the screen plane (g, device axes); nil until
+    /// the first sample.
+    private var gravity: (x: Double, y: Double)?
 
     /// Active consumers and the mode each one requires. The service
     /// runs at the highest requested mode and stops only when all
@@ -308,6 +316,7 @@ final class LocationService: NSObject {
         if CLLocationManager.headingAvailable() {
             manager.headingFilter = 2 // degrees
             manager.startUpdatingHeading()
+            startOrientationUpdates()
         }
         if !isRunning {
             log.info("LocationService started (mode=\(self.currentMode.rawValue))")
@@ -319,9 +328,60 @@ final class LocationService: NSObject {
         guard isRunning else { return }
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
+        motion.stopAccelerometerUpdates()
+        gravity = nil
+        // A sideways pocket must not outlast the ride (flat keeps `current`).
+        manager.headingOrientation = .portrait
         manager.allowsBackgroundLocationUpdates = false
         isRunning = false
         log.info("LocationService stopped (no consumers)")
+    }
+
+    /// The compass reads the direction of the phone's top edge in
+    /// `headingOrientation` (default portrait). A phone mounted sideways or
+    /// upside down turned the map on the dash by 90°/180° below ~11 km/h,
+    /// where the map follows the compass (MapViewSource.recomputeHeading).
+    /// Keep the orientation matched to how the phone sits in the mount.
+    // ponytail: 90° steps only (what Core Location offers); a phone mounted
+    // at e.g. 30° still reads 30° off. A course-vs-compass offset learned
+    // while moving would cover any angle.
+    private func startOrientationUpdates() {
+        guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
+        motion.accelerometerUpdateInterval = 0.5
+        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let g = data?.acceleration else { return }
+            MainActor.assumeIsolated { self?.applyGravity(g) }   // queue is .main
+        }
+    }
+
+    /// Single-cylinder vibration and braking spike single samples past the
+    /// margin; a ~2.5 s low-pass (0.2 per 0.5 s sample) rides them out.
+    private func applyGravity(_ g: CMAcceleration) {
+        let a = 0.2
+        let f = gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y)) } ?? (x: g.x, y: g.y)
+        gravity = f
+        let next = Self.headingOrientation(gx: f.x, gy: f.y, current: manager.headingOrientation)
+        if next != manager.headingOrientation {
+            manager.headingOrientation = next
+            log.info("Heading orientation \(next.rawValue)")
+        }
+    }
+
+    /// Orientation of the phone from gravity in device axes (g; +y = top
+    /// edge, +x = right edge, +z = out of the screen). Upright portrait is
+    /// (0, -1, 0). Only gravity in the screen plane matters: a mount tilted
+    /// back θ from vertical keeps cos θ of it (0.34 g at 70°). Switches when
+    /// one edge clearly points down (a margin of 25 % of that, so a phone
+    /// near 45° doesn't flap); under 0.3 g (flatter than ~72°, a tank bag)
+    /// no edge points down and `current` stays.
+    nonisolated static func headingOrientation(gx: Double, gy: Double,
+                                               current: CLDeviceOrientation) -> CLDeviceOrientation {
+        let inPlane = (gx * gx + gy * gy).squareRoot()
+        guard inPlane >= 0.3 else { return current }
+        let margin = 0.25 * inPlane
+        if abs(gy) > abs(gx) + margin { return gy < 0 ? .portrait : .portraitUpsideDown }
+        if abs(gx) > abs(gy) + margin { return gx < 0 ? .landscapeLeft : .landscapeRight }
+        return current
     }
 }
 
