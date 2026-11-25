@@ -147,8 +147,9 @@ final class LocationService: NSObject {
     /// no permission prompt, and it works with Rotation Lock on (which
     /// freezes `UIDevice.orientation` in this portrait-only app).
     private let motion = CMMotionManager()
-    /// Low-passed gravity (g, device axes); nil until the first sample.
-    private var gravity: (x: Double, y: Double, z: Double)?
+    /// Low-passed gravity in the screen plane (g, device axes); nil until
+    /// the first sample.
+    private var gravity: (x: Double, y: Double)?
 
     /// Active consumers and the mode each one requires. The service
     /// runs at the highest requested mode and stops only when all
@@ -357,8 +358,7 @@ final class LocationService: NSObject {
     /// margin; a ~2.5 s low-pass (0.2 per 0.5 s sample) rides them out.
     private func applyGravity(_ g: CMAcceleration) {
         let a = 0.2
-        let f = gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y), z: $0.z + a * (g.z - $0.z)) }
-            ?? (x: g.x, y: g.y, z: g.z)
+        let f = gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y)) } ?? (x: g.x, y: g.y)
         gravity = f
         let next = Self.headingOrientation(gx: f.x, gy: f.y, current: manager.headingOrientation)
         if next != manager.headingOrientation {

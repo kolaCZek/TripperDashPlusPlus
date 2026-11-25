@@ -99,8 +99,7 @@ def test_a_vibration_spike_does_not_flip() -> None:
 
 def test_swift_filter_matches_the_mirror() -> None:
     assert "let a = 0.2" in APPLY
-    assert "gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y), z: $0.z + a * (g.z - $0.z)) }" in APPLY
-    assert "?? (x: g.x, y: g.y, z: g.z)" in APPLY
+    assert "gravity.map { (x: $0.x + a * (g.x - $0.x), y: $0.y + a * (g.y - $0.y)) } ?? (x: g.x, y: g.y)" in APPLY
     assert APPLY.index("gravity = f") < APPLY.index("Self.headingOrientation(gx: f.x, gy: f.y, current: manager.headingOrientation)")
 
 
