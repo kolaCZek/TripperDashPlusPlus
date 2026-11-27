@@ -11,7 +11,8 @@
 //  loop: only "Nižbor" showed up, and with broken diacritics
 //  (Martin, 8/2026).
 //
-//  `dashSafe` folds any string down to plain 7-bit ASCII: diacritics
+//  `dashSafe` folds any string down to plain 7-bit ASCII: non-Latin
+//  scripts are transliterated (दिल्ली→dilli, Москва→Moskva), diacritics
 //  are stripped to their base letter (á→a, ř→r, ž→z, ě→e), a handful of
 //  common typographic characters are mapped to ASCII equivalents, and
 //  anything still outside printable ASCII is replaced by a space (runs of
@@ -60,8 +61,25 @@ extension String {
         }
 
         // 2. Strip diacritics to base letters (á→a, ř→r, ž→z, ě→e, ü→u…).
-        let folded = mapped.folding(options: .diacriticInsensitive,
+        var folded = mapped.folding(options: .diacriticInsensitive,
                                     locale: Locale(identifier: "en_US_POSIX"))
+
+        // 2b. Non-Latin scripts (Devanagari, Thai, Cyrillic, Greek…) would all
+        //     turn into spaces below — a phone set to Hindi got a blank road
+        //     name. Transliterate them to Latin. Only strings the fold left
+        //     non-ASCII get here, so Latin names skip the ICU transform; it
+        //     reads `mapped`, not `folded`, because the fold also strips
+        //     Devanagari vowel signs and virama and would garble the word.
+        //     `[:Lm:] Remove` drops the modifier letters ICU writes for the
+        //     Russian soft/hard sign and Arabic ayn/hamza (ʹ ʺ ʿ ʾ) before
+        //     `Latin-ASCII` turns them into quotes; `Latin-ASCII` maps the
+        //     letters the fold keeps (đ ł æ ı), which became a space mid-word.
+        if folded.unicodeScalars.contains(where: { $0.value > 0x7E }),
+           let latin = mapped.applyingTransform(
+               StringTransform("Any-Latin; [:Lm:] Remove; Latin-ASCII"), reverse: false) {
+            folded = latin.folding(options: .diacriticInsensitive,
+                                   locale: Locale(identifier: "en_US_POSIX"))
+        }
 
         // 3. Replace anything still outside printable ASCII (0x20–0x7E)
         //    with a space; ordinary spaces stay. Tabs/newlines also become

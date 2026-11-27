@@ -102,4 +102,23 @@ struct NextWaypointLabelTests {
     @Test func emptyNameStillProducesValidLabel() {
         #expect(L.nextWaypointLabel(name: "", etaSeconds: 900) == "15 min to ")
     }
+
+    // MARK: - dashSafe on non-Latin names (the dash font is ASCII-only)
+
+    @Test func nonLatinNamesAreTransliteratedNotBlanked() {
+        #expect("Москва".dashSafe == "Moskva")
+        #expect("Тольятти".dashSafe == "Tolatti")   // soft sign: no gap mid-word
+        #expect("Ђурђевац".dashSafe == "Durdevac")  // đ: the fold keeps it
+        #expect("Łódź".dashSafe == "Lodz")
+        #expect("Αθήνα".dashSafe == "Athena")
+        // Transliterated from the unfolded text: folding first would strip
+        // the vowel sign and virama and garble it.
+        #expect("दिल्ली".dashSafe == "dilli")
+        for name in ["दिल्ली", "กรุงเทพ", "東京"] {
+            let out = name.dashSafe
+            #expect(!out.isEmpty, "\(name) folded to nothing")
+            #expect(out.utf8.allSatisfy { $0 >= 0x20 && $0 <= 0x7E }, "\(name) → \(out)")
+        }
+        #expect("15 min to Křivoklát".dashSafe == "15 min to Krivoklat")
+    }
 }

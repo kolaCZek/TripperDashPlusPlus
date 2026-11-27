@@ -76,6 +76,7 @@
         <li><strong>Fuel adds a stop.</strong> While navigating, the Quick Ride widget’s Fuel button now adds the nearest fuel station as the next stop and keeps your destination and later stops, instead of replacing the route.</li>
         <li><strong>Speed limits on long routes.</strong> The posted limits are now fetched in 20 km pieces along the route, nearest first, and each piece shows up on the dash as soon as it arrives. One request for the whole route used to time out on long trips, so they got no limits at all. A piece that fails is retried on its own, and a reroute only fetches the new stretch. Thanks to Eduardo for the suggestion.</li>
         <li><strong>Fixed:</strong> with the phone mounted sideways or upside down, the map and the arrow on the dash turned 90° or 180° the wrong way when standing or riding slowly (where the map follows the compass). The compass now follows how the phone sits in its mount. Thanks to renansalenave for the report.</li>
+        <li><strong>Fixed:</strong> road and place names in non-Latin scripts (Hindi, Thai, Russian, Greek…) were blank on the dash, whose font only has Latin letters. They are now spelled out in Latin letters, so “दिल्ली” shows as “dilli”.</li>
       </ul>
       <h4>🌦️ Weather</h4>
       <ul>
