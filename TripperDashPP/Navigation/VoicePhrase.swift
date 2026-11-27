@@ -48,6 +48,8 @@ enum VoiceLanguage: String, CaseIterable, Identifiable, Codable {
     case french     = "fr-FR"
     case spanish    = "es-ES"
     case italian    = "it-IT"
+    case portuguese = "pt-BR"
+    case hindi      = "hi-IN"
 
     var id: String { rawValue }
 
@@ -62,6 +64,8 @@ enum VoiceLanguage: String, CaseIterable, Identifiable, Codable {
         case .french:  return "Français"
         case .spanish: return "Español"
         case .italian: return "Italiano"
+        case .portuguese: return "Português (Brasil)"
+        case .hindi:   return "हिन्दी"
         }
     }
 
@@ -79,6 +83,8 @@ enum VoiceLanguage: String, CaseIterable, Identifiable, Codable {
         case "fr": return .french
         case "es": return .spanish
         case "it": return .italian
+        case "pt": return .portuguese   // ponytail: pt-PT phones get the Brazilian voice; add pt-PT when asked
+        case "hi": return .hindi
         case "en": return .english
         default:   return .english   // unsupported phone language → English
         }
@@ -189,6 +195,8 @@ extension VoiceLanguage {
         case .french:  return .french
         case .spanish: return .spanish
         case .italian: return .italian
+        case .portuguese: return .portuguese
+        case .hindi:   return .hindi
         }
     }
 }
@@ -493,6 +501,82 @@ extension Lexicon {
             case .recalculating: return "ricalcolo del percorso"
             case .ferry:        return "sali sul traghetto"
             case .railroad:     return "attenzione, passaggio a livello"
+            case .roundabout:   return ""
+            }
+        }
+    )
+
+    static let portuguese = Lexicon(
+        far: "Em um quilômetro", near: "Em 300 metros", join: ", ",
+        rerouting: "Recalculando a rota.",
+        arrived: "Você chegou ao seu destino.",
+        speedCamera: "Atenção, radar à frente.",
+        speedLimit: "Limite de velocidade",
+        ordinals: ["", "primeira", "segunda", "terceira", "quarta", "quinta",
+                   "sexta", "sétima", "oitava", "nona"],
+        roundabout: { e, o in
+            (e >= 1 && e <= 9) ? "na rotatória, pegue a \(o[e]) saída"
+                               : "na rotatória, siga a seta"
+        },
+        actionFor: { k in
+            switch k {
+            case .straight:     return "siga em frente"
+            case .slightLeft:   return "mantenha-se à esquerda"
+            case .left:         return "vire à esquerda"
+            case .sharpLeft:    return "vire acentuadamente à esquerda"
+            case .slightRight:  return "mantenha-se à direita"
+            case .right:        return "vire à direita"
+            case .sharpRight:   return "vire acentuadamente à direita"
+            case .uTurnLeft, .uTurnRight: return "faça o retorno"
+            case .mergeLeft:    return "entre na via pela esquerda"
+            case .mergeRight:   return "entre na via pela direita"
+            case .forkLeft:     return "na bifurcação, mantenha-se à esquerda"
+            case .forkRight:    return "na bifurcação, mantenha-se à direita"
+            case .forkStraight: return "na bifurcação, siga em frente"
+            case .exitLeft:     return "pegue a saída à esquerda"
+            case .exitRight:    return "pegue a saída à direita"
+            case .arrive, .arriveLeft, .arriveRight: return "você chegou"
+            case .recalculating: return "recalculando a rota"
+            case .ferry:        return "pegue a balsa"
+            case .railroad:     return "atenção, passagem de nível"
+            case .roundabout:   return ""
+            }
+        }
+    )
+
+    static let hindi = Lexicon(
+        far: "एक किलोमीटर बाद", near: "तीन सौ मीटर बाद", join: ", ",
+        rerouting: "रास्ता दोबारा तय किया जा रहा है।",
+        arrived: "आप अपनी मंज़िल पर पहुँच गए हैं।",
+        speedCamera: "सावधान, आगे स्पीड कैमरा है।",
+        speedLimit: "गति सीमा",
+        ordinals: ["", "पहला", "दूसरा", "तीसरा", "चौथा", "पाँचवाँ",
+                   "छठा", "सातवाँ", "आठवाँ", "नौवाँ"],
+        roundabout: { e, o in
+            (e >= 1 && e <= 9) ? "गोल चक्कर पर \(o[e]) निकास लें"
+                               : "गोल चक्कर पर तीर के अनुसार चलें"
+        },
+        actionFor: { k in
+            switch k {
+            case .straight:     return "सीधे चलते रहें"
+            case .slightLeft:   return "बाईं ओर रहें"
+            case .left:         return "बाएँ मुड़ें"
+            case .sharpLeft:    return "बाईं ओर तीखा मोड़ लें"
+            case .slightRight:  return "दाईं ओर रहें"
+            case .right:        return "दाएँ मुड़ें"
+            case .sharpRight:   return "दाईं ओर तीखा मोड़ लें"
+            case .uTurnLeft, .uTurnRight: return "यू-टर्न लें"
+            case .mergeLeft:    return "बाईं ओर से सड़क में शामिल हों"
+            case .mergeRight:   return "दाईं ओर से सड़क में शामिल हों"
+            case .forkLeft:     return "दोराहे पर बाईं ओर रहें"
+            case .forkRight:    return "दोराहे पर दाईं ओर रहें"
+            case .forkStraight: return "दोराहे पर सीधे चलते रहें"
+            case .exitLeft:     return "बाईं ओर का निकास लें"
+            case .exitRight:    return "दाईं ओर का निकास लें"
+            case .arrive, .arriveLeft, .arriveRight: return "आप पहुँच गए हैं"
+            case .recalculating: return "रास्ता दोबारा तय किया जा रहा है"
+            case .ferry:        return "फ़ेरी पर चढ़ें"
+            case .railroad:     return "सावधान, आगे रेलवे फाटक है"
             case .roundabout:   return ""
             }
         }

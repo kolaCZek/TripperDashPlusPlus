@@ -69,5 +69,5 @@ def test_speed_limit_voice_wiring():
     assert "spokenLimit = limit" in warner
 
     phrases = _src("Navigation/VoicePhrase.swift")
-    assert phrases.count("        speedLimit: \"") == 8
+    assert phrases.count("        speedLimit: \"") == 10
     assert 'speedLimit: ""' not in phrases
