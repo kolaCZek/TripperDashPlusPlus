@@ -124,7 +124,7 @@ struct VoicePhraseTests {
         #expect(VoicePhrase.maneuver(.left, tier: .far, language: .english, imperial: true)
                 == "In half a mile, turn left")
         #expect(VoicePhrase.maneuver(.right, tier: .near, language: .english, imperial: true)
-                == "In 300 yards, turn right")
+                == "In 1000 feet, turn right")
         #expect(VoicePhrase.maneuver(.right, tier: .now, language: .english, imperial: true)
                 == "turn right")
         // Languages without imperial phrases keep metric.

@@ -220,7 +220,7 @@ final class VoiceNavigator: NSObject {
             ?? AVSpeechSynthesisVoice(language: String(language.prefix(2)))
     }
 
-    /// English guidance on a phone set to India gets the Indian English
+    /// English guidance on a phone whose region is India gets the Indian English
     /// voice (Rishi, ships with iOS) instead of the British one.
     nonisolated static func voiceCode(_ language: String, region: String?) -> String {
         language == "en-GB" && region == "IN" ? "en-IN" : language

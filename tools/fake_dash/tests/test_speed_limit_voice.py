@@ -80,4 +80,4 @@ def test_maneuver_prompts_follow_the_unit_setting():
     assert ("VoicePhrase.maneuver(kind, tier: tier, language: lang,\n"
             "                                                imperial: settings.units == .imperial)") in loop
     phrases = _src("Navigation/VoicePhrase.swift")
-    assert 'farImperial: "In half a mile", nearImperial: "In 300 yards"' in phrases
+    assert 'farImperial: "In half a mile", nearImperial: "In 1000 feet"' in phrases
