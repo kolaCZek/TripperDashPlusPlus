@@ -107,6 +107,7 @@ struct NextWaypointLabelTests {
 
     @Test func nonLatinNamesAreTransliteratedNotBlanked() {
         #expect("Москва".dashSafe == "Moskva")
+        #expect("Тольятти".dashSafe == "Tolatti")   // soft sign: no gap mid-word
         #expect("Αθήνα".dashSafe == "Athena")
         // Transliterated from the unfolded text: folding first would strip
         // the vowel sign and virama and garble it.

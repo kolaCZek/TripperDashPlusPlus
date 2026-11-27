@@ -123,6 +123,9 @@ class TestSwiftDriftGuard:
         assert body.index("var folded = mapped.folding") < t
         assert body.index("contains(where: { $0.value > 0x7E })") < t
         assert t < body.index("scalar.value >= 0x20 && scalar.value <= 0x7E")
+        # ...and the transliteration is folded again, minus modifier letters.
+        assert "generalCategory != .modifierLetter" in body
+        assert "folded = bare.folding(options: .diacriticInsensitive" in body
 
     def test_road_name_tlv_folds(self):
         src = _read("TripperDashPP/Tripper/K1GPacket.swift")
