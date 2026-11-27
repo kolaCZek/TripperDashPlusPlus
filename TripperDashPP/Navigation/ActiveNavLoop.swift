@@ -687,7 +687,8 @@ final class ActiveNavLoop {
         guard let tier = promptScheduler.onTick(token: token, distanceMeters: distNext) else {
             return
         }
-        guard let phrase = VoicePhrase.maneuver(kind, tier: tier, language: lang) else {
+        guard let phrase = VoicePhrase.maneuver(kind, tier: tier, language: lang,
+                                                imperial: settings.units == .imperial) else {
             return
         }
         voice.speak(phrase, language: lang.rawValue, priority: .maneuver)

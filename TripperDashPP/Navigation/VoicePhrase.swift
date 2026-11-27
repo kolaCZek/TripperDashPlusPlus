@@ -103,7 +103,8 @@ enum VoicePhrase {
     /// deliberately don't voice at a tier (e.g. `.straight` far out is noise).
     static func maneuver(_ kind: ManeuverKind,
                          tier: VoicePromptTier,
-                         language: VoiceLanguage) -> String? {
+                         language: VoiceLanguage,
+                         imperial: Bool = false) -> String? {
         let lex = language.lexicon
         // "Continue straight" is only worth saying if it's a fork/keep
         // decision, not on every long straight leg. Suppress plain straight.
@@ -114,7 +115,7 @@ enum VoicePhrase {
         case .now:
             return action
         case .near, .far:
-            guard let dist = lex.distance(tier) else { return action }
+            guard let dist = lex.distance(tier, imperial: imperial) else { return action }
             return lex.compose(distance: dist, action: action)
         }
     }
@@ -149,6 +150,12 @@ struct Lexicon {
     /// distance clause for far / near ("In one kilometre" / "In 300 metres").
     let far: String
     let near: String
+    /// Imperial far / near for riders on miles. The tiers fire at 800–1050 m
+    /// (0.50–0.65 mi) and below 350 m (0.22 mi), hence half / a quarter of a
+    /// mile. ponytail: English only; other languages keep metric, add theirs
+    /// when a rider on miles asks.
+    var farImperial: String? = nil
+    var nearImperial: String? = nil
     /// "{distance}{join}{action}" — join is ", " for EN/DE/…, " " for CS/SK.
     let join: String
     let rerouting: String
@@ -164,10 +171,10 @@ struct Lexicon {
     /// The per-maneuver action clause.
     let actionFor: (ManeuverKind) -> String
 
-    func distance(_ tier: VoicePromptTier) -> String? {
+    func distance(_ tier: VoicePromptTier, imperial: Bool = false) -> String? {
         switch tier {
-        case .far:  return far
-        case .near: return near
+        case .far:  return imperial ? farImperial ?? far : far
+        case .near: return imperial ? nearImperial ?? near : near
         case .now:  return nil
         }
     }
@@ -280,7 +287,8 @@ extension Lexicon {
     )
 
     static let english = Lexicon(
-        far: "In one kilometre", near: "In 300 metres", join: ", ",
+        far: "In one kilometre", near: "In 300 metres",
+        farImperial: "In half a mile", nearImperial: "In a quarter of a mile", join: ", ",
         rerouting: "Recalculating route.",
         arrived: "You have arrived at your destination.",
         speedCamera: "Caution, speed camera ahead.",
