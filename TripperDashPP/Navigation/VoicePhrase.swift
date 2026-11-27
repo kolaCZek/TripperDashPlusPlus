@@ -510,7 +510,7 @@ extension Lexicon {
         far: "Em um quilômetro", near: "Em 300 metros", join: ", ",
         rerouting: "Recalculando a rota.",
         arrived: "Você chegou ao seu destino.",
-        speedCamera: "Atenção, radar de velocidade.",
+        speedCamera: "Atenção, radar à frente.",
         speedLimit: "Limite de velocidade",
         ordinals: ["", "primeira", "segunda", "terceira", "quarta", "quinta",
                    "sexta", "sétima", "oitava", "nona"],
@@ -537,7 +537,7 @@ extension Lexicon {
             case .exitRight:    return "pegue a saída à direita"
             case .arrive, .arriveLeft, .arriveRight: return "você chegou"
             case .recalculating: return "recalculando a rota"
-            case .ferry:        return "embarque na balsa"
+            case .ferry:        return "pegue a balsa"
             case .railroad:     return "atenção, passagem de nível"
             case .roundabout:   return ""
             }
@@ -554,17 +554,17 @@ extension Lexicon {
                    "छठा", "सातवाँ", "आठवाँ", "नौवाँ"],
         roundabout: { e, o in
             (e >= 1 && e <= 9) ? "गोल चक्कर पर \(o[e]) निकास लें"
-                               : "गोल चक्कर पर तीर के निशान का पालन करें"
+                               : "गोल चक्कर पर तीर के अनुसार चलें"
         },
         actionFor: { k in
             switch k {
             case .straight:     return "सीधे चलते रहें"
             case .slightLeft:   return "बाईं ओर रहें"
             case .left:         return "बाएँ मुड़ें"
-            case .sharpLeft:    return "तेज़ी से बाएँ मुड़ें"
+            case .sharpLeft:    return "बाईं ओर तीखा मोड़ लें"
             case .slightRight:  return "दाईं ओर रहें"
             case .right:        return "दाएँ मुड़ें"
-            case .sharpRight:   return "तेज़ी से दाएँ मुड़ें"
+            case .sharpRight:   return "दाईं ओर तीखा मोड़ लें"
             case .uTurnLeft, .uTurnRight: return "यू-टर्न लें"
             case .mergeLeft:    return "बाईं ओर से सड़क में शामिल हों"
             case .mergeRight:   return "दाईं ओर से सड़क में शामिल हों"
@@ -576,7 +576,7 @@ extension Lexicon {
             case .arrive, .arriveLeft, .arriveRight: return "आप पहुँच गए हैं"
             case .recalculating: return "रास्ता दोबारा तय किया जा रहा है"
             case .ferry:        return "फ़ेरी पर चढ़ें"
-            case .railroad:     return "सावधान, रेलवे क्रॉसिंग"
+            case .railroad:     return "सावधान, आगे रेलवे फाटक है"
             case .roundabout:   return ""
             }
         }
