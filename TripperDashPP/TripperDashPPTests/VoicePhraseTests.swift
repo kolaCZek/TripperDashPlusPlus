@@ -112,6 +112,20 @@ struct VoicePhraseTests {
         #expect(VoicePhrase.maneuver(.roundabout(exit: 3, clockwise: false),
                                      tier: .now, language: .italian)
                 == "alla rotonda, prendi la terza uscita")
+        #expect(VoicePhrase.maneuver(.roundabout(exit: 2, clockwise: false),
+                                     tier: .now, language: .portuguese)
+                == "na rotatória, pegue a segunda saída")
+        #expect(VoicePhrase.maneuver(.roundabout(exit: 1, clockwise: false),
+                                     tier: .now, language: .hindi)
+                == "गोल चक्कर पर पहला निकास लें")
+    }
+
+    @Test func portugueseAndHindiCompose() {
+        #expect(VoicePhrase.maneuver(.right, tier: .near, language: .portuguese)
+                == "Em 300 metros, vire à direita")
+        #expect(VoicePhrase.maneuver(.left, tier: .far, language: .hindi)
+                == "एक किलोमीटर बाद, बाएँ मुड़ें")
+        #expect(VoicePhrase.speedLimit(60, language: .hindi) == "गति सीमा 60.")
     }
 
     @Test func everyLanguageHasNonEmptyPromptsForEveryManeuver() {
@@ -145,6 +159,11 @@ struct VoicePhraseTests {
         #expect(VoiceLanguage.matching(Locale(identifier: "fr_CA")) == .french)
         #expect(VoiceLanguage.matching(Locale(identifier: "es_MX")) == .spanish)
         #expect(VoiceLanguage.matching(Locale(identifier: "it_IT")) == .italian)
+        #expect(VoiceLanguage.matching(Locale(identifier: "pt_BR")) == .portuguese)
+        #expect(VoiceLanguage.matching(Locale(identifier: "pt_PT")) == .portuguese)
+        #expect(VoiceLanguage.matching(Locale(identifier: "hi_IN")) == .hindi)
+        // Indian English stays English (most Indian iPhones run English).
+        #expect(VoiceLanguage.matching(Locale(identifier: "en_IN")) == .english)
         // English regions all collapse to English.
         #expect(VoiceLanguage.matching(Locale(identifier: "en_US")) == .english)
         #expect(VoiceLanguage.matching(Locale(identifier: "en_GB")) == .english)
