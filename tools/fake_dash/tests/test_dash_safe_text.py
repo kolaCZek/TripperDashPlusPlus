@@ -119,13 +119,13 @@ class TestSwiftDriftGuard:
         # after the fold, only when non-ASCII is left, before the ASCII cut.
         src = _read("TripperDashPP/Tripper/String+DashSafe.swift")
         body = src[src.index("var dashSafe: String"):]
-        t = body.index("mapped.applyingTransform(.toLatin, reverse: false)")
+        t = body.index("mapped.applyingTransform(")
         assert body.index("var folded = mapped.folding") < t
         assert body.index("contains(where: { $0.value > 0x7E })") < t
         assert t < body.index("scalar.value >= 0x20 && scalar.value <= 0x7E")
-        # ...and the transliteration is folded again, minus modifier letters.
-        assert "generalCategory != .modifierLetter" in body
-        assert "folded = bare.folding(options: .diacriticInsensitive" in body
+        # ...to ASCII, minus modifier letters (ʹ → gap or quote otherwise).
+        assert 'StringTransform("Any-Latin; [:Lm:] Remove; Latin-ASCII"), reverse: false)' in body
+        assert "folded = latin.folding(options: .diacriticInsensitive" in body
 
     def test_road_name_tlv_folds(self):
         src = _read("TripperDashPP/Tripper/K1GPacket.swift")

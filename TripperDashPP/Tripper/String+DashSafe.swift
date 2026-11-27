@@ -70,15 +70,15 @@ extension String {
         //     non-ASCII get here, so Latin names skip the ICU transform; it
         //     reads `mapped`, not `folded`, because the fold also strips
         //     Devanagari vowel signs and virama and would garble the word.
+        //     `[:Lm:] Remove` drops the modifier letters ICU writes for the
+        //     Russian soft/hard sign and Arabic ayn/hamza (ʹ ʺ ʿ ʾ) before
+        //     `Latin-ASCII` turns them into quotes; `Latin-ASCII` maps the
+        //     letters the fold keeps (đ ł æ ı), which became a space mid-word.
         if folded.unicodeScalars.contains(where: { $0.value > 0x7E }),
-           let latin = mapped.applyingTransform(.toLatin, reverse: false) {
-            // ICU writes the Russian soft/hard sign (and Arabic ayn/hamza) as
-            // modifier letters (ʹ ʺ ʿ ʾ), which the fold keeps and step 3
-            // would turn into a space mid-word ("Tol atti"); drop them.
-            let bare = String(String.UnicodeScalarView(
-                latin.unicodeScalars.filter { $0.properties.generalCategory != .modifierLetter }))
-            folded = bare.folding(options: .diacriticInsensitive,
-                                  locale: Locale(identifier: "en_US_POSIX"))
+           let latin = mapped.applyingTransform(
+               StringTransform("Any-Latin; [:Lm:] Remove; Latin-ASCII"), reverse: false) {
+            folded = latin.folding(options: .diacriticInsensitive,
+                                   locale: Locale(identifier: "en_US_POSIX"))
         }
 
         // 3. Replace anything still outside printable ASCII (0x20–0x7E)
