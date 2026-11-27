@@ -26,10 +26,15 @@ for f in $(find . -type f | sed 's#^\./##' | sort); do
     *) echo "unknown type: $f" >&2; exit 1 ;;
   esac
 done
-# CloudFront asks S3 for /support, /changelog and /donate (no trailing slash, no index document).
-up support/index.html support "text/html;charset=utf-8" "$HTML"
-up changelog/index.html changelog "text/html;charset=utf-8" "$HTML"
-up donate/index.html donate "text/html;charset=utf-8" "$HTML"
+# CloudFront has no index document, so each page is also stored under the
+# keys of its clean URLs: /support and /support/, /privacy next to /privacy.html.
+# `aws s3 cp` would turn a trailing-slash key into a folder, hence put-object.
+for p in support changelog donate; do
+  up "$p/index.html" "$p" "text/html;charset=utf-8" "$HTML"
+  aws s3api put-object --bucket "$BUCKET" --key "$p/" --body "$p/index.html" \
+    --content-type "text/html;charset=utf-8" --cache-control "$HTML" > /dev/null
+done
+up privacy.html privacy "text/html;charset=utf-8" "$HTML"
 
 aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" --paths "/*" \
   --query 'Invalidation.Id' --output text
