@@ -112,6 +112,18 @@ class TestSwiftDriftGuard:
         assert "var dashSafe: String" in src
         assert "diacriticInsensitive" in src
 
+    def test_non_latin_is_transliterated_not_blanked(self):
+        # A phone set to Hindi/Thai/Russian gets road names in that script;
+        # without the transform every glyph became a space (blank on the
+        # dash). The mirror can't run ICU, so pin the Swift step: it runs
+        # after the fold, only when non-ASCII is left, before the ASCII cut.
+        src = _read("TripperDashPP/Tripper/String+DashSafe.swift")
+        body = src[src.index("var dashSafe: String"):]
+        t = body.index("mapped.applyingTransform(.toLatin, reverse: false)")
+        assert body.index("var folded = mapped.folding") < t
+        assert body.index("contains(where: { $0.value > 0x7E })") < t
+        assert t < body.index("scalar.value >= 0x20 && scalar.value <= 0x7E")
+
     def test_road_name_tlv_folds(self):
         src = _read("TripperDashPP/Tripper/K1GPacket.swift")
         assert "name.dashSafe.utf8" in src, (
