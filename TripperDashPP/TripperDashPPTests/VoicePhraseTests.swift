@@ -120,6 +120,25 @@ struct VoicePhraseTests {
                 == "गोल चक्कर पर पहला निकास लें")
     }
 
+    @Test func imperialEnglishSaysMiles() {
+        #expect(VoicePhrase.maneuver(.left, tier: .far, language: .english, imperial: true)
+                == "In half a mile, turn left")
+        #expect(VoicePhrase.maneuver(.right, tier: .near, language: .english, imperial: true)
+                == "In 1000 feet, turn right")
+        #expect(VoicePhrase.maneuver(.right, tier: .now, language: .english, imperial: true)
+                == "turn right")
+        // Languages without imperial phrases keep metric.
+        #expect(VoicePhrase.maneuver(.right, tier: .near, language: .german, imperial: true)
+                == VoicePhrase.maneuver(.right, tier: .near, language: .german))
+    }
+
+    @Test func englishOnAnIndianPhoneUsesTheIndianVoice() {
+        #expect(VoiceNavigator.voiceCode("en-GB", region: "IN") == "en-IN")
+        #expect(VoiceNavigator.voiceCode("en-GB", region: "GB") == "en-GB")
+        #expect(VoiceNavigator.voiceCode("en-GB", region: nil) == "en-GB")
+        #expect(VoiceNavigator.voiceCode("hi-IN", region: "IN") == "hi-IN")
+    }
+
     @Test func portugueseAndHindiCompose() {
         #expect(VoicePhrase.maneuver(.right, tier: .near, language: .portuguese)
                 == "Em 300 metros, vire à direita")

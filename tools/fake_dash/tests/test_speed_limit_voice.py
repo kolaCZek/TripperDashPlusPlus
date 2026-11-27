@@ -71,3 +71,13 @@ def test_speed_limit_voice_wiring():
     phrases = _src("Navigation/VoicePhrase.swift")
     assert phrases.count("        speedLimit: \"") == 10
     assert 'speedLimit: ""' not in phrases
+
+
+def test_maneuver_prompts_follow_the_unit_setting():
+    # A rider on miles heard "In 300 metres": the tier prompt must get the
+    # unit setting, and the English table must carry the imperial phrases.
+    loop = _src("Navigation/ActiveNavLoop.swift")
+    assert ("VoicePhrase.maneuver(kind, tier: tier, language: lang,\n"
+            "                                                imperial: settings.units == .imperial)") in loop
+    phrases = _src("Navigation/VoicePhrase.swift")
+    assert 'farImperial: "In half a mile", nearImperial: "In 1000 feet"' in phrases

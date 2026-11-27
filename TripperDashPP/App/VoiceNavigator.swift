@@ -215,8 +215,15 @@ final class VoiceNavigator: NSObject {
     /// falling back to the language's default voice and finally to the
     /// system default so a missing regional voice never silences guidance.
     nonisolated static func resolveVoice(language: String) -> AVSpeechSynthesisVoice? {
-        AVSpeechSynthesisVoice(language: language)
+        AVSpeechSynthesisVoice(language: voiceCode(language, region: Locale.current.region?.identifier))
+            ?? AVSpeechSynthesisVoice(language: language)
             ?? AVSpeechSynthesisVoice(language: String(language.prefix(2)))
+    }
+
+    /// English guidance on a phone whose region is India gets the Indian English
+    /// voice (Rishi, ships with iOS) instead of the British one.
+    nonisolated static func voiceCode(_ language: String, region: String?) -> String {
+        language == "en-GB" && region == "IN" ? "en-IN" : language
     }
 }
 
