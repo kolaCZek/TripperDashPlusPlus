@@ -151,9 +151,9 @@ struct Lexicon {
     let far: String
     let near: String
     /// Imperial far / near for riders on miles. The tiers fire at 800–1050 m
-    /// (0.50–0.65 mi) and below 350 m (0.22 mi), hence half / a quarter of a
-    /// mile. ponytail: English only; other languages keep metric, add theirs
-    /// when a rider on miles asks.
+    /// (0.50–0.65 mi) and at 40–350 m, hence "half a mile" and "300 yards"
+    /// (274 m): never further than the turn really is. ponytail: English
+    /// only; other languages keep metric, add theirs when a rider on miles asks.
     var farImperial: String? = nil
     var nearImperial: String? = nil
     /// "{distance}{join}{action}" — join is ", " for EN/DE/…, " " for CS/SK.
@@ -288,7 +288,7 @@ extension Lexicon {
 
     static let english = Lexicon(
         far: "In one kilometre", near: "In 300 metres",
-        farImperial: "In half a mile", nearImperial: "In a quarter of a mile", join: ", ",
+        farImperial: "In half a mile", nearImperial: "In 300 yards", join: ", ",
         rerouting: "Recalculating route.",
         arrived: "You have arrived at your destination.",
         speedCamera: "Caution, speed camera ahead.",
